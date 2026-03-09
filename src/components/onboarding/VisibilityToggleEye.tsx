@@ -42,7 +42,7 @@ export function VisibilityToggleEye({
   const rpcUntyped = supabase.rpc as unknown as (
     fn: string,
     args?: Record<string, unknown>,
-  ) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+  ) => Promise<{ data?: Record<string, unknown> | null; error?: { message: string } | null } | undefined>;
   const [internalVisible, setInternalVisible] = useState(defaultVisible);
   const [isUpdating, setIsUpdating] = useState(false);
   const isVisible = visible ?? internalVisible;
@@ -54,7 +54,9 @@ export function VisibilityToggleEye({
 
     let isMounted = true;
     const loadVisibility = async () => {
-      const { data, error } = await rpcUntyped("get_or_create_user_data");
+      const result = await rpcUntyped("get_or_create_user_data");
+      const data = result?.data ?? null;
+      const error = result?.error ?? null;
       if (error || !isMounted || !data) return;
 
       const key = `${section}_visible`;
@@ -80,11 +82,16 @@ export function VisibilityToggleEye({
     if (!section) return;
 
     setIsUpdating(true);
-    const { error } = await rpcUntyped("set_user_data_visibility", {
-      p_section: section,
-      p_visible: nextVisible,
-    });
-    setIsUpdating(false);
+    let error: { message: string } | null = null;
+    try {
+      const result = await rpcUntyped("set_user_data_visibility", {
+        p_section: section,
+        p_visible: nextVisible,
+      });
+      error = result?.error ?? null;
+    } finally {
+      setIsUpdating(false);
+    }
 
     if (!error || visible !== undefined) return;
 

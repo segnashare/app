@@ -53,7 +53,7 @@ export default function OnboardingSubscriptionPage() {
     <main className="flex min-h-[100dvh] justify-center bg-white">
       <div className="flex min-h-[844px] w-full max-w-[430px] flex-col px-6 pb-10 pt-12 md:max-w-[560px] md:px-8 md:pt-14">
         <header className="flex flex-col items-center gap-11 pt-6 md:gap-14 md:pt-8">
-          <Image src="/ressources/oeil_logo.svg" alt="Segna" width={58} height={58} priority />
+          <Image src="/ressources/icons/oeil_logo.svg" alt="Segna" width={58} height={58} priority />
           <h1 className={cn(playfairDisplay.className, "w-full text-left text-[clamp(38px,2.5vw,58px)] font-extrabold leading-[0.98] tracking-[-0.02em] text-zinc-950")}>
             Nos membres portent du{" "}
             <span
