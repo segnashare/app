@@ -105,6 +105,17 @@ export type Database = {
         Args: Record<string, never>;
         Returns: Database["public"]["Tables"]["onboarding_sessions"]["Row"];
       };
+      get_or_create_user_data: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      set_user_data_visibility: {
+        Args: {
+          p_section: string;
+          p_visible: boolean;
+        };
+        Returns: Json;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

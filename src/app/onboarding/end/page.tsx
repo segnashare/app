@@ -33,7 +33,7 @@ export default function OnboardingEndPage() {
       setErrorMessage(error.message);
       return;
     }
-    router.push("/");
+    router.push("/app");
   };
 
   return (
@@ -41,9 +41,9 @@ export default function OnboardingEndPage() {
       <OnboardingStepTracker currentStep="/onboarding/end" />
       <section className="px-6 pt-[clamp(2.75rem,10vh,7rem)] md:px-8 md:pt-30">
         <h1 className={`${playfairDisplay.className} w-[600px] max-w-full font-extrabold leading-[1.04] tracking-[-0.03em] text-zinc-950 min-[200px]:text-[38px]`}>
-          Ton style est unique.
-          <br />
-          Ton profil doit l&apos;être aussi.
+        Terminé ! 
+        <br />
+        Voyons ce qui attire ton attention.
         </h1>
       </section>
 
@@ -59,7 +59,7 @@ export default function OnboardingEndPage() {
         disabled={isContinuing}
         className="relative z-10 mt-auto h-[132px] w-full bg-gradient-to-b from-[#5E3023] to-[#895737] px-7 pb-8 pt-8 text-center disabled:opacity-80 md:mx-auto md:h-[140px] md:w-[423px] md:px-8"
       >
-        <p className={`${montserrat.className} text-[23px] font-bold leading-[1.15] text-white`}>Entre tes informations de base</p>
+        <p className={`${montserrat.className} text-[23px] font-bold leading-[1.15] text-white`}>Commence à échanger !</p>
       </button>
 
       {errorMessage ? <p className="px-7 pt-3 text-[18px] text-[#E44D3E] md:px-8">{errorMessage}</p> : null}

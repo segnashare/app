@@ -39,6 +39,10 @@ export function VisibilityToggleEye({
   ariaLabel = "Visibilite profil",
 }: VisibilityToggleEyeProps) {
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = supabase.rpc as unknown as (
+    fn: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
   const [internalVisible, setInternalVisible] = useState(defaultVisible);
   const [isUpdating, setIsUpdating] = useState(false);
   const isVisible = visible ?? internalVisible;
@@ -50,7 +54,7 @@ export function VisibilityToggleEye({
 
     let isMounted = true;
     const loadVisibility = async () => {
-      const { data, error } = await supabase.rpc("get_or_create_user_data");
+      const { data, error } = await rpcUntyped("get_or_create_user_data");
       if (error || !isMounted || !data) return;
 
       const key = `${section}_visible`;
@@ -76,7 +80,7 @@ export function VisibilityToggleEye({
     if (!section) return;
 
     setIsUpdating(true);
-    const { error } = await supabase.rpc("set_user_data_visibility", {
+    const { error } = await rpcUntyped("set_user_data_visibility", {
       p_section: section,
       p_visible: nextVisible,
     });

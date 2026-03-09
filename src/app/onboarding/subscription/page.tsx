@@ -121,7 +121,7 @@ export default function OnboardingSubscriptionPage() {
           >
             Découvrir
           </Link>
-          <Link href="/onboarding/package" className={cn(montserrat.className, "text-[clamp(16px,2.8vw,26px)] font-semibold leading-none text-[#5E3023]")}>
+          <Link href="/onboarding/end" className={cn(montserrat.className, "text-[clamp(16px,2.8vw,26px)] font-semibold leading-none text-[#5E3023]")}>
             Peut-être plus tard
           </Link>
         </section>
