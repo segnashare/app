@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { SignUpVerifyCore } from "@/components/auth/SignUpVerifyCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -23,7 +23,11 @@ export default function SignUpVerifyPage() {
           Nous t&apos;avons envoyé un code de vérification par e-mail
         </h1>
       }
-      mainLayout={<SignUpVerifyCore formId="signup-verify-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <Suspense fallback={null}>
+          <SignUpVerifyCore formId="signup-verify-form" onCanContinueChange={setCanContinue} />
+        </Suspense>
+      }
       footerFrameGaucheLayerCentre={
         <div className={`${themeClassNames.onboarding.shell.footerLigneInfo} ${themeClassNames.onboarding.shell.footerInfoTroisQuarts} text-[16px] text-zinc-950`}>
           <p>

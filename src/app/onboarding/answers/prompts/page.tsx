@@ -3,6 +3,7 @@
 import { Montserrat } from "next/font/google";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
@@ -18,7 +19,7 @@ function isAnswersTab(value: string): value is AnswersTabId {
   return ANSWERS_TABS.some((tab) => tab.id === value);
 }
 
-export default function OnboardingAnswersPromptsPage() {
+function OnboardingAnswersPromptsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -107,5 +108,13 @@ export default function OnboardingAnswersPromptsPage() {
         </div>
       </div>
     </AppViewport>
+  );
+}
+
+export default function OnboardingAnswersPromptsPage() {
+  return (
+    <Suspense fallback={null}>
+      <OnboardingAnswersPromptsPageContent />
+    </Suspense>
   );
 }

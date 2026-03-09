@@ -1,7 +1,7 @@
 "use client";
 
 import { Playfair_Display } from "next/font/google";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { OnboardingAnswersCore } from "@/components/onboarding/OnboardingAnswersCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -27,7 +27,11 @@ export default function OnboardingAnswersPage() {
           Présente nous ton style
         </h1>
       }
-      mainLayout={<OnboardingAnswersCore formId="onboarding-answers-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <Suspense fallback={null}>
+          <OnboardingAnswersCore formId="onboarding-answers-form" onCanContinueChange={setCanContinue} />
+        </Suspense>
+      }
       nextArrowType="submit"
       nextArrowForm="onboarding-answers-form"
       nextArrowEnabled={canContinue}

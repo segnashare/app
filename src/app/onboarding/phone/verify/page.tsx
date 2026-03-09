@@ -1,7 +1,7 @@
 "use client";
 
 import { Playfair_Display } from "next/font/google";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { OnboardingPhoneVerifyCore } from "../../../../components/onboarding/OnboardingPhoneVerifyCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -26,7 +26,11 @@ export default function OnboardingPhoneVerifyPage() {
           Indique ton code de vérification
         </h1>
       }
-      mainLayout={<OnboardingPhoneVerifyCore formId="onboarding-phone-verify-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <Suspense fallback={null}>
+          <OnboardingPhoneVerifyCore formId="onboarding-phone-verify-form" onCanContinueChange={setCanContinue} />
+        </Suspense>
+      }
       nextArrowType="submit"
       nextArrowForm="onboarding-phone-verify-form"
       nextArrowEnabled={canContinue}
