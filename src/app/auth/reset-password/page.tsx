@@ -1,82 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { Playfair_Display } from "next/font/google";
 
-import { AuthScreen } from "@/components/auth/AuthScreen";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { passwordSchema } from "@/features/auth/lib/schemas";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ResetPasswordCore } from "@/components/auth/ResetPasswordCore";
+import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
+import { cn } from "@/lib/utils/cn";
+import { themeClassNames } from "@/styles/theme";
 
-type PasswordFormValues = {
-  password: string;
-  confirmPassword: string;
-};
+const playfairDisplay = Playfair_Display({
+  subsets: ["latin"],
+  weight: "800",
+});
 
 export default function ResetPasswordPage() {
-  const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<PasswordFormValues>({
-    resolver: zodResolver(passwordSchema),
-  });
-
-  const onSubmit = handleSubmit(async ({ password }) => {
-    setErrorMessage(null);
-
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-
-    router.push("/auth/sign-in");
-  });
+  const [canContinue, setCanContinue] = useState(false);
 
   return (
-    <AuthScreen
-      title="Nouveau mot de passe"
-      description="Definis un nouveau mot de passe pour ton compte."
-      footer={
-        <Link href="/auth/sign-in" className="font-semibold text-zinc-700">
-          Retour a la connexion
-        </Link>
+    <OnboardingScreenShell
+      currentStep="/auth/reset-password"
+      nextStep="/auth/sign-in"
+      showStepTracker={false}
+      persistProgressOnNext={false}
+      layoutCarreSvg={<img src="/ressources/icons/mdp.svg" alt="" className="h-full w-full" />}
+      layoutBarreLongue={<img src="/ressources/barres/barre_signup.png" alt="" className="h-full w-full" />}
+      h1Principal={
+        <h1 className={cn(playfairDisplay.className, "max-w-[450px] text-[48px] font-extrabold leading-[0.96] tracking-[-0.03em] text-zinc-950")}>
+          Nouveau mot de passe
+        </h1>
       }
-    >
-      <form className="space-y-4" onSubmit={onSubmit}>
-        <div className="space-y-1.5">
-          <label htmlFor="password" className="text-xs font-medium text-zinc-600">
-            Mot de passe
-          </label>
-          <Input id="password" type="password" {...register("password")} />
-          {errors.password ? <p className="text-xs text-[#E44D3E]">{errors.password.message}</p> : null}
+      mainLayout={<ResetPasswordCore formId="reset-password-form" onCanContinueChange={setCanContinue} />}
+      footerFrameGaucheLayerCentre={
+        <div className={`${themeClassNames.onboarding.shell.footerLigneInfo} ${themeClassNames.onboarding.shell.footerInfoTroisQuarts} text-[16px] text-zinc-950`}>
+          <p>
+            Retour à la connexion{" "}
+            <br />
+            <Link href="/auth/sign-in" className="font-bold text-zinc-950">
+              Se connecter
+            </Link>
+          </p>
         </div>
-
-        <div className="space-y-1.5">
-          <label htmlFor="confirmPassword" className="text-xs font-medium text-zinc-600">
-            Confirmation
-          </label>
-          <Input id="confirmPassword" type="password" {...register("confirmPassword")} />
-          {errors.confirmPassword ? (
-            <p className="text-xs text-[#E44D3E]">{errors.confirmPassword.message}</p>
-          ) : null}
-        </div>
-
-        {errorMessage ? <p className="text-xs text-[#E44D3E]">{errorMessage}</p> : null}
-
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Mise a jour..." : "Mettre a jour"}
-        </Button>
-      </form>
-    </AuthScreen>
+      }
+      nextArrowType="submit"
+      nextArrowForm="reset-password-form"
+      nextArrowEnabled={canContinue}
+      nextArrowAriaLabel="Mettre à jour le mot de passe"
+    />
   );
 }

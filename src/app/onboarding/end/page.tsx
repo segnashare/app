@@ -27,7 +27,11 @@ export default function OnboardingEndPage() {
     if (isContinuing) return;
     setErrorMessage(null);
     setIsContinuing(true);
-    const { error } = await supabase.rpc("complete_onboarding");
+    const { error } = await supabase.rpc("complete_onboarding", {
+      p_answers_json: {},
+      p_visibility_json: {},
+      p_request_id: crypto.randomUUID(),
+    });
     setIsContinuing(false);
     if (error) {
       setErrorMessage(error.message);

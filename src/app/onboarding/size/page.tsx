@@ -5,7 +5,6 @@ import { useState } from "react";
 
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { OnboardingSizeCore } from "@/components/onboarding/OnboardingSizeCore";
-import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
@@ -16,7 +15,6 @@ const playfairDisplay = Playfair_Display({
 
 export default function OnboardingSizePage() {
   const [canContinue, setCanContinue] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
 
   return (
     <OnboardingScreenShell
@@ -30,18 +28,6 @@ export default function OnboardingSizePage() {
         </h1>
       }
       mainLayout={<OnboardingSizeCore formId="onboarding-size-form" onCanContinueChange={setCanContinue} />}
-      footerFrameGaucheLayerHaut={
-        <div className={themeClassNames.onboarding.shell.footerLigneVisibilite}>
-          <VisibilityToggleEye
-            section="dressing"
-            visible={isVisible}
-            onVisibilityChange={setIsVisible}
-            iconClassName={themeClassNames.onboarding.shell.footerIconeOeil}
-            ariaLabel={isVisible ? "Visible sur le profil" : "Masqué sur le profil"}
-          />
-          <p className={themeClassNames.onboarding.textes.footerVisibiliteTexteSemiBold}>{isVisible ? "Visible sur le profil" : "Masqué sur le profil"}</p>
-        </div>
-      }
       nextArrowType="submit"
       nextArrowForm="onboarding-size-form"
       nextArrowEnabled={canContinue}

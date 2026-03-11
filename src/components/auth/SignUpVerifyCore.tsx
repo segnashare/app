@@ -38,6 +38,23 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
   const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
+    const ensureSessionIsHealthy = async () => {
+      const {
+        error,
+      } = await supabase.auth.getUser();
+
+      if (!error) return;
+
+      const normalized = (error.message ?? "").toLowerCase();
+      if (normalized.includes("invalid refresh token") || normalized.includes("refresh token not found")) {
+        await supabase.auth.signOut();
+      }
+    };
+
+    void ensureSessionIsHealthy();
+  }, [supabase]);
+
+  useEffect(() => {
     if (!email) {
       setResendLockedUntil(null);
       setRemainingSeconds(0);
@@ -112,15 +129,22 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: code,
-      type: "email",
-    });
-    setIsSubmitting(false);
+    let error: { message?: string } | null = null;
+    try {
+      const result = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: "email",
+      });
+      error = result.error;
+    } catch {
+      error = { message: "Une erreur est survenue pendant la verification." };
+    } finally {
+      setIsSubmitting(false);
+    }
 
     if (error) {
-      const normalizedMessage = error.message.toLowerCase();
+      const normalizedMessage = (error.message ?? "").toLowerCase();
       if (normalizedMessage.includes("token has expired") || normalizedMessage.includes("invalid")) {
         setErrorMessage("Ce n'est pas le bon code.");
         return;
@@ -129,7 +153,7 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
       return;
     }
 
-    router.push("/auth/sign-up/password");
+    router.replace("/auth/sign-up/password");
   };
 
   const onResend = async () => {
@@ -138,15 +162,21 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
     setErrorMessage(null);
     setStatusMessage(null);
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: true },
-    });
+    let error: { message?: string } | null = null;
+    try {
+      const result = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: true },
+      });
+      error = result.error;
+    } catch {
+      error = { message: "Impossible de renvoyer le code pour le moment." };
+    }
 
     setIsResending(false);
 
     if (error) {
-      const isRateLimited = /rate limit/i.test(error.message);
+      const isRateLimited = /rate limit/i.test(error.message ?? "");
       if (isRateLimited) {
         const nextLockUntil = Date.now() + RATE_LIMIT_BACKOFF_SECONDS * 1000;
         setResendLockedUntil(nextLockUntil);
@@ -156,7 +186,7 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
         return;
       }
 
-      setErrorMessage(error.message);
+      setErrorMessage(error.message ?? "Erreur lors du renvoi du code.");
       return;
     }
 

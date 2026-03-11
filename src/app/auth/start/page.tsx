@@ -11,17 +11,18 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
   const isMemberIntent = intent === "member";
   const supabase = await createSupabaseServerClient();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (userError || !user) {
     redirect(isMemberIntent ? "/auth/sign-in" : "/auth/sign-up/email");
   }
 
   const { data } = await supabase
     .from("onboarding_sessions")
     .select("current_step, status")
-    .eq("user_id", session.user.id)
+    .eq("user_id", user.id)
     .maybeSingle();
 
   if (data?.status === "completed") {

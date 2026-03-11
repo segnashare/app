@@ -20,8 +20,6 @@ export default function SignUpPasswordPage() {
       nextStep="/onboarding/welcome"
       showStepTracker={false}
       persistProgressOnNext={false}
-      fillViewport={false}
-      fixedFooterHeight={false}
       layoutCarreSvg={<img src="/ressources/icons/mdp.svg" alt="" className="h-full w-full" />}
       layoutBarreLongue={<img src="/ressources/barres/barre_signup.png" alt="" className="h-full w-full" />}
       h1Principal={

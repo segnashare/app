@@ -55,13 +55,29 @@ export function OnboardingBudgetCore({ formId, onCanContinueChange }: Onboarding
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/dressing",
-      p_progress: {
-        checkpoint: "/onboarding/budget",
-        budget_value: selectedBudget,
-        budget_custom_text: normalizedCustomBudget || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          budget: {
+            value: selectedBudget,
+            custom_text: normalizedCustomBudget || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/dressing",
+      p_progress_json: {
+        checkpoint: "/onboarding/budget",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

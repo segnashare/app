@@ -42,6 +42,9 @@ type LocationSuggestion = {
   lat: number;
   lon: number;
   hasStreet: boolean;
+  city: string | null;
+  relativeCity: string | null;
+  timezone: string;
 };
 
 const montserrat = Montserrat({
@@ -69,6 +72,25 @@ function toLocationSuggestion(feature: AdresseApiFeature): LocationSuggestion {
   const lowerName = (feature.properties.name ?? "").toLowerCase();
   const hasStreetKeyword = /(rue|avenue|av\.|boulevard|bd\.|chemin|allee|all[ée]e|impasse|place|route|quai|villa|passage)\b/.test(lowerName);
   const hasStreet = feature.properties.type === "housenumber" || feature.properties.type === "street" || hasStreetKeyword;
+  const postcode = feature.properties.postcode ?? "";
+  const city = feature.properties.city ?? null;
+
+  const formatArrondissementLabel = (cityLabel: string, arrondissement: number) => {
+    const ordinal = arrondissement === 1 ? "1er" : `${arrondissement}e`;
+    return `${cityLabel} ${ordinal} arrondissement`;
+  };
+
+  let relativeCity: string | null = city;
+  if (city) {
+    if (/^Paris$/i.test(city) && /^750(0[1-9]|1[0-9]|20)$/.test(postcode)) {
+      relativeCity = formatArrondissementLabel("Paris", Number(postcode.slice(3)));
+    } else if (/^Lyon$/i.test(city) && /^6900[1-9]$/.test(postcode)) {
+      relativeCity = formatArrondissementLabel("Lyon", Number(postcode.slice(3)));
+    } else if (/^Marseille$/i.test(city) && /^130(0[1-9]|1[0-6])$/.test(postcode)) {
+      relativeCity = formatArrondissementLabel("Marseille", Number(postcode.slice(3)));
+    }
+  }
+
   return {
     id: feature.properties.id,
     label,
@@ -76,12 +98,20 @@ function toLocationSuggestion(feature: AdresseApiFeature): LocationSuggestion {
     lat,
     lon,
     hasStreet,
+    city,
+    relativeCity,
+    timezone: "Europe/Paris",
   };
 }
 
 export function OnboardingLocationCore({ formId, onCanContinueChange }: OnboardingLocationCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: unknown; error?: { message?: string } | null } | undefined>)(fn, args);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
   const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
@@ -162,9 +192,39 @@ export function OnboardingLocationCore({ formId, onCanContinueChange }: Onboardi
       return;
     }
 
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const locationResult = await rpcUntyped("set_user_location", {
+      p_adress: selectedSuggestion?.label ?? normalizedLocation,
+      p_timezone: selectedSuggestion?.timezone ?? "Europe/Paris",
+      p_relative_city: selectedSuggestion?.relativeCity ?? selectedSuggestion?.city ?? null,
+      p_request_id: crypto.randomUUID(),
+    });
+    if (locationResult?.error) {
+      setErrorMessage(locationResult.error.message ?? "Impossible d'enregistrer ton adresse.");
+      return;
+    }
+
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        profile_data: {
+          location: {
+            label: selectedSuggestion?.label ?? normalizedLocation,
+            lat: selectedSuggestion?.lat ?? null,
+            lon: selectedSuggestion?.lon ?? null,
+            timezone: selectedSuggestion?.timezone ?? "Europe/Paris",
+          },
+        },
+      },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/profile",
-      p_progress: { checkpoint: "/onboarding/location", location_query: normalizedLocation },
+      p_progress_json: { checkpoint: "/onboarding/location" },
+      p_request_id: crypto.randomUUID(),
     });
     if (error) {
       setErrorMessage(error.message);

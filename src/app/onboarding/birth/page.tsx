@@ -16,6 +16,7 @@ const montserrat = Montserrat({
 
 export default function OnboardingBirthPage() {
   const [canContinue, setCanContinue] = useState(false);
+  const [ageVisibleOnProfile, setAgeVisibleOnProfile] = useState(true);
 
   return (
     <OnboardingScreenShell
@@ -29,12 +30,18 @@ export default function OnboardingBirthPage() {
         <img src="/ressources/barres/barre_signup.png" alt="" className={themeClassNames.onboarding.shell.svgRemplitCadre} />
       }
       h1Principal={<h1 className={themeClassNames.onboarding.textes.h1PlayfairDisplayExtraBold}>Quelle est ta date de naissance ?</h1>}
-      mainLayout={<OnboardingBirthCore formId="onboarding-birth-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <OnboardingBirthCore
+          formId="onboarding-birth-form"
+          onCanContinueChange={setCanContinue}
+          ageVisibleOnProfile={ageVisibleOnProfile}
+        />
+      }
       footerFrameGaucheLayerHaut={
         <div className={themeClassNames.onboarding.shell.footerLigneVisibilite}>
           <VisibilityToggleEye
-            section="style"
-            defaultVisible
+            visible={ageVisibleOnProfile}
+            onVisibilityChange={setAgeVisibleOnProfile}
             iconClassName={themeClassNames.onboarding.shell.footerIconeOeil}
             ariaLabel="Visible sur le profil"
           />

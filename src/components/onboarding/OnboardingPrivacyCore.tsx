@@ -56,13 +56,44 @@ export function OnboardingPrivacyCore({ formId, onCanContinueChange }: Onboardin
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const consentValues =
+      choice === "accept"
+        ? { audience: true, personalization: true, socialFeatures: true }
+        : (savedPreferences ?? preferencesDraft);
+
+    const [audienceResult, personalizationResult, socialFeaturesResult] = await Promise.all([
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "audience",
+        p_version: "v1",
+        p_granted: consentValues.audience,
+        p_request_id: crypto.randomUUID(),
+      }),
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "personalization",
+        p_version: "v1",
+        p_granted: consentValues.personalization,
+        p_request_id: crypto.randomUUID(),
+      }),
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "social_features",
+        p_version: "v1",
+        p_granted: consentValues.socialFeatures,
+        p_request_id: crypto.randomUUID(),
+      }),
+    ]);
+    const consentError = audienceResult.error ?? personalizationResult.error ?? socialFeaturesResult.error;
+    if (consentError) {
+      setIsSubmitting(false);
+      setErrorMessage(consentError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/3",
-      p_progress: {
+      p_progress_json: {
         checkpoint: "/onboarding/privacy",
-        privacy_value: choice,
-        privacy_preferences: choice === "customize" ? savedPreferences : null,
       },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

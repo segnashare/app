@@ -55,13 +55,29 @@ export function OnboardingExperienceCore({ formId, onCanContinueChange }: Onboar
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/share",
-      p_progress: {
-        checkpoint: "/onboarding/experience",
-        experience_value: selectedExperience,
-        experience_custom_text: normalizedCustomExperience || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          experience: {
+            value: selectedExperience,
+            custom_text: normalizedCustomExperience || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/share",
+      p_progress_json: {
+        checkpoint: "/onboarding/experience",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

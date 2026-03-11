@@ -52,12 +52,25 @@ export function OnboardingWorkCore({ formId, onCanContinueChange }: OnboardingWo
     setErrorMessage(null);
     const normalizedProfession = profession.trim();
 
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/2",
-      p_progress: {
-        checkpoint: "/onboarding/work",
-        profession: normalizedProfession,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        profile_data: {
+          work: normalizedProfession,
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/2",
+      p_progress_json: {
+        checkpoint: "/onboarding/work",
+      },
+      p_request_id: crypto.randomUUID(),
     });
 
     if (error) {

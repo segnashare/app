@@ -29,11 +29,17 @@ const playfairDisplay = Playfair_Display({
 export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswordCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: unknown; error?: { message?: string } | null } | undefined>)(fn, args);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting, isValid },
   } = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),
@@ -44,8 +50,12 @@ export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswo
     onCanContinueChange?.(isValid && !isSubmitting);
   }, [isValid, isSubmitting, onCanContinueChange]);
 
-  const onSubmit = handleSubmit(async ({ password }) => {
+  const onSubmit = handleSubmit(async ({ password, confirmPassword }) => {
     setErrorMessage(null);
+    if (password !== confirmPassword) {
+      setError("confirmPassword", { type: "manual", message: "Les mots de passe ne correspondent pas" });
+      return;
+    }
 
     const {
       data: { user },
@@ -59,22 +69,40 @@ export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswo
 
     const { error: passwordError } = await supabase.auth.updateUser({ password });
     if (passwordError) {
-      setErrorMessage(passwordError.message);
+      const normalized = (passwordError.message ?? "").toLowerCase();
+      if (normalized.includes("new password should be different from the old password")) {
+        setErrorMessage("Le nouveau mot de passe doit être différent de l'ancien.");
+      } else {
+        setErrorMessage(passwordError.message);
+      }
       return;
     }
 
-    const { error: profileError } = await supabase.from("profiles").upsert({ id: user.id });
-    if (profileError) {
-      setErrorMessage(profileError.message);
-      return;
-    }
+    const requestId = crypto.randomUUID();
 
-    await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/welcome",
-      p_progress: { checkpoint: "/onboarding/welcome" },
+    const bootstrapResult = await rpcUntyped("bootstrap_user_after_signup", {
+      p_first_name: null,
+      p_last_name: null,
+      p_locale: null,
+      p_timezone: null,
+      p_request_id: requestId,
     });
+    if (bootstrapResult?.error) {
+      setErrorMessage(bootstrapResult.error.message ?? "Impossible d'initialiser ton compte.");
+      return;
+    }
 
-    router.push("/onboarding");
+    const progressResult = await rpcUntyped("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/welcome",
+      p_progress_json: { checkpoint: "/onboarding/welcome" },
+      p_request_id: requestId,
+    });
+    if (progressResult?.error) {
+      setErrorMessage(progressResult.error.message ?? "Impossible d'enregistrer ta progression.");
+      return;
+    }
+
+    router.replace("/onboarding");
   });
 
   const hasPasswordError = Boolean(errors.password);
@@ -82,7 +110,7 @@ export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswo
 
   return (
     <div className="mt-8 w-full">
-      <p className="max-w-[370px] text-[12px,5.6vw,22px] leading-[1.3] text-zinc-800">Encore une étape, puis on passe à l&apos;onboarding.</p>
+      <p className="max-w-[370px] text-[clamp(12px,5.6vw,22px)] leading-[1.3] text-zinc-800">Encore une étape, puis on passe à l&apos;onboarding.</p>
 
       <form id={formId} className="mt-10 space-y-8" onSubmit={onSubmit} noValidate>
         <div>
@@ -111,7 +139,7 @@ export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswo
             placeholder="Confirme le mot de passe"
             className={cn(
               playfairDisplay.className,
-              "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px))] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
+              "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px)] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
               hasConfirmError
                 ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
                 : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",

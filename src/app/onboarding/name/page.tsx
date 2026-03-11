@@ -33,7 +33,7 @@ export default function OnboardingNamePage() {
       mainLayout={<OnboardingNameCore formId="onboarding-name-form" onCanContinueChange={setCanContinue} />}
       footerFrameGaucheLayerCentre={
         <div className={cn(themeClassNames.onboarding.shell.footerLigneInfo, themeClassNames.onboarding.shell.footerInfoTroisQuarts)}>
-          <p className={cn(montserrat.className, themeClassNames.onboarding.textes.info)}>Pourquoi ?</p>
+          <p className={cn(montserrat.className, themeClassNames.onboarding.textes.info, "text-[#5E3023]")}>Pourquoi ?</p>
         </div>
       }
       nextArrowType="submit"

@@ -54,9 +54,23 @@ export function OnboardingPhoneCore({ formId, onCanContinueChange }: OnboardingP
     setErrorMessage(null);
     const normalizedPhone = `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
 
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        profile_data: {
+          phone_e164: normalizedPhone,
+        },
+      },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/phone/verify",
-      p_progress: { checkpoint: "/onboarding/phone", phone: normalizedPhone },
+      p_progress_json: { checkpoint: "/onboarding/phone" },
+      p_request_id: crypto.randomUUID(),
     });
 
     if (error) {

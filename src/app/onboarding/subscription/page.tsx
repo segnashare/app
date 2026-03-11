@@ -30,6 +30,7 @@ const rotatingBrands = ["MiuMiu", "Jacquemus", "S√©zane", "Isabel Marant", "Ala√
 export default function OnboardingSubscriptionPage() {
   const [brandIndex, setBrandIndex] = useState(0);
   const [flipPhase, setFlipPhase] = useState<"idle" | "out" | "inStart">("idle");
+  const [isShortViewport, setIsShortViewport] = useState(false);
   const outTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -49,12 +50,29 @@ export default function OnboardingSubscriptionPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const syncViewportMode = () => {
+      // Compact mode for short viewports to preserve room for benefits + CTAs.
+      setIsShortViewport(window.innerHeight <= 760);
+    };
+
+    syncViewportMode();
+    window.addEventListener("resize", syncViewportMode);
+    return () => window.removeEventListener("resize", syncViewportMode);
+  }, []);
+
   return (
-    <main className="flex min-h-[100dvh] justify-center bg-white">
-      <div className="flex min-h-[844px] w-full max-w-[430px] flex-col px-6 pb-10 pt-12 md:max-w-[560px] md:px-8 md:pt-14">
-        <header className="flex flex-col items-center gap-11 pt-6 md:gap-14 md:pt-8">
+    <main className="flex min-h-[100dvh] justify-center overflow-y-auto bg-white">
+      <div className={cn("flex min-h-[100dvh] w-full max-w-[430px] flex-col px-6 pb-8 md:max-w-[560px] md:px-8", isShortViewport ? "pt-4 md:pt-5" : "pt-8 md:pt-12")}>
+        <header className={cn("flex flex-col items-center", isShortViewport ? "gap-4 pt-1" : "gap-[clamp(18px,4vh,56px)] pt-[clamp(6px,2vh,32px)]")}>
           <Image src="/ressources/icons/oeil_logo.svg" alt="Segna" width={58} height={58} priority />
-          <h1 className={cn(playfairDisplay.className, "w-full text-left text-[clamp(38px,2.5vw,58px)] font-extrabold leading-[0.98] tracking-[-0.02em] text-zinc-950")}>
+          <h1
+            className={cn(
+              playfairDisplay.className,
+              "w-full text-left font-extrabold tracking-[-0.02em] text-zinc-950",
+              isShortViewport ? "text-[clamp(30px,3.2vw,44px)] leading-[0.92]" : "text-[clamp(38px,2.5vw,58px)] leading-[0.98]",
+            )}
+          >
             Nos membres portent du{" "}
             <span
               className="inline-block text-[#5E3023] transition-[transform,opacity] duration-[300ms] [transform-style:preserve-3d] [backface-visibility:hidden]"
@@ -74,12 +92,19 @@ export default function OnboardingSubscriptionPage() {
           </h1>
         </header>
 
-        <section className="mt-8 flex justify-center md:mt-10">
-          <Image src="/home/tryptique.png" alt="Looks Segna" width={340} height={195} className="h-auto w-[340px]" priority />
+        <section className={cn("flex justify-center", isShortViewport ? "mt-4" : "mt-[clamp(16px,3.5vh,40px)]")}>
+          <Image
+            src="/home/tryptique.png"
+            alt="Looks Segna"
+            width={340}
+            height={195}
+            className={cn("h-auto", isShortViewport ? "w-[282px]" : "w-[340px]")}
+            priority
+          />
         </section>
 
-        <section className="mt-10 shrink-0 md:mt-12">
-          <div className="h-[240px] max-h-[240px] overflow-y-auto pr-1 md:h-[320px] md:max-h-[320px]">
+        <section className={cn("min-h-0 flex-1", isShortViewport ? "mt-4" : "mt-[clamp(14px,3vh,42px)]")}>
+          <div className={cn("h-full overflow-y-auto pr-1", isShortViewport ? "min-h-[120px] max-h-[220px]" : "min-h-[170px] max-h-[320px]")}>
             <div className="space-y-1">
               {benefits.map((benefit) => (
                 <article key={benefit.title} className="min-h-[80px]">
@@ -107,7 +132,7 @@ export default function OnboardingSubscriptionPage() {
           </div>
         </section>
 
-        <section className="relative mt-8 flex flex-col items-center gap-6 pt-2 md:mt-10">
+        <section className="relative mt-4 flex flex-col items-center gap-5 pb-2 pt-2 md:mt-6">
           <div
             className="pointer-events-none absolute -top-14 left-0 right-0 z-20 h-14 bg-gradient-to-b from-transparent via-white/90 to-white"
             aria-hidden

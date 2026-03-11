@@ -32,6 +32,11 @@ const montserrat = Montserrat({
 export function OnboardingMotivationCore({ formId, onCanContinueChange }: OnboardingMotivationCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: Record<string, unknown> | null; error?: { message?: string } | null } | undefined>)(fn, args);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [selectedMotivations, setSelectedMotivations] = useState<string[]>([]);
@@ -46,6 +51,35 @@ export function OnboardingMotivationCore({ formId, onCanContinueChange }: Onboar
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
 
+  useEffect(() => {
+    let mounted = true;
+    const loadSavedPreference = async () => {
+      const response = await rpcUntyped("get_user_preferences_payload");
+      const data = response?.data ?? null;
+      if (!mounted || !data) return;
+
+      const motivation = data.motivation as { preference?: { value?: unknown; custom?: unknown } } | undefined;
+      const preference = motivation?.preference;
+      const savedValue = preference?.value;
+      const savedCustom = typeof preference?.custom === "string" ? preference.custom : "";
+
+      if (Array.isArray(savedValue)) {
+        const saved = savedValue.filter((item): item is string => typeof item === "string");
+        if (saved.length > 0) {
+          setSelectedMotivations(saved);
+        }
+      } else if (typeof savedValue === "string" && savedValue.length > 0) {
+        setSelectedMotivations([savedValue]);
+      }
+
+      setCustomMotivationText(savedCustom);
+    };
+    void loadSavedPreference();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage(null);
@@ -56,13 +90,29 @@ export function OnboardingMotivationCore({ formId, onCanContinueChange }: Onboar
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/experience",
-      p_progress: {
-        checkpoint: "/onboarding/motivation",
-        motivation_value: selectedMotivations,
-        motivation_custom_text: normalizedCustomMotivation || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          motivation: {
+            value: selectedMotivations,
+            custom_text: normalizedCustomMotivation || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/experience",
+      p_progress_json: {
+        checkpoint: "/onboarding/motivation",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

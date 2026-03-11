@@ -25,6 +25,7 @@ html,
 body {
   min-width: var(--app-min-width);
   min-height: var(--app-min-height);
+  overscroll-behavior: none;
 }
 
 body {

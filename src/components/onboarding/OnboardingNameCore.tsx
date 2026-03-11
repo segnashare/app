@@ -32,6 +32,11 @@ const playfairDisplay = Playfair_Display({
 export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNameCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: unknown; error?: { message?: string } | null } | undefined>)(fn, args);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const {
@@ -61,13 +66,24 @@ export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNa
     const normalizedFirstName = firstName.trim();
     const normalizedLastName = lastName.trim();
 
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const settingsResult = await rpcUntyped("update_user_account_settings", {
+      p_locale: null,
+      p_timezone: null,
+      p_first_name: normalizedFirstName,
+      p_last_name: normalizedLastName || null,
+      p_request_id: crypto.randomUUID(),
+    });
+    if (settingsResult?.error) {
+      setErrorMessage(settingsResult.error.message ?? "Impossible d'enregistrer ton nom.");
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/birth",
-      p_progress: {
+      p_progress_json: {
         checkpoint: "/onboarding/name",
-        first_name: normalizedFirstName,
-        last_name: normalizedLastName || null,
       },
+      p_request_id: crypto.randomUUID(),
     });
 
     if (error) {

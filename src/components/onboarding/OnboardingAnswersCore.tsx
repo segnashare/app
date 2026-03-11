@@ -131,17 +131,31 @@ export function OnboardingAnswersCore({ formId, onCanContinueChange }: Onboardin
     event.preventDefault();
     setErrorMessage(null);
 
+    const answersPayload = [
+      { prompt: prompt0.trim(), response: response0.trim() },
+      { prompt: prompt1.trim(), response: response1.trim() },
+      { prompt: prompt2.trim(), response: response2.trim() },
+    ].filter((item) => item.prompt.length > 0 || item.response.length > 0);
+
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/subscription",
-      p_progress: {
-        checkpoint: "/onboarding/answers",
-        answers_value: {
-          answer_1: { prompt: prompt0.trim(), response: response0.trim() },
-          answer_2: { prompt: prompt1.trim(), response: response1.trim() },
-          answer_3: { prompt: prompt2.trim(), response: response2.trim() },
-        },
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        answers: answersPayload,
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/subscription",
+      p_progress_json: {
+        checkpoint: "/onboarding/answers",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

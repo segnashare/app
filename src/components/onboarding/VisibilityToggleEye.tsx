@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -38,11 +37,12 @@ export function VisibilityToggleEye({
   iconClassName,
   ariaLabel = "Visibilite profil",
 }: VisibilityToggleEyeProps) {
-  const supabase = createSupabaseBrowserClient();
-  const rpcUntyped = supabase.rpc as unknown as (
-    fn: string,
-    args?: Record<string, unknown>,
-  ) => Promise<{ data?: Record<string, unknown> | null; error?: { message: string } | null } | undefined>;
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: Record<string, unknown> | null; error?: { message: string } | null } | undefined>)(fn, args);
   const [internalVisible, setInternalVisible] = useState(defaultVisible);
   const [isUpdating, setIsUpdating] = useState(false);
   const isVisible = visible ?? internalVisible;
@@ -54,7 +54,7 @@ export function VisibilityToggleEye({
 
     let isMounted = true;
     const loadVisibility = async () => {
-      const result = await rpcUntyped("get_or_create_user_data");
+      const result = await rpcUntyped("get_profile_preference_visibility");
       const data = result?.data ?? null;
       const error = result?.error ?? null;
       if (error || !isMounted || !data) return;
@@ -68,7 +68,7 @@ export function VisibilityToggleEye({
     return () => {
       isMounted = false;
     };
-  }, [section, supabase, visible]);
+  }, [section, visible, rpcUntyped]);
 
   const handleToggle = async () => {
     if (isUpdating) return;
@@ -84,9 +84,10 @@ export function VisibilityToggleEye({
     setIsUpdating(true);
     let error: { message: string } | null = null;
     try {
-      const result = await rpcUntyped("set_user_data_visibility", {
+      const result = await rpcUntyped("set_profile_preference_visibility", {
         p_section: section,
         p_visible: nextVisible,
+        p_request_id: crypto.randomUUID(),
       });
       error = result?.error ?? null;
     } finally {

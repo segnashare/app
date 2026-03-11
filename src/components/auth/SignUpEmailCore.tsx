@@ -3,6 +3,7 @@
 import { Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -28,6 +29,7 @@ const playfairDisplay = Playfair_Display({
 export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -43,26 +45,31 @@ export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCore
   }, [isSubmitting, isValid, onCanContinueChange]);
 
   const onSubmit = handleSubmit(async ({ email }) => {
+    setSubmitError(null);
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: true },
     });
 
     if (error) {
-      const normalizedMessage = error.message.toLowerCase();
-      if (normalizedMessage.includes("email rate limit exceeded")) {
+      const rawMessage = typeof error.message === "string" ? error.message : "";
+      const normalizedMessage = rawMessage.toLowerCase();
+      if (normalizedMessage.includes("email rate limit exceeded") || normalizedMessage.includes("login.new_email")) {
+        setSubmitError("Trop de tentatives. Attends un peu avant de demander un nouvel e-mail.");
         console.error("[sign-up/email] Email rate limit exceeded", { email, error });
         return;
       }
       if (normalizedMessage.includes("error sending confirmation email")) {
+        setSubmitError("Impossible d'envoyer l'e-mail pour le moment. Réessaie dans quelques instants.");
         console.error("[sign-up/email] Error sending confirmation email", { email, error });
         return;
       }
+      setSubmitError("Une erreur est survenue. Réessaie.");
       console.error("[sign-up/email] OTP request failed", { email, error });
       return;
     }
 
-    router.push(`/auth/sign-up/verify?email=${encodeURIComponent(email)}&sentAt=${Date.now()}`);
+    router.replace(`/auth/sign-up/verify?email=${encodeURIComponent(email)}&sentAt=${Date.now()}`);
   });
 
   const hasEmailError = Boolean(errors.email);
@@ -91,6 +98,7 @@ export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCore
           />
         </div>
         {hasEmailError ? <p className="mt-3 text-[20px] font-medium text-[#E44D3E]">Merci d&apos;indiquer une adresse e-mail valide.</p> : null}
+        {submitError ? <p className="mt-3 text-[16px] font-medium text-[#E44D3E]">{submitError}</p> : null}
       </form>
     </div>
   );

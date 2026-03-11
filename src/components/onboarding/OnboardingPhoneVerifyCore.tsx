@@ -15,6 +15,12 @@ type OnboardingPhoneVerifyCoreProps = {
 const OTP_LENGTH = 6;
 const SEGNA_BROWN = "#5E3023";
 
+function normalizeFrenchPhoneToE164(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const local = digits.startsWith("0") ? digits.slice(1) : digits;
+  return local.length === 9 ? `+33${local}` : null;
+}
+
 export function OnboardingPhoneVerifyCore({ formId, onCanContinueChange }: OnboardingPhoneVerifyCoreProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,10 +44,42 @@ export function OnboardingPhoneVerifyCore({ formId, onCanContinueChange }: Onboa
       return;
     }
 
+    const normalizedPhone = normalizeFrenchPhoneToE164(phone);
+    if (!normalizedPhone) {
+      setErrorMessage("Numéro invalide. Reviens à l'étape précédente.");
+      return;
+    }
+
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error: phoneError } = await supabase.rpc("set_user_phone_verified", {
+      p_phone_e164: normalizedPhone,
+      p_request_id: crypto.randomUUID(),
+    });
+    if (phoneError) {
+      setIsSubmitting(false);
+      setErrorMessage(phoneError.message);
+      return;
+    }
+
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        profile_data: {
+          phone_e164: normalizedPhone,
+          phone_code_verified: true,
+        },
+      },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/name",
-      p_progress: { checkpoint: "/onboarding/phone/verify", phone, phone_code_verified: true },
+      p_progress_json: { checkpoint: "/onboarding/phone/verify" },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

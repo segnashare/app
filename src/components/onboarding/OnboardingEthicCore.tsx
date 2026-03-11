@@ -54,13 +54,29 @@ export function OnboardingEthicCore({ formId, onCanContinueChange }: OnboardingE
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/privacy",
-      p_progress: {
-        checkpoint: "/onboarding/ethic",
-        ethic_value: selectedEthicOptions,
-        ethic_custom_text: normalizedCustomEthic || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          ethic: {
+            value: selectedEthicOptions,
+            custom_text: normalizedCustomEthic || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/privacy",
+      p_progress_json: {
+        checkpoint: "/onboarding/ethic",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

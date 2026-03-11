@@ -27,9 +27,10 @@ export default function OnboardingCheckpointThreePage() {
     if (isContinuing) return;
     setErrorMessage(null);
     setIsContinuing(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/looks",
-      p_progress: { checkpoint: "/onboarding/3" },
+      p_progress_json: { checkpoint: "/onboarding/3" },
+      p_request_id: crypto.randomUUID(),
     });
     setIsContinuing(false);
     if (error) {
@@ -44,7 +45,7 @@ export default function OnboardingCheckpointThreePage() {
       <OnboardingStepTracker currentStep="/onboarding/3" />
       <section className="px-6 pt-[clamp(2.75rem,10vh,7rem)] md:px-2 md:pt-30">
         <h1 className={`${playfairDisplay.className}  max-w-full font-extrabold leading-[1.04] tracking-[-0.03em] text-zinc-950 min-[200px]:text-[38px]`}>
-        Donnes plus de détails pour une expérience sur-mesure.
+          Mets en valeur la personne et le style derrière ce profil !
         </h1>
       </section>
 

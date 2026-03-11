@@ -3,7 +3,7 @@
 import { Montserrat } from "next/font/google";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef } from "react";
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
@@ -22,6 +22,8 @@ function isAnswersTab(value: string): value is AnswersTabId {
 function OnboardingAnswersPromptsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{ active: boolean; lastX: number }>({ active: false, lastX: 0 });
 
   const tabParam = searchParams.get("tab") ?? ANSWERS_TABS[0].id;
   const currentTab: AnswersTabId = isAnswersTab(tabParam) ? tabParam : ANSWERS_TABS[0].id;
@@ -68,6 +70,23 @@ function OnboardingAnswersPromptsPageContent() {
     router.push(buildAnswersUrl(next));
   };
 
+  useEffect(() => {
+    const container = tabsScrollRef.current;
+    if (!container) return;
+
+    const onWheel = (event: WheelEvent) => {
+      const horizontalDelta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+      if (horizontalDelta === 0) return;
+      event.preventDefault();
+      container.scrollLeft += horizontalDelta;
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+    };
+  }, []);
+
   return (
     <AppViewport className="bg-[#f9f9f8] px-0 py-0 md:w-[min(92vw,760px)] md:!max-w-[760px] md:py-0">
       <OnboardingStepTracker currentStep="/onboarding/answers" />
@@ -83,7 +102,33 @@ function OnboardingAnswersPromptsPageContent() {
           </button>
         </div>
 
-        <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+        <div
+          ref={tabsScrollRef}
+          className="mb-4 flex gap-2 overflow-x-auto overflow-y-hidden pb-1 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          style={{ WebkitOverflowScrolling: "touch" }}
+          onPointerDown={(event) => {
+            dragStateRef.current = { active: true, lastX: event.clientX };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (!dragStateRef.current.active || !tabsScrollRef.current) return;
+            const delta = event.clientX - dragStateRef.current.lastX;
+            tabsScrollRef.current.scrollLeft -= delta;
+            dragStateRef.current.lastX = event.clientX;
+          }}
+          onPointerUp={(event) => {
+            dragStateRef.current.active = false;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
+          onPointerCancel={(event) => {
+            dragStateRef.current.active = false;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
+        >
           {ANSWERS_TABS.map((tab) => {
             const isActive = tab.id === currentTab;
             return (
@@ -91,7 +136,11 @@ function OnboardingAnswersPromptsPageContent() {
                 key={tab.id}
                 type="button"
                 onClick={() => goToTab(tab.id)}
-                className={cn(montserrat.className, "whitespace-nowrap rounded-full border px-4 py-2 text-[clamp(13px,2vw,18px)]", isActive ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-200 bg-white text-zinc-900")}
+                className={cn(
+                  montserrat.className,
+                  "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-[clamp(13px,2vw,18px)]",
+                  isActive ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-200 bg-white text-zinc-900",
+                )}
               >
                 {tab.label}
               </button>

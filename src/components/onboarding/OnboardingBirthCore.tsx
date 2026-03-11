@@ -16,6 +16,7 @@ type BirthFormValues = {
 type OnboardingBirthCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  ageVisibleOnProfile?: boolean;
 };
 
 const playfairDisplay = Playfair_Display({
@@ -67,9 +68,14 @@ function getAgeFromBirthDate(birthDate: Date) {
   return age;
 }
 
-export function OnboardingBirthCore({ formId, onCanContinueChange }: OnboardingBirthCoreProps) {
+export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnProfile = true }: OnboardingBirthCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: unknown; error?: { message?: string } | null } | undefined>)(fn, args);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [digits, setDigits] = useState<string[]>(["", "", "", "", "", "", "", ""]);
@@ -106,9 +112,37 @@ export function OnboardingBirthCore({ formId, onCanContinueChange }: OnboardingB
 
     setIsSubmitting(true);
     const isoDate = `${values.year}-${values.month}-${values.day}`;
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const birthResult = await rpcUntyped("set_user_birth_date", {
+      p_birth_date: isoDate,
+      p_request_id: crypto.randomUUID(),
+    });
+    if (birthResult?.error) {
+      setIsSubmitting(false);
+      setErrorMessage(birthResult.error.message ?? "Impossible d'enregistrer ta date de naissance.");
+      return;
+    }
+
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        profile_data: {
+          birth_date: isoDate,
+          age: {
+            visibility: ageVisibleOnProfile,
+          },
+        },
+      },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/1",
-      p_progress: { checkpoint: "/onboarding/birth", birth_date: isoDate },
+      p_progress_json: { checkpoint: "/onboarding/birth" },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

@@ -54,13 +54,29 @@ export function OnboardingDressingCore({ formId, onCanContinueChange }: Onboardi
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/ethic",
-      p_progress: {
-        checkpoint: "/onboarding/dressing",
-        dressing_value: selectedDressingOptions,
-        dressing_custom_text: normalizedCustomDressing || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          dressing: {
+            value: selectedDressingOptions,
+            custom_text: normalizedCustomDressing || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/ethic",
+      p_progress_json: {
+        checkpoint: "/onboarding/dressing",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

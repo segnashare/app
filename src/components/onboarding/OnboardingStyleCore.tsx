@@ -29,6 +29,11 @@ const montserrat = Montserrat({
 export function OnboardingStyleCore({ formId, onCanContinueChange }: OnboardingStyleCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
+    (supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data?: Record<string, unknown> | null; error?: { message?: string } | null } | undefined>)(fn, args);
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [customStyleText, setCustomStyleText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -42,6 +47,29 @@ export function OnboardingStyleCore({ formId, onCanContinueChange }: OnboardingS
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
 
+  useEffect(() => {
+    let mounted = true;
+    const loadSavedPreference = async () => {
+      const response = await rpcUntyped("get_user_preferences_payload");
+      const data = response?.data ?? null;
+      if (!mounted || !data) return;
+
+      const style = data.style as { preference?: { value?: unknown; custom?: unknown } } | undefined;
+      const preference = style?.preference;
+      const savedValue = typeof preference?.value === "string" ? preference.value : null;
+      const savedCustom = typeof preference?.custom === "string" ? preference.custom : "";
+
+      if (savedValue && STYLE_OPTIONS.includes(savedValue as (typeof STYLE_OPTIONS)[number])) {
+        setSelectedStyle(savedValue);
+      }
+      setCustomStyleText(savedCustom);
+    };
+    void loadSavedPreference();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage(null);
@@ -52,13 +80,29 @@ export function OnboardingStyleCore({ formId, onCanContinueChange }: OnboardingS
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/brands",
-      p_progress: {
-        checkpoint: "/onboarding/style",
-        style_value: selectedStyle,
-        style_custom_text: normalizedCustom || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          style: {
+            value: selectedStyle,
+            custom_text: normalizedCustom || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/brands",
+      p_progress_json: {
+        checkpoint: "/onboarding/style",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

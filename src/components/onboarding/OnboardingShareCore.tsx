@@ -56,13 +56,29 @@ export function OnboardingShareCore({ formId, onCanContinueChange }: OnboardingS
     }
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
-      p_current_step: "/onboarding/budget",
-      p_progress: {
-        checkpoint: "/onboarding/share",
-        share_value: selectedShareOptions,
-        share_custom_text: normalizedCustomShare || null,
+    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+      p_profile_json: {
+        preferences: {
+          share: {
+            value: selectedShareOptions,
+            custom_text: normalizedCustomShare || null,
+          },
+        },
       },
+      p_request_id: crypto.randomUUID(),
+    });
+    if (profileError) {
+      setIsSubmitting(false);
+      setErrorMessage(profileError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
+      p_current_step: "/onboarding/budget",
+      p_progress_json: {
+        checkpoint: "/onboarding/share",
+      },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 

@@ -73,9 +73,10 @@ export function OnboardingScreenShell({
     setErrorMessage(null);
     setIsContinuing(true);
 
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: nextStep,
-      p_progress: { checkpoint: currentStep },
+      p_progress_json: { checkpoint: currentStep },
+      p_request_id: crypto.randomUUID(),
     });
 
     setIsContinuing(false);

@@ -71,6 +71,16 @@ function getOnboardingPathFromIndex(index: number) {
   return ONBOARDING_PATHS[clamped];
 }
 
+function isAllowedOnboardingJump(requestedPath: string, reachedPath: string) {
+  if (requestedPath === "/onboarding/package" && reachedPath === "/onboarding/subscription") {
+    return true;
+  }
+  if (requestedPath === "/onboarding/end" && (reachedPath === "/onboarding/subscription" || reachedPath === "/onboarding/package")) {
+    return true;
+  }
+  return false;
+}
+
 function getReachedOnboardingIndex(currentStep: string | null) {
   const normalizedStep = normalizeOnboardingPath(currentStep ?? "");
   if (!normalizedStep) return 0;
@@ -167,11 +177,18 @@ export async function middleware(request: NextRequest) {
   }
 
   let cachedReachedIndex: number | null = null;
+  let cachedReachedPath: OnboardingPath | null | undefined;
   let cachedStatus: string | null | undefined;
   const getReachedState = async () => {
-    if (!session) return { reachedIndex: 0, status: null as string | null };
-    if (cachedReachedIndex !== null && cachedStatus !== undefined) {
-      return { reachedIndex: cachedReachedIndex, status: cachedStatus };
+    if (!session) {
+      return {
+        reachedIndex: 0,
+        reachedPath: ONBOARDING_PATHS[0],
+        status: null as string | null,
+      };
+    }
+    if (cachedReachedIndex !== null && cachedReachedPath !== undefined && cachedStatus !== undefined) {
+      return { reachedIndex: cachedReachedIndex, reachedPath: cachedReachedPath, status: cachedStatus };
     }
 
     const { data } = await supabase
@@ -180,13 +197,15 @@ export async function middleware(request: NextRequest) {
       .eq("user_id", session.user.id)
       .maybeSingle();
 
-    cachedReachedIndex = getReachedOnboardingIndex(data?.current_step ?? null);
+    const reachedPath = normalizeOnboardingPath(data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
+    cachedReachedPath = reachedPath;
+    cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
     cachedStatus = data?.status ?? null;
-    return { reachedIndex: cachedReachedIndex, status: cachedStatus };
+    return { reachedIndex: cachedReachedIndex, reachedPath: cachedReachedPath, status: cachedStatus };
   };
 
   if (session && pathname.startsWith("/auth/sign-up/password")) {
-    const { reachedIndex, status } = await getReachedState();
+    const { reachedIndex, reachedPath, status } = await getReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
       url.pathname = "/app";
@@ -212,7 +231,12 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const requestedIndex = getOnboardingIndexFromPath(pathname);
-    if (requestedIndex === -1 || requestedIndex > reachedIndex) {
+    if (requestedIndex === -1) {
+      const url = request.nextUrl.clone();
+      url.pathname = getOnboardingPathFromIndex(reachedIndex);
+      return NextResponse.redirect(url);
+    }
+    if (requestedIndex > reachedIndex && !isAllowedOnboardingJump(pathname, reachedPath)) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
       return NextResponse.redirect(url);

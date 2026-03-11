@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -37,45 +38,65 @@ const ONBOARDING_PATHS = [
   "/onboarding/end",
 ] as const;
 
-function getStepIndex(step: string | null | undefined) {
-  if (!step) return -1;
-  return ONBOARDING_PATHS.findIndex((path) => path === step);
+const ONBOARDING_PATH_SET = new Set<string>(ONBOARDING_PATHS);
+const FALLBACK_STEP = "/onboarding/welcome";
+
+function canStayOnStep(currentStep: string, persistedStep: string) {
+  if (persistedStep === currentStep) return true;
+  if (currentStep === "/onboarding/package" && persistedStep === "/onboarding/subscription") return true;
+  if (currentStep === "/onboarding/end" && (persistedStep === "/onboarding/subscription" || persistedStep === "/onboarding/package")) {
+    return true;
+  }
+  return false;
 }
 
 export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProps) {
+  const router = useRouter();
+
   useEffect(() => {
-    const syncCurrentStep = async () => {
+    const guardOnboardingAccess = async () => {
       const supabase = createSupabaseBrowserClient();
 
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      if (!session?.user) return;
+      if (userError || !user) {
+        router.replace("/auth");
+        return;
+      }
 
       const { data: row } = await supabase
         .from("onboarding_sessions")
         .select("current_step, status")
-        .eq("user_id", session.user.id)
+        .eq("user_id", user.id)
         .maybeSingle();
 
-      if (row?.status === "completed") return;
+      if (row?.status === "completed") {
+        router.replace("/app");
+        return;
+      }
 
-      const currentIndex = getStepIndex(row?.current_step);
-      const targetIndex = getStepIndex(currentStep);
-      if (targetIndex === -1) return;
+      let persistedStep =
+        typeof row?.current_step === "string" && ONBOARDING_PATH_SET.has(row.current_step) ? row.current_step : FALLBACK_STEP;
 
-      // Never move backward if a further step is already persisted.
-      if (currentIndex >= targetIndex) return;
+      if (!row) {
+        await supabase.rpc("upsert_onboarding_progress", {
+          p_current_step: FALLBACK_STEP,
+          p_progress_json: { checkpoint: FALLBACK_STEP },
+          p_request_id: crypto.randomUUID(),
+        });
+        persistedStep = FALLBACK_STEP;
+      }
 
-      await supabase.rpc("save_onboarding_progress", {
-        p_current_step: currentStep,
-        p_progress: { checkpoint: currentStep },
-      });
+      if (!canStayOnStep(currentStep, persistedStep)) {
+        router.replace(persistedStep);
+      }
     };
 
-    void syncCurrentStep();
-  }, [currentStep]);
+    void guardOnboardingAccess();
+  }, [currentStep, router]);
 
   return null;
 }

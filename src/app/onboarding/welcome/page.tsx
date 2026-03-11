@@ -2,7 +2,7 @@
 
 import { Montserrat, Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
@@ -23,20 +23,34 @@ export default function OnboardingWelcomePage() {
   const [isContinuing, setIsContinuing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    const url = window.location.href;
+    window.history.replaceState({ noBack: true }, "", url);
+    window.history.pushState({ noBack: true }, "", url);
+    const blockBack = () => {
+      window.history.go(1);
+    };
+    window.addEventListener("popstate", blockBack);
+    return () => {
+      window.removeEventListener("popstate", blockBack);
+    };
+  }, []);
+
   const handleContinue = async () => {
     if (isContinuing) return;
     setErrorMessage(null);
     setIsContinuing(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/phone",
-      p_progress: { checkpoint: "/onboarding/welcome" },
+      p_progress_json: { checkpoint: "/onboarding/welcome" },
+      p_request_id: crypto.randomUUID(),
     });
     setIsContinuing(false);
     if (error) {
       setErrorMessage(error.message);
       return;
     }
-    router.push("/onboarding/phone");
+    router.replace("/onboarding/phone");
   };
 
   return (

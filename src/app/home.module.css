@@ -1,24 +1,1047 @@
 .page {
-  min-height: max(100dvh, 844px);
-  min-width: max(100%, 390px);
+  min-height: 100dvh;
   background: #ffffff;
   display: flex;
   justify-content: center;
-  align-items: center;
   overflow: hidden;
 }
 
 .phoneCanvas {
-  aspect-ratio: 390 / 844;
-  width: min(100vw, calc(100dvh * 390 / 844));
-  min-width: 390px;
-  min-height: 844px;
+  width: min(100vw, 560px);
+  height: 100dvh;
+  padding: 0 clamp(14px, 4vw, 24px);
+  background: #ffffff;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.q1,
+.q2,
+.q3,
+.q4 {
+  min-height: 0;
+}
+
+.q1 {
+  display: grid;
+  place-items: center;
+}
+
+.header {
+  display: grid;
+  justify-items: center;
+  gap: clamp(8px, 1.6vh, 16px);
+}
+
+.eyeIcon {
+  width: clamp(28px, 4.4vh, 48px);
+  height: auto;
+}
+
+.title {
+  margin: 0;
+  max-width: clamp(230px, 82%, 430px);
+  text-align: center;
+  font-family: "Playfair Display", serif;
+  font-size: clamp(28px, 5.8vw, 50px);
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #111;
+}
+
+.q2 {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(6px, 1.3vh, 12px);
+}
+
+.triptiqueSection {
+  display: flex;
+  justify-content: center;
+}
+
+.triptique {
+  width: clamp(160px, 22vh, 300px);
+  height: auto;
+}
+
+.logoMarqueeSection {
+  width: 100%;
+  overflow: hidden;
+}
+
+.logoTrack {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(14px, 1.9vh, 26px);
+  animation: logo-marquee 20s linear infinite;
+  will-change: transform;
+}
+
+.logoItem {
+  flex: 0 0 auto;
+}
+
+.logoImage {
+  width: auto;
+  height: clamp(12px, 2.2vh, 28px);
+  object-fit: contain;
+}
+
+.separator {
+  width: min(86%, 220px);
+  height: 2px;
+  border-radius: 999px;
+  background-color: #cfcfcf;
+  background-image: url("/barres/support.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+.q3 {
+  display: grid;
+  align-content: center;
+}
+
+.benefitsFrame {
+  height: 100%;
+  min-height: 0;
+}
+
+.benefitsScroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: clamp(4px, 0.8vh, 10px);
+  align-content: start;
+  padding: clamp(2px, 0.5vh, 6px) 0 clamp(4px, 0.9vh, 10px);
+  scrollbar-width: none;
+}
+
+.benefitsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.benefitBlock h2,
+.benefitBlockFaded h2 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(12px, 1.8vh, 20px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: #1a1a1a;
+}
+
+.benefitBlock p,
+.benefitBlockFaded p {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: clamp(10px, 1.4vh, 14px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #4d4d4d;
+}
+
+.benefitBlockFaded h2,
+.benefitBlockFaded p {
+  color: #c9c9c9;
+}
+
+.q4 {
+  display: grid;
+  align-content: end;
+}
+
+.ctaSection {
+  height: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: clamp(6px, 1vh, 12px);
+  padding-top: clamp(4px, 0.8vh, 10px);
+  padding-bottom: clamp(8px, 1.3vh, 14px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.86) 28%,
+    rgba(255, 255, 255, 1) 52%
+  );
+}
+
+.ctaFadeOverlay {
+  display: none;
+}
+
+.primaryCta {
+  display: flex;
+  width: clamp(176px, 38vw, 240px);
+  height: clamp(36px, 5.5vh, 50px);
+  align-items: center;
+  justify-content: center;
+  border-radius: 33px;
+  background: linear-gradient(180deg, #5e3023 0%, #895737 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: clamp(14px, 1.9vh, 18px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.secondaryCta {
+  color: #5e3023;
+  font-weight: 600;
+  font-size: clamp(14px, 1.9vh, 18px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+@keyframes logo-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - 16px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoTrack {
+    animation: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .title {
+    font-size: clamp(24px, 5.2vw, 36px);
+  }
+
+  .triptique {
+    width: clamp(145px, 19vh, 220px);
+  }
+
+  .logoImage {
+    height: clamp(10px, 1.8vh, 18px);
+  }
+
+  .benefitBlock h2,
+  .benefitBlockFaded h2 {
+    font-size: clamp(11px, 1.5vh, 16px);
+  }
+
+  .benefitBlock p,
+  .benefitBlockFaded p {
+    font-size: clamp(9px, 1.1vh, 12px);
+  }
+
+  .primaryCta {
+    height: clamp(32px, 4.8vh, 42px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .phoneCanvas {
+    width: min(42vw, 620px);
+    padding-left: clamp(22px, 2vw, 36px);
+    padding-right: clamp(22px, 2vw, 36px);
+  }
+}
+.page {
+  min-height: 100dvh;
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.phoneCanvas {
+  width: min(100vw, 560px);
+  height: 100dvh;
+  padding: 0 clamp(14px, 4vw, 24px);
+  background: #ffffff;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.q1,
+.q2,
+.q3,
+.q4 {
+  min-height: 0;
+}
+
+.q1 {
+  display: grid;
+  place-items: center;
+}
+
+.header {
+  display: grid;
+  justify-items: center;
+  gap: clamp(8px, 1.6vh, 16px);
+}
+
+.eyeIcon {
+  width: clamp(28px, 4.4vh, 48px);
+  height: auto;
+}
+
+.title {
+  margin: 0;
+  max-width: clamp(230px, 82%, 430px);
+  text-align: center;
+  font-family: "Playfair Display", serif;
+  font-size: clamp(28px, 5.8vw, 50px);
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #111;
+}
+
+.q2 {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(6px, 1.3vh, 12px);
+}
+
+.triptiqueSection {
+  display: flex;
+  justify-content: center;
+}
+
+.triptique {
+  width: clamp(160px, 22vh, 300px);
+  height: auto;
+}
+
+.logoMarqueeSection {
+  width: 100%;
+  overflow: hidden;
+}
+
+.logoTrack {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(14px, 1.9vh, 26px);
+  animation: logo-marquee 20s linear infinite;
+  will-change: transform;
+}
+
+.logoItem {
+  flex: 0 0 auto;
+}
+
+.logoImage {
+  width: auto;
+  height: clamp(12px, 2.2vh, 28px);
+  object-fit: contain;
+}
+
+.separator {
+  width: min(86%, 220px);
+  height: 2px;
+  border-radius: 999px;
+  background-color: #cfcfcf;
+  background-image: url("/barres/support.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+.q3 {
+  display: grid;
+  align-content: center;
+}
+
+.benefitsFrame {
+  height: 100%;
+  min-height: 0;
+}
+
+.benefitsScroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: clamp(4px, 0.8vh, 10px);
+  align-content: start;
+  padding: clamp(2px, 0.5vh, 6px) 0 clamp(4px, 0.9vh, 10px);
+  scrollbar-width: none;
+}
+
+.benefitsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.benefitBlock h2,
+.benefitBlockFaded h2 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(14px, 2.2vh, 26px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: #1a1a1a;
+}
+
+.benefitBlock p,
+.benefitBlockFaded p {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: clamp(11px, 1.6vh, 16px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #4d4d4d;
+}
+
+.benefitBlockFaded h2,
+.benefitBlockFaded p {
+  color: #c9c9c9;
+}
+
+.q4 {
+  display: grid;
+  align-content: end;
+}
+
+.ctaSection {
+  height: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: clamp(6px, 1vh, 12px);
+  padding-top: clamp(4px, 0.8vh, 10px);
+  padding-bottom: clamp(8px, 1.3vh, 14px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.86) 28%,
+    rgba(255, 255, 255, 1) 52%
+  );
+}
+
+.ctaFadeOverlay {
+  display: none;
+}
+
+.primaryCta {
+  display: flex;
+  width: clamp(176px, 38vw, 240px);
+  height: clamp(36px, 5.5vh, 50px);
+  align-items: center;
+  justify-content: center;
+  border-radius: 33px;
+  background: linear-gradient(180deg, #5e3023 0%, #895737 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: clamp(14px, 1.9vh, 18px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.secondaryCta {
+  color: #5e3023;
+  font-weight: 600;
+  font-size: clamp(12px, 1.5vh, 16px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+@keyframes logo-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - 16px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoTrack {
+    animation: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .title {
+    font-size: clamp(24px, 5.2vw, 36px);
+  }
+
+  .triptique {
+    width: clamp(145px, 19vh, 220px);
+  }
+
+  .logoImage {
+    height: clamp(10px, 1.8vh, 18px);
+  }
+
+  .benefitBlock h2,
+  .benefitBlockFaded h2 {
+    font-size: clamp(12px, 1.8vh, 18px);
+  }
+
+  .benefitBlock p,
+  .benefitBlockFaded p {
+    font-size: clamp(10px, 1.3vh, 13px);
+  }
+
+  .primaryCta {
+    height: clamp(32px, 4.8vh, 42px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .phoneCanvas {
+    width: min(42vw, 620px);
+    padding-left: clamp(22px, 2vw, 36px);
+    padding-right: clamp(22px, 2vw, 36px);
+  }
+}
+.page {
+  min-height: 100dvh;
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.phoneCanvas {
+  width: min(100vw, 560px);
+  height: 100dvh;
+  padding: 0 clamp(14px, 4vw, 24px);
+  background: #ffffff;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.q1,
+.q2,
+.q3,
+.q4 {
+  min-height: 0;
+}
+
+.q1 {
+  display: grid;
+  place-items: center;
+}
+
+.header {
+  display: grid;
+  justify-items: center;
+  gap: clamp(8px, 1.8vh, 18px);
+}
+
+.eyeIcon {
+  width: clamp(30px, 4.6vh, 52px);
+  height: auto;
+}
+
+.title {
+  margin: 0;
+  max-width: clamp(220px, 82%, 430px);
+  text-align: center;
+  font-family: "Playfair Display", serif;
+  font-size: clamp(30px, 6.4vw, 56px);
+  line-height: 0.96;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #111;
+}
+
+.q2 {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(8px, 1.8vh, 14px);
+}
+
+.triptiqueSection {
+  display: flex;
+  justify-content: center;
+}
+
+.triptique {
+  width: clamp(190px, 28vh, 330px);
+  height: auto;
+}
+
+.logoMarqueeSection {
+  width: 100%;
+  overflow: hidden;
+}
+
+.logoTrack {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(16px, 2.2vh, 30px);
+  animation: logo-marquee 20s linear infinite;
+  will-change: transform;
+}
+
+.logoItem {
+  flex: 0 0 auto;
+}
+
+.logoImage {
+  width: auto;
+  height: clamp(14px, 2.6vh, 32px);
+  object-fit: contain;
+}
+
+.separator {
+  width: min(86%, 230px);
+  height: 2px;
+  background: #cbcbcb;
+  border-radius: 999px;
+}
+
+.q3 {
+  display: grid;
+  align-content: center;
+  min-height: 0;
+}
+
+.benefitsFrame {
+  height: 100%;
+  min-height: 0;
+}
+
+.benefitsScroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: clamp(6px, 1.1vh, 12px);
+  align-content: start;
+  padding: clamp(2px, 0.6vh, 6px) 0 clamp(4px, 1vh, 10px);
+  scrollbar-width: none;
+}
+
+.benefitsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.benefitBlock h2,
+.benefitBlockFaded h2 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(16px, 2.8vh, 30px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: #1a1a1a;
+}
+
+.benefitBlock p,
+.benefitBlockFaded p {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: clamp(12px, 2vh, 19px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #4d4d4d;
+}
+
+.benefitBlockFaded h2,
+.benefitBlockFaded p {
+  color: #c8c8c8;
+}
+
+.q4 {
+  display: grid;
+  align-content: end;
+}
+
+.ctaSection {
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: clamp(6px, 1.2vh, 14px);
+  height: 100%;
+  padding-top: clamp(6px, 1.2vh, 14px);
+  padding-bottom: clamp(8px, 1.4vh, 16px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.86) 28%,
+    rgba(255, 255, 255, 1) 52%
+  );
+}
+
+.ctaFadeOverlay {
+  display: none;
+}
+
+.primaryCta {
+  display: flex;
+  width: clamp(190px, 42vw, 260px);
+  height: clamp(38px, 6vh, 54px);
+  align-items: center;
+  justify-content: center;
+  border-radius: 33px;
+  background: linear-gradient(180deg, #5e3023 0%, #895737 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: clamp(15px, 2.1vh, 20px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.secondaryCta {
+  color: #5e3023;
+  font-weight: 600;
+  font-size: clamp(13px, 1.7vh, 17px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+@keyframes logo-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - 18px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoTrack {
+    animation: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .title {
+    font-size: clamp(26px, 6vw, 40px);
+  }
+
+  .triptique {
+    width: clamp(170px, 24vh, 260px);
+  }
+
+  .logoImage {
+    height: clamp(12px, 2.2vh, 22px);
+  }
+
+  .benefitBlock h2,
+  .benefitBlockFaded h2 {
+    font-size: clamp(14px, 2.2vh, 20px);
+  }
+
+  .benefitBlock p,
+  .benefitBlockFaded p {
+    font-size: clamp(11px, 1.7vh, 14px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .phoneCanvas {
+    width: min(42vw, 620px);
+    padding-left: clamp(24px, 2vw, 38px);
+    padding-right: clamp(24px, 2vw, 38px);
+  }
+}
+.page {
+  min-height: 100dvh;
+  min-width: 100%;
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.phoneCanvas {
+  width: min(100vw, 560px);
+  height: 100dvh;
+  background: #ffffff;
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr 1fr;
+  overflow: hidden;
+  padding: 0 clamp(14px, 4vw, 24px);
+}
+
+.q1,
+.q2,
+.q3,
+.q4 {
+  min-height: 0;
+}
+
+.q1 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.q2 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.8vh, 14px);
+}
+
+.q3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.q4 {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: clamp(8px, 1.4vh, 16px);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(10px, 2.2vh, 20px);
+}
+
+.eyeIcon {
+  width: clamp(30px, 5vh, 52px);
+  height: auto;
+}
+
+.title {
+  margin: 0;
+  max-width: clamp(220px, 80%, 420px);
+  text-align: center;
+  font-family: "Playfair Display", serif;
+  font-size: clamp(36px, 6.8vw, 60px);
+  line-height: 0.96;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #111;
+}
+
+.triptiqueSection {
+  display: flex;
+  justify-content: center;
+}
+
+.triptique {
+  width: clamp(190px, 28vh, 330px);
+  height: auto;
+}
+
+.logoMarqueeSection {
+  overflow: hidden;
+  width: 100%;
+  position: relative;
+}
+
+.logoTrack {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(18px, 2.6vh, 30px);
+  animation: logo-marquee 20s linear infinite;
+  will-change: transform;
+}
+
+.logoItem {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logoImage {
+  width: auto;
+  height: clamp(16px, 2.8vh, 34px);
+  object-fit: contain;
+}
+
+.separator {
+  width: clamp(120px, 22vh, 190px);
+  height: 1px;
+  background: #d8d8d8;
+}
+
+.benefitsFrame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.benefitsScroll {
+  display: grid;
+  gap: clamp(6px, 1.2vh, 12px);
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: clamp(4px, 0.8vh, 8px) 0 clamp(6px, 1.2vh, 12px);
+  scrollbar-width: none;
+}
+
+.benefitsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.benefitBlock h2,
+.benefitBlockFaded h2 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(16px, 3vh, 30px);
+  font-weight: 600;
+  line-height: 1.03;
+  letter-spacing: -0.02em;
+  color: #1a1a1a;
+}
+
+.benefitBlock p,
+.benefitBlockFaded p {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: clamp(13px, 2.2vh, 20px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #4d4d4d;
+}
+
+.ctaSection {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(8px, 1.4vh, 16px);
+  padding-top: clamp(6px, 1.2vh, 12px);
+  padding-bottom: clamp(8px, 1.4vh, 16px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.88) 24%, rgba(255, 255, 255, 1) 44%);
+}
+
+.ctaFadeOverlay {
+  display: none;
+}
+
+.primaryCta {
+  display: flex;
+  width: clamp(190px, 42vw, 260px);
+  height: clamp(42px, 6.5vh, 54px);
+  align-items: center;
+  justify-content: center;
+  border-radius: 33px;
+  background: linear-gradient(180deg, #5e3023 0%, #895737 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: clamp(16px, 2.2vh, 20px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.secondaryCta {
+  display: block;
+  color: #5e3023;
+  font-weight: 600;
+  font-size: clamp(14px, 1.8vh, 17px);
+  line-height: 1;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+@keyframes logo-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-50% - 18px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoTrack {
+    animation: none;
+  }
+}
+
+@media (max-height: 760px) {
+  .title {
+    font-size: clamp(28px, 6.2vw, 42px);
+  }
+
+  .q2 {
+    gap: 6px;
+  }
+
+  .ctaSection {
+    gap: 6px;
+  }
+
+  .primaryCta {
+    height: clamp(38px, 6.2vh, 46px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .phoneCanvas {
+    width: min(40vw, 620px);
+    padding-left: clamp(26px, 2.2vw, 40px);
+    padding-right: clamp(26px, 2.2vw, 40px);
+  }
+
+  .logoTrack {
+    gap: clamp(30px, 2.4vw, 44px);
+  }
+
+  .title {
+    font-size: clamp(42px, 3.2vw, 56px);
+  }
+}
+.page {
+  min-height: 100dvh;
+  min-width: max(100%, 390px);
+  background: #ffffff;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+}
+
+.phoneCanvas {
+  width: min(100vw, 520px);
+  min-width: 0;
+  min-height: 100dvh;
   height: auto;
   background: #ffffff;
   padding: clamp(18px, 4vw, 24px) clamp(16px, 4.2vw, 24px) clamp(28px, 6.5vw, 40px);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .header {
@@ -29,12 +1052,17 @@
   padding-top: clamp(42px, 10vw, 72px);
 }
 
+.eyeIcon {
+  width: clamp(40px, 7vw, 58px);
+  height: auto;
+}
+
 .title {
   margin: 0;
-  max-width: 500px;
+  max-width: 100%;
   text-align: center;
   font-family: "Playfair Display", serif;
-  font-size: clamp(44px, 8.3vw, 64px);
+  font-size: clamp(38px, 7vw, 40px);
   line-height: 1.04;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -134,24 +1162,25 @@
 }
 
 .ctaSection {
-  margin-top: clamp(10px, 2vh, 18px);
-  position: relative;
+  margin-top: clamp(8px, 1.8vh, 16px);
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;
+  height: clamp(108px, 18vh, 148px);
   gap: clamp(14px, 2.8vw, 20px);
-  padding-top: 0;
+  padding-top: clamp(8px, 3vh, 30px);
+  padding-bottom: clamp(6px, 2vh, 16px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.92) 36%, rgba(255, 255, 255, 1) 62%);
+  z-index: 6;
 }
 
 .ctaFadeOverlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -179px;
-  height: 174px;
-  z-index: 1;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 1) 68%);
-  pointer-events: none;
+  display: none;
 }
 
 .primaryCta {
@@ -200,9 +1229,78 @@
   }
 }
 
+@media (max-height: 760px) {
+  .phoneCanvas {
+    padding-top: 10px;
+    padding-bottom: 14px;
+  }
+
+  .header {
+    gap: 10px;
+    padding-top: 2px;
+  }
+
+  .title {
+    font-size: clamp(24px, 4.8vh, 38px);
+    line-height: 0.92;
+  }
+
+  .eyeIcon {
+    width: clamp(32px, 4.6vh, 46px);
+  }
+
+  .triptiqueSection {
+    margin-top: 8px;
+  }
+
+  .triptique {
+    width: clamp(215px, 31vh, 284px);
+  }
+
+  .logoMarqueeSection {
+    margin-top: 8px;
+  }
+
+  .logoImage {
+    height: clamp(16px, 2.9vh, 24px);
+  }
+
+  .separator {
+    margin-top: 6px;
+  }
+
+  .benefitsFrame {
+    margin-top: 8px;
+    height: clamp(126px, 20vh, 176px);
+  }
+
+  .benefitBlock h2,
+  .benefitBlockFaded h2 {
+    font-size: clamp(16px, 3.4vh, 22px);
+  }
+
+  .benefitBlock p,
+  .benefitBlockFaded p {
+    font-size: clamp(13px, 2.8vh, 16px);
+  }
+
+  .ctaSection {
+    margin-top: 6px;
+    height: clamp(92px, 15vh, 122px);
+    gap: 8px;
+    padding-top: clamp(6px, 1.8vh, 16px);
+    padding-bottom: clamp(4px, 1.2vh, 10px);
+  }
+
+  .primaryCta {
+    height: clamp(40px, 6.2vh, 50px);
+    font-size: clamp(16px, 2.8vh, 19px);
+  }
+}
+
 @media (min-width: 1024px) {
   .phoneCanvas {
-    width: min(33.333vw, calc(100dvh * 390 / 844));
+    width: min(40vw, 640px);
     padding-left: clamp(26px, 2.2vw, 40px);
     padding-right: clamp(26px, 2.2vw, 40px);
   }
@@ -219,8 +1317,12 @@
 
   .title {
     max-width: 620px;
-    font-size: clamp(48px, 4.3vw, 60px);
+    font-size: clamp(40px, 3.6vw, 52px);
     line-height: 1;
+  }
+
+  .eyeIcon {
+    width: clamp(42px, 2.8vw, 56px);
   }
 
   .benefitsFrame {
@@ -228,6 +1330,29 @@
   }
 
   .ctaSection {
-    margin-top: clamp(26px, 3.6vh, 44px);
+    margin-top: auto;
   }
+}
+
+/* Final override: keep both CTA labels same size */
+.primaryCta,
+.secondaryCta {
+  font-size: clamp(16px, 2.8vh, 22px) !important;
+}
+
+/* Final override: make message section more compact */
+.benefitsScroll {
+  gap: clamp(10px, 2.1vh, 28px) !important;
+}
+
+.benefitBlock h2,
+.benefitBlockFaded h2 {
+  font-size: clamp(20px, 3.5vh, 28px) !important;
+  line-height: 1.06 !important;
+}
+
+.benefitBlock p,
+.benefitBlockFaded p {
+  font-size: clamp(18px, 2.15vh, 24px) !important;
+  line-height: 1.08 !important;
 }

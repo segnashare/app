@@ -41,6 +41,7 @@ function WheelPicker({ label, options, value, onChange }: WheelPickerProps) {
   const currentIndex = Math.max(0, options.indexOf(value));
   const prev = getWrapped(options, currentIndex - 1);
   const next = getWrapped(options, currentIndex + 1);
+  const wheelContainerRef = useRef<HTMLDivElement | null>(null);
   const wheelDeltaAccumulatorRef = useRef(0);
   const lastWheelStepAtRef = useRef(0);
 
@@ -65,13 +66,27 @@ function WheelPicker({ label, options, value, onChange }: WheelPickerProps) {
     wheelDeltaAccumulatorRef.current = 0;
   };
 
+  useEffect(() => {
+    const element = wheelContainerRef.current;
+    if (!element) return;
+
+    const onWheelNative = (event: WheelEvent) => {
+      handleWheel(event as unknown as WheelEvent<HTMLDivElement>);
+    };
+
+    element.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", onWheelNative);
+    };
+  });
+
   return (
     <div className="border-b border-zinc-300 pb-2 pt-1">
       <p className={cn(montserrat.className, "mb-1 text-[clamp(14px,2.2vw,18px)] italic leading-none text-[#b0b0b0]")}>{label}</p>
 
       <div
+        ref={wheelContainerRef}
         className="select-none"
-        onWheel={handleWheel}
       >
         <button type="button" className="flex w-full justify-center py-[2px]" onClick={() => step(-1)}>
           <span className={cn(montserrat.className, "text-[clamp(20px,3.8vw,28px)] font-semibold leading-none text-zinc-400")}>{prev}</span>
@@ -122,14 +137,24 @@ export function OnboardingSizeCore({ formId, onCanContinueChange }: OnboardingSi
     setErrorMessage(null);
 
     setIsSubmitting(true);
-    const { error } = await supabase.rpc("save_onboarding_progress", {
+    const { error: sizesError } = await supabase.rpc("set_user_profile_sizes", {
+      p_top_size_code: `top:${topSize}`,
+      p_bottom_size_code: `bottom:${bottomSize}`,
+      p_shoes_size_code: `shoes:${shoesSize}`,
+      p_request_id: crypto.randomUUID(),
+    });
+    if (sizesError) {
+      setIsSubmitting(false);
+      setErrorMessage(sizesError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("upsert_onboarding_progress", {
       p_current_step: "/onboarding/work",
-      p_progress: {
+      p_progress_json: {
         checkpoint: "/onboarding/size",
-        size_top: topSize,
-        size_bottom: bottomSize,
-        size_shoes_eu: shoesSize,
       },
+      p_request_id: crypto.randomUUID(),
     });
     setIsSubmitting(false);
 
