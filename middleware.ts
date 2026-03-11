@@ -219,7 +219,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (session && pathname.startsWith("/onboarding")) {
-    const { reachedIndex, status } = await getReachedState();
+    const { reachedIndex, reachedPath, status } = await getReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
       url.pathname = "/app";
