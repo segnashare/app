@@ -3,7 +3,7 @@
 import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, WheelEvent } from "react";
+import type { FormEvent, WheelEvent as ReactWheelEvent } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -49,7 +49,7 @@ function WheelPicker({ label, options, value, onChange }: WheelPickerProps) {
     onChange(getWrapped(options, currentIndex + delta));
   };
 
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
 
     const now = Date.now();
@@ -70,8 +70,8 @@ function WheelPicker({ label, options, value, onChange }: WheelPickerProps) {
     const element = wheelContainerRef.current;
     if (!element) return;
 
-    const onWheelNative = (event: WheelEvent) => {
-      handleWheel(event as unknown as WheelEvent<HTMLDivElement>);
+    const onWheelNative = (event: globalThis.WheelEvent) => {
+      handleWheel(event as unknown as ReactWheelEvent<HTMLDivElement>);
     };
 
     element.addEventListener("wheel", onWheelNative, { passive: false });
