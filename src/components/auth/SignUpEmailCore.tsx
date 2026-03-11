@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -46,6 +47,22 @@ export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCore
 
   const onSubmit = handleSubmit(async ({ email }) => {
     setSubmitError(null);
+
+    try {
+      const response = await fetch("/api/auth/user-exists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const payload = (await response.json()) as { exists?: boolean };
+      if (payload.exists) {
+        setSubmitError("Un compte existe deja avec cet e-mail. Connecte-toi.");
+        return;
+      }
+    } catch {
+      // If the check endpoint is temporarily unavailable, keep sign-up flow available.
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: true },
@@ -98,7 +115,14 @@ export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCore
           />
         </div>
         {hasEmailError ? <p className="mt-3 text-[20px] font-medium text-[#E44D3E]">Merci d&apos;indiquer une adresse e-mail valide.</p> : null}
-        {submitError ? <p className="mt-3 text-[16px] font-medium text-[#E44D3E]">{submitError}</p> : null}
+        {submitError ? (
+          <p className="mt-3 text-[16px] font-medium text-[#E44D3E]">
+            {submitError}{" "}
+            <Link href="/auth/sign-in" className="underline">
+              Se connecter
+            </Link>
+          </p>
+        ) : null}
       </form>
     </div>
   );
