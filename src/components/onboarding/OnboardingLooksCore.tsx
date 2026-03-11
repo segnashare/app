@@ -13,6 +13,7 @@ import {
   removePhotoModifyDraft,
   savePhotoModifyDraft,
 } from "@/lib/onboarding/photoModifyStore";
+import type { Json } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils/cn";
 
 type OnboardingLooksCoreProps = {
@@ -180,7 +181,7 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
       return;
     }
 
-    const looksPayload = slots.reduce<Record<string, unknown>>((accumulator, slot, index) => {
+    const looksPayload: Json = slots.reduce<Record<string, Json | undefined>>((accumulator, slot, index) => {
       if (!slot) return accumulator;
       const key = `look${index + 1}`;
       accumulator[key] = {
