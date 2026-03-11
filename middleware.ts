@@ -177,7 +177,7 @@ export async function middleware(request: NextRequest) {
   }
 
   let cachedReachedIndex: number | null = null;
-  let cachedReachedPath: OnboardingPath | null | undefined;
+  let cachedReachedPath: OnboardingPath | undefined;
   let cachedStatus: string | null | undefined;
   const getReachedState = async () => {
     if (!session) {
