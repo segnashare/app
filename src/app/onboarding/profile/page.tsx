@@ -1,7 +1,7 @@
 "use client";
 
 import { Playfair_Display } from "next/font/google";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { OnboardingProfileCore } from "@/components/onboarding/OnboardingProfileCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -29,7 +29,11 @@ export default function OnboardingProfilePage() {
           Montre-nous qui tu es
         </h1>
       }
-      mainLayout={<OnboardingProfileCore formId="onboarding-profile-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <Suspense fallback={<div className="mt-8 w-full" />}>
+          <OnboardingProfileCore formId="onboarding-profile-form" onCanContinueChange={setCanContinue} />
+        </Suspense>
+      }
       footerFrameGaucheLayerCentre={
         <div className={cn(themeClassNames.onboarding.shell.footerLigneInfo, themeClassNames.onboarding.shell.footerInfoTroisQuarts)}>
           <p className={cn(themeClassNames.onboarding.textes.accentMarron, "text-[clamp(16px,2.6vw,20px)]")}>Pourquoi la photo ?</p>
