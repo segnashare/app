@@ -2,7 +2,7 @@
 
 import { Playfair_Display } from "next/font/google";
 import { Camera, Plus } from "lucide-react";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import { OnboardingLooksCore } from "@/components/onboarding/OnboardingLooksCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -30,7 +30,11 @@ export default function OnboardingLooksPage() {
           Choisis tes looks préférés
         </h1>
       }
-      mainLayout={<OnboardingLooksCore formId="onboarding-looks-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={
+        <Suspense fallback={<div className="mt-7 w-full" />}>
+          <OnboardingLooksCore formId="onboarding-looks-form" onCanContinueChange={setCanContinue} />
+        </Suspense>
+      }
       nextArrowType="submit"
       nextArrowForm="onboarding-looks-form"
       nextArrowEnabled={canContinue}
