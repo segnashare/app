@@ -80,7 +80,7 @@ export function ResetPasswordCore({ formId, onCanContinueChange }: ResetPassword
       .maybeSingle();
 
     if (onboardingRow?.status === "completed") {
-      router.replace("/app");
+      router.replace("/home");
       return;
     }
 

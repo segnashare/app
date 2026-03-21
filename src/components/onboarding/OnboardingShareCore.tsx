@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingShareCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const SHARE_OPTIONS = [
@@ -29,7 +30,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingShareCore({ formId, onCanContinueChange }: OnboardingShareCoreProps) {
+export function OnboardingShareCore({ formId, onCanContinueChange, redirectPath }: OnboardingShareCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -87,7 +88,7 @@ export function OnboardingShareCore({ formId, onCanContinueChange }: OnboardingS
       return;
     }
 
-    router.push("/onboarding/budget");
+    router.push(redirectPath ?? "/onboarding/budget");
   };
 
   return (

@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingBudgetCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const BUDGET_OPTIONS = [
@@ -28,7 +29,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingBudgetCore({ formId, onCanContinueChange }: OnboardingBudgetCoreProps) {
+export function OnboardingBudgetCore({ formId, onCanContinueChange, redirectPath }: OnboardingBudgetCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -86,7 +87,7 @@ export function OnboardingBudgetCore({ formId, onCanContinueChange }: Onboarding
       return;
     }
 
-    router.push("/onboarding/dressing");
+    router.push(redirectPath ?? "/onboarding/dressing");
   };
 
   return (

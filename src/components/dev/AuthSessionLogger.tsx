@@ -63,7 +63,10 @@ export function AuthSessionLogger() {
               }
               return;
             }
-            console.error("[auth][session]", { event, pathname, message });
+            if (logEnabled) {
+              // Avoid Next.js dev error overlay for non-fatal logging failures.
+              console.warn("[auth][session]", { event, pathname, message, handled: true });
+            }
           });
         }
       }

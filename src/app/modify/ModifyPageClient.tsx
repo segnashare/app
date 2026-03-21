@@ -64,12 +64,17 @@ export function ModifyPageClient() {
       }
 
       const userId = userData.user.id;
+      const fileExtension = draft.fileName.includes(".") ? draft.fileName.split(".").pop() || "jpg" : "jpg";
+      const normalizedExt = fileExtension.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const bucketId = draft.source === "item" ? "bucket_items" : "bucket_focus";
       const path =
         draft.source === "looks" && typeof draft.slot === "number"
-          ? `users/${userId}/looks/${draft.slot + 1}/original.jpg`
-          : `users/${userId}/profile/original.jpg`;
+          ? `users/${userId}/looks/${draft.slot + 1}/original.${normalizedExt}`
+          : draft.source === "item" && typeof draft.slot === "number"
+            ? `users/${userId}/items/${draft.itemId ?? "draft"}/photo_${draft.slot + 1}.${normalizedExt}`
+            : `users/${userId}/profile/original.${normalizedExt}`;
       const file = await dataUrlToFile(draft.dataUrl, draft.fileName, draft.mimeType);
-      const { error: uploadError } = await supabase.storage.from("bucket_focus").upload(path, file, {
+      const { error: uploadError } = await supabase.storage.from(bucketId).upload(path, file, {
         upsert: true,
         contentType: file.type || "image/jpeg",
       });

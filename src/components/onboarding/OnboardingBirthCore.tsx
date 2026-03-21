@@ -17,6 +17,8 @@ type OnboardingBirthCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
   ageVisibleOnProfile?: boolean;
+  redirectPath?: string;
+  initialBirthDate?: string;
 };
 
 const playfairDisplay = Playfair_Display({
@@ -68,7 +70,7 @@ function getAgeFromBirthDate(birthDate: Date) {
   return age;
 }
 
-export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnProfile = true }: OnboardingBirthCoreProps) {
+export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnProfile = true, redirectPath, initialBirthDate }: OnboardingBirthCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -92,6 +94,13 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
   useEffect(() => {
     onCanContinueChange?.(isDateValid && !isSubmitting);
   }, [isDateValid, isSubmitting, onCanContinueChange]);
+
+  useEffect(() => {
+    if (!initialBirthDate || !/^\d{4}-\d{2}-\d{2}$/.test(initialBirthDate)) return;
+    const [yearValue, monthValue, dayValue] = initialBirthDate.split("-");
+    const nextDigits = [dayValue[0] ?? "", dayValue[1] ?? "", monthValue[0] ?? "", monthValue[1] ?? "", yearValue[0] ?? "", yearValue[1] ?? "", yearValue[2] ?? "", yearValue[3] ?? ""];
+    setDigits(nextDigits);
+  }, [initialBirthDate]);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -151,7 +160,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
       return;
     }
 
-    router.push("/onboarding/1");
+    router.push(redirectPath ?? "/onboarding/1");
   };
 
   const birthDateForModal = isDateValid ? toBirthDate(day, month, year) : null;
@@ -163,9 +172,9 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
   return (
     <div className="mt-8 w-full">
       <form id={formId} onSubmit={onSubmit} noValidate className="flex w-full flex-col gap-6">
-        <div className="flex w-full min-w-0 items-end gap-[clamp(1px,0.5vw,4px)]">
+        <div className="flex w-full min-w-0 items-end justify-center gap-[clamp(1px,0.45vw,3px)]">
           {digits.map((digit, index) => (
-            <div key={`birth-slot-${index}`} className={cn("min-w-0 flex-1", (index === 2 || index === 4) && "ml-[clamp(3px,1vw,8px)]")}>
+            <div key={`birth-slot-${index}`} className={cn("w-[clamp(26px,7.2vw,38px)] min-w-0 shrink-0", (index === 2 || index === 4) && "ml-[clamp(12px,4vw,28px)]")}>
               <input
                 id={`birth-slot-${index + 1}`}
                 type="text"
@@ -176,7 +185,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
                 value={digit}
                 className={cn(
                   playfairDisplay.className,
-                  "mx-auto h-auto w-[82%] min-w-0 rounded-none border-0 border-b bg-transparent px-0 pb-3 pt-0 text-center text-[clamp(28px,4.8vw,44px)] font-extrabold leading-none outline-none placeholder:text-zinc-900/55 focus:border-b-2 md:w-full",
+                  "mx-auto h-auto w-[70%] min-w-0 rounded-none border-0 border-b bg-transparent px-0 pb-3 pt-0 text-center text-[clamp(28px,4.8vw,44px)] font-extrabold leading-none outline-none placeholder:text-zinc-900/55 focus:border-b-2",
                   errorMessage
                     ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43]/70 focus:border-[#d56a61]"
                     : "border-zinc-900 text-zinc-900 focus:border-zinc-900",

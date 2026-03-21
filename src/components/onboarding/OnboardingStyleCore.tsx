@@ -12,6 +12,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingStyleCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const STYLE_OPTIONS = [
@@ -26,7 +27,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingStyleCore({ formId, onCanContinueChange }: OnboardingStyleCoreProps) {
+export function OnboardingStyleCore({ formId, onCanContinueChange, redirectPath }: OnboardingStyleCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -111,7 +112,7 @@ export function OnboardingStyleCore({ formId, onCanContinueChange }: OnboardingS
       return;
     }
 
-    router.push("/onboarding/brands");
+    router.push(redirectPath ?? "/onboarding/brands");
   };
 
   return (

@@ -74,7 +74,7 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
         .maybeSingle();
 
       if (row?.status === "completed") {
-        router.replace("/app");
+        router.replace("/home");
         return;
       }
 

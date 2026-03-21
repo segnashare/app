@@ -37,7 +37,7 @@ export default function OnboardingEndPage() {
       setErrorMessage(error.message);
       return;
     }
-    router.push("/app");
+    router.push("/home");
   };
 
   return (

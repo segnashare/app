@@ -67,11 +67,6 @@ alter table public.user_blocks
   add constraint user_blocks_blocked_by_user_id_fkey
   foreign key (blocked_by_user_id) references public.users(id) on delete set null;
 
-alter table public.user_status_history drop constraint if exists user_status_history_actor_user_id_fkey;
-alter table public.user_status_history
-  add constraint user_status_history_actor_user_id_fkey
-  foreign key (actor_user_id) references public.users(id) on delete set null;
-
 alter table public.cart_deposits drop constraint if exists cart_deposits_user_id_fkey;
 alter table public.cart_deposits
   add constraint cart_deposits_user_id_fkey

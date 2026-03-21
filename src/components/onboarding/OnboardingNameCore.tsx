@@ -18,6 +18,9 @@ type NameFormValues = {
 type OnboardingNameCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
+  initialFirstName?: string;
+  initialLastName?: string;
 };
 
 const montserrat = Montserrat({
@@ -29,7 +32,7 @@ const playfairDisplay = Playfair_Display({
   weight: "800",
 });
 
-export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNameCoreProps) {
+export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, initialFirstName, initialLastName }: OnboardingNameCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -42,6 +45,7 @@ export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNa
   const {
     register,
     handleSubmit,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<NameFormValues>({
@@ -59,6 +63,15 @@ export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNa
   useEffect(() => {
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
+
+  useEffect(() => {
+    if (typeof initialFirstName === "string") {
+      setValue("firstName", initialFirstName);
+    }
+    if (typeof initialLastName === "string") {
+      setValue("lastName", initialLastName);
+    }
+  }, [initialFirstName, initialLastName, setValue]);
 
   const onSubmit = handleSubmit(async ({ firstName, lastName }) => {
     setErrorMessage(null);
@@ -91,7 +104,7 @@ export function OnboardingNameCore({ formId, onCanContinueChange }: OnboardingNa
       return;
     }
 
-    router.push("/onboarding/birth");
+    router.push(redirectPath ?? "/onboarding/birth");
   });
 
   return (

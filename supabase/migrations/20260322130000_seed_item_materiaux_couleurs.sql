@@ -1,0 +1,47 @@
+-- Seed catalogues item_materiaux et item_couleurs
+insert into public.item_materiaux (label, slug) values
+  ('Coton', 'coton'),
+  ('Polyester', 'polyester'),
+  ('Laine', 'laine'),
+  ('Soie', 'soie'),
+  ('Lin', 'lin'),
+  ('Cuir', 'cuir'),
+  ('Denim', 'denim'),
+  ('Viscose', 'viscose'),
+  ('Cachemire', 'cachemire'),
+  ('Laine mérinos', 'laine-merinos'),
+  ('Synthétique', 'synthetique'),
+  ('Coton bio', 'coton-bio'),
+  ('Autre', 'autre')
+on conflict (slug) do nothing;
+
+insert into public.item_couleurs (label, slug) values
+  ('Noir', 'noir'),
+  ('Blanc', 'blanc'),
+  ('Gris', 'gris'),
+  ('Gris clair', 'gris-clair'),
+  ('Gris foncé', 'gris-fonce'),
+  ('Beige', 'beige'),
+  ('Bleu', 'bleu'),
+  ('Bleu marine', 'bleu-marine'),
+  ('Bleu clair', 'bleu-clair'),
+  ('Bleu nuit', 'bleu-nuit'),
+  ('Rouge', 'rouge'),
+  ('Rose', 'rose'),
+  ('Rose clair', 'rose-clair'),
+  ('Vert', 'vert'),
+  ('Vert clair', 'vert-clair'),
+  ('Vert olive', 'vert-olive'),
+  ('Jaune', 'jaune'),
+  ('Orange', 'orange'),
+  ('Marron', 'marron'),
+  ('Marron clair', 'marron-clair'),
+  ('Bordeaux', 'bordeaux'),
+  ('Violet', 'violet'),
+  ('Violet clair', 'violet-clair'),
+  ('Camel', 'camel'),
+  ('Ecru', 'ecru'),
+  ('Nude', 'nude'),
+  ('Kaki', 'kaki'),
+  ('Multi-colore', 'multi-colore')
+on conflict (slug) do nothing;

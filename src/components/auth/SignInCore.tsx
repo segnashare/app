@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -33,6 +33,33 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [authErrorType, setAuthErrorType] = useState<"account_not_found" | "wrong_password" | null>(null);
 
+  const resolvePostSignInPath = useCallback(
+    async (userId: string) => {
+      const { data: onboardingData } = await supabase
+        .from("onboarding_sessions")
+        .select("current_step, status")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (onboardingData?.status === "completed") return "/home";
+      if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
+
+      // Fallback: some legacy rows may miss onboarding status but still have a fully completed profile.
+      const { data: profileRow } = await supabase
+        .from("user_profiles")
+        .select("score, profile_data")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const profileData = (profileRow?.profile_data ?? {}) as Record<string, unknown>;
+      const rawScore = profileRow?.score ?? profileData.completion_score ?? profileData.profile_completion ?? profileData.score ?? profileData.progress_score;
+      const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
+      if (Number.isFinite(numericScore) && numericScore >= 100) return "/home";
+
+      return "/onboarding/welcome";
+    },
+    [supabase],
+  );
+
   useEffect(() => {
     const redirectIfAlreadySignedIn = async () => {
       const {
@@ -41,28 +68,12 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
       } = await supabase.auth.getUser();
 
       if (userError || !user) return;
-
-      const { data } = await supabase
-        .from("onboarding_sessions")
-        .select("current_step, status")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (data?.status === "completed") {
-        router.replace("/app");
-        return;
-      }
-
-      if (data?.current_step?.startsWith("/onboarding/")) {
-        router.replace(data.current_step);
-        return;
-      }
-
-      router.replace("/onboarding/welcome");
+      const targetPath = await resolvePostSignInPath(user.id);
+      router.replace(targetPath);
     };
 
     void redirectIfAlreadySignedIn();
-  }, [router, supabase]);
+  }, [resolvePostSignInPath, router, supabase]);
 
   const {
     register,
@@ -110,7 +121,15 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
       return;
     }
 
-    router.replace("/onboarding");
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      router.replace("/onboarding");
+      return;
+    }
+    const targetPath = await resolvePostSignInPath(user.id);
+    router.replace(targetPath);
   });
 
   const hasEmailError = Boolean(errors.email) || authErrorType === "account_not_found";

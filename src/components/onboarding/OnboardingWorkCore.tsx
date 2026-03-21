@@ -17,6 +17,8 @@ type WorkFormValues = {
 type OnboardingWorkCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
+  initialProfession?: string;
 };
 
 const montserrat = Montserrat({
@@ -24,7 +26,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingWorkCore({ formId, onCanContinueChange }: OnboardingWorkCoreProps) {
+export function OnboardingWorkCore({ formId, onCanContinueChange, redirectPath, initialProfession }: OnboardingWorkCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export function OnboardingWorkCore({ formId, onCanContinueChange }: OnboardingWo
   const {
     register,
     handleSubmit,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<WorkFormValues>({
@@ -47,6 +50,12 @@ export function OnboardingWorkCore({ formId, onCanContinueChange }: OnboardingWo
   useEffect(() => {
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
+
+  useEffect(() => {
+    if (typeof initialProfession === "string") {
+      setValue("profession", initialProfession);
+    }
+  }, [initialProfession, setValue]);
 
   const onSubmit = handleSubmit(async ({ profession }) => {
     setErrorMessage(null);
@@ -78,7 +87,7 @@ export function OnboardingWorkCore({ formId, onCanContinueChange }: OnboardingWo
       return;
     }
 
-    router.push("/onboarding/2");
+    router.push(redirectPath ?? "/onboarding/2");
   });
 
   return (

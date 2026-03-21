@@ -13,7 +13,7 @@ const PUBLIC_PREFIXES = [
   "/auth/sign-up/verify",
 ];
 
-const PROTECTED_PREFIXES = ["/onboarding", "/app", "/auth/sign-up/password"];
+const PROTECTED_PREFIXES = ["/onboarding", "/auth/sign-up/password", "/home", "/shop", "/exchange", "/community", "/profile"];
 const ONBOARDING_PATHS = [
   "/onboarding/welcome",
   "/onboarding/phone",
@@ -205,10 +205,10 @@ export async function middleware(request: NextRequest) {
   };
 
   if (session && pathname.startsWith("/auth/sign-up/password")) {
-    const { reachedIndex, reachedPath, status } = await getReachedState();
+    const { reachedIndex, status } = await getReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/app";
+      url.pathname = "/home";
       return NextResponse.redirect(url);
     }
     if (reachedIndex > 0) {
@@ -222,7 +222,7 @@ export async function middleware(request: NextRequest) {
     const { reachedIndex, reachedPath, status } = await getReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/app";
+      url.pathname = "/home";
       return NextResponse.redirect(url);
     }
     if (pathname === "/onboarding") {
@@ -246,7 +246,7 @@ export async function middleware(request: NextRequest) {
   if (session && isPublicRoute(pathname) && pathname !== "/") {
     const { reachedIndex, status } = await getReachedState();
     const url = request.nextUrl.clone();
-    url.pathname = status === "completed" ? "/app" : getOnboardingPathFromIndex(reachedIndex);
+    url.pathname = status === "completed" ? "/home" : getOnboardingPathFromIndex(reachedIndex);
     return NextResponse.redirect(url);
   }
 

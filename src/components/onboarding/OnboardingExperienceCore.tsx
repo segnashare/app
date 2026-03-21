@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingExperienceCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const EXPERIENCE_OPTIONS = [
@@ -28,7 +29,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingExperienceCore({ formId, onCanContinueChange }: OnboardingExperienceCoreProps) {
+export function OnboardingExperienceCore({ formId, onCanContinueChange, redirectPath }: OnboardingExperienceCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -86,7 +87,7 @@ export function OnboardingExperienceCore({ formId, onCanContinueChange }: Onboar
       return;
     }
 
-    router.push("/onboarding/share");
+    router.push(redirectPath ?? "/onboarding/share");
   };
 
   return (

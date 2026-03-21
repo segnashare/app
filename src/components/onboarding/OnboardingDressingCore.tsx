@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingDressingCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const DRESSING_OPTIONS = [
@@ -27,7 +28,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingDressingCore({ formId, onCanContinueChange }: OnboardingDressingCoreProps) {
+export function OnboardingDressingCore({ formId, onCanContinueChange, redirectPath }: OnboardingDressingCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -85,7 +86,7 @@ export function OnboardingDressingCore({ formId, onCanContinueChange }: Onboardi
       return;
     }
 
-    router.push("/onboarding/ethic");
+    router.push(redirectPath ?? "/onboarding/ethic");
   };
 
   return (

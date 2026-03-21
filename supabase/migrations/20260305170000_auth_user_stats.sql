@@ -18,16 +18,13 @@ as $$
   from auth.users u
   left join public.profiles p on p.id = u.id;
 $$;
-
 create or replace view public.auth_user_stats_view as
 select *
 from public.auth_user_stats();
-
 revoke all on function public.auth_user_stats() from public;
 revoke all on function public.auth_user_stats() from anon;
 revoke all on function public.auth_user_stats() from authenticated;
 grant execute on function public.auth_user_stats() to service_role;
-
 revoke all on public.auth_user_stats_view from public;
 revoke all on public.auth_user_stats_view from anon;
 revoke all on public.auth_user_stats_view from authenticated;

@@ -12,6 +12,10 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingSizeCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
+  initialTopSize?: string;
+  initialBottomSize?: string;
+  initialShoesSize?: string;
 };
 
 type WheelPickerProps = {
@@ -112,7 +116,14 @@ function WheelPicker({ label, options, value, onChange }: WheelPickerProps) {
   );
 }
 
-export function OnboardingSizeCore({ formId, onCanContinueChange }: OnboardingSizeCoreProps) {
+export function OnboardingSizeCore({
+  formId,
+  onCanContinueChange,
+  redirectPath,
+  initialTopSize,
+  initialBottomSize,
+  initialShoesSize,
+}: OnboardingSizeCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
 
@@ -131,6 +142,12 @@ export function OnboardingSizeCore({ formId, onCanContinueChange }: OnboardingSi
   useEffect(() => {
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
+
+  useEffect(() => {
+    if (initialTopSize && TOP_OPTIONS.includes(initialTopSize)) setTopSize(initialTopSize);
+    if (initialBottomSize && BOTTOM_OPTIONS.includes(initialBottomSize)) setBottomSize(initialBottomSize);
+    if (initialShoesSize && SHOES_OPTIONS.includes(initialShoesSize)) setShoesSize(initialShoesSize);
+  }, [initialBottomSize, initialShoesSize, initialTopSize]);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -163,7 +180,7 @@ export function OnboardingSizeCore({ formId, onCanContinueChange }: OnboardingSi
       return;
     }
 
-    router.push("/onboarding/work");
+    router.push(redirectPath ?? "/onboarding/work");
   };
 
   return (

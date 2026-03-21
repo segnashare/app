@@ -18,6 +18,16 @@ type LocationFormValues = {
 type OnboardingLocationCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
+  initialLocation?: {
+    label?: string;
+    lat?: number | null;
+    lon?: number | null;
+    city?: string | null;
+    relativeCity?: string | null;
+    timezone?: string | null;
+    hasStreet?: boolean;
+  };
 };
 
 type AdresseApiFeature = {
@@ -104,7 +114,7 @@ function toLocationSuggestion(feature: AdresseApiFeature): LocationSuggestion {
   };
 }
 
-export function OnboardingLocationCore({ formId, onCanContinueChange }: OnboardingLocationCoreProps) {
+export function OnboardingLocationCore({ formId, onCanContinueChange, redirectPath, initialLocation }: OnboardingLocationCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -142,6 +152,24 @@ export function OnboardingLocationCore({ formId, onCanContinueChange }: Onboardi
   useEffect(() => {
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
+
+  useEffect(() => {
+    if (!initialLocation?.label) return;
+    const seeded: LocationSuggestion = {
+      id: "seeded-initial-location",
+      label: initialLocation.label,
+      secondary: "",
+      lat: typeof initialLocation.lat === "number" ? initialLocation.lat : DEFAULT_CENTER.lat,
+      lon: typeof initialLocation.lon === "number" ? initialLocation.lon : DEFAULT_CENTER.lon,
+      hasStreet: initialLocation.hasStreet ?? true,
+      city: initialLocation.city ?? null,
+      relativeCity: initialLocation.relativeCity ?? null,
+      timezone: initialLocation.timezone ?? "Europe/Paris",
+    };
+    setValue("location", seeded.label, { shouldDirty: false, shouldTouch: false, shouldValidate: true });
+    setSelectedSuggestion(seeded);
+    setMapCenter({ lat: seeded.lat, lon: seeded.lon });
+  }, [initialLocation, setValue]);
 
   useEffect(() => {
     const query = locationValue.trim();
@@ -231,7 +259,7 @@ export function OnboardingLocationCore({ formId, onCanContinueChange }: Onboardi
       return;
     }
 
-    router.push("/onboarding/profile");
+    router.push(redirectPath ?? "/onboarding/profile");
   });
 
   const handleLocateMe = () => {

@@ -35,7 +35,7 @@ export default function OnboardingAnswersPage() {
       nextArrowType="submit"
       nextArrowForm="onboarding-answers-form"
       nextArrowEnabled={canContinue}
-      nextArrowAriaLabel="Valider les réponses"
+      nextArrowAriaLabel="Valider les insights"
     />
   );
 }

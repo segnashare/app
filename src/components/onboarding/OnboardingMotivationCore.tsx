@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingMotivationCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const MOTIVATION_OPTIONS = [
@@ -29,7 +30,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingMotivationCore({ formId, onCanContinueChange }: OnboardingMotivationCoreProps) {
+export function OnboardingMotivationCore({ formId, onCanContinueChange, redirectPath }: OnboardingMotivationCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -121,7 +122,7 @@ export function OnboardingMotivationCore({ formId, onCanContinueChange }: Onboar
       return;
     }
 
-    router.push("/onboarding/experience");
+    router.push(redirectPath ?? "/onboarding/experience");
   };
 
   return (

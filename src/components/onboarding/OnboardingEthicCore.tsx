@@ -14,6 +14,7 @@ import { themeClassNames } from "@/styles/theme";
 type OnboardingEthicCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  redirectPath?: string;
 };
 
 const ETHIC_OPTIONS = [
@@ -27,7 +28,7 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
-export function OnboardingEthicCore({ formId, onCanContinueChange }: OnboardingEthicCoreProps) {
+export function OnboardingEthicCore({ formId, onCanContinueChange, redirectPath }: OnboardingEthicCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -85,7 +86,7 @@ export function OnboardingEthicCore({ formId, onCanContinueChange }: OnboardingE
       return;
     }
 
-    router.push("/onboarding/privacy");
+    router.push(redirectPath ?? "/onboarding/privacy");
   };
 
   return (

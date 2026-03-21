@@ -1,6 +1,6 @@
 "use client";
 
-export type PhotoModifySource = "profile" | "looks";
+export type PhotoModifySource = "profile" | "looks" | "item";
 export type PhotoModifyAspect = "square" | "portrait";
 
 export type PhotoModifyDraft = {
@@ -12,6 +12,7 @@ export type PhotoModifyDraft = {
   fileName: string;
   mimeType: string;
   slot?: number;
+  itemId?: string;
   aspect: PhotoModifyAspect;
   offset: { x: number; y: number };
   zoom: number;

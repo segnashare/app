@@ -26,7 +26,7 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
     .maybeSingle();
 
   if (data?.status === "completed") {
-    redirect("/app");
+    redirect("/home");
   }
 
   if (data?.current_step?.startsWith("/onboarding/")) {

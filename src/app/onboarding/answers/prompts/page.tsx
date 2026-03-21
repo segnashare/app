@@ -37,9 +37,11 @@ function OnboardingAnswersPromptsPageContent() {
   const r0 = searchParams.get("r0") ?? "";
   const r1 = searchParams.get("r1") ?? "";
   const r2 = searchParams.get("r2") ?? "";
+  const returnPath = searchParams.get("returnPath") ?? "/onboarding/answers";
 
   const buildAnswersUrl = (nextValues?: { p0?: string; p1?: string; p2?: string; r0?: string; r1?: string; r2?: string }) => {
-    const query = new URLSearchParams();
+    const [basePath, existingQuery] = returnPath.split("?");
+    const query = new URLSearchParams(existingQuery ?? "");
     const nextP0 = nextValues?.p0 ?? p0;
     const nextP1 = nextValues?.p1 ?? p1;
     const nextP2 = nextValues?.p2 ?? p2;
@@ -53,7 +55,7 @@ function OnboardingAnswersPromptsPageContent() {
     if (nextR1.trim()) query.set("r1", nextR1.trim());
     if (nextR2.trim()) query.set("r2", nextR2.trim());
     const queryString = query.toString();
-    return queryString ? `/onboarding/answers?${queryString}` : "/onboarding/answers";
+    return queryString ? `${basePath}?${queryString}` : basePath;
   };
 
   const goToTab = (tab: AnswersTabId) => {
@@ -64,9 +66,18 @@ function OnboardingAnswersPromptsPageContent() {
 
   const selectPrompt = (prompt: string) => {
     const next = { p0, p1, p2, r0, r1, r2 };
-    if (slotIndex === 0) next.p0 = prompt;
-    if (slotIndex === 1) next.p1 = prompt;
-    if (slotIndex === 2) next.p2 = prompt;
+    if (slotIndex === 0) {
+      next.p0 = prompt;
+      next.r0 = "";
+    }
+    if (slotIndex === 1) {
+      next.p1 = prompt;
+      next.r1 = "";
+    }
+    if (slotIndex === 2) {
+      next.p2 = prompt;
+      next.r2 = "";
+    }
     router.push(buildAnswersUrl(next));
   };
 
@@ -96,7 +107,7 @@ function OnboardingAnswersPromptsPageContent() {
           <button type="button" onClick={() => router.push(buildAnswersUrl())} className={cn(montserrat.className, "text-[clamp(16px,2.8vw,22px)] text-[#5E3023]")}>
             Voir tout
           </button>
-          <p className={cn(montserrat.className, "text-[clamp(20px,3.3vw,30px)] font-semibold text-zinc-950")}>Accroches</p>
+          <p className={cn(montserrat.className, "text-[clamp(20px,3.3vw,30px)] font-semibold text-zinc-950")}>Insights</p>
           <button type="button" onClick={() => router.push(buildAnswersUrl())} className="text-zinc-900" aria-label="Fermer">
             <X size={24} strokeWidth={2.6} />
           </button>
