@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronRight, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent, TouchEvent } from "react";
 
@@ -11,11 +11,22 @@ import { ItemViewView } from "@/components/item/ItemViewView";
 import { Input } from "@/components/ui/Input";
 import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
 import {
+  dataUrlToFile,
   fileToDataUrl,
   readPhotoModifyDraft,
   removePhotoModifyDraft,
   savePhotoModifyDraft,
 } from "@/lib/onboarding/photoModifyStore";
+import {
+  clearItemInfoDraft,
+  getItemInfoDraft,
+  getLastDbLoadedItemId,
+  setItemInfoDraft,
+  setLastDbLoadedItemId,
+  type ItemInfoDraft,
+} from "@/lib/items/itemInfoDraftStorage";
+import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -24,17 +35,23 @@ const montserrat = Montserrat({
   weight: "600",
 });
 
+const montserratItalic = Montserrat({
+  subsets: ["latin"],
+  weight: "500",
+  style: "italic",
+});
+
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
   weight: "800",
 });
 
 const INFO_LINKS = [
-  { key: "color", label: "Couleur", href: "/items/new/color" },
   { key: "category", label: "Catégorie", href: "/items/new/category" },
   { key: "size", label: "Taille", href: "/items/new/size" },
   { key: "brand", label: "Marque", href: "/items/new/brand" },
   { key: "condition", label: "État", href: "/items/new/condition" },
+  { key: "color", label: "Couleur", href: "/items/new/color" },
   { key: "materials", label: "Matériaux", href: "/items/new/materials" },
 ] as const;
 
@@ -76,7 +93,7 @@ async function upsertDraftCondition(
   conditionScore: string,
   defectNotes: string | null,
 ): Promise<{ error: Error | null }> {
-  await supabase.from("item_condition_history").delete().eq("item_id", itemId).eq("status", "draft");
+  await supabase.from("item_condition_history").delete().eq("item_id", itemId).eq("source", "owner_announced");
   const { error } = await supabase.from("item_condition_history").insert({
     item_id: itemId,
     source: "owner_announced",
@@ -139,11 +156,14 @@ function normalizeDraftTitle(value: string | null | undefined): string {
 
 export default function NewItemPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const requestedItemId = searchParams.get("itemId")?.trim() || null;
   const forceFreshDraft = searchParams.get("fresh") === "1";
-  const initialTitleFromParams = searchParams.get("title") ?? "";
-  const initialDescriptionFromParams = searchParams.get("description") ?? "";
+  const photoModifyIdFromUrl = searchParams.get("photoModifyId");
+  /** Evite de relancer ensureDraft a chaque changement de reference de searchParams (clignotement loader / contenu). */
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
   const supabaseRef = useRef(createSupabaseBrowserClient() as any);
   const supabase = supabaseRef.current;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -158,8 +178,9 @@ export default function NewItemPage() {
   const longPressTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<{ x: number; y: number; index: number } | null>(null);
   const suppressNextClickRef = useRef(false);
-  const [itemTitle, setItemTitle] = useState(() => initialTitleFromParams);
-  const [description, setDescription] = useState(() => initialDescriptionFromParams);
+  const [itemTitle, setItemTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [infoDraft, setInfoDraft] = useState<ItemInfoDraft>({});
   const [draftItemId, setDraftItemId] = useState<string | null>(null);
   const [isInitializingDraft, setIsInitializingDraft] = useState(true);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -170,22 +191,30 @@ export default function NewItemPage() {
   const [hasHydratedSlots, setHasHydratedSlots] = useState(false);
   const [itemPricePoints, setItemPricePoints] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [itemStatus, setItemStatus] = useState<string | null>(null);
+  const [intakeListingStage, setIntakeListingStage] = useState<string | null>(null);
   const formId = "new-item-form";
+
+  const stLower = itemStatus?.toLowerCase() ?? "";
+  const isDraftInIntakePipeline =
+    stLower === "draft" &&
+    intakeListingStage != null &&
+    ["evaluation", "evaluated", "validation_pending"].includes(intakeListingStage);
+  const isEditValidationMode = itemStatus != null && isDraftInIntakePipeline;
   const filledPhotosCount = slots.filter(Boolean).length;
-  const completionScore = Math.round(
-    Math.min(100, (itemTitle.trim().length > 0 ? 35 : 0) + (description.trim().length > 0 ? 25 : 0) + Math.min(40, filledPhotosCount * 10)),
-  );
   const infoValues = {
-    category: searchParams.get("category") ?? "-",
-    brand: searchParams.get("brand") ?? "-",
-    size: searchParams.get("size") ?? "-",
-    condition: searchParams.get("condition") ?? "-",
-    materials: searchParams.get("materials") ?? "-",
-    color: searchParams.get("color") ?? "-",
+    category: infoDraft.category ?? "-",
+    brand: infoDraft.brand ?? "-",
+    size: infoDraft.size ?? "-",
+    condition: infoDraft.condition ?? "-",
+    materials: infoDraft.materials ?? "-",
+    color: infoDraft.color ?? "-",
   };
-  const categoryId = searchParams.get("categoryId")?.trim() || null;
-  const brandId = searchParams.get("brandId")?.trim() || null;
-  const sizeId = searchParams.get("sizeId")?.trim() || null;
+  const categoryId = infoDraft.categoryId?.trim() || null;
+  const brandId = infoDraft.brandId?.trim() || null;
+  const sizeId = infoDraft.sizeId?.trim() || null;
+  const materialsId = infoDraft.materialsId?.trim() || null;
+  const colorId = infoDraft.colorId?.trim() || null;
   const [categorySizeScope, setCategorySizeScope] = useState<string | null>(null);
 
   useEffect(() => {
@@ -206,20 +235,38 @@ export default function NewItemPage() {
 
   const showSizeLink = Boolean(categoryId && categorySizeScope && categorySizeScope !== "none");
 
+  const hasMinPhotos = filledPhotosCount >= 4;
+  const hasCondition = Boolean(infoDraft.condition?.trim());
+  const sizeStepOk =
+    Boolean(categoryId) && (!showSizeLink || Boolean(sizeId));
+  const requiredChecks = [
+    itemTitle.trim().length > 0,
+    description.trim().length > 0,
+    hasMinPhotos,
+    Boolean(categoryId),
+    Boolean(brandId),
+    hasCondition,
+    Boolean(colorId),
+    Boolean(materialsId),
+    sizeStepOk,
+  ];
+  const completionScore = Math.round((requiredChecks.filter(Boolean).length / requiredChecks.length) * 100);
+
   const infoIds = {
     ...(categoryId ? { item_category_id: categoryId } : {}),
     ...(brandId ? { item_brand_id: brandId } : {}),
     ...(sizeId ? { item_size_id: sizeId } : {}),
+    ...(materialsId ? { item_materiaux_id: materialsId } : {}),
+    ...(colorId ? { item_couleur_id: colorId } : {}),
   };
   const canSubmit = completionScore >= 100 && !!draftItemId && !isInitializingDraft && !isSubmitting;
 
   useEffect(() => {
     if (!forceFreshDraft) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("fresh");
-    const query = params.toString();
-    router.replace(query ? `/items/new?${query}` : "/items/new");
-  }, [forceFreshDraft, router, searchParams]);
+    const params = new URLSearchParams();
+    if (requestedItemId) params.set("itemId", requestedItemId);
+    router.replace(params.toString() ? `/items/new?${params.toString()}` : "/items/new");
+  }, [forceFreshDraft, requestedItemId, router]);
 
   useEffect(() => {
     void supabase.auth.getUser().then((res: { data: { user?: { id: string } | null } }) => {
@@ -237,6 +284,7 @@ export default function NewItemPage() {
       if (!requestedItemId && forceFreshDraft) {
         sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
         sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
+        clearItemInfoDraft();
         setSlots([null, null, null, null, null, null]);
       }
       const {
@@ -252,18 +300,80 @@ export default function NewItemPage() {
       }
 
       if (requestedItemId) {
+        if (forceFreshDraft) setLastDbLoadedItemId(null);
         const existingDraftId = sessionStorage.getItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
         if (existingDraftId && existingDraftId !== requestedItemId) {
           sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
           setSlots([null, null, null, null, null, null]);
+          setLastDbLoadedItemId(null);
         }
 
         sessionStorage.setItem(ACTIVE_DRAFT_ID_STORAGE_KEY, requestedItemId);
         setDraftItemId(requestedItemId);
 
+        // Déjà chargé dans cette session (retour sous-page) : ne pas écraser le sessionStorage
+        if (!forceFreshDraft && getLastDbLoadedItemId() === requestedItemId) {
+          setInfoDraft(getItemInfoDraft());
+          let nextTitle = "";
+          let nextDescription = "";
+          try {
+            const rawLocalText = sessionStorage.getItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+            if (rawLocalText) {
+              const parsed = JSON.parse(rawLocalText) as { itemId?: string; title?: string; description?: string };
+              if (parsed?.itemId === requestedItemId) {
+                nextTitle = parsed.title ?? "";
+                nextDescription = parsed.description ?? "";
+              }
+            }
+          } catch {
+            // Ignore.
+          }
+          setItemTitle(nextTitle);
+          setDescription(nextDescription);
+          // Ne pas charger les slots depuis sessionStorage si on revient avec photoModifyId
+          // (l'effet photoModifyId ajoutera la nouvelle photo aux slots existants)
+          if (!searchParamsRef.current.get("photoModifyId")) {
+            try {
+              const rawLocalSlots = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
+              if (rawLocalSlots) {
+                const parsedLocalSlots = JSON.parse(rawLocalSlots) as Array<ItemPhotoSlot | null>;
+                if (Array.isArray(parsedLocalSlots) && parsedLocalSlots.length === 6) {
+                  setSlots(compactSlotsLeft(parsedLocalSlots));
+                }
+              }
+            } catch {
+              // Ignore.
+            }
+          }
+          const [{ data: metaRow }, { data: intakeQuick }] = await Promise.all([
+            supabase
+              .from("items")
+              .select("price_points,status")
+              .eq("id", requestedItemId)
+              .eq("owner_user_id", user.id)
+              .maybeSingle(),
+            supabase.from("item_intake").select("listing_stage").eq("item_id", requestedItemId).maybeSingle(),
+          ]);
+          if (!isUnmounted && metaRow) {
+            setItemPricePoints(
+              typeof (metaRow as { price_points?: number | null }).price_points === "number"
+                ? (metaRow as { price_points: number }).price_points
+                : null,
+            );
+            setItemStatus((metaRow as { status?: string | null }).status ?? null);
+            setIntakeListingStage(
+              typeof intakeQuick?.listing_stage === "string" ? intakeQuick.listing_stage : null,
+            );
+          }
+          setIsInitializingDraft(false);
+          return;
+        }
+
         const { data: itemData, error: itemError } = await supabase
           .from("items")
-          .select("id,title,description,photos,item_category_id,item_brand_id,item_size_id,price_points")
+          .select(
+            "id,title,description,photos,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id,price_points,status, item_intake(listing_stage)",
+          )
           .eq("id", requestedItemId)
           .eq("owner_user_id", user.id)
           .is("deleted_at", null)
@@ -272,15 +382,15 @@ export default function NewItemPage() {
         if (isUnmounted) return;
         if (itemError || !itemData) {
           setDraftItemId(requestedItemId);
-          let nextTitle = searchParams.get("title") ?? initialTitleFromParams;
-          let nextDescription = searchParams.get("description") ?? initialDescriptionFromParams;
+          let nextTitle = "";
+          let nextDescription = "";
           try {
             const rawLocalText = sessionStorage.getItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
             if (rawLocalText) {
               const parsed = JSON.parse(rawLocalText) as { itemId?: string; title?: string; description?: string };
               if (parsed?.itemId === requestedItemId) {
-                nextTitle = parsed.title ?? nextTitle;
-                nextDescription = parsed.description ?? nextDescription;
+                nextTitle = parsed.title ?? "";
+                nextDescription = parsed.description ?? "";
               }
             }
           } catch {
@@ -288,6 +398,7 @@ export default function NewItemPage() {
           }
           setItemTitle(nextTitle);
           setDescription(nextDescription);
+          setInfoDraft(getItemInfoDraft());
           try {
             const rawLocalSlots = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
             if (rawLocalSlots) {
@@ -299,11 +410,7 @@ export default function NewItemPage() {
           } catch {
             // Ignore malformed local draft.
           }
-          const params = new URLSearchParams(searchParams.toString());
-          params.set("itemId", requestedItemId);
-          if (!params.get("title") && nextTitle) params.set("title", nextTitle);
-          if (!params.get("description") && nextDescription) params.set("description", nextDescription);
-          router.replace(`/items/new?${params.toString()}`);
+          router.replace(`/items/new?itemId=${requestedItemId}`);
           setIsInitializingDraft(false);
           return;
         }
@@ -331,13 +438,16 @@ export default function NewItemPage() {
             ? (itemData as { price_points: number }).price_points
             : null,
         );
+        setItemStatus((itemData as { status?: string | null }).status ?? null);
+        const intakeEmb = (itemData as { item_intake?: { listing_stage?: string } | null }).item_intake;
+        setIntakeListingStage(
+          intakeEmb && typeof intakeEmb === "object" && typeof intakeEmb.listing_stage === "string"
+            ? intakeEmb.listing_stage
+            : null,
+        );
 
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("itemId", requestedItemId);
-        if (!params.get("title") && nextTitle) params.set("title", nextTitle);
-        if (!params.get("description") && nextDescription) params.set("description", nextDescription);
-
-        if (!params.get("categoryId") && itemData.item_category_id) {
+        const nextInfo: ItemInfoDraft = {};
+        if (itemData.item_category_id) {
           const { data: catRow } = await supabase
             .from("item_categories")
             .select("name")
@@ -345,11 +455,11 @@ export default function NewItemPage() {
             .maybeSingle();
           if (isUnmounted) return;
           if (catRow) {
-            params.set("categoryId", itemData.item_category_id);
-            params.set("category", (catRow as { name?: string }).name ?? "");
+            nextInfo.categoryId = itemData.item_category_id;
+            nextInfo.category = (catRow as { name?: string }).name ?? "";
           }
         }
-        if (!params.get("brandId") && itemData.item_brand_id) {
+        if (itemData.item_brand_id) {
           const { data: brandRow } = await supabase
             .from("item_brands")
             .select("label")
@@ -357,11 +467,11 @@ export default function NewItemPage() {
             .maybeSingle();
           if (isUnmounted) return;
           if (brandRow) {
-            params.set("brandId", itemData.item_brand_id);
-            params.set("brand", (brandRow as { label?: string }).label ?? "");
+            nextInfo.brandId = itemData.item_brand_id;
+            nextInfo.brand = (brandRow as { label?: string }).label ?? "";
           }
         }
-        if (!params.get("sizeId") && itemData.item_size_id) {
+        if (itemData.item_size_id) {
           const { data: sizeRow } = await supabase
             .from("sizes")
             .select("code,label")
@@ -370,50 +480,48 @@ export default function NewItemPage() {
           if (isUnmounted) return;
           if (sizeRow) {
             const s = sizeRow as { code?: string; label?: string | null };
-            params.set("sizeId", itemData.item_size_id);
-            params.set("size", s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? ""));
+            nextInfo.sizeId = itemData.item_size_id;
+            nextInfo.size = s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
           }
         }
-        if (!params.get("condition")) {
-          const { data: condRow } = await supabase
-            .from("item_condition_history")
-            .select("condition_score,defect_notes")
-            .eq("item_id", requestedItemId)
-            .eq("status", "draft")
-            .maybeSingle();
+        if ((itemData as { item_materiaux_id?: string | null }).item_materiaux_id) {
+          const matId = (itemData as { item_materiaux_id: string }).item_materiaux_id;
+          const { data: matRow } = await supabase.from("item_materiaux").select("label").eq("id", matId).maybeSingle();
           if (isUnmounted) return;
-          if (condRow) {
-            const c = condRow as { condition_score?: string; defect_notes?: string | null };
-            const label = c.condition_score ? CONDITION_SCORE_TO_LABEL[c.condition_score] ?? c.condition_score : "";
-            if (label) params.set("condition", label);
-            if (c.defect_notes?.trim()) params.set("conditionDetails", c.defect_notes.trim());
+          if (matRow) {
+            nextInfo.materialsId = matId;
+            nextInfo.materials = (matRow as { label?: string }).label ?? "";
           }
         }
-
-        router.replace(`/items/new?${params.toString()}`);
-
-        let hasLocalSlotsDraft = false;
-        try {
-          const rawLocalSlots = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
-          if (rawLocalSlots) {
-            const parsedLocalSlots = JSON.parse(rawLocalSlots) as Array<ItemPhotoSlot | null>;
-            if (Array.isArray(parsedLocalSlots) && parsedLocalSlots.length === 6) {
-              const compactedLocalSlots = compactSlotsLeft(parsedLocalSlots);
-              hasLocalSlotsDraft = compactedLocalSlots.some(Boolean);
-              if (hasLocalSlotsDraft) {
-                setSlots(compactedLocalSlots);
-              }
-            }
+        if ((itemData as { item_couleur_id?: string | null }).item_couleur_id) {
+          const colId = (itemData as { item_couleur_id: string }).item_couleur_id;
+          const { data: colRow } = await supabase.from("item_couleurs").select("label").eq("id", colId).maybeSingle();
+          if (isUnmounted) return;
+          if (colRow) {
+            nextInfo.colorId = colId;
+            nextInfo.color = (colRow as { label?: string }).label ?? "";
           }
-        } catch {
-          // Ignore malformed local draft.
         }
-
-        if (hasLocalSlotsDraft) {
-          setIsInitializingDraft(false);
-          return;
+        const { data: condRow } = await supabase
+          .from("item_condition_history")
+          .select("condition_score,defect_notes")
+          .eq("item_id", requestedItemId)
+          .eq("status", "draft")
+          .maybeSingle();
+        if (isUnmounted) return;
+        if (condRow) {
+          const c = condRow as { condition_score?: string; defect_notes?: string | null };
+          nextInfo.condition = c.condition_score ? CONDITION_SCORE_TO_LABEL[c.condition_score] ?? c.condition_score : "";
+          nextInfo.conditionDetails = c.defect_notes?.trim() || null;
         }
+        setItemInfoDraft(nextInfo);
+        setInfoDraft(nextInfo);
+        setLastDbLoadedItemId(requestedItemId);
 
+        router.replace(`/items/new?itemId=${requestedItemId}`);
+
+        // Lors de l'édition d'un item existant, toujours charger les photos depuis la DB
+        // (les slots locaux ne sont pas fiables car non associés à l'itemId)
         const photoEntries = getPhotoEntriesFromJson(itemData.photos).slice(0, 6);
         const nextSlots: Array<ItemPhotoSlot | null> = [null, null, null, null, null, null];
 
@@ -455,7 +563,8 @@ export default function NewItemPage() {
           };
         }
 
-        if (!isUnmounted) {
+        // Ne pas écraser les slots si on revient de modify avec une nouvelle photo (photoModifyId)
+        if (!isUnmounted && !searchParamsRef.current.get("photoModifyId")) {
           setSlots(compactSlotsLeft(nextSlots));
         }
         setIsInitializingDraft(false);
@@ -465,16 +574,16 @@ export default function NewItemPage() {
       const existingDraftId = sessionStorage.getItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
       if (existingDraftId && !forceFreshDraft) {
         setDraftItemId(existingDraftId);
-        const { data: existingItemData, error: existingItemError } = await supabase
+        const { data: existingItemData } = await supabase
           .from("items")
-          .select("title,description,price_points")
+          .select("title,description,price_points,photos,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id")
           .eq("id", existingDraftId)
           .eq("owner_user_id", user.id)
           .is("deleted_at", null)
           .maybeSingle();
         if (isUnmounted) return;
-        let nextTitle = initialTitleFromParams;
-        let nextDescription = initialDescriptionFromParams;
+        let nextTitle = "";
+        let nextDescription = "";
         if (existingItemData) {
           nextTitle = normalizeDraftTitle(existingItemData.title);
           nextDescription = existingItemData.description ?? "";
@@ -498,16 +607,118 @@ export default function NewItemPage() {
             ? (existingItemData as { price_points: number }).price_points
             : null,
         );
+        if (existingItemData) {
+          const d = existingItemData as {
+            item_category_id?: string | null;
+            item_brand_id?: string | null;
+            item_size_id?: string | null;
+            item_materiaux_id?: string | null;
+            item_couleur_id?: string | null;
+          };
+          const nextInfo: ItemInfoDraft = {};
+          if (d.item_category_id) {
+            const { data: catRow } = await supabase.from("item_categories").select("name").eq("id", d.item_category_id).maybeSingle();
+            if (catRow) {
+              nextInfo.categoryId = d.item_category_id;
+              nextInfo.category = (catRow as { name?: string }).name ?? "";
+            }
+          }
+          if (d.item_brand_id) {
+            const { data: brandRow } = await supabase.from("item_brands").select("label").eq("id", d.item_brand_id).maybeSingle();
+            if (brandRow) {
+              nextInfo.brandId = d.item_brand_id;
+              nextInfo.brand = (brandRow as { label?: string }).label ?? "";
+            }
+          }
+          if (d.item_size_id) {
+            const { data: sizeRow } = await supabase.from("sizes").select("code,label").eq("id", d.item_size_id).maybeSingle();
+            if (sizeRow) {
+              const s = sizeRow as { code?: string; label?: string | null };
+              nextInfo.sizeId = d.item_size_id;
+              nextInfo.size = s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
+            }
+          }
+          if (d.item_materiaux_id) {
+            const { data: matRow } = await supabase.from("item_materiaux").select("label").eq("id", d.item_materiaux_id).maybeSingle();
+            if (matRow) {
+              nextInfo.materialsId = d.item_materiaux_id;
+              nextInfo.materials = (matRow as { label?: string }).label ?? "";
+            }
+          }
+          if (d.item_couleur_id) {
+            const { data: colRow } = await supabase.from("item_couleurs").select("label").eq("id", d.item_couleur_id).maybeSingle();
+            if (colRow) {
+              nextInfo.colorId = d.item_couleur_id;
+              nextInfo.color = (colRow as { label?: string }).label ?? "";
+            }
+          }
+          const { data: condRow } = await supabase
+            .from("item_condition_history")
+            .select("condition_score,defect_notes")
+            .eq("item_id", existingDraftId)
+            .eq("status", "draft")
+            .maybeSingle();
+          if (condRow) {
+            const c = condRow as { condition_score?: string; defect_notes?: string | null };
+            nextInfo.condition = c.condition_score ? CONDITION_SCORE_TO_LABEL[c.condition_score] ?? c.condition_score : "";
+            nextInfo.conditionDetails = c.defect_notes?.trim() || null;
+          }
+          setItemInfoDraft(nextInfo);
+          setInfoDraft(nextInfo);
+        } else {
+          setInfoDraft(getItemInfoDraft());
+        }
+        if (existingItemData?.photos) {
+          const photoEntries = getPhotoEntriesFromJson(existingItemData.photos).slice(0, 6);
+          const nextSlots: Array<ItemPhotoSlot | null> = [null, null, null, null, null, null];
+          for (let index = 0; index < photoEntries.length; index += 1) {
+            const row = photoEntries[index];
+            const storagePathRaw = row.storage_path ?? row.storagePath ?? row.url ?? row.photo_url ?? row.photoUrl;
+            const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
+            if (!storagePath) continue;
+            let previewUrl: string | null = null;
+            if (isHttpUrl(storagePath)) {
+              previewUrl = storagePath;
+            } else {
+              for (const bucketId of ["bucket_items", "bucket_focus"]) {
+                const { data } = await supabase.storage.from(bucketId).createSignedUrl(storagePath, 60 * 60 * 24);
+                if (data?.signedUrl) {
+                  previewUrl = data.signedUrl;
+                  break;
+                }
+              }
+            }
+            if (!previewUrl) continue;
+            const position = row.position && typeof row.position === "object" ? (row.position as Record<string, unknown>) : null;
+            const offsetRaw = position?.offset && typeof position.offset === "object" ? (position.offset as Record<string, unknown>) : null;
+            const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
+            const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
+            const zoom = typeof position?.zoom === "number" ? position.zoom : 1;
+            const imageRatio = await getImageRatio(previewUrl);
+            nextSlots[index] = {
+              dataUrl: previewUrl,
+              fileName: `photo_${index + 1}.jpg`,
+              mimeType: "image/jpeg",
+              storagePath,
+              imageRatio,
+              offset: { x: offsetX, y: offsetY },
+              zoom,
+            };
+          }
+          if (!isUnmounted && !searchParamsRef.current.get("photoModifyId")) setSlots(compactSlotsLeft(nextSlots));
+        }
         setIsInitializingDraft(false);
         return;
       }
 
       sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
       sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+      clearItemInfoDraft();
       sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
       setSlots([null, null, null, null, null, null]);
-      setItemTitle(initialTitleFromParams);
-      setDescription(initialDescriptionFromParams);
+      setItemTitle("");
+      setDescription("");
+      setInfoDraft({});
       setItemPricePoints(null);
       const nextDraftId = crypto.randomUUID();
       sessionStorage.setItem(ACTIVE_DRAFT_ID_STORAGE_KEY, nextDraftId);
@@ -519,7 +730,19 @@ export default function NewItemPage() {
     return () => {
       isUnmounted = true;
     };
-  }, [forceFreshDraft, initialDescriptionFromParams, initialTitleFromParams, requestedItemId, supabase]);
+    // Ne pas dependre de `searchParams` (objet instable) : router.replace / auth / tout param hors itemId provoquait
+    // un re-run, setIsInitializingDraft(true) puis false = clignotement AppLoadingScreen.
+  }, [forceFreshDraft, requestedItemId, supabase]);
+
+  useEffect(() => {
+    setInfoDraft(getItemInfoDraft());
+  }, []);
+
+  useEffect(() => {
+    if (pathname === "/items/new") {
+      setInfoDraft(getItemInfoDraft());
+    }
+  }, [pathname]);
 
   useEffect(() => {
     try {
@@ -563,11 +786,11 @@ export default function NewItemPage() {
     }
   }, [description, draftItemId, isInitializingDraft, itemTitle]);
 
-  const conditionParam = searchParams.get("condition")?.trim() || null;
-  const conditionDetailsParam = searchParams.get("conditionDetails")?.trim() || null;
+  const conditionParam = infoDraft.condition?.trim() || null;
+  const conditionDetailsParam = infoDraft.conditionDetails?.trim() || null;
 
   useEffect(() => {
-    const modifiedId = searchParams.get("photoModifyId");
+    const modifiedId = photoModifyIdFromUrl;
     if (!modifiedId) return;
     if (handledPhotoModifyIdsRef.current.has(modifiedId)) return;
     const draft = readPhotoModifyDraft(modifiedId);
@@ -594,14 +817,12 @@ export default function NewItemPage() {
       });
       removePhotoModifyDraft(modifiedId);
       pendingSlotRef.current = null;
-      const returnItemId = draft.itemId || draftItemId || requestedItemId;
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("photoModifyId");
-      if (returnItemId) params.set("itemId", returnItemId);
-      const returnTo = params.toString() ? `/items/new?${params.toString()}` : "/items/new";
+      // Garder l'itemId depuis l'URL : draftItemId peut être null si ensureDraft n'a pas encore fini
+      const itemIdForUrl = requestedItemId || draftItemId || null;
+      const returnTo = itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new";
       router.replace(returnTo);
     })();
-  }, [draftItemId, requestedItemId, router, searchParams]);
+  }, [draftItemId, photoModifyIdFromUrl, requestedItemId, router]);
 
   const openPickerForSlot = (index: number) => {
     activeSlotRef.current = index;
@@ -615,9 +836,7 @@ export default function NewItemPage() {
     const slotIndex = pendingSlotRef.current ?? activeSlotRef.current;
     const dataUrl = await fileToDataUrl(file);
     const draftId = crypto.randomUUID();
-    const currentParams = new URLSearchParams(searchParams.toString());
-    if (draftItemId) currentParams.set("itemId", draftItemId);
-    const returnPathWithParams = `/items/new?${currentParams.toString()}`;
+    const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
     try {
       savePhotoModifyDraft({
         id: draftId,
@@ -665,16 +884,13 @@ export default function NewItemPage() {
       return;
     }
 
-    const missingStoragePath = slots.some((slot) => slot && !slot.storagePath);
-    if (missingStoragePath) {
+    let photosPayload: Record<string, unknown>;
+    try {
+      const result = await uploadSlotsAndBuildPayload();
+      photosPayload = result.photosPayload;
+    } catch (uploadErr) {
       setIsSubmitting(false);
-      setErrorMessage("Certaines photos ne sont pas encore enregistrées. Ouvre-les puis valide avec \"Terminé\".");
-      return;
-    }
-
-    const photosPayload = buildPhotosPayload();
-    if (!photosPayload) {
-      setIsSubmitting(false);
+      setErrorMessage(uploadErr instanceof Error ? uploadErr.message : "Impossible d'enregistrer les photos.");
       return;
     }
 
@@ -687,7 +903,7 @@ export default function NewItemPage() {
           title: itemTitle.trim(),
           description: description.trim() || null,
           photos: photosPayload,
-          status: "valuation",
+          status: "draft",
           ...infoIds,
         },
         { onConflict: "id" },
@@ -695,7 +911,7 @@ export default function NewItemPage() {
 
     if (!upsertError && conditionParam) {
       const conditionScore = CONDITION_LABEL_TO_SCORE[conditionParam] ?? "bon";
-      await supabase.from("item_condition_history").delete().eq("item_id", draftItemId).eq("status", "draft");
+      await supabase.from("item_condition_history").delete().eq("item_id", draftItemId).eq("source", "owner_announced");
       await supabase.from("item_condition_history").insert({
         item_id: draftItemId,
         source: "owner_announced",
@@ -711,10 +927,83 @@ export default function NewItemPage() {
       setErrorMessage(upsertError.message);
       return;
     }
+    const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "evaluation");
+    if (!intakeErr.ok) {
+      setErrorMessage(intakeErr.message);
+      return;
+    }
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
-    router.push(`/items/${draftItemId}/evaluation`);
+    clearItemInfoDraft();
+    try {
+      sessionStorage.setItem("segna:item-detail:back-href", "/exchange");
+    } catch {
+      // ignore
+    }
+    clearFromItemSession();
+    setPostSubmitBlock(draftItemId);
+    if (typeof window !== "undefined") {
+      window.location.replace(`${window.location.origin}/items/${draftItemId}?verification=1`);
+      return;
+    }
+    router.replace(`/items/${draftItemId}?verification=1`);
+  };
+
+  const onFinish = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSubmit || !draftItemId) return;
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      setIsSubmitting(false);
+      setErrorMessage("Session invalide.");
+      return;
+    }
+
+    let photosPayload: Record<string, unknown>;
+    try {
+      const result = await uploadSlotsAndBuildPayload();
+      photosPayload = result.photosPayload;
+    } catch (uploadErr) {
+      setIsSubmitting(false);
+      setErrorMessage(uploadErr instanceof Error ? uploadErr.message : "Impossible d'enregistrer les photos.");
+      return;
+    }
+
+    const { error: upsertError } = await supabase
+      .from("items")
+      .update({
+        title: itemTitle.trim(),
+        description: description.trim() || null,
+        photos: photosPayload,
+        status: "draft",
+        ...infoIds,
+      })
+      .eq("id", draftItemId)
+      .eq("owner_user_id", user.id)
+      .is("deleted_at", null);
+
+    setIsSubmitting(false);
+    if (upsertError) {
+      setErrorMessage(upsertError.message);
+      return;
+    }
+    const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "evaluation");
+    if (!intakeErr.ok) {
+      setErrorMessage(intakeErr.message);
+      return;
+    }
+    sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
+    sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
+    sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemInfoDraft();
+    router.push("/exchange");
   };
 
   const onKeepDraft = () => {
@@ -734,14 +1023,15 @@ export default function NewItemPage() {
         return;
       }
 
-      const missingStoragePath = slots.some((slot) => slot && !slot.storagePath);
-      if (missingStoragePath) {
+      let photosPayload: Record<string, unknown>;
+      try {
+        const result = await uploadSlotsAndBuildPayload();
+        photosPayload = result.photosPayload;
+      } catch (uploadErr) {
         setIsKeepingDraft(false);
-        setErrorMessage("Certaines photos ne sont pas encore enregistrées. Ouvre-les puis valide avec \"Terminé\".");
+        setErrorMessage(uploadErr instanceof Error ? uploadErr.message : "Impossible d'enregistrer les photos.");
         return;
       }
-
-      const photosPayload = buildPhotosPayload();
 
       const { error: upsertError } = await supabase
         .from("items")
@@ -769,9 +1059,24 @@ export default function NewItemPage() {
         return;
       }
 
+      const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "draft");
+      if (!intakeErr.ok) {
+        setErrorMessage(intakeErr.message);
+        return;
+      }
+
       setShowCancelModal(false);
       router.push("/exchange");
     })();
+  };
+
+  const onDiscardChanges = () => {
+    sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
+    sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
+    sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemInfoDraft();
+    setShowCancelModal(false);
+    router.push("/exchange");
   };
 
   const onDeleteDraft = async () => {
@@ -805,9 +1110,16 @@ export default function NewItemPage() {
       return;
     }
 
+    const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "refused");
+    if (!intakeErr.ok) {
+      setErrorMessage(intakeErr.message);
+      return;
+    }
+
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemInfoDraft();
     setShowCancelModal(false);
     router.push("/exchange");
   };
@@ -823,24 +1135,47 @@ export default function NewItemPage() {
     });
   };
 
-  const buildPhotosPayload = (): Record<string, unknown> => {
+  const buildPhotosPayload = (slotsWithPaths: Array<ItemPhotoSlot | null>): Record<string, unknown> => {
     const photosPayload: Record<string, unknown> = {};
+    for (let index = 0; index < slotsWithPaths.length; index += 1) {
+      const slot = slotsWithPaths[index];
+      if (!slot?.storagePath) continue;
+      photosPayload[`photo${index + 1}`] = {
+        url: slot.storagePath,
+        storage_path: slot.storagePath,
+        position: {
+          offset: slot.offset,
+          zoom: slot.zoom,
+          aspect: "square",
+        },
+      };
+    }
+    return photosPayload;
+  };
+
+  const uploadSlotsAndBuildPayload = async (): Promise<{ photosPayload: Record<string, unknown>; updatedSlots: Array<ItemPhotoSlot | null> }> => {
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user?.id || !draftItemId) throw new Error("Session ou brouillon introuvable.");
+    const userId = userData.user.id;
+    const bucketId = "bucket_items";
+    const updatedSlots: Array<ItemPhotoSlot | null> = [...slots];
     for (let index = 0; index < slots.length; index += 1) {
       const slot = slots[index];
       if (!slot) continue;
-      if (slot.storagePath) {
-        photosPayload[`photo${index + 1}`] = {
-          url: slot.storagePath,
-          storage_path: slot.storagePath,
-          position: {
-            offset: slot.offset,
-            zoom: slot.zoom,
-            aspect: "square",
-          },
-        };
-      }
+      if (slot.storagePath) continue;
+      if (!slot.dataUrl) continue;
+      const fileExtension = slot.fileName.includes(".") ? slot.fileName.split(".").pop() || "jpg" : "jpg";
+      const normalizedExt = fileExtension.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const path = `users/${userId}/items/${draftItemId}/photo_${index + 1}.${normalizedExt}`;
+      const file = await dataUrlToFile(slot.dataUrl, slot.fileName, slot.mimeType);
+      const { error } = await supabase.storage.from(bucketId).upload(path, file, {
+        upsert: true,
+        contentType: file.type || "image/jpeg",
+      });
+      if (error) throw new Error(error.message);
+      updatedSlots[index] = { ...slot, storagePath: path };
     }
-    return photosPayload;
+    return { photosPayload: buildPhotosPayload(updatedSlots), updatedSlots };
   };
 
   const clearSlot = (index: number) => {
@@ -910,15 +1245,26 @@ export default function NewItemPage() {
   return (
     <main className="mx-auto min-h-[100dvh] w-full max-w-[430px] bg-white pb-24">
       <header className="sticky top-0 z-20 bg-white pt-5">
-        <div className="px-4 pb-4">
+        <div className="border-b border-zinc-200 px-4 pb-4">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center">
             <button type="button" onClick={() => setShowCancelModal(true)} className="justify-self-start px-2 text-[20px] font-bold text-[#5E3023]">
               Annuler
             </button>
-            <div className="text-center">
-              <h1 className="text-[24px] font-semibold leading-none text-zinc-950">New Item</h1>
-              <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-emerald-600" : "text-[#E44D3E]")}>{completionScore} % Terminé</p>
-            </div>
+            {isEditValidationMode ? (
+              <div className="text-center">
+                <h1 className="text-[24px] font-semibold leading-none text-zinc-950">Modification</h1>
+                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-emerald-600" : "text-[#E44D3E]")} suppressHydrationWarning>
+                  {isInitializingDraft ? "—" : `${completionScore}`} % Terminé
+                </p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <h1 className="text-[24px] font-semibold leading-none text-zinc-950">New Item</h1>
+                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-emerald-600" : "text-[#E44D3E]")} suppressHydrationWarning>
+                  {isInitializingDraft ? "—" : `${completionScore}`} % Terminé
+                </p>
+              </div>
+            )}
             <button
               type="submit"
               form={formId}
@@ -928,7 +1274,7 @@ export default function NewItemPage() {
                 canSubmit ? "text-[#5E3023]" : "text-zinc-300",
               )}
             >
-              {isSubmitting ? "..." : "Évaluer"}
+              {isSubmitting ? "..." : isEditValidationMode ? "Terminer" : "Soumettre"}
             </button>
           </div>
         </div>
@@ -959,7 +1305,8 @@ export default function NewItemPage() {
       </header>
 
       <div className="px-6">
-      <div className="space-y-20">
+      <form id={formId} onSubmit={isEditValidationMode ? onFinish : onSubmit} className="contents">
+        <div className="space-y-20">
         {mode === "view" ? (
           <ItemViewView
             title={itemTitle}
@@ -978,7 +1325,7 @@ export default function NewItemPage() {
             }}
           />
         ) : (
-        <form id={formId} onSubmit={onSubmit} className="space-y-8">
+        <div className="space-y-8">
           <section className="space-y-4 pt-8">
             <Input
               placeholder="Nom de la pièce"
@@ -1052,9 +1399,7 @@ export default function NewItemPage() {
                     }
                     if (slot) {
                       const draftId = crypto.randomUUID();
-                      const paramsForReturn = new URLSearchParams(searchParams.toString());
-                      if (draftItemId) paramsForReturn.set("itemId", draftItemId);
-                      const returnPathWithParams = `/items/new?${paramsForReturn.toString()}`;
+                      const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
                       try {
                         savePhotoModifyDraft({
                           id: draftId,
@@ -1152,34 +1497,26 @@ export default function NewItemPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Décris la pièce: coupe, matière, occasion, défauts éventuels..."
-              className="w-full resize-none rounded-xl border border-zinc-200 px-3 py-3 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 focus:border-zinc-300"
+              className={cn(
+                montserratItalic.className,
+                "w-full resize-none rounded-xl border border-zinc-200 px-3 py-3 text-[18px] italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none placeholder:text-[#c2c2c2] focus:border-zinc-300",
+              )}
             />
           </section>
 
           <section className="space-y-4">
             <p className={cn(montserrat.className, "text-[clamp(14px,2.8vw,20px)] font-semibold leading-none text-zinc-400")}>Infos</p>
             <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+              {/* replace : une entrée d’historique pour le wizard (pas de chaîne catégorie → couleur → …). */}
               {INFO_LINKS.filter((item) => (item.key === "size" ? showSizeLink : true)).map((item, index) => (
                 <Link
                   key={item.key}
-                  href={`${item.href}?${new URLSearchParams({
-                    title: itemTitle,
-                    description,
-                    category: infoValues.category === "-" ? "" : infoValues.category,
-                    brand: infoValues.brand === "-" ? "" : infoValues.brand,
-                    size: infoValues.size === "-" ? "" : infoValues.size,
-                    condition: infoValues.condition === "-" ? "" : infoValues.condition,
-                    materials: infoValues.materials === "-" ? "" : infoValues.materials,
-                    color: infoValues.color === "-" ? "" : infoValues.color,
-                    materialsId: searchParams.get("materialsId") ?? "",
-                    colorId: searchParams.get("colorId") ?? "",
-                    conditionDetails: searchParams.get("conditionDetails") ?? "",
-                    conditionDefectPhotoCount: searchParams.get("conditionDefectPhotoCount") ?? "",
-                    itemId: searchParams.get("itemId") ?? draftItemId ?? "",
-                    categoryId: searchParams.get("categoryId") ?? "",
-                    brandId: searchParams.get("brandId") ?? "",
-                    sizeId: searchParams.get("sizeId") ?? "",
-                  }).toString()}`}
+                  replace
+                  href={
+                    requestedItemId && draftItemId
+                      ? withFromItemParam(`${item.href}?itemId=${draftItemId}`, searchParams)
+                      : item.href
+                  }
                   className={cn("flex items-center justify-between px-4 py-3 transition hover:bg-zinc-50", index > 0 ? "border-t border-zinc-200" : "")}
                 >
                   <div className="min-w-0 flex-1">
@@ -1192,9 +1529,10 @@ export default function NewItemPage() {
             </div>
           </section>
           {errorMessage ? <p className="text-sm text-[#E44D3E]">{errorMessage}</p> : null}
-        </form>
+        </div>
         )}
-      </div>
+        </div>
+      </form>
       </div>
       {dragPreview ? (
         <div
@@ -1206,10 +1544,16 @@ export default function NewItemPage() {
         </div>
       ) : null}
       {showCancelModal ? (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-[430px] rounded-3xl bg-white p-5 shadow-xl">
-            <h3 className="text-[20px] font-semibold text-zinc-900">Quitter l&apos;édition ?</h3>
-            <p className="mt-2 text-sm text-zinc-600">Tu peux garder le brouillon, ou supprimer définitivement cet item.</p>
+            <h3 className="text-[20px] font-semibold text-zinc-900">
+              {isEditValidationMode ? "Quitter ?" : "Quitter l'édition ?"}
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              {requestedItemId || isEditValidationMode
+                ? "Tu peux garder le brouillon, ou annuler les modifications."
+                : "Tu peux garder le brouillon, ou supprimer définitivement cet item."}
+            </p>
             <div className="mt-5 grid gap-2">
               <button
                 type="button"
@@ -1219,14 +1563,24 @@ export default function NewItemPage() {
               >
                 {isKeepingDraft ? "Sauvegarde..." : "Garder le brouillon"}
               </button>
-              <button
-                type="button"
-                onClick={onDeleteDraft}
-                disabled={isDeletingDraft}
-                className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {isDeletingDraft ? "Suppression..." : "Supprimer cet item"}
-              </button>
+              {requestedItemId || isEditValidationMode ? (
+                <button
+                  type="button"
+                  onClick={onDiscardChanges}
+                  className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white"
+                >
+                  Annuler les modifications
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onDeleteDraft}
+                  disabled={isDeletingDraft}
+                  className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {isDeletingDraft ? "Suppression..." : "Supprimer cet item"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowCancelModal(false)}

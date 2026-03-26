@@ -5,6 +5,8 @@ import { Check, Search, ChevronRight, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { mergeItemInfoDraft, getItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -20,10 +22,11 @@ const montserratItalic = Montserrat({ subsets: ["latin"], weight: "500", style: 
 export default function NewItemCategoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const itemId = searchParams.get("itemId")?.trim() || null;
   const supabase = createSupabaseBrowserClient() as any;
-
-  const initialCategoryId = searchParams.get("categoryId") ?? "";
-  const initialCategoryName = searchParams.get("category") ?? "";
+  const draft = getItemInfoDraft();
+  const initialCategoryId = draft.categoryId ?? "";
+  const initialCategoryName = draft.category ?? "";
 
   const [categories, setCategories] = useState<ItemCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,22 +104,18 @@ export default function NewItemCategoryPage() {
   }, [categories, categoryById, query]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const confirmSelection = () => {
-    const params = new URLSearchParams(searchParams.toString());
     if (pickedCategoryId && pickedCategoryName) {
-      params.set("category", pickedCategoryName);
-      params.set("categoryId", pickedCategoryId);
+      mergeItemInfoDraft({ categoryId: pickedCategoryId, category: pickedCategoryName });
     } else {
-      params.delete("category");
-      params.delete("categoryId");
+      mergeItemInfoDraft({ categoryId: null, category: null });
     }
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const toggleCategory = (category: ItemCategory) => {
@@ -174,17 +173,19 @@ export default function NewItemCategoryPage() {
 
   return (
     <main className="min-h-[100dvh] bg-white">
-      <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
-          Annuler
-        </button>
-        <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Catégorie</h1>
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={confirmSelection}>
-          Terminé
-        </button>
+      <header className="fixed inset-x-0 top-0 z-10 flex justify-center border-b border-zinc-100 bg-white">
+        <div className="flex w-full max-w-[460px] items-center justify-between px-5 pb-4 pt-7">
+          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+            Annuler
+          </button>
+          <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Catégorie</h1>
+          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={confirmSelection}>
+            Terminé
+          </button>
+        </div>
       </header>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-3">
+      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-[72px]">
         <div className="mx-auto w-full max-w-[380px]">
           <p className={cn(montserratItalic.className, "mb-3 mt-4 text-[clamp(16px,2.4vw,18px)] leading-[1.15] text-[#aaaaaa]")}>Sélectionne une catégorie</p>
 

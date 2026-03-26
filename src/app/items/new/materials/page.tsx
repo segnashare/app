@@ -5,6 +5,8 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -53,23 +55,18 @@ export default function NewItemMaterialsPage() {
   }, [supabase]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const confirm = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (effectiveItemId) params.set("itemId", effectiveItemId);
     if (selectedId && selectedLabel) {
-      params.set("materialsId", selectedId);
-      params.set("materials", selectedLabel);
+      mergeItemInfoDraft({ materialsId: selectedId, materials: selectedLabel });
     } else {
-      params.delete("materialsId");
-      params.delete("materials");
+      mergeItemInfoDraft({ materialsId: null, materials: null });
     }
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const selectOption = (opt: MaterialOption) => {
@@ -83,8 +80,8 @@ export default function NewItemMaterialsPage() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-white">
-      <header className="sticky top-0 z-10 mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 bg-white px-5 pb-4 pt-7">
+    <main className="flex min-h-[100dvh] flex-col overflow-hidden bg-white">
+      <header className="shrink-0 mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 bg-white px-5 pb-4 pt-7">
         <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
           Annuler
         </button>
@@ -100,8 +97,8 @@ export default function NewItemMaterialsPage() {
           Terminé
         </button>
       </header>
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-3">
-        <div className="mx-auto w-full max-w-[380px]">
+      <section className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[380px] px-4 pb-8 pt-3">
           <p className={cn(montserrat.className, "mb-2 mt-4 text-[14px] text-zinc-500")}>
             Sélectionne le matériau principal de ta pièce.
           </p>

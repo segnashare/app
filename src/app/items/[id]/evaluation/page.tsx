@@ -1,164 +1,265 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
+import Link from "next/link";
+import { Montserrat, Playfair_Display } from "next/font/google";
+import { ChevronLeft } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { ItemIntakePanel, needsItemIntakeUi } from "@/components/item/ItemIntakePanel";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+function intakeUsesFloatingCard(listingStage: string | null | undefined) {
+  return listingStage === "validation_pending";
+}
 
-export default function ItemEvaluationPage() {
+const montserrat = Montserrat({ subsets: ["latin"], weight: ["600"] });
+const playfair = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
+
+type IntakeSnap = {
+  listing_stage: string | null;
+  fulfillment_stage: string | null;
+  metadata: unknown;
+  updated_at: string | null;
+};
+
+/**
+ * Analyse IA & commentaires (contenu détaillé à brancher). Bandeau intake fixe sous le header : offre + refus / acceptation si validation_pending.
+ */
+export default function ItemEvaluationAnalysisPage() {
   const params = useParams();
   const router = useRouter();
   const itemId = typeof params.id === "string" ? params.id : null;
 
-  const [value, setValue] = useState<string>("");
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [title, setTitle] = useState<string>("Analyse");
+  const [pricePoints, setPricePoints] = useState<number | null>(null);
+  const [intake, setIntake] = useState<IntakeSnap | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const supabase = createSupabaseBrowserClient() as any;
+  const headerRef = useRef<HTMLElement | null>(null);
+  const intakeStripRef = useRef<HTMLDivElement | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(80);
+  const [measuredIntakeStripHeight, setMeasuredIntakeStripHeight] = useState(0);
 
-  useEffect(() => {
-    if (!itemId) return;
-    let isUnmounted = false;
+  // Le bandeau "pop-up" ne doit exister ici que pour la validation de l'offre.
+  const showIntakeStrip = Boolean(intake && intake.listing_stage === "validation_pending");
+  const intakeStripHeight = showIntakeStrip ? measuredIntakeStripHeight : 0;
 
-    const load = async () => {
-      const { data, error } = await supabase
-        .from("items")
-        .select("price_points")
-        .eq("id", itemId)
-        .single();
-
-      if (isUnmounted) return;
-      if (error) {
-        setErrorMessage("Item introuvable.");
-        setIsLoading(false);
-        return;
-      }
-      const pts = data?.price_points;
-      setCurrentPrice(pts != null ? Number(pts) : null);
-      if (pts != null) setValue(String(pts));
+  const fetchData = useCallback(async () => {
+    if (!itemId) {
       setIsLoading(false);
-    };
-
-    void load();
-    return () => {
-      isUnmounted = true;
-    };
-  }, [itemId, supabase]);
-
-  const handleSubmit = async () => {
-    if (!itemId) return;
-    const num = Math.round(Number(value));
-    if (!Number.isFinite(num) || num < 0) {
-      setErrorMessage("Saisis un nombre valide (≥ 0).");
       return;
     }
-
+    setIsLoading(true);
     setErrorMessage(null);
-    setIsSubmitting(true);
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
+    const supabase = createSupabaseBrowserClient() as any;
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) {
-      setIsSubmitting(false);
       setErrorMessage("Session invalide.");
+      setIsLoading(false);
       return;
     }
-
-    const oldPoints = currentPrice;
-    const newPoints = num;
-
-    const { error: updateError } = await supabase
+    const { data: row, error } = await supabase
       .from("items")
-      .update({ price_points: newPoints, status: "validation_pending" })
+      .select("title,price_points, item_intake(listing_stage,fulfillment_stage,metadata)")
       .eq("id", itemId)
-      .eq("owner_user_id", user.id);
-
-    if (updateError) {
-      setIsSubmitting(false);
-      setErrorMessage(updateError.message);
+      .eq("owner_user_id", user.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error || !row) {
+      setErrorMessage("Pièce introuvable.");
+      setIsLoading(false);
       return;
     }
+    const r = row as Record<string, unknown>;
+    setTitle(typeof r.title === "string" && r.title.trim() ? r.title.trim() : "Analyse");
+    setPricePoints(r.price_points != null ? Number(r.price_points) : null);
+    const rawIntake = r.item_intake as unknown;
+    const emb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
+    if (emb && typeof emb === "object") {
+      const o = emb as Record<string, unknown>;
+      setIntake({
+        listing_stage: typeof o.listing_stage === "string" ? o.listing_stage : null,
+        fulfillment_stage: typeof o.fulfillment_stage === "string" ? o.fulfillment_stage : null,
+        metadata: o.metadata ?? {},
+        updated_at: typeof o.updated_at === "string" ? o.updated_at : null,
+      });
+    } else {
+      setIntake(null);
+    }
+    setIsLoading(false);
+  }, [itemId]);
 
-    await supabase.from("item_price_history").insert({
-      item_id: itemId,
-      actor_user_id: user.id,
-      old_price_points: oldPoints,
-      new_price_points: newPoints,
-      reason: "owner_evaluation",
-    });
+  /* eslint-disable react-hooks/set-state-in-effect -- chargement données Supabase au montage */
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-    setIsSubmitting(false);
-    router.push(`/items/${itemId}`);
-    router.refresh();
-  };
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => setHeaderHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [title, isLoading, errorMessage]);
 
-  const numValue = Math.round(Number(value));
-  const canSubmit = Number.isFinite(numValue) && numValue >= 0;
+  useLayoutEffect(() => {
+    if (!showIntakeStrip) return;
+    const el = intakeStripRef.current;
+    if (!el) return;
+    const measure = () => setMeasuredIntakeStripHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showIntakeStrip, intake?.listing_stage, intake?.fulfillment_stage]);
 
   if (!itemId) {
     return (
-      <main className="min-h-[100dvh] bg-white">
-        <p className="p-6 text-sm text-zinc-500">Item introuvable.</p>
+      <main className="min-h-[100dvh] bg-white p-6">
+        <p className="text-sm text-zinc-500">Identifiant invalide.</p>
       </main>
     );
   }
 
+  if (isLoading) {
+    return (
+      <main className="min-h-[100dvh] bg-white">
+        <header
+          ref={headerRef}
+          className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-5"
+        >
+          <div className="relative mx-auto flex max-w-[460px] min-h-[40px] items-center justify-center">
+            <div className="h-5 w-40 animate-pulse rounded bg-zinc-200" />
+          </div>
+        </header>
+        <div className="mx-auto max-w-[460px] px-6 py-12" style={{ paddingTop: headerHeight }}>
+          <p className="text-sm text-zinc-500">Chargement...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <main className="min-h-[100dvh] bg-white">
+        <header
+          ref={headerRef}
+          className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-5"
+        >
+          <div className="relative mx-auto flex max-w-[460px] items-center justify-center">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="absolute left-0 top-1/2 -translate-y-1/2 p-1"
+              aria-label="Retour"
+            >
+              <ChevronLeft className="h-6 w-6 text-zinc-700" />
+            </button>
+          </div>
+        </header>
+        <div className="mx-auto max-w-[460px] px-6 py-12" style={{ paddingTop: headerHeight }}>
+          <p className="text-sm text-[#E44D3E]">{errorMessage}</p>
+          <Link
+            href="/exchange"
+            className={cn(montserrat.className, "mt-4 inline-block font-semibold text-[#5E3023]")}
+          >
+            Retour à l&apos;échange
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const ls = intake?.listing_stage;
+  const canRenderPanel = ls && intake;
+
   return (
     <main className="min-h-[100dvh] bg-white">
-      <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <div className="w-[72px]" aria-hidden />
-        <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>
-          Value
-        </h1>
-        <button
-          type="button"
-          className={cn(
-            montserrat.className,
-            "w-[72px] text-right text-[18px] font-semibold text-[#5E3023] disabled:opacity-40",
-          )}
-          disabled={!canSubmit || isSubmitting}
-          onClick={handleSubmit}
-        >
-          {isSubmitting ? "..." : "Terminer"}
-        </button>
+      <header
+        ref={headerRef}
+        className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-5"
+      >
+        <div className="relative mx-auto flex max-w-[460px] items-center justify-center">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="absolute left-0 top-1/2 -translate-y-1/2 p-1"
+            aria-label="Retour"
+          >
+            <ChevronLeft className="h-6 w-6 text-zinc-700" />
+          </button>
+          <h1 className={cn(playfair.className, "mx-10 text-center text-[20px] text-zinc-900")}>{title}</h1>
+        </div>
       </header>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-6">
-        <div className="mx-auto w-full max-w-[380px]">
-          {isLoading ? (
-            <p className="py-6 text-sm text-zinc-500">Chargement...</p>
-          ) : (
-            <>
-              {errorMessage ? (
-                <p className="mb-4 text-sm text-[#E44D3E]">{errorMessage}</p>
-              ) : null}
-              <label className={cn(montserrat.className, "mb-2 block text-[14px] text-zinc-500")}>
-                Valeur en points
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="0"
-                className={cn(
-                  "h-12 w-full rounded-xl border border-zinc-300 bg-white px-4 text-[18px] text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-900",
-                )}
+      {showIntakeStrip && canRenderPanel ? (
+        <div
+          ref={intakeStripRef}
+          className={cn(
+            "fixed left-0 right-0 z-[50]",
+            intakeUsesFloatingCard(ls)
+              ? "bg-transparent pt-2.5"
+              : "border-b border-zinc-200 bg-white shadow-[0_4px_14px_-4px_rgba(0,0,0,0.12)]",
+          )}
+          style={{ top: headerHeight }}
+        >
+          {intakeUsesFloatingCard(ls) ? (
+            <div className="mx-4 max-w-[460px] sm:mx-auto">
+              <ItemIntakePanel
+                key={`${ls}-${intake.fulfillment_stage ?? ""}`}
+                itemId={itemId}
+                listingStage={ls}
+                fulfillmentStage={intake.fulfillment_stage}
+                intakeMetadata={intake.metadata}
+                intakeUpdatedAt={intake.updated_at}
+                offerPricePoints={pricePoints}
+                placement="evaluation"
+                onPipelineUpdated={() => void fetchData()}
               />
-            </>
+            </div>
+          ) : (
+            <ItemIntakePanel
+              key={`${ls}-${intake.fulfillment_stage ?? ""}`}
+              itemId={itemId}
+              listingStage={ls}
+              fulfillmentStage={intake.fulfillment_stage}
+              intakeMetadata={intake.metadata}
+              intakeUpdatedAt={intake.updated_at}
+              offerPricePoints={pricePoints}
+              placement="evaluation"
+              onPipelineUpdated={() => void fetchData()}
+            />
           )}
         </div>
-      </section>
+      ) : null}
+
+      <div
+        className="relative z-0 mx-auto max-w-[460px] px-6 pb-12"
+        style={{ paddingTop: headerHeight + intakeStripHeight }}
+      >
+        <p
+          className={cn(
+            montserrat.className,
+            "text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500",
+          )}
+        >
+          Évaluation Segna
+        </p>
+        <p className={cn(montserrat.className, "mt-4 text-[15px] leading-relaxed text-zinc-600")}>
+          Cette page affichera bientôt le compte rendu détaillé de l&apos;analyse (IA, critères, commentaires
+          opérationnels).
+        </p>
+      </div>
     </main>
   );
 }

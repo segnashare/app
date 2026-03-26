@@ -6,6 +6,8 @@ import { Check, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
+import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { fileToDataUrl } from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
 
@@ -35,8 +37,9 @@ export default function NewItemConditionPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const detailsTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const initialConditionDetails = searchParams.get("conditionDetails") ?? "";
-  const [selected, setSelected] = useState(searchParams.get("condition") ?? "");
+  const draft = getItemInfoDraft();
+  const initialConditionDetails = draft.conditionDetails ?? "";
+  const [selected, setSelected] = useState(draft.condition ?? "");
   const [conditionDetails, setConditionDetails] = useState(initialConditionDetails);
 
   useEffect(() => {
@@ -70,24 +73,18 @@ export default function NewItemConditionPage() {
   }, [hasHydratedPhotos, storageKey, defectPhotos]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const goBackWithValue = (value: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (effectiveItemId) params.set("itemId", effectiveItemId);
-    params.set("condition", value);
-    const trimmedDetails = conditionDetails.trim();
-    if (trimmedDetails.length > 0) {
-      params.set("conditionDetails", trimmedDetails);
-    } else if (initialConditionDetails.length > 0) {
-      params.delete("conditionDetails");
-    }
-    params.set("conditionDefectPhotoCount", String(defectPhotos.length));
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    mergeItemInfoDraft({
+      condition: value,
+      conditionDetails: conditionDetails.trim() || null,
+      conditionDefectPhotoCount: String(defectPhotos.length),
+    });
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const appendFiles = async (files: File[]) => {

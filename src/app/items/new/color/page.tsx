@@ -5,6 +5,8 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -57,8 +59,9 @@ export default function NewItemColorPage() {
   const searchParams = useSearchParams();
   const supabase = createSupabaseBrowserClient() as any;
   const itemIdFromUrl = searchParams.get("itemId")?.trim() || null;
-  const initialColorId = searchParams.get("colorId") ?? "";
-  const initialColorLabel = searchParams.get("color") ?? "";
+  const draft = getItemInfoDraft();
+  const initialColorId = draft.colorId ?? "";
+  const initialColorLabel = draft.color ?? "";
 
   const [effectiveItemId, setEffectiveItemId] = useState<string | null>(itemIdFromUrl);
   const [options, setOptions] = useState<ColorOption[]>([]);
@@ -96,23 +99,18 @@ export default function NewItemColorPage() {
   }, [supabase]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const confirm = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (effectiveItemId) params.set("itemId", effectiveItemId);
     if (selectedId && selectedLabel) {
-      params.set("colorId", selectedId);
-      params.set("color", selectedLabel);
+      mergeItemInfoDraft({ colorId: selectedId, color: selectedLabel });
     } else {
-      params.delete("colorId");
-      params.delete("color");
+      mergeItemInfoDraft({ colorId: null, color: null });
     }
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = effectiveItemId ? `/items/new?itemId=${effectiveItemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const selectOption = (opt: ColorOption) => {

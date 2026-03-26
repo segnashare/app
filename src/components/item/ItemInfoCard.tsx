@@ -105,19 +105,23 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     ),
   });
 
-  // 3. Couleur (pastille) / Taille / Matériaux
+  // 3. Couleur (pastille + nom) / Taille / Matériaux
   if (data.color && data.color !== "-") {
     const hex = getColorHexFromLabel(data.color);
     const isGradient = hex.startsWith("linear-gradient");
+    const displayLabel = data.color.replace(/-/g, " ");
     firstLineItems.push({
       key: "color",
       content: (
-        <span
-          className="inline-block h-6 w-6 shrink-0 rounded-full border border-zinc-300"
-          style={isGradient ? { background: hex } : { backgroundColor: hex }}
-          title={data.color}
-          aria-label={data.color}
-        />
+        <span className="flex items-center gap-2">
+          <span
+            className="inline-block h-4 w-4 shrink-0 rounded-full border border-zinc-300"
+            style={isGradient ? { background: hex } : { backgroundColor: hex }}
+            title={displayLabel}
+            aria-hidden
+          />
+          <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900 capitalize")}>{displayLabel}</span>
+        </span>
       ),
     });
   }

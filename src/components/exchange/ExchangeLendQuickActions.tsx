@@ -5,6 +5,7 @@ import { Pencil, Repeat2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -17,6 +18,7 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
   const router = useRouter();
   const supabase = createSupabaseBrowserClient() as any;
   const [isDeleting, setIsDeleting] = useState(false);
+  const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
 
   const handleDelete = async () => {
     if (isDeleting) return;
@@ -41,6 +43,9 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
 
     setIsDeleting(false);
     if (error) return;
+
+    const intakeRes = await setItemIntakeListingStage(supabase, id, "refused");
+    if (!intakeRes.ok) return;
 
     try {
       const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");
@@ -68,7 +73,7 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
           <Trash2 className={cn("h-5 w-5", isDeleting ? "opacity-40" : "")} />
         </button>
         <Link
-          href={`/items/new?itemId=${encodeURIComponent(id)}`}
+          href={`/items/new?itemId=${encodeURIComponent(id)}&from=item`}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
           aria-label="Modifier l'item"
         >
@@ -79,12 +84,51 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
   }
 
   return (
-    <button
-      type="button"
-      className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
-      aria-label="Demander un retour"
-    >
-      <Repeat2 className="h-5 w-5" />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setReturnConfirmOpen(true)}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+        aria-label="Demander un retour"
+      >
+        <Repeat2 className="h-5 w-5" />
+      </button>
+      {returnConfirmOpen ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]">
+          <div
+            className="w-full max-w-[380px] rounded-2xl bg-white p-4 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`confirm-return-${id}`}
+          >
+            <h3 id={`confirm-return-${id}`} className="text-base font-semibold text-zinc-900">
+              Récupérer cette pièce ?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReturnConfirmOpen(false)}
+                className="h-10 rounded-lg border border-zinc-200 text-sm font-semibold text-zinc-800"
+              >
+                Non
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReturnConfirmOpen(false);
+                  router.push(`/items/${encodeURIComponent(id)}/retour`);
+                }}
+                className="h-10 rounded-lg bg-[#5E3023] text-sm font-semibold text-white"
+              >
+                Oui, récupérer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

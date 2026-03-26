@@ -88,7 +88,7 @@ create policy "item_condition_history_select_via_staff"
     exists (
       select 1 from public.user_roles ur
       where ur.user_id = auth.uid()
-        and ur.role in ('moderator', 'admin', 'super_admin')
+        and ur.role in ('moderator', 'admin')
         and ur.deleted_at is null
     )
   );
@@ -113,7 +113,7 @@ create policy "item_condition_history_insert_via_staff"
     exists (
       select 1 from public.user_roles ur
       where ur.user_id = auth.uid()
-        and ur.role in ('moderator', 'admin', 'super_admin')
+        and ur.role in ('moderator', 'admin')
         and ur.deleted_at is null
     )
   );

@@ -1,10 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
+import { Montserrat, Playfair_Display } from "next/font/google";
 
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
 
 type ItemDescriptionCardProps = {
   description: string;
@@ -32,8 +33,8 @@ export function ItemDescriptionCard({ description, className }: ItemDescriptionC
       </p>
       <p
         className={cn(
-          montserrat.className,
-          "mt-2 text-[16px] font-semibold leading-snug text-zinc-900",
+          playfairDisplay.className,
+          "mt-2 text-[28px] font-extrabold leading-snug text-zinc-900",
         )}
       >
         {trimmed ? trimmed : "—"}

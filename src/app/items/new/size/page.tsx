@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import type { WheelEvent as ReactWheelEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -113,10 +115,12 @@ function SizeWheelPicker({
 export default function NewItemSizePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const itemId = searchParams.get("itemId")?.trim() || null;
   const supabase = createSupabaseBrowserClient() as any;
-  const categoryId = searchParams.get("categoryId")?.trim() || null;
-  const selectedCode = searchParams.get("size") ?? "";
-  const selectedSizeId = searchParams.get("sizeId") ?? "";
+  const draft = getItemInfoDraft();
+  const categoryId = draft.categoryId?.trim() || null;
+  const selectedCode = draft.size ?? "";
+  const selectedSizeId = draft.sizeId ?? "";
 
   const [sizes, setSizes] = useState<SizeOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,18 +174,15 @@ export default function NewItemSizePage() {
   }, [supabase, categoryId]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const goBackWithSize = () => {
     if (!selectedSize) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("size", selectedSize.code);
-    params.set("sizeId", selectedSize.id);
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    mergeItemInfoDraft({ size: selectedSize.code, sizeId: selectedSize.id });
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   return (

@@ -57,7 +57,12 @@ export function ModifyPageClient() {
     setErrorMessage(null);
     setIsSaving(true);
 
-    const uploadAtDone = async () => {
+    // Pour les items : pas d'upload ici, le dataUrl sera conservé et uploadé à la sauvegarde (Soumettre/Garder)
+    // Pour profile/looks : on uploade immédiatement car le flux ne gère pas le différé
+    const shouldUploadNow = draft.source !== "item";
+
+    const uploadAtDone = async (): Promise<string | null> => {
+      if (!shouldUploadNow) return null;
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData.user?.id) {
         throw new Error("Session introuvable pour uploader la photo.");
@@ -84,9 +89,10 @@ export function ModifyPageClient() {
       return path;
     };
 
-    let storagePath = draft.originalStoragePath ?? null;
+    let storagePath = shouldUploadNow ? draft.originalStoragePath ?? null : null;
     try {
-      storagePath = await uploadAtDone();
+      const uploaded = await uploadAtDone();
+      if (uploaded) storagePath = uploaded;
     } catch (error) {
       setIsSaving(false);
       setErrorMessage(error instanceof Error ? error.message : "Impossible d'enregistrer la photo.");

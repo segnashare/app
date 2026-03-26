@@ -34,6 +34,7 @@ export function ExchangeHeader({ membershipLabel, availablePoints, blockedPoints
   const walletState = useMemo(() => {
     if (membershipLabel === "Guest") return "guest";
     if (membershipLabel === "Membre +" && hasReachedLendingCap) return "segna_plus_cap_reached";
+    if (membershipLabel === "Membre X" && hasReachedLendingCap) return "segna_x_cap_reached";
     return "subscriber_not_maxed";
   }, [hasReachedLendingCap, membershipLabel]);
 
@@ -57,6 +58,17 @@ export function ExchangeHeader({ membershipLabel, availablePoints, blockedPoints
         primaryCtaHref: "/package?plan=minus",
         secondaryCtaLabel: "Obtenir des mods",
         secondaryCtaHref: "/profile?tab=obtenirplus",
+      };
+    }
+
+    if (walletState === "segna_x_cap_reached") {
+      return {
+        title: "Plafond de prêt atteint",
+        description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
+        primaryCtaLabel: "Obtenir des mods",
+        primaryCtaHref: "/profile?tab=obtenirplus",
+        secondaryCtaLabel: "Comprendre",
+        secondaryCtaHref: "/package",
       };
     }
 

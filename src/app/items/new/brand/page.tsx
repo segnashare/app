@@ -5,6 +5,8 @@ import { Check, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
+import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -19,9 +21,11 @@ const montserratItalic = Montserrat({ subsets: ["latin"], weight: "500", style: 
 export default function NewItemBrandPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const itemId = searchParams.get("itemId")?.trim() || null;
   const supabase = createSupabaseBrowserClient() as any;
-  const initialBrand = searchParams.get("brand") ?? "";
-  const initialBrandId = searchParams.get("brandId") ?? "";
+  const draft = getItemInfoDraft();
+  const initialBrand = draft.brand ?? "";
+  const initialBrandId = draft.brandId ?? "";
 
   const [brandOptions, setBrandOptions] = useState<BrandOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,23 +66,19 @@ export default function NewItemBrandPage() {
   }, [brandOptions, query]);
 
   const goBack = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const confirmSelection = () => {
-    const params = new URLSearchParams(searchParams.toString());
     const brandId = pickedBrandId ?? brandOptions.find((b) => b.label === pickedBrandLabel)?.id;
     if (brandId && pickedBrandLabel) {
-      params.set("brand", pickedBrandLabel);
-      params.set("brandId", brandId);
+      mergeItemInfoDraft({ brandId, brand: pickedBrandLabel });
     } else {
-      params.delete("brand");
-      params.delete("brandId");
+      mergeItemInfoDraft({ brandId: null, brand: null });
     }
-    params.delete("photoModifyId");
-    router.push(`/items/new?${params.toString()}`);
+    const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+    router.replace(withFromItemParam(base, searchParams));
   };
 
   const toggleBrand = (brand: BrandOption) => {

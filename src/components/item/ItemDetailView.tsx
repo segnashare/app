@@ -1,0 +1,664 @@
+"use client";
+
+import Link from "next/link";
+import { Montserrat, Playfair_Display } from "next/font/google";
+import { ChevronLeft, MoreVertical } from "lucide-react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { ItemIntakePanel, needsItemIntakeUi } from "./ItemIntakePanel";
+import { LogisticsRefusalEntryModal } from "./LogisticsRefusalEntryModal";
+import { ItemViewView } from "./ItemViewView";
+import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
+import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
+import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { invalidateLendItemDetailCache, primeLendItemDetailCache, readLendItemDetailCache } from "@/lib/items/lend-items-detail-cache";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils/cn";
+
+const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
+
+function canEditDraftItem(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return s === "draft";
+}
+
+const ITEM_DETAIL_BACK_HREF_KEY = "segna:item-detail:back-href";
+
+const ITEM_DETAIL_CACHED_EVENT = "segna:item-detail-cached";
+
+export function ItemDetailView() {
+  const params = useParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const itemId = typeof params.id === "string" ? params.id : null;
+  /** Strip `?verification=1` après chargement (URL propre). */
+  const verificationPending = searchParams.get("verification") === "1";
+
+  const [data, setData] = useState<ItemDetailPayload | null>(() => (itemId ? readLendItemDetailCache(itemId) : null));
+  const [isLoading, setIsLoading] = useState(() => {
+    if (!itemId) return false;
+    return readLendItemDetailCache(itemId) == null;
+  });
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [recoveryStatusOpen, setRecoveryStatusOpen] = useState(false);
+  const [recoveryConfirmOpen, setRecoveryConfirmOpen] = useState(false);
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+  const itemIdRef = useRef<string | null>(null);
+  itemIdRef.current = itemId;
+
+  const navigateBack = useCallback(() => {
+    router.replace("/exchange");
+  }, [router]);
+
+  /**
+   * Après soumission, session = /exchange : Retour / Suivant du navigateur ne doit pas rouvrir le flux
+   * new item (sous-pages). On laisse passer uniquement /items/[id] et /exchange (pile naturelle).
+   */
+  useEffect(() => {
+    if (!itemId || typeof window === "undefined") return;
+    let backHref: string | null = null;
+    try {
+      backHref = window.sessionStorage.getItem(ITEM_DETAIL_BACK_HREF_KEY);
+    } catch {
+      return;
+    }
+    if (backHref !== "/exchange") return;
+
+    const onPopState = () => {
+      queueMicrotask(() => {
+        const id = itemIdRef.current;
+        if (!id) return;
+        const path = window.location.pathname;
+        if (path === `/items/${id}`) return;
+        if (path === "/exchange" || path.startsWith("/exchange/")) return;
+        router.replace("/exchange");
+      });
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [itemId, router]);
+
+  useEffect(() => {
+    if (!itemId || !verificationPending) return;
+    const path = pathname && pathname.startsWith("/items/") ? pathname : `/items/${itemId}`;
+    router.replace(path, { scroll: false });
+  }, [itemId, pathname, router, verificationPending]);
+
+  useEffect(() => {
+    if (!itemId) {
+      setData(null);
+      setIsLoading(false);
+      setErrorMessage(null);
+      return;
+    }
+    setErrorMessage(null);
+    const snap = readLendItemDetailCache(itemId);
+    if (snap) {
+      setData(snap);
+      setIsLoading(false);
+    } else {
+      setData(null);
+      setIsLoading(true);
+    }
+  }, [itemId]);
+
+  useEffect(() => {
+    if (!itemId || typeof window === "undefined") return;
+    const onCached = (e: Event) => {
+      const ce = e as CustomEvent<{ itemId?: string }>;
+      if (ce.detail?.itemId !== itemId) return;
+      const snap = readLendItemDetailCache(itemId);
+      if (!snap) return;
+      setData(snap);
+      setIsLoading(false);
+      setErrorMessage(null);
+    };
+    window.addEventListener(ITEM_DETAIL_CACHED_EVENT, onCached);
+    return () => window.removeEventListener(ITEM_DETAIL_CACHED_EVENT, onCached);
+  }, [itemId]);
+
+  const fetchData = useCallback(async () => {
+    if (!itemId) {
+      setData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    if (readLendItemDetailCache(itemId) == null) {
+      setIsLoading(true);
+    }
+    setErrorMessage(null);
+
+    const res = await fetchItemDetailDataForOwner(itemId);
+    if (!res.ok) {
+      setErrorMessage(res.kind === "auth" ? "Session invalide." : "Pièce introuvable.");
+      setData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    primeLendItemDetailCache(itemId, res.payload);
+    setData(res.payload);
+    setIsLoading(false);
+  }, [itemId]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      const el = actionsMenuRef.current;
+      if (el && !el.contains(event.target as Node)) {
+        setActionsMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [actionsMenuOpen]);
+
+  const showHeaderActions = data ? canEditDraftItem(data.status) : false;
+  const showIntakeStrip = Boolean(
+    data?.intake && needsItemIntakeUi(data.intake.listing_stage, data.intake.fulfillment_stage),
+  );
+  const intakeFloatingCard = data?.intake?.listing_stage === "validation_pending";
+  const showLogisticsRefusalModal = Boolean(
+    data?.intake?.listing_stage === "validated" && data?.intake?.fulfillment_stage === "refused",
+  );
+  const showRecoveryStatusModal = data?.status?.trim().toLowerCase() === "retired";
+  const recoveryStage = (data?.outtake?.stage ?? "none").trim().toLowerCase();
+  const recoveryLabel =
+    recoveryStage === "in_transit"
+      ? "Expédition retour confirmée"
+      : recoveryStage === "member_verification_pending"
+        ? "Vérification membre en attente"
+        : recoveryStage === "member_issue_reported"
+          ? "Incident retour signalé"
+          : recoveryStage === "settled"
+            ? "Retour finalisé"
+            : "Récupération initiée";
+  const recoveryHref =
+    recoveryStage === "in_transit"
+      ? `/items/${encodeURIComponent(itemId ?? "")}/retour/expedition`
+      : `/items/${encodeURIComponent(itemId ?? "")}/retour`;
+  const canMemberConfirmRecovery = recoveryStage === "member_verification_pending";
+  const canMemberReportIssue = recoveryStage === "member_verification_pending" || recoveryStage === "member_issue_reported";
+
+  useEffect(() => {
+    setRecoveryStatusOpen(showRecoveryStatusModal);
+  }, [showRecoveryStatusModal, itemId]);
+
+  const headerRef = useRef<HTMLElement | null>(null);
+  const intakeStripRef = useRef<HTMLDivElement | null>(null);
+  const recoveryStripRef = useRef<HTMLDivElement | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(92);
+  const [measuredIntakeStripHeight, setMeasuredIntakeStripHeight] = useState(0);
+  const [measuredRecoveryStripHeight, setMeasuredRecoveryStripHeight] = useState(0);
+  const intakeStripHeight = showIntakeStrip ? measuredIntakeStripHeight : 0;
+  const recoveryStripHeight = showRecoveryStatusModal && recoveryStatusOpen ? measuredRecoveryStripHeight : 0;
+  const fixedStripHeight = intakeStripHeight + recoveryStripHeight;
+
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => setHeaderHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data?.title, showHeaderActions, isLoading, errorMessage]);
+
+  useLayoutEffect(() => {
+    if (!showIntakeStrip) return;
+    const el = intakeStripRef.current;
+    if (!el) return;
+    const measure = () => setMeasuredIntakeStripHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showIntakeStrip, data?.intake?.listing_stage, data?.intake?.fulfillment_stage]);
+
+  useLayoutEffect(() => {
+    if (!(showRecoveryStatusModal && recoveryStatusOpen)) return;
+    const el = recoveryStripRef.current;
+    if (!el) return;
+    const measure = () => setMeasuredRecoveryStripHeight(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showRecoveryStatusModal, recoveryStatusOpen, recoveryLabel]);
+
+  const handleConfirmDelete = async () => {
+    if (!itemId || isDeleting) return;
+    setDeleteError(null);
+    setIsDeleting(true);
+    const supabase = createSupabaseBrowserClient() as any;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      setIsDeleting(false);
+      setDeleteError("Session invalide.");
+      return;
+    }
+    const { error } = await supabase
+      .from("items")
+      .update({ status: "draft_deleted" })
+      .eq("id", itemId)
+      .eq("owner_user_id", user.id)
+      .is("deleted_at", null);
+    setIsDeleting(false);
+    if (error) {
+      setDeleteError(error.message);
+      return;
+    }
+    const intakeRes = await setItemIntakeListingStage(supabase, itemId, "refused");
+    if (!intakeRes.ok) {
+      setDeleteError(intakeRes.message);
+      return;
+    }
+    try {
+      const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");
+      if (activeDraftId === itemId) {
+        window.sessionStorage.removeItem("segna:new-item:active-draft-id");
+        window.sessionStorage.removeItem("segna:new-item:slots-draft");
+        window.sessionStorage.removeItem("segna:new-item:text-draft");
+      }
+    } catch {
+      // no-op
+    }
+    invalidateLendItemDetailCache(itemId);
+    setDeleteModalOpen(false);
+    router.push("/exchange");
+  };
+
+  const handleMemberRecoveryConfirm = async () => {
+    if (!itemId || recoverySubmitting) return;
+    setRecoveryError(null);
+    setRecoverySubmitting(true);
+    try {
+      const res = await fetch("/api/items/outtake/member-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, action: "confirm" }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) {
+        setRecoveryError(j.error ?? "Confirmation impossible");
+        return;
+      }
+      setRecoveryConfirmOpen(false);
+      setRecoveryStatusOpen(false);
+      await fetchData();
+    } catch {
+      setRecoveryError("Confirmation impossible");
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  };
+
+  const handleMemberRecoveryHelp = async () => {
+    if (!itemId || recoverySubmitting) return;
+    setRecoveryError(null);
+    setRecoverySubmitting(true);
+    try {
+      const res = await fetch("/api/items/outtake/member-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, action: "help" }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) {
+        setRecoveryError(j.error ?? "Signalement impossible");
+        return;
+      }
+      await fetchData();
+    } catch {
+      setRecoveryError("Signalement impossible");
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  };
+
+  if (!itemId) {
+    return (
+      <main className="min-h-[100dvh] bg-white">
+        <p className="p-6 text-sm text-zinc-500">Identifiant invalide.</p>
+      </main>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <main className="min-h-[100dvh] bg-white">
+        <header
+          ref={headerRef}
+          className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-6"
+        >
+          <div className="flex min-h-[52px] items-center gap-2">
+            <button type="button" onClick={navigateBack} className="p-1 -ml-1">
+              <ChevronLeft className="h-6 w-6 text-zinc-700" />
+            </button>
+          </div>
+        </header>
+        <div className="mx-auto max-w-[430px] px-6 py-12" style={{ paddingTop: headerHeight }}>
+          <p className="text-sm text-[#E44D3E]">{errorMessage}</p>
+          <Link href="/exchange" className={cn(montserrat.className, "mt-4 inline-block text-[16px] font-semibold text-[#5E3023]")}>
+            Retour à l&apos;échange
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <main className="min-h-[100dvh] bg-white">
+        <header
+          ref={headerRef}
+          className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-6"
+        >
+          <div className="flex min-h-[52px] items-center gap-2">
+            <button type="button" onClick={navigateBack} className="p-1 -ml-1">
+              <ChevronLeft className="h-6 w-6 text-zinc-700" />
+            </button>
+            <div className="h-6 w-32 animate-pulse rounded bg-zinc-200" />
+          </div>
+        </header>
+        <div
+          className="mx-auto flex max-w-[430px] justify-center px-6 py-12"
+          style={{ paddingTop: headerHeight }}
+        >
+          <p className="text-sm text-zinc-500">Chargement...</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-[100dvh] bg-white">
+      <header
+        ref={headerRef}
+        className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-6"
+      >
+        <div className="relative flex min-h-[52px] items-center justify-center">
+          <button
+            type="button"
+            onClick={navigateBack}
+            className="absolute left-0 top-1/2 z-10 -translate-y-1/2 p-1"
+            aria-label="Retour"
+          >
+            <ChevronLeft className="h-6 w-6 text-zinc-700" />
+          </button>
+          <h1
+            className={cn(
+              playfairDisplay.className,
+              "mx-12 max-w-[min(100%,280px)] truncate text-center text-[20px] font-extrabold italic text-zinc-900 sm:max-w-[min(100%,340px)]",
+            )}
+          >
+            {data.title}
+          </h1>
+          {showHeaderActions ? (
+            <div ref={actionsMenuRef} className="absolute right-0 top-1/2 z-10 -translate-y-1/2">
+              <button
+                type="button"
+                onClick={() => setActionsMenuOpen((o) => !o)}
+                className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-100"
+                aria-expanded={actionsMenuOpen}
+                aria-haspopup="menu"
+                aria-label="Actions sur la pièce"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+              {actionsMenuOpen ? (
+                <ul
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 min-w-[220px] rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
+                >
+                  <li role="none">
+                    <Link
+                      role="menuitem"
+                      href={`/items/new?itemId=${encodeURIComponent(itemId!)}&from=item`}
+                      className={cn(montserrat.className, "block px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50")}
+                      onClick={() => setActionsMenuOpen(false)}
+                    >
+                      Modifier le brouillon
+                    </Link>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={cn(
+                        montserrat.className,
+                        "w-full px-4 py-3 text-left text-sm font-semibold text-[#E44D3E] hover:bg-red-50",
+                      )}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        setDeleteModalOpen(true);
+                      }}
+                    >
+                      Supprimer
+                    </button>
+                  </li>
+                </ul>
+              ) : null}
+            </div>
+          ) : (
+            <div className="absolute right-0 top-1/2 h-11 w-11 -translate-y-1/2" aria-hidden />
+          )}
+        </div>
+      </header>
+
+      {showIntakeStrip && data.intake?.listing_stage ? (
+        <div
+          ref={intakeStripRef}
+          className={cn(
+            "fixed left-0 right-0 z-[50]",
+            intakeFloatingCard ? "bg-transparent pt-2.5" : "bg-transparent px-4 pt-3 sm:px-5",
+          )}
+          style={{ top: headerHeight }}
+        >
+          {intakeFloatingCard ? (
+            <div className="mx-4 max-w-[430px] sm:mx-auto">
+              <ItemIntakePanel
+                key={`${data.intake.listing_stage}-${data.intake.fulfillment_stage ?? ""}`}
+                itemId={itemId}
+                listingStage={data.intake.listing_stage}
+                fulfillmentStage={data.intake.fulfillment_stage}
+                intakeMetadata={data.intake.metadata}
+                intakeUpdatedAt={data.intake.updated_at}
+                offerPricePoints={data.infoCard.pricePoints}
+                placement="item"
+                onPipelineUpdated={() => void fetchData()}
+              />
+            </div>
+          ) : (
+            <div className="mx-auto w-full max-w-[460px]">
+              <div className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_4px_20px_-6px_rgba(0,0,0,0.12)] ring-1 ring-black/[0.04]">
+                <ItemIntakePanel
+                  key={`${data.intake.listing_stage}-${data.intake.fulfillment_stage ?? ""}`}
+                  itemId={itemId}
+                  listingStage={data.intake.listing_stage}
+                  fulfillmentStage={data.intake.fulfillment_stage}
+                  intakeMetadata={data.intake.metadata}
+                  intakeUpdatedAt={data.intake.updated_at}
+                  offerPricePoints={data.infoCard.pricePoints}
+                  placement="item"
+                  onPipelineUpdated={() => void fetchData()}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {itemId && showRecoveryStatusModal && recoveryStatusOpen ? (
+        <div ref={recoveryStripRef} className="fixed left-0 right-0 z-[49] bg-transparent px-4 pt-3 sm:px-5" style={{ top: headerHeight + intakeStripHeight }}>
+          <div className="mx-auto w-full max-w-[460px]">
+            <div className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-[0_4px_20px_-6px_rgba(0,0,0,0.12)] ring-1 ring-amber-900/[0.06]">
+              <div className="px-4 py-3">
+                <p className={cn(montserrat.className, "text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-800/90")}>
+                  Processus de récupération
+                </p>
+                <p className="mt-1 text-sm font-semibold text-zinc-900">Ta pièce est en récupération</p>
+                <p className="mt-1 text-sm text-zinc-600">
+                  État actuel: <span className="font-semibold text-zinc-900">{recoveryLabel}</span>.
+                </p>
+                {canMemberConfirmRecovery ? (
+                  <p className="mt-2 text-[12px] text-zinc-700">
+                    Vérifie le contenu reçu puis confirme que la récupération est conforme.
+                  </p>
+                ) : (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Link
+                      href={recoveryHref}
+                      className="inline-flex h-9 items-center justify-center rounded-lg bg-[#5E3023] px-3 text-xs font-semibold text-white"
+                    >
+                      Voir le suivi
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setRecoveryStatusOpen(false)}
+                      className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 px-3 text-xs font-semibold text-zinc-900"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                )}
+                {canMemberConfirmRecovery ? (
+                  <p className="mt-2 text-[12px] text-zinc-700">As-tu bien récupéré ta pièce ?</p>
+                ) : null}
+                {canMemberConfirmRecovery || canMemberReportIssue ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    {canMemberConfirmRecovery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRecoveryError(null);
+                          setRecoveryConfirmOpen(true);
+                        }}
+                        disabled={recoverySubmitting}
+                        className="inline-flex h-8 items-center justify-center rounded-lg bg-[#5E3023] px-2.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                      >
+                        Valider la récupération
+                      </button>
+                    ) : null}
+                    {canMemberReportIssue ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMemberRecoveryHelp()}
+                        disabled={recoverySubmitting}
+                        className="inline-flex h-8 items-center justify-center rounded-lg border border-zinc-200 px-2.5 text-[11px] font-medium text-zinc-600 disabled:opacity-60"
+                      >
+                        Aide litige
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {recoveryStage === "member_issue_reported" ? (
+                  <p className="mt-2 text-[11px] text-rose-700">
+                    Litige signalé. L’équipe Segna va revenir vers toi rapidement.
+                  </p>
+                ) : null}
+                {recoveryError ? <p className="mt-2 text-[11px] text-rose-700">{recoveryError}</p> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className="relative z-0 mx-auto max-w-[430px] px-6 pb-6"
+        style={{ paddingTop: headerHeight + fixedStripHeight }}
+      >
+        <ItemViewView
+          title={data.title}
+          description={data.description}
+          slots={data.slots}
+          infoCard={data.infoCard}
+          ownerUserId={data.ownerUserId}
+        />
+      </div>
+
+      {deleteModalOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[430px] rounded-3xl bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="item-delete-title">
+            <h3 id="item-delete-title" className="text-[20px] font-semibold text-zinc-900">
+              Supprimer cette pièce ?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Elle sera retirée de ton espace. Tu pourras créer une nouvelle fiche plus tard si besoin.
+            </p>
+            {deleteError ? <p className="mt-2 text-sm text-[#E44D3E]">{deleteError}</p> : null}
+            <div className="mt-5 grid gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteModalOpen(false);
+                  setDeleteError(null);
+                }}
+                disabled={isDeleting}
+                className="h-11 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-900 disabled:opacity-60"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmDelete()}
+                disabled={isDeleting}
+                className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {isDeleting ? "Suppression…" : "Supprimer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {itemId && recoveryConfirmOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/20 p-4">
+          <div className="w-full max-w-[320px] rounded-xl border border-zinc-200 bg-white p-4 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="confirm-recovery-title">
+            <p id="confirm-recovery-title" className="text-sm font-semibold text-zinc-900">
+              Vous confirmez avoir récupéré votre pièce ?
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRecoveryConfirmOpen(false)}
+                disabled={recoverySubmitting}
+                className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 px-3 text-xs font-medium text-zinc-700 disabled:opacity-60"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleMemberRecoveryConfirm()}
+                disabled={recoverySubmitting}
+                className="inline-flex h-8 items-center justify-center rounded-md bg-[#5E3023] px-3 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {recoverySubmitting ? "Confirmation…" : "Confirmer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {itemId && showLogisticsRefusalModal ? <LogisticsRefusalEntryModal itemId={itemId} /> : null}
+    </main>
+  );
+}

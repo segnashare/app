@@ -2,6 +2,7 @@ import { ExchangeCartSection, type CartLine, type CartLineStatus } from "@/compo
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
+import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -20,7 +21,30 @@ function toMembershipLabel(roles: string[]): "Guest" | "Membre +" | "Membre X" {
 type MembershipState = {
   plan_code?: string | null;
   subscription_status?: string | null;
+  included_lends_limit?: number | null;
 };
+
+function parseIncludedLendsLimitRpc(data: unknown): number {
+  if (data == null || typeof data !== "object") return 0;
+  const v = (data as Record<string, unknown>).included_lends_limit;
+  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, Math.floor(v));
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  return 0;
+}
+
+/** Plafond prêts : priorité à la ligne `user_monthly_entitlements` (RPC), sinon valeurs produit. */
+function resolveIncludedLendsLimit(
+  membershipLabel: "Guest" | "Membre +" | "Membre X",
+  fromRpc: number,
+): number {
+  if (fromRpc > 0) return fromRpc;
+  if (membershipLabel === "Membre X") return 10;
+  if (membershipLabel === "Membre +") return 5;
+  return 0;
+}
 
 function toMembershipLabelFromBilling(state: MembershipState | null | undefined): "Guest" | "Membre +" | "Membre X" {
   const status = (state?.subscription_status ?? "").toLowerCase();
@@ -125,8 +149,16 @@ export default async function ExchangePage() {
   const userId = user.id as string;
   const nowIso = new Date().toISOString();
 
-  const [membershipStateRes, rolesRes, walletRes, holdsRes, activeCartRes, lendsRes, disputesRes, historyRes, historyCountRes] = await Promise.all([
+  const [membershipStateRes, subscriptionRowRes, rolesRes, walletRes, holdsRes, activeCartRes, lendsRes, disputesRes, historyRes, historyCountRes] = await Promise.all([
     supabase.rpc("get_current_membership_state"),
+    supabase
+      .from("user_subscriptions")
+      .select("plan_code,status")
+      .eq("user_id", userId)
+      .eq("provider", "stripe")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabase.from("user_roles").select("role").eq("user_id", userId),
     supabase.from("user_wallets").select("balance_points").eq("user_id", userId).is("deleted_at", null).maybeSingle(),
     supabase.from("wallet_holds").select("amount_points").eq("user_id", userId).eq("status", "active").gt("expires_at", nowIso),
@@ -141,21 +173,38 @@ export default async function ExchangePage() {
       .maybeSingle(),
     supabase
       .from("items")
-      .select("id,title,description,price_points,status,photos,item_brand_id,item_brands(label)")
+      .select(
+        "id,title,description,price_points,status,photos,item_brand_id,item_brands(label), item_intake(listing_stage, fulfillment_stage, updated_at, metadata)",
+      )
       .eq("owner_user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["draft", "valuation", "validation_pending", "available", "in_cart", "reserved"])
+      .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
-      .limit(6),
+      .limit(8),
     supabase.from("cart_disputes").select("id", { count: "exact", head: true }).eq("opened_by_user_id", userId).is("deleted_at", null),
     supabase.from("carts").select("id,status,updated_at").eq("user_id", userId).is("deleted_at", null).neq("status", "active").order("updated_at", { ascending: false }).limit(3),
     supabase.from("carts").select("id", { count: "exact", head: true }).eq("user_id", userId).is("deleted_at", null).neq("status", "active"),
   ]);
 
   const roles: string[] = (rolesRes.data ?? []).map((entry: { role?: string | null }) => entry.role ?? "").filter(Boolean);
-  const hasBillingState = membershipStateRes.error == null && membershipStateRes.data != null;
-  const membershipLabelFromBilling = toMembershipLabelFromBilling((membershipStateRes.data ?? null) as MembershipState | null);
-  const membershipLabel = hasBillingState ? membershipLabelFromBilling : toMembershipLabel(roles);
+  const membershipLabelFromRpc = toMembershipLabelFromBilling((membershipStateRes.data ?? null) as MembershipState | null);
+  const subRow = subscriptionRowRes.data as { plan_code?: string | null; status?: string | null } | null;
+  const membershipLabelFromSubscriptionTable =
+    subscriptionRowRes.error == null && subRow
+      ? toMembershipLabelFromBilling({
+          plan_code: subRow.plan_code ?? null,
+          subscription_status: subRow.status ?? null,
+        })
+      : ("Guest" as const);
+  /** Même ordre que le profil : table Stripe d’abord (source de vérité), puis RPC (plafonds / mois), puis rôles. */
+  const membershipLabel =
+    membershipLabelFromSubscriptionTable !== "Guest"
+      ? membershipLabelFromSubscriptionTable
+      : membershipLabelFromRpc !== "Guest"
+        ? membershipLabelFromRpc
+        : toMembershipLabel(roles);
+  const includedLendsLimitFromRpc = parseIncludedLendsLimitRpc(membershipStateRes.data);
+  const includedLendsLimit = resolveIncludedLendsLimit(membershipLabel, includedLendsLimitFromRpc);
 
   const totalPoints = Number(walletRes.data?.balance_points ?? 0);
   const blockedPoints = (holdsRes.data ?? []).reduce((sum: number, hold: { amount_points?: number | null }) => sum + Number(hold.amount_points ?? 0), 0);
@@ -207,6 +256,11 @@ export default async function ExchangePage() {
     brand: string | null;
     currentValue: number | null;
     itemStatus: string;
+    intake: {
+      listing_stage: string;
+      fulfillment_stage: string | null;
+      metadata?: unknown;
+    } | null;
     photoPath: string | null;
     photoPosition: {
       offset?: { x?: number; y?: number };
@@ -215,9 +269,47 @@ export default async function ExchangePage() {
     } | null;
   }> = (
     lendsRes.data ?? []
-  ).map((item: { id: string; title: string | null; description: string | null; price_points: number | null; status: string | null; photos?: unknown | null; item_brands?: { label?: string | null } | null }) => {
+  ).map(
+    (item: {
+      id: string;
+      title: string | null;
+      description: string | null;
+      price_points: number | null;
+      status: string | null;
+      photos?: unknown | null;
+      item_brands?: { label?: string | null } | null;
+      item_intake?:
+        | {
+            listing_stage?: string;
+            fulfillment_stage?: string | null;
+            updated_at?: string | null;
+            metadata?: unknown;
+          }
+        | {
+            listing_stage?: string;
+            fulfillment_stage?: string | null;
+            updated_at?: string | null;
+            metadata?: unknown;
+          }[]
+        | null;
+    }) => {
     const photoData = resolveItemPhotoData(item.photos ?? null);
     const brand = item.item_brands?.label?.trim() || null;
+    const rawIntake = item.item_intake;
+      const intakeRow = Array.isArray(rawIntake)
+        ? [...rawIntake]
+            .filter((row) => row && typeof row === "object")
+            .sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")))[0]
+        : rawIntake;
+    const intake =
+      intakeRow && typeof intakeRow === "object"
+        ? {
+            listing_stage: String(intakeRow.listing_stage ?? ""),
+            fulfillment_stage:
+              intakeRow.fulfillment_stage != null ? String(intakeRow.fulfillment_stage) : null,
+            metadata: "metadata" in intakeRow ? (intakeRow as { metadata?: unknown }).metadata : undefined,
+          }
+        : null;
     return {
       id: item.id,
       name: item.title?.trim() || "Piece sans titre",
@@ -225,10 +317,12 @@ export default async function ExchangePage() {
       brand,
       currentValue: item.price_points == null ? null : Number(item.price_points),
       itemStatus: item.status ?? "inconnu",
+      intake,
       photoPath: photoData.path,
       photoPosition: photoData.position,
     };
-  });
+  },
+  );
 
   const signedPhotoByPath = new Map<string, string>();
   const uniquePaths: string[] = Array.from(
@@ -259,15 +353,46 @@ export default async function ExchangePage() {
   const statusSortOrder: Record<string, number> = {
     available: 0,
     in_cart: 0,
-    validation_pending: 1,
-    draft: 2,
-    valuation: 2,
-    reserved: 2,
+    listed: 1,
+    draft: 3,
+    reserved: 3,
   };
+
+  /** Plus la valeur est basse, plus l’étape pipeline est avancée (affichage en premier). */
+  function lendPipelineRank(item: (typeof rawLends)[0]): number {
+    const st = item.itemStatus.toLowerCase();
+    const ls = item.intake?.listing_stage?.toLowerCase() ?? "";
+    const fs = item.intake?.fulfillment_stage?.toLowerCase() ?? "";
+    if (st === "refused" || fs === "refused") return -1;
+    if (ls === "validated") {
+      if (fs === "verified") return 0;
+      if (fs === "in_verification") return 1;
+      // Intake « expédition » : fulfillment shipping ou encore non renseigné.
+      if (fs === "shipping" || fs === "") return 2;
+    }
+    if (ls === "validation_pending") return 3;
+    if (ls === "evaluated") return 4;
+    if (ls === "evaluation") return 5;
+    return 6;
+  }
+
+  /** verified = disponible au catalogue : même rang de tri que `available`, pas `listed`. */
+  function effectiveCatalogSortRank(itemStatus: string, intake: (typeof rawLends)[0]["intake"]): number {
+    const key = itemStatus.toLowerCase();
+    const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
+    if (key === "refused" || fs === "refused") return -1;
+    const ls = intake?.listing_stage?.toLowerCase() ?? "";
+    if (ls === "validated" && fs === "verified") return statusSortOrder.available;
+    return statusSortOrder[key] ?? 3;
+  }
+
   const sortedRawLends = [...rawLends].sort((a, b) => {
-    const orderA = statusSortOrder[a.itemStatus] ?? 3;
-    const orderB = statusSortOrder[b.itemStatus] ?? 3;
-    if (orderA !== orderB) return orderA - orderB;
+    const pa = lendPipelineRank(a);
+    const pb = lendPipelineRank(b);
+    if (pa !== pb) return pa - pb;
+    const ca = effectiveCatalogSortRank(a.itemStatus, a.intake);
+    const cb = effectiveCatalogSortRank(b.itemStatus, b.intake);
+    if (ca !== cb) return ca - cb;
     return 0;
   });
 
@@ -278,9 +403,27 @@ export default async function ExchangePage() {
     brand: item.brand,
     currentValue: item.currentValue,
     itemStatus: item.itemStatus,
+    intake: item.intake,
     photoUrl: item.photoPath ? (signedPhotoByPath.get(item.photoPath) ?? null) : null,
     photoPosition: item.photoPosition,
   }));
+
+  const validatedLendsCount = lends.filter((l) => {
+    const ls = (l.intake?.listing_stage?.toLowerCase() ?? "") === "validated";
+    if (!ls) return false;
+    const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
+    const st = l.itemStatus.toLowerCase();
+    if (fs === "refused" || st === "refused") return false;
+    return true;
+  }).length;
+
+  const mergedShippingCandidateIds = lends
+    .filter((l) => {
+      const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
+      const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
+      return ls === "validated" && (fs === "shipping" || fs === "");
+    })
+    .map((l) => l.id);
 
   const recentOrders = (historyRes.data ?? []).map((order: { id: string; status: string; updated_at: string }) => ({
     id: order.id,
@@ -288,10 +431,14 @@ export default async function ExchangePage() {
     updatedAt: new Date(order.updated_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }),
   }));
 
-  const hasReachedLendingCap = membershipLabel === "Membre +" && lends.length >= 5;
+  const hasReachedLendingCap =
+    (membershipLabel === "Membre +" || membershipLabel === "Membre X") &&
+    includedLendsLimit > 0 &&
+    validatedLendsCount >= includedLendsLimit;
 
   return (
     <>
+      <ExchangeLendsDetailPrefetch itemIds={lends.map((l) => l.id)} />
       <div className="sticky top-0 z-30 bg-white">
         <ExchangeHeader
           membershipLabel={membershipLabel}
@@ -306,7 +453,13 @@ export default async function ExchangePage() {
       <MainContent className="flex flex-col space-y-0 bg-zinc-100 px-0 pb-0 pt-0">
         <div className="space-y-[4.5px]">
           <ExchangeCartSection initialLines={cartLines} cartStatusLabel={cartStatusLabel} membershipLabel={membershipLabel} />
-          <ExchangeLendsSection lends={lends} membershipLabel={membershipLabel} />
+          <ExchangeLendsSection
+            lends={lends}
+            membershipLabel={membershipLabel}
+            includedLendsLimit={includedLendsLimit}
+            validatedLendsCount={validatedLendsCount}
+            mergedShippingCandidateIds={mergedShippingCandidateIds}
+          />
           <ExchangeInteractionsSection totalOrders={historyCountRes.count ?? 0} recentOrders={recentOrders} disputesCount={disputesRes.count ?? 0} />
         </div>
         <ExchangeEmptyFill />

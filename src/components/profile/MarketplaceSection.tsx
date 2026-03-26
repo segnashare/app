@@ -80,10 +80,10 @@ export function MarketplaceSection({ membershipTier }: MarketplaceSectionProps) 
       <div className="space-y-4">
         {membershipTier !== "segna_x" ? (
           <section className="space-y-3">
-            <div className="grid grid-cols-1 gap-3">
-              <CardBase className="min-h-[220px] bg-zinc-900 text-white">
+            <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:-mx-5 md:px-5">
+              <CardBase className="h-[220px] w-[380px] flex-shrink-0 bg-zinc-900 text-white">
                 <p className="text-sm text-zinc-300">SegnaX</p>
-                <p className="mt-2 text-2xl font-semibold">Fais-toi remarquer plus vite</p>
+                <p className="mt-2 text-2xl font-semibold leading-tight">Fais-toi remarquer plus vite</p>
                 <Link
                   href="/package?plan=minus"
                   className="mt-4 inline-flex h-11 min-w-[180px] items-center justify-center rounded-full bg-white px-4 text-sm font-semibold text-zinc-900"
@@ -93,9 +93,9 @@ export function MarketplaceSection({ membershipTier }: MarketplaceSectionProps) 
               </CardBase>
 
               {membershipTier === "guest" ? (
-                <CardBase className="min-h-[220px]">
+                <CardBase className="h-[220px] w-[400px] flex-shrink-0 overflow-hidden">
                   <p className="text-sm text-zinc-500">Segna+</p>
-                  <p className="mt-2 text-xl font-semibold text-zinc-900">Débloque les échanges avec l&apos;abonnement Segna+.</p>
+                  <p className="mt-2 text-xl font-semibold leading-tight text-zinc-900 break-words">Débloque les échanges avec l&apos;abonnement Segna+.</p>
                   <Link
                     href="/package?plan=plus"
                     className="mt-4 inline-flex h-11 min-w-[180px] items-center justify-center rounded-full border border-zinc-300 px-4 text-sm font-semibold text-zinc-900"

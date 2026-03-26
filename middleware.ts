@@ -13,7 +13,16 @@ const PUBLIC_PREFIXES = [
   "/auth/sign-up/verify",
 ];
 
-const PROTECTED_PREFIXES = ["/onboarding", "/auth/sign-up/password", "/home", "/shop", "/exchange", "/community", "/profile"];
+const PROTECTED_PREFIXES = [
+  "/onboarding",
+  "/auth/sign-up/password",
+  "/home",
+  "/shop",
+  "/exchange",
+  "/community",
+  "/profile",
+  "/items",
+];
 const ONBOARDING_PATHS = [
   "/onboarding/welcome",
   "/onboarding/phone",

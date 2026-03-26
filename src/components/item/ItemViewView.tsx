@@ -7,6 +7,7 @@ import { ItemInfoCard } from "./ItemInfoCard";
 import type { ItemInfoCardData } from "./ItemInfoCard";
 import { ItemMemberSection } from "./ItemMemberSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -28,15 +29,15 @@ type ItemViewViewProps = {
   ownerUserId?: string | null;
 };
 
-function ItemPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
+function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
   return (
-    <div
-      className={cn("h-full w-full bg-center bg-no-repeat", className)}
-      style={{
-        backgroundColor: "#000000",
-        backgroundImage: `url(${slot.dataUrl})`,
+    <RemoteCoverThumb
+      photoUrl={slot.dataUrl}
+      frameClassName={cn("h-full w-full", className)}
+      coverStyle={{
         backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / ITEM_STAGE_RATIO)) * slot.zoom}%`,
         backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
+        backgroundRepeat: "no-repeat",
       }}
     />
   );
@@ -54,8 +55,8 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
       {/* 1. Photo principale */}
       <div className="pb-2">
         {filledSlots[0] ? (
-          <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-            <ItemPhoto slot={filledSlots[0]} />
+          <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
+            <ItemViewCoverPhoto slot={filledSlots[0]} />
           </div>
         ) : (
           <div className="flex aspect-square w-full items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-200 shadow-sm">
@@ -72,9 +73,9 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
       <div className="space-y-4 pt-4">
         {/* 3. Photo 2 */}
         {photo2 ? (
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
             <div className="relative aspect-square w-full">
-              <ItemPhoto slot={photo2} />
+              <ItemViewCoverPhoto slot={photo2} />
             </div>
           </div>
         ) : null}
@@ -84,9 +85,9 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
 
         {/* 5. Photo 3 */}
         {photo3 ? (
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
             <div className="relative aspect-square w-full">
-              <ItemPhoto slot={photo3} />
+              <ItemViewCoverPhoto slot={photo3} />
             </div>
           </div>
         ) : null}
@@ -96,9 +97,9 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
 
         {/* 7. Photos restantes (4, 5, 6) */}
         {remainingPhotos.map((slot, index) => (
-          <div key={index} className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+          <div key={index} className="overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
             <div className="relative aspect-square w-full">
-              <ItemPhoto slot={slot} />
+              <ItemViewCoverPhoto slot={slot} />
             </div>
           </div>
         ))}

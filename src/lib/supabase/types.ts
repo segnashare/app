@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           action: string
           actor_role: Database["public"]["Enums"]["app_role"] | null
+          actor_source: Database["public"]["Enums"]["activity_actor_source"]
           actor_user_id: string | null
           created_at: string
           entity_id: string | null
@@ -26,11 +27,14 @@ export type Database = {
           id: string
           payload: Json
           request_id: string | null
+          resource_type: Database["public"]["Enums"]["activity_resource_type"]
+          severity: Database["public"]["Enums"]["activity_severity"]
           user_id: string | null
         }
         Insert: {
           action: string
           actor_role?: Database["public"]["Enums"]["app_role"] | null
+          actor_source: Database["public"]["Enums"]["activity_actor_source"]
           actor_user_id?: string | null
           created_at?: string
           entity_id?: string | null
@@ -39,11 +43,14 @@ export type Database = {
           id?: string
           payload?: Json
           request_id?: string | null
+          resource_type: Database["public"]["Enums"]["activity_resource_type"]
+          severity?: Database["public"]["Enums"]["activity_severity"]
           user_id?: string | null
         }
         Update: {
           action?: string
           actor_role?: Database["public"]["Enums"]["app_role"] | null
+          actor_source?: Database["public"]["Enums"]["activity_actor_source"]
           actor_user_id?: string | null
           created_at?: string
           entity_id?: string | null
@@ -52,6 +59,8 @@ export type Database = {
           id?: string
           payload?: Json
           request_id?: string | null
+          resource_type?: Database["public"]["Enums"]["activity_resource_type"]
+          severity?: Database["public"]["Enums"]["activity_severity"]
           user_id?: string | null
         }
         Relationships: [
@@ -94,6 +103,33 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_plan_entitlement_limits: {
+        Row: {
+          free_items_per_order: number
+          included_lends_limit: number
+          included_orders_limit: number
+          max_lending_points_limit: number
+          plan_code: string
+          updated_at: string
+        }
+        Insert: {
+          free_items_per_order?: number
+          included_lends_limit?: number
+          included_orders_limit?: number
+          max_lending_points_limit?: number
+          plan_code: string
+          updated_at?: string
+        }
+        Update: {
+          free_items_per_order?: number
+          included_lends_limit?: number
+          included_orders_limit?: number
+          max_lending_points_limit?: number
+          plan_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billing_plan_prices: {
         Row: {
           created_at: string
@@ -101,7 +137,7 @@ export type Database = {
           is_active: boolean
           metadata: Json
           monthly_included_orders: number
-          monthly_included_points: number
+          monthly_max_lending_points: number
           plan_code: string
           provider: string
           stripe_price_id: string
@@ -114,7 +150,7 @@ export type Database = {
           is_active?: boolean
           metadata?: Json
           monthly_included_orders?: number
-          monthly_included_points?: number
+          monthly_max_lending_points?: number
           plan_code: string
           provider?: string
           stripe_price_id: string
@@ -127,7 +163,7 @@ export type Database = {
           is_active?: boolean
           metadata?: Json
           monthly_included_orders?: number
-          monthly_included_points?: number
+          monthly_max_lending_points?: number
           plan_code?: string
           provider?: string
           stripe_price_id?: string
@@ -602,30 +638,6 @@ export type Database = {
         }
         Relationships: []
       }
-      item_couleurs: {
-        Row: {
-          created_at: string
-          id: string
-          label: string
-          slug: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          label: string
-          slug: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          label?: string
-          slug?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       item_categories: {
         Row: {
           created_at: string
@@ -664,7 +676,74 @@ export type Database = {
           },
         ]
       }
-      item_materiaux: {
+      item_condition_history: {
+        Row: {
+          condition_score: string
+          created_at: string
+          defect_notes: string | null
+          description: string | null
+          id: string
+          item_id: string
+          metadata: Json
+          recorded_at: string
+          recorded_by_user_id: string | null
+          shipment_item_id: string | null
+          source: string
+          status: string
+        }
+        Insert: {
+          condition_score: string
+          created_at?: string
+          defect_notes?: string | null
+          description?: string | null
+          id?: string
+          item_id: string
+          metadata?: Json
+          recorded_at?: string
+          recorded_by_user_id?: string | null
+          shipment_item_id?: string | null
+          source: string
+          status?: string
+        }
+        Update: {
+          condition_score?: string
+          created_at?: string
+          defect_notes?: string | null
+          description?: string | null
+          id?: string
+          item_id?: string
+          metadata?: Json
+          recorded_at?: string
+          recorded_by_user_id?: string | null
+          shipment_item_id?: string | null
+          source?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_condition_history_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_condition_history_recorded_by_user_id_fkey"
+            columns: ["recorded_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_condition_history_shipment_item_id_fkey"
+            columns: ["shipment_item_id"]
+            isOneToOne: false
+            referencedRelation: "shipment_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_couleurs: {
         Row: {
           created_at: string
           id: string
@@ -697,7 +776,7 @@ export type Database = {
           id: string
           item_id: string
           reason: string | null
-          status: string
+          status: Database["public"]["Enums"]["item_dispute_status"]
           updated_at: string
         }
         Insert: {
@@ -708,7 +787,7 @@ export type Database = {
           id?: string
           item_id: string
           reason?: string | null
-          status?: string
+          status?: Database["public"]["Enums"]["item_dispute_status"]
           updated_at?: string
         }
         Update: {
@@ -719,7 +798,7 @@ export type Database = {
           id?: string
           item_id?: string
           reason?: string | null
-          status?: string
+          status?: Database["public"]["Enums"]["item_dispute_status"]
           updated_at?: string
         }
         Relationships: [
@@ -781,6 +860,50 @@ export type Database = {
           },
         ]
       }
+      item_intake: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          fulfillment_stage:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          item_id: string
+          listing_stage: Database["public"]["Enums"]["item_intake_listing_stage"]
+          metadata: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          item_id: string
+          listing_stage?: Database["public"]["Enums"]["item_intake_listing_stage"]
+          metadata?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          item_id?: string
+          listing_stage?: Database["public"]["Enums"]["item_intake_listing_stage"]
+          metadata?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_intake_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: true
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       item_inventory_locks: {
         Row: {
           cart_id: string | null
@@ -826,6 +949,103 @@ export type Database = {
             columns: ["locked_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_losses: {
+        Row: {
+          created_at: string
+          details: string | null
+          id: string
+          item_id: string
+          metadata: Json
+          reason: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          item_id: string
+          metadata?: Json
+          reason: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          item_id?: string
+          metadata?: Json
+          reason?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_losses_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_materiaux: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      item_outtake: {
+        Row: {
+          created_at: string
+          item_id: string
+          metadata: Json
+          stage: Database["public"]["Enums"]["item_outtake_stage"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          item_id: string
+          metadata?: Json
+          stage?: Database["public"]["Enums"]["item_outtake_stage"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          item_id?: string
+          metadata?: Json
+          stage?: Database["public"]["Enums"]["item_outtake_stage"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_outtake_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: true
+            referencedRelation: "items"
             referencedColumns: ["id"]
           },
         ]
@@ -930,28 +1150,64 @@ export type Database = {
         Row: {
           actor_user_id: string | null
           created_at: string
+          from_fulfillment_stage:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          from_listing_stage:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           from_status: Database["public"]["Enums"]["item_status"] | null
           id: string
           item_id: string
           reason: string | null
+          to_fulfillment_stage:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          to_listing_stage:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           to_status: Database["public"]["Enums"]["item_status"]
         }
         Insert: {
           actor_user_id?: string | null
           created_at?: string
+          from_fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          from_listing_stage?:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           from_status?: Database["public"]["Enums"]["item_status"] | null
           id?: string
           item_id: string
           reason?: string | null
+          to_fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          to_listing_stage?:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           to_status: Database["public"]["Enums"]["item_status"]
         }
         Update: {
           actor_user_id?: string | null
           created_at?: string
+          from_fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          from_listing_stage?:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           from_status?: Database["public"]["Enums"]["item_status"] | null
           id?: string
           item_id?: string
           reason?: string | null
+          to_fulfillment_stage?:
+            | Database["public"]["Enums"]["item_intake_fulfillment_stage"]
+            | null
+          to_listing_stage?:
+            | Database["public"]["Enums"]["item_intake_listing_stage"]
+            | null
           to_status?: Database["public"]["Enums"]["item_status"]
         }
         Relationships: [
@@ -964,59 +1220,6 @@ export type Database = {
           },
           {
             foreignKeyName: "item_status_history_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "items"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      item_condition_history: {
-        Row: {
-          id: string
-          item_id: string
-          source: string
-          condition_score: string
-          description: string | null
-          defect_notes: string | null
-          recorded_at: string
-          recorded_by_user_id: string | null
-          shipment_item_id: string | null
-          metadata: Json
-          created_at: string
-          status: string
-        }
-        Insert: {
-          id?: string
-          item_id: string
-          source: string
-          condition_score: string
-          description?: string | null
-          defect_notes?: string | null
-          recorded_at?: string
-          recorded_by_user_id?: string | null
-          shipment_item_id?: string | null
-          metadata?: Json
-          created_at?: string
-          status?: string
-        }
-        Update: {
-          id?: string
-          item_id?: string
-          source?: string
-          condition_score?: string
-          description?: string | null
-          defect_notes?: string | null
-          recorded_at?: string
-          recorded_by_user_id?: string | null
-          shipment_item_id?: string | null
-          metadata?: Json
-          created_at?: string
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "item_condition_history_item_id_fkey"
             columns: ["item_id"]
             isOneToOne: false
             referencedRelation: "items"
@@ -1396,6 +1599,39 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          first_name: string | null
+          id: string
+          last_name: string | null
+          locale: string | null
+          onboarding_completed_at: string | null
+          timezone: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          first_name?: string | null
+          id: string
+          last_name?: string | null
+          locale?: string | null
+          onboarding_completed_at?: string | null
+          timezone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          locale?: string | null
+          onboarding_completed_at?: string | null
+          timezone?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -2076,39 +2312,42 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          included_lends_limit: number
           included_orders_limit: number
-          included_points_limit: number
+          max_lending_points_limit: number
           metadata: Json
           orders_used: number
           period_month: string
           plan_code: string
-          points_used: number
+          lending_points_used: number
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
+          included_lends_limit?: number
           included_orders_limit?: number
-          included_points_limit?: number
+          max_lending_points_limit?: number
           metadata?: Json
           orders_used?: number
           period_month: string
           plan_code: string
-          points_used?: number
+          lending_points_used?: number
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
           id?: string
+          included_lends_limit?: number
           included_orders_limit?: number
-          included_points_limit?: number
+          max_lending_points_limit?: number
           metadata?: Json
           orders_used?: number
           period_month?: string
           plan_code?: string
-          points_used?: number
+          lending_points_used?: number
           updated_at?: string
           user_id?: string
         }
@@ -2522,9 +2761,14 @@ export type Database = {
       users: {
         Row: {
           adress: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by_user_id: string | null
           birth_date: string | null
           created_at: string
+          delete_reason: string | null
           deleted_at: string | null
+          deleted_by_user_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -2533,15 +2777,21 @@ export type Database = {
           locale: string | null
           onboarding_completed_at: string | null
           phone: string | null
+          purge_after: string | null
           status: Database["public"]["Enums"]["user_status"]
           timezone: string | null
           updated_at: string
         }
         Insert: {
           adress?: string | null
+          ban_reason?: string | null
+          banned_at?: string | null
+          banned_by_user_id?: string | null
           birth_date?: string | null
           created_at?: string
+          delete_reason?: string | null
           deleted_at?: string | null
+          deleted_by_user_id?: string | null
           email?: string | null
           first_name?: string | null
           id: string
@@ -2550,15 +2800,21 @@ export type Database = {
           locale?: string | null
           onboarding_completed_at?: string | null
           phone?: string | null
+          purge_after?: string | null
           status?: Database["public"]["Enums"]["user_status"]
           timezone?: string | null
           updated_at?: string
         }
         Update: {
           adress?: string | null
+          ban_reason?: string | null
+          banned_at?: string | null
+          banned_by_user_id?: string | null
           birth_date?: string | null
           created_at?: string
+          delete_reason?: string | null
           deleted_at?: string | null
+          deleted_by_user_id?: string | null
           email?: string | null
           first_name?: string | null
           id?: string
@@ -2567,11 +2823,27 @@ export type Database = {
           locale?: string | null
           onboarding_completed_at?: string | null
           phone?: string | null
+          purge_after?: string | null
           status?: Database["public"]["Enums"]["user_status"]
           timezone?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "users_banned_by_user_id_fkey"
+            columns: ["banned_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "users_deleted_by_user_id_fkey"
+            columns: ["deleted_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       wallet_holds: {
         Row: {
@@ -2627,7 +2899,6 @@ export type Database = {
       wallet_transactions: {
         Row: {
           amount_points: number
-          cart_id: string | null
           created_at: string
           direction: string
           id: string
@@ -2639,7 +2910,6 @@ export type Database = {
         }
         Insert: {
           amount_points: number
-          cart_id?: string | null
           created_at?: string
           direction: string
           id?: string
@@ -2651,7 +2921,6 @@ export type Database = {
         }
         Update: {
           amount_points?: number
-          cart_id?: string | null
           created_at?: string
           direction?: string
           id?: string
@@ -2662,13 +2931,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "wallet_transactions_cart_id_fkey"
-            columns: ["cart_id"]
-            isOneToOne: false
-            referencedRelation: "carts"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "wallet_transactions_user_id_fkey"
             columns: ["user_id"]
@@ -2803,6 +3065,42 @@ export type Database = {
           metadata?: Json
           updated_at?: string
           xp_bonus?: number
+        }
+        Relationships: []
+      }
+      xp_challenges: {
+        Row: {
+          challenge_code: string
+          created_at: string
+          description: string | null
+          ends_at: string | null
+          is_active: boolean
+          label: string
+          metadata: Json
+          starts_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          challenge_code: string
+          created_at?: string
+          description?: string | null
+          ends_at?: string | null
+          is_active?: boolean
+          label: string
+          metadata?: Json
+          starts_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          challenge_code?: string
+          created_at?: string
+          description?: string | null
+          ends_at?: string | null
+          is_active?: boolean
+          label?: string
+          metadata?: Json
+          starts_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -3162,8 +3460,10 @@ export type Database = {
       billing_plan_limits: {
         Args: { p_plan_code: string }
         Returns: {
+          free_items_per_order: number
           included_orders_limit: number
-          included_points_limit: number
+          included_lends_limit: number
+          max_lending_points_limit: number
         }[]
       }
       billing_upsert_monthly_entitlement: {
@@ -3175,13 +3475,14 @@ export type Database = {
         Returns: {
           created_at: string
           id: string
+          included_lends_limit: number
           included_orders_limit: number
-          included_points_limit: number
+          max_lending_points_limit: number
           metadata: Json
           orders_used: number
           period_month: string
           plan_code: string
-          points_used: number
+          lending_points_used: number
           updated_at: string
           user_id: string
         }
@@ -3206,29 +3507,49 @@ export type Database = {
         Args: { p_cart_id: string; p_idempotency_key?: string }
         Returns: Json
       }
-      complete_onboarding: {
-        Args: {
-          p_answers_json?: Json
-          p_request_id?: string
-          p_visibility_json?: Json
-        }
-        Returns: {
-          completed_at: string | null
-          created_at: string
-          current_step: string
-          id: string
-          progress: Json
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "onboarding_sessions"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
+      complete_onboarding:
+        | {
+            Args: never
+            Returns: {
+              completed_at: string | null
+              created_at: string
+              current_step: string
+              id: string
+              progress: Json
+              status: string
+              updated_at: string
+              user_id: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "onboarding_sessions"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              p_answers_json?: Json
+              p_request_id?: string
+              p_visibility_json?: Json
+            }
+            Returns: {
+              completed_at: string | null
+              created_at: string
+              current_step: string
+              id: string
+              progress: Json
+              status: string
+              updated_at: string
+              user_id: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "onboarding_sessions"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
       derive_relative_city_from_adress: {
         Args: { p_adress: string }
         Returns: string
@@ -3269,6 +3590,39 @@ export type Database = {
         Args: { p_event_name: string; p_payload?: Json; p_request_id?: string }
         Returns: undefined
       }
+      log_activity_event_rpc: {
+        Args: {
+          p_action: string
+          p_entity_id?: string
+          p_entity_type?: string
+          p_event_name: string
+          p_payload?: Json
+          p_request_id?: string
+          p_resource_type: Database["public"]["Enums"]["activity_resource_type"]
+          p_severity?: Database["public"]["Enums"]["activity_severity"]
+          p_subject_user_id: string
+        }
+        Returns: undefined
+      }
+      log_activity_event_staff: {
+        Args: {
+          p_action: string
+          p_entity_id?: string
+          p_entity_type?: string
+          p_event_name: string
+          p_payload?: Json
+          p_request_id?: string
+          p_resource_type: Database["public"]["Enums"]["activity_resource_type"]
+          p_severity?: Database["public"]["Enums"]["activity_severity"]
+          p_subject_user_id: string
+        }
+        Returns: undefined
+      }
+      map_entity_type_to_resource_type: {
+        Args: { p_entity_type: string }
+        Returns: Database["public"]["Enums"]["activity_resource_type"]
+      }
+      mark_item_draft_deleted: { Args: { p_item_id: string }; Returns: undefined }
       normalize_preference_payload: {
         Args: { p_default_value?: Json; p_payload: Json }
         Returns: Json
@@ -3355,6 +3709,25 @@ export type Database = {
         Args: { p_session_token: string }
         Returns: number
       }
+      save_onboarding_progress: {
+        Args: { p_current_step: string; p_progress: Json }
+        Returns: {
+          completed_at: string | null
+          created_at: string
+          current_step: string
+          id: string
+          progress: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "onboarding_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       set_profile_preference_visibility: {
         Args: { p_request_id?: string; p_section: string; p_visible: boolean }
         Returns: Json
@@ -3363,9 +3736,14 @@ export type Database = {
         Args: { p_birth_date: string; p_request_id?: string }
         Returns: {
           adress: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by_user_id: string | null
           birth_date: string | null
           created_at: string
+          delete_reason: string | null
           deleted_at: string | null
+          deleted_by_user_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -3374,6 +3752,7 @@ export type Database = {
           locale: string | null
           onboarding_completed_at: string | null
           phone: string | null
+          purge_after: string | null
           status: Database["public"]["Enums"]["user_status"]
           timezone: string | null
           updated_at: string
@@ -3394,9 +3773,14 @@ export type Database = {
         }
         Returns: {
           adress: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by_user_id: string | null
           birth_date: string | null
           created_at: string
+          delete_reason: string | null
           deleted_at: string | null
+          deleted_by_user_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -3405,6 +3789,7 @@ export type Database = {
           locale: string | null
           onboarding_completed_at: string | null
           phone: string | null
+          purge_after: string | null
           status: Database["public"]["Enums"]["user_status"]
           timezone: string | null
           updated_at: string
@@ -3420,9 +3805,14 @@ export type Database = {
         Args: { p_phone_e164: string; p_request_id?: string }
         Returns: {
           adress: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by_user_id: string | null
           birth_date: string | null
           created_at: string
+          delete_reason: string | null
           deleted_at: string | null
+          deleted_by_user_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -3431,6 +3821,7 @@ export type Database = {
           locale: string | null
           onboarding_completed_at: string | null
           phone: string | null
+          purge_after: string | null
           status: Database["public"]["Enums"]["user_status"]
           timezone: string | null
           updated_at: string
@@ -3466,9 +3857,14 @@ export type Database = {
         }
         Returns: {
           adress: string | null
+          ban_reason: string | null
+          banned_at: string | null
+          banned_by_user_id: string | null
           birth_date: string | null
           created_at: string
+          delete_reason: string | null
           deleted_at: string | null
+          deleted_by_user_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -3477,6 +3873,7 @@ export type Database = {
           locale: string | null
           onboarding_completed_at: string | null
           phone: string | null
+          purge_after: string | null
           status: Database["public"]["Enums"]["user_status"]
           timezone: string | null
           updated_at: string
@@ -3557,6 +3954,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      wallet_apply_retired_lend_debit: {
+        Args: { p_item_id: string; p_previous_item_status: string }
+        Returns: Json
       }
       wallet_available_points: { Args: { p_user_id: string }; Returns: number }
       wallet_credit_purchase: {
@@ -3645,17 +4046,46 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "user" | "moderator" | "admin" | "super_admin"
+      activity_actor_source: "member" | "system" | "staff" | "rpc"
+      activity_resource_type:
+        | "user"
+        | "item"
+        | "cart"
+        | "shipment"
+        | "wallet"
+        | "report"
+        | "order"
+        | "moderation"
+        | "onboarding"
+        | "system"
+        | "other"
+      activity_severity: "info" | "warning" | "error" | "critical"
+      app_role: "user" | "moderator" | "admin"
       bag_size: "s" | "m" | "l"
       cart_status: "active" | "reserved" | "returned" | "archived" | "canceled"
+      item_dispute_status: "open" | "in_review" | "resolved" | "closed"
+      item_intake_fulfillment_stage: "shipping" | "in_verification" | "verified" | "refused"
+      item_intake_listing_stage:
+        | "draft"
+        | "evaluation"
+        | "evaluated"
+        | "validation_pending"
+        | "validated"
+        | "refused"
+      item_outtake_stage:
+        | "none"
+        | "return_open"
+        | "in_transit"
+        | "logistics_received"
+        | "settled"
       item_status:
         | "draft"
         | "draft_deleted"
-        | "valuation"
-        | "validation_pending"
+        | "listed"
         | "available"
         | "in_cart"
         | "reserved"
+        | "refused"
         | "retired"
         | "archived"
       moderation_case_status: "open" | "in_review" | "resolved" | "closed"
@@ -3679,7 +4109,13 @@ export type Database = {
         | "return_validated"
         | "failed"
         | "closed"
-      user_status: "active" | "suspended" | "blocked" | "deleted"
+      user_status:
+        | "active"
+        | "suspended"
+        | "blocked"
+        | "deleted"
+        | "pending"
+        | "banned"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3807,17 +4243,49 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["user", "moderator", "admin", "super_admin"],
+      activity_actor_source: ["member", "system", "staff", "rpc"],
+      activity_resource_type: [
+        "user",
+        "item",
+        "cart",
+        "shipment",
+        "wallet",
+        "report",
+        "order",
+        "moderation",
+        "onboarding",
+        "system",
+        "other",
+      ],
+      activity_severity: ["info", "warning", "error", "critical"],
+      app_role: ["user", "moderator", "admin"],
       bag_size: ["s", "m", "l"],
       cart_status: ["active", "reserved", "returned", "archived", "canceled"],
+      item_dispute_status: ["open", "in_review", "resolved", "closed"],
+      item_intake_fulfillment_stage: ["shipping", "in_verification", "verified", "refused"],
+      item_intake_listing_stage: [
+        "draft",
+        "evaluation",
+        "evaluated",
+        "validation_pending",
+        "validated",
+        "refused",
+      ],
+      item_outtake_stage: [
+        "none",
+        "return_open",
+        "in_transit",
+        "logistics_received",
+        "settled",
+      ],
       item_status: [
         "draft",
         "draft_deleted",
-        "valuation",
-        "validation_pending",
+        "listed",
         "available",
         "in_cart",
         "reserved",
+        "refused",
         "retired",
         "archived",
       ],
@@ -3844,7 +4312,14 @@ export const Constants = {
         "failed",
         "closed",
       ],
-      user_status: ["active", "suspended", "blocked", "deleted"],
+      user_status: [
+        "active",
+        "suspended",
+        "blocked",
+        "deleted",
+        "pending",
+        "banned",
+      ],
     },
   },
 } as const

@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Image as ImageIcon, Pencil, Repeat2, Trash2 } from "lucide-react";
+import { Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
+import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 
 type ExchangeLendItemRowProps = {
   id: string;
@@ -15,34 +18,115 @@ type ExchangeLendItemRowProps = {
   brand?: string | null;
   currentValue: number | null;
   itemStatus: string;
+  intake?: {
+    listing_stage: string;
+    fulfillment_stage: string | null;
+    metadata?: unknown;
+  } | null;
   photoUrl?: string | null;
   photoPosition?: {
     offset?: { x?: number; y?: number };
     zoom?: number;
     aspect?: string;
   } | null;
+  /** Unité affichée avec le prix (alignée sur le wallet : pods / mods). */
+  pointsUnitLabel: string;
 };
 
-function getStatusLabel(status: string): string {
+/** Prix connu côté membre après proposition (hors phase « en évaluation » seule). */
+function hasConfirmedLendPrice(intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
+  const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  if (fs === "refused") return false;
+  const ls = intake?.listing_stage?.toLowerCase() ?? "";
+  return ls === "validation_pending" || ls === "evaluated" || ls === "validated";
+}
+
+function isLendPhysicallyVerified(intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
+  const ls = intake?.listing_stage?.toLowerCase() ?? "";
+  const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  return ls === "validated" && fs === "verified";
+}
+
+function getStatusLabel(
+  status: string,
+  intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
+): string {
   const normalized = status.trim().toLowerCase();
-  if (normalized === "draft" || normalized === "brouillon") return "Brouillon";
-  if (normalized === "valuation") return "En évaluation";
-  if (normalized === "validation_pending") return "En attente";
-  if (normalized.includes("validation")) return "En validation";
+  const intakeListingStage = intake?.listing_stage?.toLowerCase() ?? null;
+  const intakeFulfillmentStage = intake?.fulfillment_stage?.toLowerCase() ?? null;
+
+  // Priorité visuelle: "retired" = processus de récupération en cours côté membre.
+  if (normalized === "retired") {
+    return "Récupération en cours";
+  }
+
+  if (normalized === "refused" || intakeFulfillmentStage === "refused") {
+    return "Refus contrôle";
+  }
+
+  // Priorité affichage sur la pipeline (fulfillment). verified + items.status available : distingo UI « Vérifiée ».
+  if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "shipping") return "Expédition";
+    if (intakeFulfillmentStage === "in_verification") return "Vérification";
+    if (intakeFulfillmentStage === "verified") return "Vérifiée";
+  }
+  if (intakeListingStage === "evaluation") return "En évaluation";
+  if (intakeListingStage === "evaluated") return "Évaluée";
+  if (intakeListingStage === "validation_pending") return "Prix à confirmer";
+
+  if (normalized === "draft" || normalized === "brouillon") {
+    if (intake?.listing_stage === "validated") {
+      const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "shipping") return "Expédition";
+      if (fs === "in_verification") return "Vérification";
+      if (fs === "verified") return "Vérifiée";
+    }
+    if (intake?.listing_stage === "evaluation") return "En évaluation";
+    if (intake?.listing_stage === "evaluated") return "Évaluée";
+    if (intake?.listing_stage === "validation_pending") return "Prix à confirmer";
+    return "Brouillon";
+  }
   if (normalized === "in_cart") return "Disponible";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "Emprunt en cours";
+  if (normalized === "listed") return "Catalogue (indisponible)";
   if (normalized === "available" || normalized === "disponible") return "Disponible";
   return status || "Inconnu";
 }
 
-function statusPillClassName(status: string): string {
+function statusPillClassName(
+  status: string,
+  intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
+): string {
   const normalized = status.trim().toLowerCase();
-  if (normalized === "draft" || normalized === "brouillon") return "bg-[#E7772C] text-white";
-  if (normalized === "valuation") return "bg-amber-100 text-amber-700";
-  if (normalized === "validation_pending") return "bg-violet-600 text-white";
-  if (normalized.includes("validation")) return "bg-violet-100 text-violet-700";
+  const intakeListingStage = intake?.listing_stage?.toLowerCase() ?? null;
+  const intakeFulfillmentStage = intake?.fulfillment_stage?.toLowerCase() ?? null;
+
+  if (normalized === "retired") return "bg-amber-100 text-amber-900";
+
+  if (normalized === "refused" || intakeFulfillmentStage === "refused") {
+    return "bg-rose-100 text-rose-900";
+  }
+
+  // Priorité affichage sur la pipeline (fulfillment).
+  if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "shipping") return "bg-blue-100 text-blue-700";
+    if (intakeFulfillmentStage === "in_verification") return "bg-amber-100 text-amber-900";
+    if (intakeFulfillmentStage === "verified") return "bg-emerald-100 text-emerald-900";
+  }
+  if (intakeListingStage === "validation_pending") return "bg-[#E7772C] text-white";
+
+  if (normalized === "draft" || normalized === "brouillon") {
+    if (intake?.listing_stage === "validated") {
+      const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "shipping") return "bg-blue-100 text-blue-700";
+      if (fs === "in_verification") return "bg-amber-100 text-amber-900";
+      if (fs === "verified") return "bg-emerald-100 text-emerald-900";
+    }
+    return "bg-[#E7772C] text-white";
+  }
   if (normalized === "in_cart") return "bg-emerald-100 text-emerald-700";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "bg-blue-100 text-blue-700";
+  if (normalized === "listed") return "bg-sky-100 text-sky-900";
   if (normalized === "available" || normalized === "disponible") return "bg-emerald-100 text-emerald-700";
   return "bg-zinc-100 text-zinc-700";
 }
@@ -54,25 +138,49 @@ function splitNameAndBrand(name: string): { title: string; brand: string | null 
   return { title: match[1]?.trim() || trimmed, brand: match[2]?.trim() || null };
 }
 
-function isDraftLike(status: string): boolean {
+function isDraftLike(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
   const normalized = status.trim().toLowerCase();
-  return (
-    normalized === "draft" ||
-    normalized === "brouillon" ||
-    normalized === "valuation" ||
-    normalized.includes("validation") ||
-    normalized.includes("pending")
-  );
+  if (normalized === "listed") return false;
+  if (normalized === "draft" || normalized === "brouillon") {
+    if (intake?.listing_stage === "validated" && intake.fulfillment_stage === "verified") return false;
+    return true;
+  }
+  return false;
 }
 
-export function ExchangeLendItemRow({ id, name, description, brand: brandProp, itemStatus, photoUrl, photoPosition }: ExchangeLendItemRowProps) {
+function isFulfillmentShipping(intake?: { listing_stage: string; fulfillment_stage: string | null } | null) {
+  const ls = intake?.listing_stage?.toLowerCase() ?? "";
+  if (ls !== "validated") return false;
+  return (intake?.fulfillment_stage?.toLowerCase() ?? "") === "shipping";
+}
+
+export function ExchangeLendItemRow({
+  id,
+  name,
+  description,
+  brand: brandProp,
+  currentValue,
+  itemStatus,
+  intake,
+  photoUrl,
+  photoPosition,
+  pointsUnitLabel,
+}: ExchangeLendItemRowProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient() as any;
   const { title, brand: brandFromName } = splitNameAndBrand(name);
   const brand = brandProp ?? brandFromName;
-  const showEditDelete = isDraftLike(itemStatus);
+  const showEditDelete = isDraftLike(itemStatus, intake);
+  const shippingQuickAction = isFulfillmentShipping(intake);
+  const showPriceRow =
+    currentValue != null &&
+    Number.isFinite(currentValue) &&
+    currentValue > 0 &&
+    hasConfirmedLendPrice(intake);
+  const priceVerifiedLook = isLendPhysicallyVerified(intake);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
+  const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
 
   const handleDelete = async () => {
     if (isDeleting) return;
@@ -113,26 +221,26 @@ export function ExchangeLendItemRow({ id, name, description, brand: brandProp, i
 
   return (
     <article className="relative grid w-full grid-cols-[100px_minmax(0,50%)_auto] items-center gap-1 py-2">
-      <Link href={`/items/${id}`} aria-label={`Voir la pièce ${title}`} className="absolute inset-0 z-0" />
+      <Link
+        href={`/items/${id}`}
+        aria-label={`Voir la pièce ${title}`}
+        className="absolute inset-0 z-0"
+        onPointerEnter={() => {
+          void prefetchLendItemDetailIfNeeded(id);
+        }}
+        onTouchStart={() => {
+          void prefetchLendItemDetailIfNeeded(id);
+        }}
+      />
 
       <div className="pointer-events-none relative z-10 flex items-center">
-        <div className="aspect-square w-[100px] shrink-0 overflow-hidden rounded-md">
-          {photoUrl ? (
-            <div
-              className="h-full w-full bg-center bg-no-repeat"
-              style={{
-                backgroundImage: `url(${photoUrl})`,
-                backgroundColor: "#000000",
-                backgroundSize: `${Math.max(100, Number(photoPosition?.zoom ?? 1) * 100)}%`,
-                backgroundPosition: `calc(50% + ${Number(photoPosition?.offset?.x ?? 0)}%) calc(50% + ${Number(photoPosition?.offset?.y ?? 0)}%)`,
-              }}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-zinc-400">
-              <ImageIcon className="h-7 w-7" aria-hidden />
-            </div>
-          )}
-        </div>
+        {photoUrl ? (
+          <RemoteCoverThumb photoUrl={photoUrl} photoPosition={photoPosition} frameClassName="aspect-square w-[100px] shrink-0 rounded-md" />
+        ) : (
+          <div className="flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400">
+            <ImageIcon className="h-7 w-7" aria-hidden />
+          </div>
+        )}
       </div>
 
       <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
@@ -142,12 +250,37 @@ export function ExchangeLendItemRow({ id, name, description, brand: brandProp, i
           </p>
           {brand ? <span className="font-semibold text-[16px] not-italic"> ({brand})</span> : null}
           {description ? <p className="mt-1 text-[13px] leading-[1.3] text-zinc-500 break-words">{description}</p> : null}
-          <span className={cn("mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold", statusPillClassName(itemStatus))}>{getStatusLabel(itemStatus)}</span>
+          {showPriceRow ? (
+            <p
+              className={cn(
+                "mt-1 text-[15px] tabular-nums tracking-tight",
+                priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
+              )}
+            >
+              {Math.floor(currentValue).toLocaleString("fr-FR")} {pointsUnitLabel}
+            </p>
+          ) : null}
+          <span
+            className={cn(
+              "mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold",
+              statusPillClassName(itemStatus, intake),
+            )}
+          >
+            {getStatusLabel(itemStatus, intake)}
+          </span>
         </div>
       </div>
 
       <div className="relative z-20 flex items-center justify-end gap-1 pr-0">
-        {showEditDelete ? (
+        {shippingQuickAction ? (
+          <Link
+            href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(id, intake?.metadata)}`}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+            aria-label="Page expédition — bordereau et suivi"
+          >
+            <Package className="h-5 w-5" aria-hidden />
+          </Link>
+        ) : showEditDelete ? (
           <>
             <button
               type="button"
@@ -159,7 +292,7 @@ export function ExchangeLendItemRow({ id, name, description, brand: brandProp, i
               <Trash2 className={cn("h-5 w-5", isDeleting ? "opacity-40" : "")} />
             </button>
             <Link
-              href={`/items/new?itemId=${encodeURIComponent(id)}`}
+              href={`/items/new?itemId=${encodeURIComponent(id)}&from=item`}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
               aria-label="Modifier l'item"
             >
@@ -169,6 +302,7 @@ export function ExchangeLendItemRow({ id, name, description, brand: brandProp, i
         ) : (
           <button
             type="button"
+            onClick={() => setReturnConfirmOpen(true)}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
             aria-label="Demander un retour"
           >
@@ -176,6 +310,42 @@ export function ExchangeLendItemRow({ id, name, description, brand: brandProp, i
           </button>
         )}
       </div>
+      {returnConfirmOpen ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]">
+          <div
+            className="w-full max-w-[380px] rounded-2xl bg-white p-4 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`confirm-return-${id}`}
+          >
+            <h3 id={`confirm-return-${id}`} className="text-base font-semibold text-zinc-900">
+              Récupérer cette pièce ?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReturnConfirmOpen(false)}
+                className="h-10 rounded-lg border border-zinc-200 text-sm font-semibold text-zinc-800"
+              >
+                Non
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReturnConfirmOpen(false);
+                  router.push(`/items/${encodeURIComponent(id)}/retour`);
+                }}
+                className="h-10 rounded-lg bg-[#5E3023] text-sm font-semibold text-white"
+              >
+                Oui, récupérer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }

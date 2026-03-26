@@ -5,6 +5,7 @@ import { Montserrat } from "next/font/google";
 import { BrandsCard } from "./BrandsCard";
 import { InsightCard } from "./InsightCard";
 import { ProfileInfoCard } from "./ProfileInfoCard";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -81,13 +82,13 @@ const LOOK_STAGE_RATIO = 1;
 
 function LookImage({ slot, className }: { slot: ProfileViewLookSlot; className?: string }) {
   return (
-    <div
-      className={cn("h-full w-full bg-center bg-no-repeat", className)}
-      style={{
-        backgroundColor: "#000000",
-        backgroundImage: `url(${slot.dataUrl})`,
+    <RemoteCoverThumb
+      photoUrl={slot.dataUrl}
+      frameClassName={cn("h-full w-full", className)}
+      coverStyle={{
         backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / LOOK_STAGE_RATIO)) * slot.zoom}%`,
         backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
+        backgroundRepeat: "no-repeat",
       }}
     />
   );
@@ -121,7 +122,7 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
       {/* 1. Photo de profil */}
       <div className="pb-2">
         {data.profilePhoto ? (
-          <div className="relative aspect-square w-full max-w-[430px] mx-auto overflow-hidden rounded-2xl bg-black">
+          <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
             <LookImage slot={data.profilePhoto} />
           </div>
         ) : (

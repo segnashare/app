@@ -1,16 +1,22 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
+import { BadgeCheck } from "lucide-react";
+import { Montserrat, Playfair_Display } from "next/font/google";
 
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
 
 export type ItemMemberSectionData = {
   displayName: string;
   pronouns: string | null;
   isVerified: boolean;
   photoUrls: string[];
+  levelIcon: string;
+  levelLabel: string;
+  levelNumber: number;
+  memberSince: string | null;
 };
 
 type ItemMemberSectionProps = {
@@ -24,14 +30,14 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
     return (
       <div
         className={cn(
-          "overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm",
+          "overflow-hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm",
           className,
         )}
       >
-        <div className="h-6 w-32 animate-pulse rounded bg-zinc-200" />
-        <div className="mt-4 flex gap-3">
+        <div className="h-5 w-28 animate-pulse rounded bg-zinc-200" />
+        <div className="mt-3 flex gap-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="aspect-[3/4] w-24 shrink-0 animate-pulse rounded-xl bg-zinc-200" />
+            <div key={i} className="aspect-square w-20 shrink-0 animate-pulse rounded-xl bg-zinc-200" />
           ))}
         </div>
       </div>
@@ -42,7 +48,7 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
     return (
       <div
         className={cn(
-          "overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm",
+          "overflow-hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm",
           className,
         )}
       >
@@ -54,42 +60,35 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm",
-        className,
-      )}
+        "overflow-hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm",
+          className,
+        )}
     >
-      <div className="flex items-center gap-2">
-        <h3 className={cn(montserrat.className, "text-[20px] font-bold text-zinc-900")}>{data.displayName}</h3>
-        {data.isVerified ? (
-          <span
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white"
-            aria-label="Vérifié"
-          >
-            <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path d="M2 6l3 3 5-6" />
-            </svg>
-          </span>
-        ) : null}
+      <div className="flex items-center gap-1.5">
+        <h3 className={cn(playfairDisplay.className, "text-[24px] font-extrabold text-zinc-900 tracking-tight")}>{data.displayName}</h3>
+        <BadgeCheck
+          size={22}
+          aria-label={data.isVerified ? "Identité vérifiée" : "Identité non vérifiée"}
+          className={cn("shrink-0 transition-colors", data.isVerified ? "text-[#3B82F6]" : "text-zinc-400")}
+        />
       </div>
+      <p className={cn(montserrat.className, "mt-1 text-[13px] text-zinc-500")}>
+        {data.levelIcon}
+        {data.memberSince ? ` • Membre Segna depuis ${data.memberSince}` : ""}
+      </p>
       {data.pronouns ? (
-        <p className={cn(montserrat.className, "mt-0.5 text-[14px] text-zinc-500")}>{data.pronouns}</p>
+        <p className={cn(montserrat.className, "mt-1 text-[14px] text-zinc-500")}>{data.pronouns}</p>
       ) : null}
       {data.photoUrls.length > 0 ? (
-        <div className="mt-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex gap-3">
-            {data.photoUrls.map((url, index) => (
-              <div
-                key={index}
-                className="relative h-32 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
-              >
-                <img
-                  src={url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              </div>
-            ))}
-          </div>
+        <div className="mt-3 flex w-full gap-1.5">
+          {data.photoUrls.map((url, index) => (
+            <div
+              key={index}
+              className="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[5px] bg-zinc-100"
+            >
+              <img src={url} alt="" className="h-full w-full object-cover" />
+            </div>
+          ))}
         </div>
       ) : null}
     </div>

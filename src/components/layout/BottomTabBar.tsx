@@ -78,7 +78,6 @@ export function BottomTabBar() {
     <div
       className={cn(
         "pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-0 pb-0 transition-transform duration-250 ease-out",
-        "md:px-3 md:pb-[calc(env(safe-area-inset-bottom)+8px)]",
         "motion-reduce:transition-none",
         isVisible ? "translate-y-0 opacity-100" : "translate-y-[110%] opacity-0",
       )}
@@ -87,7 +86,6 @@ export function BottomTabBar() {
         aria-label="Navigation principale"
         className={cn(
           "pointer-events-auto flex h-[calc(56px+env(safe-area-inset-bottom))] w-full max-w-[430px] items-center border-0 bg-black px-2 pb-[env(safe-area-inset-bottom)] pt-1 text-white",
-          "md:mb-3 md:h-16 md:rounded-2xl md:border md:border-zinc-700 md:pb-0 md:pt-0 md:shadow-[0_10px_30px_rgba(0,0,0,0.35)]",
         )}
       >
         {MAIN_TABS.map((tab) => (
