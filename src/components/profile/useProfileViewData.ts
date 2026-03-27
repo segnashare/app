@@ -234,7 +234,8 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       try {
         urlByPath[path] = await getSignedUrl(path);
       } catch {
-        urlByPath[path] = bucket.getPublicUrl(path).data.publicUrl ?? path;
+        const normalized = path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
+        urlByPath[path] = supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path;
       }
     }
 
