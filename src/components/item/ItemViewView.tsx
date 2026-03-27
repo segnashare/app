@@ -48,6 +48,7 @@ type ItemViewViewProps = {
   slots: Array<ItemViewSlot | null>;
   infoCard: ItemInfoCardData;
   ownerUserId?: string | null;
+  onLikeFrame?: () => void;
 };
 
 function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
@@ -64,7 +65,7 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
   );
 }
 
-export function ItemViewView({ description, slots, infoCard, ownerUserId }: ItemViewViewProps) {
+export function ItemViewView({ description, slots, infoCard, ownerUserId, onLikeFrame }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const filledSlots = slots.filter((s): s is ItemViewSlot => Boolean(s));
   const { data: memberData, isLoading: memberLoading } = useItemMemberData(ownerUserId ?? null);
@@ -85,7 +86,13 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
             <ItemViewCoverPhoto slot={filledSlots[0]} />
             <FrameLikeButton
               isLiked={Boolean(likedFrames.photo_1)}
-              onToggle={() => toggleFrameLike("photo_1")}
+              onToggle={() => {
+                if (onLikeFrame) {
+                  onLikeFrame();
+                  return;
+                }
+                toggleFrameLike("photo_1");
+              }}
             />
           </div>
         ) : <div className="aspect-square w-full rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm" />}
@@ -105,7 +112,13 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
             </div>
             <FrameLikeButton
               isLiked={Boolean(likedFrames.photo_2)}
-              onToggle={() => toggleFrameLike("photo_2")}
+              onToggle={() => {
+                if (onLikeFrame) {
+                  onLikeFrame();
+                  return;
+                }
+                toggleFrameLike("photo_2");
+              }}
             />
           </div>
         ) : null}
@@ -121,7 +134,13 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
             </div>
             <FrameLikeButton
               isLiked={Boolean(likedFrames.photo_3)}
-              onToggle={() => toggleFrameLike("photo_3")}
+              onToggle={() => {
+                if (onLikeFrame) {
+                  onLikeFrame();
+                  return;
+                }
+                toggleFrameLike("photo_3");
+              }}
             />
           </div>
         ) : null}
@@ -137,7 +156,13 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId }: Item
             </div>
             <FrameLikeButton
               isLiked={Boolean(likedFrames[`photo_${index + 4}`])}
-              onToggle={() => toggleFrameLike(`photo_${index + 4}`)}
+              onToggle={() => {
+                if (onLikeFrame) {
+                  onLikeFrame();
+                  return;
+                }
+                toggleFrameLike(`photo_${index + 4}`);
+              }}
             />
           </div>
         ))}

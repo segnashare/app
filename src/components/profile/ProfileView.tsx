@@ -78,6 +78,7 @@ type ProfileViewProps = {
   mode: ProfileViewMode;
   data: ProfileViewData | null;
   isLoading?: boolean;
+  onLikeFrame?: () => void;
 };
 
 const LOOK_STAGE_RATIO = 1;
@@ -115,7 +116,7 @@ function LookImage({ slot, className }: { slot: ProfileViewLookSlot; className?:
   );
 }
 
-export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
+export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
 
   function toggleFrameLike(frameId: string) {
@@ -154,7 +155,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.profile_photo)}
-                onToggle={() => toggleFrameLike("profile_photo")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("profile_photo");
+                }}
               />
             ) : null}
           </div>
@@ -177,7 +184,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.look_1)}
-                onToggle={() => toggleFrameLike("look_1")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("look_1");
+                }}
               />
             ) : null}
           </div>
@@ -190,7 +203,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.insight_1)}
-                onToggle={() => toggleFrameLike("insight_1")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("insight_1");
+                }}
               />
             ) : null}
           </div>
@@ -210,7 +229,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.look_2)}
-                onToggle={() => toggleFrameLike("look_2")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("look_2");
+                }}
               />
             ) : null}
           </div>
@@ -243,7 +268,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.insight_2)}
-                onToggle={() => toggleFrameLike("insight_2")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("insight_2");
+                }}
               />
             ) : null}
           </div>
@@ -258,7 +289,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.look_3)}
-                onToggle={() => toggleFrameLike("look_3")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("look_3");
+                }}
               />
             ) : null}
           </div>
@@ -271,7 +308,13 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.insight_3)}
-                onToggle={() => toggleFrameLike("insight_3")}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("insight_3");
+                }}
               />
             ) : null}
           </div>

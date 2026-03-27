@@ -82,9 +82,17 @@ function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<string, unk
     .map(([, value]) => value as Record<string, unknown>);
 }
 
-function FeedProfileVisualization({ profileUserId, displayName }: { profileUserId: string; displayName: string }) {
+function FeedProfileVisualization({
+  profileUserId,
+  displayName,
+  onLikeFrame,
+}: {
+  profileUserId: string;
+  displayName: string;
+  onLikeFrame?: () => void;
+}) {
   const { data, isLoading } = useProfileViewData(profileUserId, displayName);
-  return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} />;
+  return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} onLikeFrame={onLikeFrame} />;
 }
 
 export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }: HomeFeedV1Props) {
@@ -99,6 +107,8 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isActionBusy, setIsActionBusy] = useState(false);
   const [isDisliking, setIsDisliking] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [availableLikeModalOpen, setAvailableLikeModalOpen] = useState(false);
   const [itemSlotsById, setItemSlotsById] = useState<Record<string, Array<{ dataUrl: string; offset: { x: number; y: number }; zoom: number; imageRatio: number } | null>>>({});
   const itemSlotsLoadingRef = useRef<Set<string>>(new Set());
 
@@ -317,6 +327,19 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
     };
   }, [cards.length, index, isLoadingMore, nextCursor, supabase]);
 
+  function advanceToNextCardByRemovingCurrent() {
+    setCards((previous) => {
+      if (!previous[index]) return previous;
+      const next = [...previous];
+      next.splice(index, 1);
+      return next;
+    });
+    setIndex((previousIndex) => {
+      const maxIndex = Math.max(0, cards.length - 2);
+      return Math.min(previousIndex, maxIndex);
+    });
+  }
+
   if (!currentCard) {
     return (
       <CardBase className="py-10 text-center">
@@ -350,18 +373,105 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
       }
     } finally {
       // Advance immediately in all cases to keep UX responsive.
-      setCards((previous) => {
-        if (!previous[index]) return previous;
-        const next = [...previous];
-        next.splice(index, 1);
-        return next;
-      });
-      setIndex((previousIndex) => {
-        const maxIndex = Math.max(0, cards.length - 2);
-        return Math.min(previousIndex, maxIndex);
-      });
+      advanceToNextCardByRemovingCurrent();
       setIsDisliking(false);
     }
+  }
+
+  async function ensureActiveCartId(userId: string): Promise<string | null> {
+    const { data: existingCart } = await supabase
+      .from("carts")
+      .select("id,status")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .eq("status", "active")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingCart?.id) return existingCart.id as string;
+    const { data: createdCart } = await supabase
+      .from("carts")
+      .insert({ user_id: userId, status: "active" })
+      .select("id")
+      .single();
+    return (createdCart?.id as string | undefined) ?? null;
+  }
+
+  async function addItemToCartForCurrentMember(itemId: string): Promise<boolean> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+    const cartId = await ensureActiveCartId(user.id);
+    if (!cartId) return false;
+    const { data: existingLine } = await supabase
+      .from("cart_items")
+      .select("id")
+      .eq("cart_id", cartId)
+      .eq("item_id", itemId)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (existingLine?.id) return true;
+    const { error } = await supabase.from("cart_items").insert({
+      cart_id: cartId,
+      item_id: itemId,
+      owner_user_id: user.id,
+      status: "in_cart",
+    });
+    return !error;
+  }
+
+  async function commitLikeForCurrentCard(options?: { addToCart?: boolean }) {
+    if (!currentCard || !currentKey || isLiking) return;
+    setIsLiking(true);
+    try {
+      const impressionId = impressionsByKey[currentKey] ?? null;
+      if (currentCard.kind === "item") {
+        await supabase.rpc("record_member_item_interaction", {
+          p_item_id: currentCard.id,
+          p_interaction_type: "like",
+          p_source_surface: "home_v1",
+          p_impression_id: impressionId,
+          p_metadata: { trigger: "like_button" },
+        });
+        setLikedItemIds((previous) => new Set([...previous, currentCard.id]));
+
+        if (options?.addToCart && currentCard.status === "available") {
+          const added = await addItemToCartForCurrentMember(currentCard.id);
+          if (added) {
+            await supabase.rpc("record_member_item_interaction", {
+              p_item_id: currentCard.id,
+              p_interaction_type: "cart_add",
+              p_source_surface: "home_v1",
+              p_impression_id: impressionId,
+              p_metadata: { trigger: "like_modal_add_to_cart" },
+            });
+          }
+        }
+      } else {
+        await supabase.rpc("record_member_profile_interaction", {
+          p_profile_user_id: currentCard.id,
+          p_interaction_type: "like",
+          p_source_surface: "home_v1",
+          p_impression_id: impressionId,
+          p_metadata: { trigger: "like_button" },
+        });
+      }
+    } finally {
+      advanceToNextCardByRemovingCurrent();
+      setIsLiking(false);
+      setAvailableLikeModalOpen(false);
+    }
+  }
+
+  function handleLikeFromFrame() {
+    if (!currentCard || isLiking) return;
+    if (currentCard.kind === "item" && currentCard.status === "available") {
+      setAvailableLikeModalOpen(true);
+      return;
+    }
+    void commitLikeForCurrentCard({ addToCart: false });
   }
 
   return (
@@ -418,6 +528,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
               slots={itemSlotsById[currentCard.id] ?? [null, null, null, null, null, null]}
               infoCard={buildItemInfoCard(currentCard)}
               ownerUserId={currentCard.ownerUserId}
+              onLikeFrame={handleLikeFromFrame}
             />
           </div>
         </div>
@@ -427,7 +538,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
             {[currentCard.age ? `${currentCard.age} ans` : null, currentCard.city].filter(Boolean).join(" · ") || "Profil membre"}
           </p>
           <div className="bg-white">
-            <FeedProfileVisualization profileUserId={currentCard.id} displayName={currentCard.displayName} />
+            <FeedProfileVisualization profileUserId={currentCard.id} displayName={currentCard.displayName} onLikeFrame={handleLikeFromFrame} />
           </div>
         </div>
       )}
@@ -538,6 +649,39 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
             >
               Annuler
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {availableLikeModalOpen && currentCard?.kind === "item" ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div
+            className="w-full max-w-[360px] rounded-2xl bg-white p-4 shadow-2xl"
+          >
+            <p className="text-base font-semibold text-zinc-950">Cet item est disponible.</p>
+            <p className="mt-1 text-sm text-zinc-600">Tu veux le mettre en panier ou continuer ?</p>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={isLiking}
+                onClick={() => {
+                  void commitLikeForCurrentCard({ addToCart: true });
+                }}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-zinc-950 px-4 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Ajouter au panier
+              </button>
+              <button
+                type="button"
+                disabled={isLiking}
+                onClick={() => {
+                  void commitLikeForCurrentCard({ addToCart: false });
+                }}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-semibold text-zinc-800 disabled:opacity-60"
+              >
+                Continuer
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
