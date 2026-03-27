@@ -108,7 +108,8 @@ export function useItemMemberData(ownerUserId: string | null) {
       try {
         photoUrls.push(await getSignedUrl(path));
       } catch {
-        photoUrls.push(bucket.getPublicUrl(path).data.publicUrl ?? path);
+        const normalized = path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
+        photoUrls.push(supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path);
       }
     }
 
