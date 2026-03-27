@@ -6,6 +6,7 @@ import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLends
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
 function toMembershipLabel(roles: string[]): "Guest" | "Membre +" | "Membre X" {
   const normalized = roles.map((role) => role.trim().toLowerCase());
@@ -340,13 +341,8 @@ export default async function ExchangePage() {
         return;
       }
 
-      for (const bucketId of ["bucket_items", "bucket_focus"]) {
-        const { data, error } = await supabase.storage.from(bucketId).createSignedUrl(path, 60 * 60 * 24);
-        if (!error && data?.signedUrl) {
-          signedPhotoByPath.set(path, data.signedUrl);
-          return;
-        }
-      }
+      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
+      if (signed) signedPhotoByPath.set(path, signed);
     }),
   );
 

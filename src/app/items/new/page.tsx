@@ -28,6 +28,7 @@ import {
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({
@@ -140,10 +141,6 @@ function getPhotoEntriesFromJson(photosRaw: unknown): Array<Record<string, unkno
       return indexA - indexB;
     })
     .map(([, value]) => value as Record<string, unknown>);
-}
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
 }
 
 function normalizeDraftTitle(value: string | null | undefined): string {
@@ -531,18 +528,17 @@ export default function NewItemPage() {
           const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
           if (!storagePath) continue;
 
-          let previewUrl: string | null = null;
-          if (isHttpUrl(storagePath)) {
-            previewUrl = storagePath;
-          } else {
-            for (const bucketId of ["bucket_items", "bucket_focus"]) {
-              const { data } = await supabase.storage.from(bucketId).createSignedUrl(storagePath, 60 * 60 * 24);
-              if (data?.signedUrl) {
-                previewUrl = data.signedUrl;
-                break;
-              }
-            }
-          }
+          const explicitBucket =
+            (typeof row.bucket_id === "string" && row.bucket_id) ||
+            (typeof row.storage_bucket === "string" && row.storage_bucket) ||
+            (typeof row.bucket === "string" && row.bucket) ||
+            null;
+          const previewUrl = await createSignedUrlForStoragePath(
+            supabase,
+            storagePath,
+            60 * 60 * 24,
+            explicitBucket ? { explicitBucket } : undefined,
+          );
           if (!previewUrl) continue;
 
           const position = row.position && typeof row.position === "object" ? (row.position as Record<string, unknown>) : null;
@@ -676,18 +672,17 @@ export default function NewItemPage() {
             const storagePathRaw = row.storage_path ?? row.storagePath ?? row.url ?? row.photo_url ?? row.photoUrl;
             const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
             if (!storagePath) continue;
-            let previewUrl: string | null = null;
-            if (isHttpUrl(storagePath)) {
-              previewUrl = storagePath;
-            } else {
-              for (const bucketId of ["bucket_items", "bucket_focus"]) {
-                const { data } = await supabase.storage.from(bucketId).createSignedUrl(storagePath, 60 * 60 * 24);
-                if (data?.signedUrl) {
-                  previewUrl = data.signedUrl;
-                  break;
-                }
-              }
-            }
+            const explicitBucket =
+              (typeof row.bucket_id === "string" && row.bucket_id) ||
+              (typeof row.storage_bucket === "string" && row.storage_bucket) ||
+              (typeof row.bucket === "string" && row.bucket) ||
+              null;
+            const previewUrl = await createSignedUrlForStoragePath(
+              supabase,
+              storagePath,
+              60 * 60 * 24,
+              explicitBucket ? { explicitBucket } : undefined,
+            );
             if (!previewUrl) continue;
             const position = row.position && typeof row.position === "object" ? (row.position as Record<string, unknown>) : null;
             const offsetRaw = position?.offset && typeof position.offset === "object" ? (position.offset as Record<string, unknown>) : null;

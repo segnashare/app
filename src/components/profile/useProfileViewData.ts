@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type {
   ProfileViewBrand,
   ProfileViewData,
@@ -203,10 +204,13 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     };
 
     const profilePath = parsePhotoPath();
-    const bucket = supabase.storage.from("bucket_focus");
     const getSignedUrl = async (path: string) => {
-      const { data: signed } = await bucket.createSignedUrl(path, 60 * 60 * 24);
-      return signed?.signedUrl ?? bucket.getPublicUrl(path).data.publicUrl ?? path;
+      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24, {
+        explicitBucket: "bucket_focus",
+      });
+      if (signed) return signed;
+      const normalized = path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
+      return supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path;
     };
 
     const parseLooksRaw = () => {

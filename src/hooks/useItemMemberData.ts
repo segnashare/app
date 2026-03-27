@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type { ItemMemberSectionData } from "@/components/item/ItemMemberSection";
 
 const MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
@@ -93,10 +94,13 @@ export function useItemMemberData(ownerUserId: string | null) {
     const lookPaths = parseLooksPaths();
 
     const allPaths = [...(profilePhotoPath ? [profilePhotoPath] : []), ...lookPaths];
-    const bucket = supabase.storage.from("bucket_focus");
     const getSignedUrl = async (path: string) => {
-      const { data: signed } = await bucket.createSignedUrl(path, 60 * 60 * 24);
-      return signed?.signedUrl ?? bucket.getPublicUrl(path).data.publicUrl ?? path;
+      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24, {
+        explicitBucket: "bucket_focus",
+      });
+      if (signed) return signed;
+      const normalized = path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
+      return supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path;
     };
 
     const photoUrls: string[] = [];

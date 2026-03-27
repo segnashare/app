@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Montserrat } from "next/font/google";
+import { Heart } from "lucide-react";
 
 import { BrandsCard } from "./BrandsCard";
 import { InsightCard } from "./InsightCard";
@@ -80,6 +82,25 @@ type ProfileViewProps = {
 
 const LOOK_STAGE_RATIO = 1;
 
+function FrameLikeButton({
+  isLiked,
+  onToggle,
+}: {
+  isLiked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={isLiked ? "Retirer le like" : "Liker cette frame"}
+      onClick={onToggle}
+      className="absolute bottom-4 right-4 z-10 grid h-14 w-14 place-items-center rounded-full bg-white/95 text-zinc-900 shadow-lg ring-1 ring-zinc-200 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98]"
+    >
+      <Heart className={cn("h-7 w-7", isLiked && "fill-current")} strokeWidth={2.2} />
+    </button>
+  );
+}
+
 function LookImage({ slot, className }: { slot: ProfileViewLookSlot; className?: string }) {
   return (
     <RemoteCoverThumb
@@ -95,6 +116,12 @@ function LookImage({ slot, className }: { slot: ProfileViewLookSlot; className?:
 }
 
 export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
+  const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
+
+  function toggleFrameLike(frameId: string) {
+    setLikedFrames((previous) => ({ ...previous, [frameId]: !previous[frameId] }));
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-4 bg-white py-6">
@@ -118,18 +145,20 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
   const hasLentPieces = data.lentPieces.length > 0;
 
   return (
-    <div className="min-h-full bg-white pb-6">
+    <div className="bg-white pb-2">
       {/* 1. Photo de profil */}
       <div className="pb-2">
         {data.profilePhoto ? (
           <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
             <LookImage slot={data.profilePhoto} />
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.profile_photo)}
+                onToggle={() => toggleFrameLike("profile_photo")}
+              />
+            ) : null}
           </div>
-        ) : (
-          <div className="mx-auto flex aspect-square w-full max-w-[430px] items-center justify-center rounded-2xl bg-zinc-200">
-            <span className={cn(montserrat.className, "text-zinc-500")}>Photo de profil</span>
-          </div>
-        )}
+        ) : <div className="mx-auto aspect-square w-full max-w-[430px] rounded-2xl bg-zinc-100" />}
       </div>
 
       {/* 2. Composant infos (directement après la photo) */}
@@ -141,16 +170,30 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
 
         {/* 4. Look 1 */}
         {data.looksSlots[0] ? (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
             <div className="relative aspect-square w-full">
               <LookImage slot={data.looksSlots[0]} />
             </div>
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.look_1)}
+                onToggle={() => toggleFrameLike("look_1")}
+              />
+            ) : null}
           </div>
         ) : null}
 
         {/* 5. Insight 1 */}
         {data.insights[0]?.prompt.trim() || data.insights[0]?.response.trim() ? (
-          <InsightCard data={{ prompt: data.insights[0].prompt, response: data.insights[0].response }} />
+          <div className="relative">
+            <InsightCard data={{ prompt: data.insights[0].prompt, response: data.insights[0].response }} />
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.insight_1)}
+                onToggle={() => toggleFrameLike("insight_1")}
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {/* 6. Section marques préférées */}
@@ -160,10 +203,16 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
 
         {/* 7. Look 2 */}
         {data.looksSlots[1] ? (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
             <div className="relative aspect-square w-full">
               <LookImage slot={data.looksSlots[1]} />
             </div>
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.look_2)}
+                onToggle={() => toggleFrameLike("look_2")}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -189,21 +238,43 @@ export function ProfileView({ mode, data, isLoading }: ProfileViewProps) {
 
         {/* 9. Insight 2 */}
         {data.insights[1]?.prompt.trim() || data.insights[1]?.response.trim() ? (
-          <InsightCard data={{ prompt: data.insights[1].prompt, response: data.insights[1].response }} />
+          <div className="relative">
+            <InsightCard data={{ prompt: data.insights[1].prompt, response: data.insights[1].response }} />
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.insight_2)}
+                onToggle={() => toggleFrameLike("insight_2")}
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {/* 10. Look 3 */}
         {data.looksSlots[2] ? (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
             <div className="relative aspect-square w-full">
               <LookImage slot={data.looksSlots[2]} />
             </div>
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.look_3)}
+                onToggle={() => toggleFrameLike("look_3")}
+              />
+            ) : null}
           </div>
         ) : null}
 
         {/* 11. Insight 3 */}
         {data.insights[2]?.prompt.trim() || data.insights[2]?.response.trim() ? (
-          <InsightCard data={{ prompt: data.insights[2].prompt, response: data.insights[2].response }} />
+          <div className="relative">
+            <InsightCard data={{ prompt: data.insights[2].prompt, response: data.insights[2].response }} />
+            {mode === "vue_etrangere" ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.insight_3)}
+                onToggle={() => toggleFrameLike("insight_3")}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import type { ItemInfoCardData } from "@/components/item/ItemInfoCard";
 import type { ItemViewSlot } from "@/components/item/ItemViewView";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
 const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   neuf_etiquette: "Neuf avec étiquette",
@@ -10,10 +11,6 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   acceptable: "Acceptable",
   degrade: "Dégradé",
 };
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
-}
 
 function getPhotoEntriesFromJson(photosRaw: unknown): Array<Record<string, unknown>> {
   if (!photosRaw || typeof photosRaw !== "object") return [];
@@ -37,17 +34,18 @@ const getImageRatio = (url: string) =>
     img.src = url;
   });
 
-async function resolveStoragePreviewUrl(supabase: any, storagePath: string): Promise<string | null> {
-  if (isHttpUrl(storagePath)) return storagePath;
-  const outs = await Promise.all(
-    (["bucket_items", "bucket_focus"] as const).map((bucketId) =>
-      supabase.storage
-        .from(bucketId)
-        .createSignedUrl(storagePath, 60 * 60 * 24)
-        .then((r: { data?: { signedUrl?: string } | null }) => r.data?.signedUrl ?? null),
-    ),
+async function resolveStoragePreviewUrl(supabase: any, storagePath: string, photoEntry: Record<string, unknown>): Promise<string | null> {
+  const explicit =
+    (typeof photoEntry.bucket_id === "string" && photoEntry.bucket_id) ||
+    (typeof photoEntry.storage_bucket === "string" && photoEntry.storage_bucket) ||
+    (typeof photoEntry.bucket === "string" && photoEntry.bucket) ||
+    null;
+  return createSignedUrlForStoragePath(
+    supabase,
+    storagePath,
+    60 * 60 * 24,
+    explicit ? { explicitBucket: explicit } : undefined,
   );
-  return outs.find(Boolean) ?? null;
 }
 
 export type ItemIntakeSnapshot = {
@@ -143,7 +141,7 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
     const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
     if (!storagePath) return;
 
-    const previewUrl = await resolveStoragePreviewUrl(supabase, storagePath);
+    const previewUrl = await resolveStoragePreviewUrl(supabase, storagePath, entry);
     if (!previewUrl) return;
 
     const position = entry.position && typeof entry.position === "object" ? (entry.position as Record<string, unknown>) : null;

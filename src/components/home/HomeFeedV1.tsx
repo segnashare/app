@@ -1,0 +1,547 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Flag, Ban, Ellipsis, UserRound, X } from "lucide-react";
+
+import { CardBase } from "@/components/layout/CardBase";
+import type { ItemInfoCardData } from "@/components/item/ItemInfoCard";
+import { ItemViewView } from "@/components/item/ItemViewView";
+import { ProfileView } from "@/components/profile/ProfileView";
+import { useProfileViewData } from "@/components/profile/useProfileViewData";
+import type { ProfileViewData } from "@/components/profile/ProfileView";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
+
+type FeedItemCard = {
+  kind: "item";
+  id: string;
+  title: string;
+  description: string;
+  pricePoints: number | null;
+  status: "listed" | "available";
+  ownerUserId: string;
+  ownerDisplayName: string | null;
+  rawPhotos: unknown;
+  categorie: string | null;
+  sizeLabel: string | null;
+  materialsLabel: string | null;
+  colorLabel: string | null;
+  brandLabel: string | null;
+  conditionLabel: string | null;
+};
+
+type FeedProfileCard = {
+  kind: "profile";
+  id: string;
+  displayName: string;
+  city: string | null;
+  age: number | null;
+};
+
+type FeedCard = FeedItemCard | FeedProfileCard;
+
+type HomeFeedV1Props = {
+  initialCards: FeedCard[];
+  initialLikedItemIds: string[];
+  initialCursor: { score: number; entity_id: string } | null;
+};
+
+function cardKey(card: FeedCard) {
+  return `${card.kind}:${card.id}`;
+}
+
+function pointsLabel(points: number | null) {
+  if (typeof points !== "number" || Number.isNaN(points)) return "Points n/a";
+  return `${points} points`;
+}
+
+function buildItemInfoCard(card: FeedItemCard): ItemInfoCardData {
+  return {
+    pricePoints: card.pricePoints,
+    ratingValue: "5.0",
+    ratingStars: 5,
+    size: card.sizeLabel ?? "-",
+    materials: card.materialsLabel ?? "-",
+    color: card.colorLabel ?? "-",
+    brand: card.brandLabel ?? "-",
+    condition: card.conditionLabel ?? "-",
+  };
+}
+
+function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<string, unknown>> {
+  if (!raw || typeof raw !== "object") return [];
+  const photos = raw as Record<string, unknown>;
+  return Object.entries(photos)
+    .filter(([key, value]) => key.toLowerCase().startsWith("photo") && value && typeof value === "object")
+    .sort(([keyA], [keyB]) => {
+      const indexA = Number(keyA.toLowerCase().replace("photo", ""));
+      const indexB = Number(keyB.toLowerCase().replace("photo", ""));
+      if (Number.isNaN(indexA) || Number.isNaN(indexB)) return keyA.localeCompare(keyB);
+      return indexA - indexB;
+    })
+    .map(([, value]) => value as Record<string, unknown>);
+}
+
+function FeedProfileVisualization({ profileUserId, displayName }: { profileUserId: string; displayName: string }) {
+  const { data, isLoading } = useProfileViewData(profileUserId, displayName);
+  return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} />;
+}
+
+export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }: HomeFeedV1Props) {
+  const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
+  const [cards, setCards] = useState<FeedCard[]>(initialCards);
+  const [index, setIndex] = useState(0);
+  const [likedItemIds, setLikedItemIds] = useState<Set<string>>(new Set(initialLikedItemIds));
+  const [impressionsByKey, setImpressionsByKey] = useState<Record<string, string>>({});
+  const [nextCursor, setNextCursor] = useState<{ score: number; entity_id: string } | null>(initialCursor);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isTabBarVisible, setIsTabBarVisible] = useState(true);
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
+  const [isActionBusy, setIsActionBusy] = useState(false);
+  const [isDisliking, setIsDisliking] = useState(false);
+  const [itemSlotsById, setItemSlotsById] = useState<Record<string, Array<{ dataUrl: string; offset: { x: number; y: number }; zoom: number; imageRatio: number } | null>>>({});
+  const itemSlotsLoadingRef = useRef<Set<string>>(new Set());
+
+  const currentCard = cards[index] ?? null;
+  const currentKey = currentCard ? cardKey(currentCard) : null;
+  const targetProfileUserId = currentCard
+    ? currentCard.kind === "item"
+      ? currentCard.ownerUserId
+      : currentCard.id
+    : null;
+  const targetProfileDisplayName = currentCard
+    ? currentCard.kind === "item"
+      ? currentCard.ownerDisplayName ?? "Membre Segna"
+      : currentCard.displayName
+    : "Membre Segna";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function logImpression() {
+      if (!currentCard || !currentKey) return;
+      if (impressionsByKey[currentKey]) return;
+
+      const args =
+        currentCard.kind === "item"
+          ? {
+              p_entity_type: "item",
+              p_item_id: currentCard.id,
+              p_profile_user_id: null,
+              p_position: index,
+              p_feed_surface: "home_v1",
+            }
+          : {
+              p_entity_type: "profile",
+              p_item_id: null,
+              p_profile_user_id: currentCard.id,
+              p_position: index,
+              p_feed_surface: "home_v1",
+            };
+
+      const { data, error } = await supabase.rpc("record_member_feed_impression", args);
+      if (!cancelled && !error && typeof data === "string" && data.length > 0) {
+        setImpressionsByKey((previous) => ({ ...previous, [currentKey]: data }));
+      }
+    }
+    void logImpression();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCard, currentKey, impressionsByKey, index, supabase]);
+
+  useEffect(() => {
+    async function resolveItemSlots(card: FeedItemCard) {
+      if (itemSlotsById[card.id]) return;
+      if (itemSlotsLoadingRef.current.has(card.id)) return;
+      itemSlotsLoadingRef.current.add(card.id);
+      const entries = parsePhotoEntriesFromItemPhotos(card.rawPhotos).slice(0, 6);
+      const emptySlots: Array<{ dataUrl: string; offset: { x: number; y: number }; zoom: number; imageRatio: number } | null> = [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      ];
+
+      const resolveEntry = async (entry: Record<string, unknown>, indexEntry: number) => {
+          const storagePathRaw = entry.storage_path ?? entry.storagePath ?? entry.url ?? entry.photo_url ?? entry.photoUrl;
+          const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
+          if (!storagePath) return;
+          const explicitBucket =
+            (typeof entry.bucket_id === "string" && entry.bucket_id) ||
+            (typeof entry.storage_bucket === "string" && entry.storage_bucket) ||
+            (typeof entry.bucket === "string" && entry.bucket) ||
+            null;
+          const signedUrl = await createSignedUrlForStoragePath(supabase, storagePath, 60 * 60 * 24, {
+            explicitBucket,
+          });
+          if (!signedUrl) return;
+
+          const positionRaw = entry.position && typeof entry.position === "object" ? (entry.position as Record<string, unknown>) : null;
+          const offsetRaw = positionRaw?.offset && typeof positionRaw.offset === "object" ? (positionRaw.offset as Record<string, unknown>) : null;
+          const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
+          const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
+          const zoom = typeof positionRaw?.zoom === "number" ? positionRaw.zoom : 1;
+          const resolvedSlot = {
+            dataUrl: signedUrl,
+            offset: { x: offsetX, y: offsetY },
+            zoom,
+            imageRatio: 1,
+          };
+          setItemSlotsById((previous) => {
+            const nextSlots = previous[card.id] ? [...previous[card.id]] : [...emptySlots];
+            nextSlots[indexEntry] = resolvedSlot;
+            return { ...previous, [card.id]: nextSlots };
+          });
+      };
+
+      try {
+        // Prioritize first image for near-instant visual display.
+        if (entries[0]) {
+          await resolveEntry(entries[0], 0);
+        }
+        await Promise.all(
+          entries.slice(1).map((entry, indexEntry) => resolveEntry(entry, indexEntry + 1)),
+        );
+      } finally {
+        itemSlotsLoadingRef.current.delete(card.id);
+      }
+    }
+
+    async function prefetchVisibleItemCards() {
+      const itemCards = cards
+        .slice(index, index + 6)
+        .filter((card): card is FeedItemCard => card.kind === "item" && !itemSlotsById[card.id]);
+      await Promise.all(itemCards.map((card) => resolveItemSlots(card)));
+    }
+
+    void prefetchVisibleItemCards();
+  }, [cards, index, itemSlotsById, supabase]);
+
+  useEffect(() => {
+    const onTabBarVisibility = (event: Event) => {
+      const customEvent = event as CustomEvent<{ visible?: boolean }>;
+      setIsTabBarVisible(Boolean(customEvent.detail?.visible));
+    };
+
+    window.addEventListener("segna:tabbar-visibility", onTabBarVisibility as EventListener);
+    return () => window.removeEventListener("segna:tabbar-visibility", onTabBarVisibility as EventListener);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMore() {
+      if (!nextCursor) return;
+      if (isLoadingMore) return;
+      if (index < cards.length - 3) return;
+      setIsLoadingMore(true);
+      const { data, error } = await supabase.rpc("get_home_feed_v1", {
+        p_limit: 20,
+        p_cursor_score: nextCursor.score,
+        p_cursor_entity_id: nextCursor.entity_id,
+        p_exploration_ratio: 0.2,
+      });
+      if (cancelled) return;
+      setIsLoadingMore(false);
+      if (error) return;
+
+      const payload = (data ?? { cards: [], next_cursor: null }) as {
+        cards?: Array<{
+          kind: "item" | "profile";
+          item_id?: string | null;
+          profile_user_id?: string | null;
+          owner_user_id?: string | null;
+          profile_display_name?: string | null;
+          title?: string | null;
+          description?: string | null;
+          price_points?: number | null;
+          status?: "listed" | "available" | null;
+          photos?: unknown;
+          category_label?: string | null;
+          categorie?: string | null;
+          size_label?: string | null;
+          materials_label?: string | null;
+          color_label?: string | null;
+          brand_label?: string | null;
+          condition_label?: string | null;
+          profile_city?: string | null;
+          profile_age?: number | null;
+        }>;
+        next_cursor?: { score: number; entity_id: string } | null;
+      };
+
+      const nextCards: FeedCard[] = [];
+      for (const card of payload.cards ?? []) {
+        if (card.kind === "item" && card.item_id && card.status) {
+          nextCards.push({
+            kind: "item",
+            id: card.item_id,
+            title: card.title ?? "Piece",
+            description: card.description ?? "",
+            pricePoints: card.price_points ?? null,
+            status: card.status,
+            ownerUserId: card.owner_user_id ?? "",
+            ownerDisplayName: (card.profile_display_name ?? "").trim() || null,
+            rawPhotos: card.photos ?? null,
+            categorie: card.categorie ?? card.category_label ?? null,
+            sizeLabel: card.size_label ?? null,
+            materialsLabel: card.materials_label ?? null,
+            colorLabel: card.color_label ?? null,
+            brandLabel: card.brand_label ?? null,
+            conditionLabel: card.condition_label ?? null,
+          });
+          continue;
+        }
+        if (card.kind === "profile" && card.profile_user_id) {
+          nextCards.push({
+            kind: "profile",
+            id: card.profile_user_id,
+            displayName: (card.profile_display_name ?? "").trim() || "Membre Segna",
+            city: card.profile_city ?? null,
+            age: typeof card.profile_age === "number" ? card.profile_age : null,
+          });
+        }
+      }
+
+      setCards((previous) => {
+        const existing = new Set(previous.map((card) => cardKey(card)));
+        const deduped = nextCards.filter((card) => !existing.has(cardKey(card)));
+        return [...previous, ...deduped];
+      });
+      setNextCursor(payload.next_cursor ?? null);
+    }
+    void loadMore();
+    return () => {
+      cancelled = true;
+    };
+  }, [cards.length, index, isLoadingMore, nextCursor, supabase]);
+
+  if (!currentCard) {
+    return (
+      <CardBase className="py-10 text-center">
+        <p className="text-sm font-semibold text-zinc-900">Tu as tout vu pour le moment.</p>
+        <p className="mt-1 text-sm text-zinc-600">Reviens plus tard pour découvrir de nouveaux profils et pièces.</p>
+      </CardBase>
+    );
+  }
+
+  async function handleDislikeCurrentCard() {
+    if (!currentCard || !currentKey || isDisliking) return;
+    setIsDisliking(true);
+    try {
+      const impressionId = impressionsByKey[currentKey] ?? null;
+      if (currentCard.kind === "item") {
+        await supabase.rpc("record_member_item_interaction", {
+          p_item_id: currentCard.id,
+          p_interaction_type: "pass",
+          p_source_surface: "home_v1",
+          p_impression_id: impressionId,
+          p_metadata: { trigger: "dislike_button" },
+        });
+      } else {
+        await supabase.rpc("record_member_profile_interaction", {
+          p_profile_user_id: currentCard.id,
+          p_interaction_type: "pass",
+          p_source_surface: "home_v1",
+          p_impression_id: impressionId,
+          p_metadata: { trigger: "dislike_button" },
+        });
+      }
+    } finally {
+      // Advance immediately in all cases to keep UX responsive.
+      setCards((previous) => {
+        if (!previous[index]) return previous;
+        const next = [...previous];
+        next.splice(index, 1);
+        return next;
+      });
+      setIndex((previousIndex) => {
+        const maxIndex = Math.max(0, cards.length - 2);
+        return Math.min(previousIndex, maxIndex);
+      });
+      setIsDisliking(false);
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <header className="fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-[430px] bg-white px-6 pt-5 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-[32px] font-semibold leading-[1.15] tracking-[-0.025em] text-zinc-950">
+                {currentCard.kind === "item" ? currentCard.title : currentCard.displayName}
+              </h2>
+              {currentCard.kind === "item" ? (
+                <span
+                  className={`ml-3 inline-flex self-end items-center gap-2 pb-1 text-[14px] font-semibold ${
+                    currentCard.status === "available" ? "text-emerald-700" : "text-zinc-500"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                      currentCard.status === "available" ? "bg-emerald-600" : "bg-zinc-400"
+                    }`}
+                  />
+                  <span>{currentCard.status === "available" ? "Disponible" : "Bientot disponible"}</span>
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-sm font-semibold text-zinc-900">
+              {currentCard.kind === "item"
+                ? (currentCard.categorie ?? "Categorie")
+                : ([currentCard.age ? `${currentCard.age} ans` : null, currentCard.city].filter(Boolean).join(" · ") || "Profil membre")}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            aria-label="Options"
+            onClick={() => setIsActionsOpen(true)}
+            className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-800 transition hover:bg-zinc-100"
+          >
+            <Ellipsis className="h-6 w-6" />
+          </button>
+        </div>
+      </header>
+      <div aria-hidden className="h-[72px]" />
+
+      {currentCard.kind === "item" ? (
+        <div className="space-y-2">
+          {likedItemIds.has(currentCard.id) ? <p className="text-xs font-medium text-[#8B6A54]">Deja likee</p> : null}
+          <div className="bg-white">
+            <ItemViewView
+              title={currentCard.title}
+              description={currentCard.description}
+              slots={itemSlotsById[currentCard.id] ?? [null, null, null, null, null, null]}
+              infoCard={buildItemInfoCard(currentCard)}
+              ownerUserId={currentCard.ownerUserId}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-zinc-600">
+            {[currentCard.age ? `${currentCard.age} ans` : null, currentCard.city].filter(Boolean).join(" · ") || "Profil membre"}
+          </p>
+          <div className="bg-white">
+            <FeedProfileVisualization profileUserId={currentCard.id} displayName={currentCard.displayName} />
+          </div>
+        </div>
+      )}
+      {isLoadingMore ? <p className="text-xs text-zinc-500">Chargement de nouvelles cartes...</p> : null}
+
+      <button
+        type="button"
+        aria-label="Dislike"
+        onClick={() => {
+          void handleDislikeCurrentCard();
+        }}
+        disabled={isDisliking}
+        className="fixed left-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-white/95 text-zinc-950 shadow-lg ring-1 ring-zinc-200 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+        style={{
+          bottom: isTabBarVisible
+            ? "calc(56px + env(safe-area-inset-bottom) + 12px)"
+            : "calc(env(safe-area-inset-bottom) + 12px)",
+        }}
+      >
+        <X className="h-7 w-7" strokeWidth={2.2} />
+      </button>
+
+      {isActionsOpen ? (
+        <div className="fixed inset-0 z-50 bg-black/35 p-4" onClick={() => setIsActionsOpen(false)}>
+          <div
+            className="absolute inset-x-4 bottom-4 mx-auto w-full max-w-[430px] rounded-2xl bg-white p-3 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              disabled={isActionBusy}
+              onClick={async () => {
+                if (!currentCard || currentCard.kind !== "item") return;
+                setIsActionBusy(true);
+                const {
+                  data: { user },
+                } = await supabase.auth.getUser();
+                if (user) {
+                  await supabase.from("item_reports").insert({
+                    item_id: currentCard.id,
+                    reporter_user_id: user.id,
+                    reason: "feed_signalement",
+                  });
+                }
+                setIsActionBusy(false);
+                setIsActionsOpen(false);
+              }}
+              className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              <Flag className="h-5 w-5" />
+              <span className="text-sm font-medium">Signaler</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isActionBusy || !targetProfileUserId}
+              onClick={async () => {
+                if (!targetProfileUserId) return;
+                setIsActionBusy(true);
+                const {
+                  data: { user },
+                } = await supabase.auth.getUser();
+                if (user) {
+                  await supabase.from("user_blocks").insert({
+                    blocked_by_user_id: user.id,
+                    blocked_user_id: targetProfileUserId,
+                  });
+                }
+                setIsActionBusy(false);
+                setIsActionsOpen(false);
+              }}
+              className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              <Ban className="h-5 w-5" />
+              <span className="text-sm font-medium">Bloquer</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={!targetProfileUserId}
+              onClick={() => {
+                if (!targetProfileUserId) return;
+                setCards((previous) => {
+                  const next = [...previous];
+                  const profileCard: FeedProfileCard = {
+                    kind: "profile",
+                    id: targetProfileUserId,
+                    displayName: targetProfileDisplayName,
+                    city: null,
+                    age: null,
+                  };
+                  next.splice(index + 1, 0, profileCard);
+                  return next;
+                });
+                setIndex((value) => value + 1);
+                setIsActionsOpen(false);
+              }}
+              className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              <UserRound className="h-5 w-5" />
+              <span className="text-sm font-medium">Voir profil détentrice</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsActionsOpen(false)}
+              className="mt-2 flex h-12 w-full items-center justify-center rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-700"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
