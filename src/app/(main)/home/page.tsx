@@ -3,6 +3,31 @@ import { HomeFeedV1 } from "@/components/home/HomeFeedV1";
 import { MainContent } from "@/components/layout/MainContent";
 
 type RawPhotos = unknown;
+type InitialFeedCard =
+  | {
+      kind: "item";
+      id: string;
+      title: string;
+      description: string;
+      status: "listed" | "available";
+      pricePoints: number | null;
+      ownerUserId: string;
+      ownerDisplayName: string | null;
+      rawPhotos: RawPhotos;
+      categorie: string | null;
+      sizeLabel: string | null;
+      materialsLabel: string | null;
+      colorLabel: string | null;
+      brandLabel: string | null;
+      conditionLabel: string | null;
+    }
+  | {
+      kind: "profile";
+      id: string;
+      displayName: string;
+      city: string | null;
+      age: number | null;
+    };
 
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
@@ -76,41 +101,38 @@ export default async function HomePage() {
     next_cursor?: { score: number; entity_id: string } | null;
   };
 
-  const initialCards = (feedData.cards ?? []).flatMap((card) => {
+  const initialCards: InitialFeedCard[] = [];
+  for (const card of feedData.cards ?? []) {
     if (card.kind === "item" && card.item_id && card.status) {
-      return [
-        {
-          kind: "item" as const,
-          id: card.item_id,
-          title: card.title ?? "Piece",
-          description: card.description ?? "",
-          status: card.status,
-          pricePoints: card.price_points ?? null,
-          ownerUserId: card.owner_user_id ?? "",
-          ownerDisplayName: (card.profile_display_name ?? "").trim() || null,
-          rawPhotos: card.photos ?? null,
-          categorie: card.categorie ?? card.category_label ?? null,
-          sizeLabel: card.size_label ?? null,
-          materialsLabel: card.materials_label ?? null,
-          colorLabel: card.color_label ?? null,
-          brandLabel: card.brand_label ?? null,
-          conditionLabel: card.condition_label ?? null,
-        },
-      ];
+      initialCards.push({
+        kind: "item",
+        id: card.item_id,
+        title: card.title ?? "Piece",
+        description: card.description ?? "",
+        status: card.status,
+        pricePoints: card.price_points ?? null,
+        ownerUserId: card.owner_user_id ?? "",
+        ownerDisplayName: (card.profile_display_name ?? "").trim() || null,
+        rawPhotos: card.photos ?? null,
+        categorie: card.categorie ?? card.category_label ?? null,
+        sizeLabel: card.size_label ?? null,
+        materialsLabel: card.materials_label ?? null,
+        colorLabel: card.color_label ?? null,
+        brandLabel: card.brand_label ?? null,
+        conditionLabel: card.condition_label ?? null,
+      });
+      continue;
     }
     if (card.kind === "profile" && card.profile_user_id) {
-      return [
-        {
-          kind: "profile" as const,
-          id: card.profile_user_id,
-          displayName: (card.profile_display_name ?? "").trim() || "Membre Segna",
-          city: card.profile_city ?? null,
-          age: typeof card.profile_age === "number" ? card.profile_age : null,
-        },
-      ];
+      initialCards.push({
+        kind: "profile",
+        id: card.profile_user_id,
+        displayName: (card.profile_display_name ?? "").trim() || "Membre Segna",
+        city: card.profile_city ?? null,
+        age: typeof card.profile_age === "number" ? card.profile_age : null,
+      });
     }
-    return [];
-  });
+  }
 
   const likedItemsRes =
     user && initialCards.some((card) => card.kind === "item")
