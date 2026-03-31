@@ -1022,8 +1022,8 @@ export function ShopCatalog({
               </div>
               <div className="px-3 py-5">
               <section className="space-y-3">
-                <div className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0" aria-hidden />
+                <div className="-mx-3 flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                   {categoryRootOptions.map((cat) => {
                     const pseudo = pickPseudoFrame(`cat-${cat.id}`);
                     return (
@@ -1040,7 +1040,7 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
-                  <div className="w-3 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
               </div>
@@ -1070,7 +1070,7 @@ export function ShopCatalog({
                 />
               <section className="space-y-3">
                 <div className="-mx-3 flex gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-5 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0" aria-hidden />
                   {preferredBrandSections.map((brand) => {
                     const pseudo = pickPseudoFrame(`brand-${brand.id}`);
                     return (
@@ -1093,14 +1093,14 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
-                  <div className="w-5 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0" aria-hidden />
                 </div>
               </section>
               </div>
               <div className="px-3 py-5">
               <section className="space-y-3">
-                <div className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-5 shrink-0" aria-hidden />
+                <div className="-mx-3 flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                   {upsellCards.map((card) => {
                     const pseudo = pickPseudoFrame(card.id);
                     return (
@@ -1117,7 +1117,7 @@ export function ShopCatalog({
                       </Link>
                     );
                   })}
-                  <div className="w-5 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
               </div>

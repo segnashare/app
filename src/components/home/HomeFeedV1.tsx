@@ -104,6 +104,10 @@ function FeedProfileVisualization({
 
 export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, initialAdBanner }: HomeFeedV1Props) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const rpcUntyped = supabase.rpc as unknown as (
+    fn: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
   const [cards, setCards] = useState<FeedCard[]>(initialCards);
   const [index, setIndex] = useState(0);
   const [likedItemIds, setLikedItemIds] = useState<Set<string>>(new Set(initialLikedItemIds));
@@ -155,7 +159,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               p_feed_surface: "home_v1",
             };
 
-      const { data, error } = await supabase.rpc("record_member_feed_impression", args);
+      const { data, error } = await rpcUntyped("record_member_feed_impression", args);
       if (!cancelled && !error && typeof data === "string" && data.length > 0) {
         setImpressionsByKey((previous) => ({ ...previous, [currentKey]: data }));
       }
@@ -253,7 +257,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
       if (isLoadingMore) return;
       if (index < cards.length - 3) return;
       setIsLoadingMore(true);
-      const { data, error } = await supabase.rpc("get_home_feed_v1", {
+      const { data, error } = await rpcUntyped("get_home_feed_v1", {
         p_limit: 20,
         p_cursor_score: nextCursor.score,
         p_cursor_entity_id: nextCursor.entity_id,
@@ -362,7 +366,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
     try {
       const impressionId = impressionsByKey[currentKey] ?? null;
       if (currentCard.kind === "item") {
-        await supabase.rpc("record_member_item_interaction", {
+        await rpcUntyped("record_member_item_interaction", {
           p_item_id: currentCard.id,
           p_interaction_type: "pass",
           p_source_surface: "home_v1",
@@ -370,7 +374,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           p_metadata: { trigger: "dislike_button" },
         });
       } else {
-        await supabase.rpc("record_member_profile_interaction", {
+        await rpcUntyped("record_member_profile_interaction", {
           p_profile_user_id: currentCard.id,
           p_interaction_type: "pass",
           p_source_surface: "home_v1",
@@ -435,7 +439,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
     try {
       const impressionId = impressionsByKey[currentKey] ?? null;
       if (currentCard.kind === "item") {
-        await supabase.rpc("record_member_item_interaction", {
+        await rpcUntyped("record_member_item_interaction", {
           p_item_id: currentCard.id,
           p_interaction_type: "like",
           p_source_surface: "home_v1",
@@ -448,7 +452,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           const added = await addItemToCartForCurrentMember(currentCard.id);
           if (added) {
             window.dispatchEvent(new CustomEvent("segna:cart-changed"));
-            await supabase.rpc("record_member_item_interaction", {
+            await rpcUntyped("record_member_item_interaction", {
               p_item_id: currentCard.id,
               p_interaction_type: "cart_add",
               p_source_surface: "home_v1",
@@ -458,7 +462,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           }
         }
       } else {
-        await supabase.rpc("record_member_profile_interaction", {
+        await rpcUntyped("record_member_profile_interaction", {
           p_profile_user_id: currentCard.id,
           p_interaction_type: "like",
           p_source_surface: "home_v1",
