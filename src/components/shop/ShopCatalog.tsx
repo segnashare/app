@@ -1109,10 +1109,10 @@ export function ShopCatalog({
                         href={card.href}
                         className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl"
                       >
-                        <div className={cn("aspect-[2.32] rounded-2xl bg-gradient-to-br p-4", pseudo.color)}>
+                        <div className={cn("aspect-[2.7] rounded-2xl bg-gradient-to-br px-4 py-1", pseudo.color)}>
                           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-700">{pseudo.tag}</p>
-                          <p className="mt-3 text-[1.65rem] font-bold leading-tight text-zinc-900">{card.title}</p>
-                          <p className="mt-2 text-[1rem] text-zinc-800">{card.subtitle}</p>
+                          <p className="mt-2 text-[1.65rem] font-bold leading-tight text-zinc-900">{card.title}</p>
+                          <p className="mt-1.5 text-[1rem] text-zinc-800">{card.subtitle}</p>
                         </div>
                       </Link>
                     );
@@ -1746,7 +1746,7 @@ function ItemRailTwoUp({
             >
               <div className={cn("mb-2 aspect-square rounded-2xl bg-gradient-to-br p-3", pseudo.color)} />
               <h3 className="line-clamp-2 text-left text-[14px] font-semibold leading-snug text-zinc-900">{item.title}</h3>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[13px] text-zinc-700">
+              <div className="mt-0.5 flex min-w-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-[14px] text-zinc-700">
                 {cartItemIds.has(item.id) ? (
                   <span
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#5E3023]/12 text-[#5E3023]"
@@ -1759,7 +1759,7 @@ function ItemRailTwoUp({
                 ) : (
                   <span
                     className={cn(
-                      "h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
+                      "h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
                       available ? "bg-sky-500" : "bg-zinc-300",
                     )}
                     title={available ? "Disponible" : "Indisponible"}
@@ -1768,11 +1768,13 @@ function ItemRailTwoUp({
                   />
                 )}
                 <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                <span className="truncate font-medium">{brandName || "Segna"}</span>
+                <span className="min-w-0 max-w-[8.5rem] truncate text-[14px] font-medium">{brandName || "Segna"}</span>
                 <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
                 <span className="tabular-nums font-medium">{price}</span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={SEGNA_ICON} alt="" className="h-3.5 w-3.5 opacity-90" />
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={SEGNA_ICON} alt="" className="h-5 w-5 opacity-95" />
+                </span>
               </div>
             </Link>
           );
@@ -1853,7 +1855,7 @@ function HubRail({
               </div>
               <div className="space-y-0.5">
                 <h3 className="line-clamp-1 text-left text-[14px] font-semibold leading-snug text-zinc-900">{item.title}</h3>
-                <div className="flex items-center gap-1.5 text-[13px] text-zinc-700">
+                <div className="flex min-w-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-[14px] text-zinc-700">
                 {cartItemIds.has(item.id) ? (
                   <span
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#5E3023]/12 text-[#5E3023]"
@@ -1866,7 +1868,7 @@ function HubRail({
                 ) : (
                   <span
                     className={cn(
-                      "h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
+                      "h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
                       available ? "bg-sky-500" : "bg-zinc-300",
                     )}
                     title={available ? "Disponible" : "Indisponible"}
@@ -1875,11 +1877,13 @@ function HubRail({
                   />
                 )}
                   <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                  <span className="truncate font-medium">{brandMeta}</span>
+                  <span className="min-w-0 max-w-[8.5rem] truncate text-[14px] font-medium">{brandMeta}</span>
                   <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
                   <span className="tabular-nums font-medium">{price}</span>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={SEGNA_ICON} alt="" className="h-3.5 w-3.5 opacity-90" />
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={SEGNA_ICON} alt="" className="h-5 w-5 opacity-95" />
+                  </span>
                 </div>
               </div>
             </Link>
