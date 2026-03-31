@@ -6,6 +6,7 @@ import { Check, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
+import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { fileToDataUrl } from "@/lib/onboarding/photoModifyStore";
@@ -204,7 +205,13 @@ export default function NewItemConditionPage() {
               <div className="grid grid-cols-3 gap-2">
                 {defectPhotos.map((photo) => (
                   <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-300 bg-zinc-50">
-                    <img src={photo.dataUrl} alt={photo.fileName} className="h-full w-full object-cover" />
+                    <ImageCoverWithSkeleton
+                      src={photo.dataUrl}
+                      alt={photo.fileName}
+                      className="h-full w-full"
+                      imgClassName="rounded-lg"
+                      loading="lazy"
+                    />
                     <button
                       type="button"
                       onClick={(event) => {

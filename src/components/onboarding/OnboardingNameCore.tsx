@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { capitalizeFirstLetter } from "@/lib/strings/capitalizeFirstLetter";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
@@ -76,8 +77,8 @@ export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, 
   const onSubmit = handleSubmit(async ({ firstName, lastName }) => {
     setErrorMessage(null);
 
-    const normalizedFirstName = firstName.trim();
-    const normalizedLastName = lastName.trim();
+    const normalizedFirstName = capitalizeFirstLetter(firstName);
+    const normalizedLastName = capitalizeFirstLetter(lastName);
 
     const settingsResult = await rpcUntyped("update_user_account_settings", {
       p_locale: null,

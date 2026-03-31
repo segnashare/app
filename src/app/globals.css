@@ -36,3 +36,112 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: auto;
 }
+
+/* Panier : bouton poubelle des lignes « surplus » — petite vibration en boucle (action rapide). */
+@keyframes cart-surplus-trash-vibrate {
+  0%,
+  76% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  78% {
+    transform: translate3d(-2px, 0, 0) rotate(-5deg);
+  }
+  80% {
+    transform: translate3d(2px, 0, 0) rotate(5deg);
+  }
+  82% {
+    transform: translate3d(-2px, 0, 0) rotate(-4deg);
+  }
+  84% {
+    transform: translate3d(2px, 0, 0) rotate(4deg);
+  }
+  86%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+}
+
+.cart-surplus-trash-vibrate {
+  animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
+}
+
+/* Panier : poubelle sur ligne « réservée ailleurs » — même vibration, style blanc sur surcouche. */
+.cart-competition-trash-vibrate {
+  animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
+}
+
+/* Panier : pastille wallet quand total > capacité — même vibration que la poubelle surplus. */
+.cart-wallet-exceed-vibrate {
+  animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-surplus-trash-vibrate {
+    animation: none;
+  }
+
+  .cart-competition-trash-vibrate {
+    animation: none;
+  }
+
+  .cart-wallet-exceed-vibrate {
+    animation: none;
+  }
+}
+
+/* Shop catalogue : squelette image (balayage diagonal type Uber) en attendant l’URL signée. */
+/* Dernière portion du temps ≈ quasi à l’arrêt en bout de course (effet d’attente). */
+@keyframes shop-catalog-image-shimmer {
+  0% {
+    transform: translate3d(-155%, 0, 0) skewX(-28deg);
+  }
+  42% {
+    transform: translate3d(35%, 0, 0) skewX(-28deg);
+  }
+  68% {
+    transform: translate3d(88%, 0, 0) skewX(-28deg);
+  }
+  86% {
+    transform: translate3d(112%, 0, 0) skewX(-28deg);
+  }
+  100% {
+    transform: translate3d(122%, 0, 0) skewX(-28deg);
+  }
+}
+
+.shop-catalog-image-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: #e5e5ea;
+}
+
+.shop-catalog-image-skeleton::after {
+  content: "";
+  position: absolute;
+  top: -70%;
+  left: -35%;
+  width: 165%;
+  height: 240%;
+  background: linear-gradient(
+    92deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 22%,
+    rgba(255, 255, 255, 0.22) 38%,
+    rgba(255, 255, 255, 0.36) 50%,
+    rgba(255, 255, 255, 0.22) 62%,
+    rgba(255, 255, 255, 0.06) 78%,
+    transparent 100%
+  );
+  filter: blur(18px);
+  will-change: transform;
+  opacity: 0.92;
+  animation: shop-catalog-image-shimmer var(--shop-shimmer-duration, 2.85s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-catalog-image-skeleton::after {
+    animation: none;
+    opacity: 0;
+  }
+}

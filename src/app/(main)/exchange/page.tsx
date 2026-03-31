@@ -5,6 +5,7 @@ import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInter
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
+import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -59,6 +60,9 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
 
 function mapCartLineStatus(cartItemStatus: string | null, itemStatus: string | null): CartLineStatus {
   if (cartItemStatus === "reserved" && itemStatus === "reserved") return "reserve";
+  if (cartItemStatus === "reservation_pending" && (itemStatus === "available" || itemStatus === "listed")) {
+    return "en_attente_wallet";
+  }
   if (cartItemStatus === "in_cart" && (itemStatus === "available" || itemStatus === "in_cart")) return "disponible";
   return "echec";
 }
@@ -235,17 +239,19 @@ export default async function ExchangePage() {
       );
     }
 
-    cartLines = (cartItemsRes.data ?? []).map((line: { id: string; item_id: string; status: string | null }) => {
-      const item = itemsMap.get(line.item_id);
-      const pricePoints = Number(item?.price_points ?? 0);
-      return {
-        id: line.id,
-        itemId: line.item_id ?? null,
-        itemName: item?.title?.trim() || "Piece sans titre",
-        pricePoints,
-        status: mapCartLineStatus(line.status, item?.status ?? null),
-      };
-    });
+    cartLines = sortCartLinesByPriceAsc(
+      (cartItemsRes.data ?? []).map((line: { id: string; item_id: string; status: string | null }) => {
+        const item = itemsMap.get(line.item_id);
+        const pricePoints = Number(item?.price_points ?? 0);
+        return {
+          id: line.id,
+          itemId: line.item_id ?? null,
+          itemName: item?.title?.trim() || "Piece sans titre",
+          pricePoints,
+          status: mapCartLineStatus(line.status, item?.status ?? null),
+        };
+      }),
+    );
     activeCartCostPoints = cartLines.reduce((sum, line) => sum + line.pricePoints, 0);
     cartStatusLabel = activeCart.status === "reserved" ? "Reserve (10 min)" : "Actif";
   }

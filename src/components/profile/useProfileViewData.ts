@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type {
@@ -176,6 +177,11 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     }
 
     const targetUserId = userId ?? user.id;
+    if (isSegnaCorporateInventoryUserId(targetUserId)) {
+      setData(null);
+      setIsLoading(false);
+      return;
+    }
     const { data: row, error } = await supabase
       .from("user_profiles")
       .select("*")
@@ -376,10 +382,15 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
   useEffect(() => {
     void (async () => {
+      if (userId && isSegnaCorporateInventoryUserId(userId)) {
+        setData(null);
+        setIsLoading(false);
+        return;
+      }
       const fromCache = await loadFromCache();
       if (!fromCache) void fetchFromDb();
     })();
-  }, [loadFromCache, fetchFromDb]);
+  }, [loadFromCache, fetchFromDb, userId]);
 
   return { data, isLoading, refetch: fetchFromDb };
 }

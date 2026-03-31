@@ -3,6 +3,13 @@ import { HomeFeedV1 } from "@/components/home/HomeFeedV1";
 import { MainContent } from "@/components/layout/MainContent";
 
 type RawPhotos = unknown;
+type FeedAdBanner = {
+  id: string;
+  placementKey: string;
+  title: string;
+  imageUrl: string;
+  targetUrl: string;
+};
 type InitialFeedCard =
   | {
       kind: "item";
@@ -31,22 +38,25 @@ type InitialFeedCard =
 
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
+  type QueryResult<T> = Promise<{
+    data: T | null;
+    error: { message?: string } | null;
+  }>;
+  type QueryBuilder = {
+    eq: (column: string, value: unknown) => QueryBuilder;
+    is: (column: string, value: null) => QueryBuilder;
+    in: (column: string, values: string[]) => QueryResult<Array<{ item_id: string }>>;
+    order: (column: string, options: { ascending: boolean }) => QueryBuilder;
+    limit: (count: number) => QueryBuilder;
+    maybeSingle: () => QueryResult<Record<string, unknown>>;
+  };
   const anySupabase = supabase as unknown as {
     rpc: (name: string, args?: Record<string, unknown>) => Promise<{
       data: unknown;
       error: { message?: string } | null;
     }>;
     from: (table: string) => {
-      select: (columns: string) => {
-        eq: (column: string, value: string) => {
-          is: (column: string, value: null) => {
-            in: (column: string, values: string[]) => Promise<{
-              data: Array<{ item_id: string }> | null;
-              error: { message?: string } | null;
-            }>;
-          };
-        };
-      };
+      select: (columns: string) => QueryBuilder;
     };
   };
   const {
@@ -148,12 +158,31 @@ export default async function HomePage() {
       : { data: [], error: null };
   const likedItemIds = (likedItemsRes.data ?? []).map((row) => row.item_id);
 
+  const activeAdRes = await anySupabase
+    .from("cms_app_ad_placements")
+    .select("id,placement_key,title,image_url,target_url")
+    .eq("placement_key", "home_feed_top")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const activeAdBanner: FeedAdBanner | null = activeAdRes.data
+    ? {
+        id: String(activeAdRes.data.id),
+        placementKey: String(activeAdRes.data.placement_key),
+        title: String(activeAdRes.data.title),
+        imageUrl: String(activeAdRes.data.image_url),
+        targetUrl: String(activeAdRes.data.target_url),
+      }
+    : null;
+
   return (
     <MainContent className="pb-2 pt-6">
       <HomeFeedV1
         initialCards={initialCards}
         initialLikedItemIds={likedItemIds}
         initialCursor={feedData.next_cursor ?? null}
+        initialAdBanner={activeAdBanner}
       />
     </MainContent>
   );

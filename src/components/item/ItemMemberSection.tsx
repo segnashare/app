@@ -3,6 +3,8 @@
 import { BadgeCheck } from "lucide-react";
 import { Montserrat, Playfair_Display } from "next/font/google";
 
+import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -34,10 +36,10 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
           className,
         )}
       >
-        <div className="h-5 w-28 animate-pulse rounded bg-zinc-200" />
+        <SegnaSkeletonBlock className="h-5 w-28" rounded="rounded-md" />
         <div className="mt-3 flex gap-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="aspect-square w-20 shrink-0 animate-pulse rounded-xl bg-zinc-200" />
+            <SegnaSkeletonBlock key={i} className="aspect-square w-20 shrink-0" rounded="rounded-xl" />
           ))}
         </div>
       </div>
@@ -84,9 +86,9 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
           {data.photoUrls.map((url, index) => (
             <div
               key={index}
-              className="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[5px] bg-zinc-100"
+              className="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[5px] bg-zinc-200"
             >
-              <img src={url} alt="" className="h-full w-full object-cover" />
+              <ImageCoverWithSkeleton src={url} alt="" className="h-full w-full" loading="lazy" />
             </div>
           ))}
         </div>

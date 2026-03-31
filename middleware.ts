@@ -18,6 +18,7 @@ const PROTECTED_PREFIXES = [
   "/auth/sign-up/password",
   "/home",
   "/shop",
+  "/cart",
   "/exchange",
   "/community",
   "/profile",

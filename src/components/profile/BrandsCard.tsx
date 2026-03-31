@@ -1,5 +1,6 @@
 "use client";
 
+import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { cn } from "@/lib/utils/cn";
 
 import type { ProfileViewBrand } from "./ProfileView";
@@ -25,11 +26,16 @@ export function BrandsCard({ brands, className }: BrandsCardProps) {
           className="flex flex-1 min-w-0 max-w-[120px] items-center justify-center"
         >
           {brand.logoUrl ? (
-            <img
-              src={brand.logoUrl}
-              alt={brand.label}
-              className="h-12 w-auto max-h-14 object-contain object-center"
-            />
+            <div className="relative flex h-14 w-full max-w-[120px] items-center justify-center overflow-hidden rounded-lg bg-zinc-200">
+              <ImageCoverWithSkeleton
+                src={brand.logoUrl}
+                alt={brand.label}
+                objectFit="contain"
+                className="h-full max-h-14 w-full"
+                imgClassName="p-1"
+                loading="lazy"
+              />
+            </div>
           ) : (
             <span className="truncate text-center text-sm font-semibold text-zinc-900">
               {brand.label}

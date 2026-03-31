@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
 
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   fileToDataUrl,
@@ -280,13 +281,13 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
               )}
             >
               {slot ? (
-                <div
-                  className="h-full w-full bg-center bg-no-repeat"
-                  style={{
-                    backgroundColor: "#000000",
-                    backgroundImage: `url(${slot.dataUrl})`,
+                <RemoteCoverThumb
+                  photoUrl={slot.dataUrl}
+                  frameClassName="h-full w-full"
+                  coverStyle={{
                     backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / LOOK_STAGE_RATIO)) * slot.zoom}%`,
                     backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
+                    backgroundRepeat: "no-repeat",
                   }}
                 />
               ) : (

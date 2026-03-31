@@ -8,6 +8,7 @@ import { BrandsCard } from "./BrandsCard";
 import { InsightCard } from "./InsightCard";
 import { ProfileInfoCard } from "./ProfileInfoCard";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -126,8 +127,14 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
   if (isLoading) {
     return (
       <div className="space-y-4 bg-white py-6">
-        <div className="mx-auto aspect-square w-full max-w-[430px] animate-pulse rounded-2xl bg-zinc-200" />
-        <div className="mx-auto w-full max-w-[430px] animate-pulse rounded-2xl bg-zinc-200 p-6" />
+        <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
+          <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
+        </div>
+        <div className="mx-auto w-full max-w-[430px] space-y-3 rounded-2xl border border-zinc-200 p-6 shadow-sm">
+          <SegnaSkeletonBlock className="h-8 w-48" rounded="rounded-lg" />
+          <SegnaSkeletonBlock className="h-4 w-full max-w-[90%]" rounded="rounded-md" />
+          <SegnaSkeletonBlock className="h-4 w-full max-w-[70%]" rounded="rounded-md" />
+        </div>
       </div>
     );
   }
@@ -247,9 +254,9 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
             <p className={cn(montserrat.className, "mb-3 text-[14px] font-semibold text-zinc-500")}>Pièces prêtées</p>
             <div className="grid grid-cols-4 gap-2">
               {data.lentPieces.map((piece) => (
-                <div key={piece.id} className="aspect-square overflow-hidden rounded-lg bg-zinc-100">
+                <div key={piece.id} className="aspect-square overflow-hidden rounded-lg bg-zinc-200">
                   {piece.photoUrl ? (
-                    <img src={piece.photoUrl} alt={piece.title} className="h-full w-full object-cover" />
+                    <RemoteCoverThumb photoUrl={piece.photoUrl} frameClassName="h-full w-full rounded-lg" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-zinc-400">
                       <span className="text-xs">{piece.title.slice(0, 2)}</span>

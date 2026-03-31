@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { useId } from "react";
 
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+
 type ProfileProgressAvatarProps = {
   completionScore: number;
   avatarUrl: string | null;
@@ -56,14 +58,15 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
         className="relative h-32 w-32 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5E3023]"
       >
         {avatarUrl ? (
-          <div
-            className="h-full w-full bg-center bg-no-repeat"
-            style={{
-              backgroundImage: `url(${avatarUrl})`,
+          <RemoteCoverThumb
+            photoUrl={avatarUrl}
+            frameClassName="h-full w-full rounded-full"
+            coverStyle={{
               backgroundSize: `${Math.max(55, zoom * 100)}%`,
               backgroundPosition: `calc(50% + ${offsetX}%) calc(50% + ${offsetY}%)`,
+              backgroundRepeat: "no-repeat",
             }}
-            aria-label="Photo de profil"
+            className="rounded-full"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-zinc-200 text-5xl font-semibold text-zinc-600">

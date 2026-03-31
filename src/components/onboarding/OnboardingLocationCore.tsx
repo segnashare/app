@@ -8,6 +8,7 @@ import { Crosshair } from "lucide-react";
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { writeCheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-storage";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
@@ -19,6 +20,8 @@ type OnboardingLocationCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
   redirectPath?: string;
+  /** Par défaut enregistre profil + onboarding ; checkout = sessionStorage + redirection paiement. */
+  submitTarget?: "onboarding" | "checkout";
   initialLocation?: {
     label?: string;
     lat?: number | null;
@@ -114,7 +117,13 @@ function toLocationSuggestion(feature: AdresseApiFeature): LocationSuggestion {
   };
 }
 
-export function OnboardingLocationCore({ formId, onCanContinueChange, redirectPath, initialLocation }: OnboardingLocationCoreProps) {
+export function OnboardingLocationCore({
+  formId,
+  onCanContinueChange,
+  redirectPath,
+  submitTarget = "onboarding",
+  initialLocation,
+}: OnboardingLocationCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -220,6 +229,19 @@ export function OnboardingLocationCore({ formId, onCanContinueChange, redirectPa
       return;
     }
 
+    if (submitTarget === "checkout" && selectedSuggestion) {
+      writeCheckoutDeliveryAddress({
+        label: selectedSuggestion.label,
+        lat: selectedSuggestion.lat,
+        lon: selectedSuggestion.lon,
+        city: selectedSuggestion.city,
+        relativeCity: selectedSuggestion.relativeCity,
+        timezone: selectedSuggestion.timezone,
+      });
+      router.push(redirectPath ?? "/cart/payment");
+      return;
+    }
+
     const locationResult = await rpcUntyped("set_user_location", {
       p_adress: selectedSuggestion?.label ?? normalizedLocation,
       p_timezone: selectedSuggestion?.timezone ?? "Europe/Paris",
@@ -289,10 +311,17 @@ export function OnboardingLocationCore({ formId, onCanContinueChange, redirectPa
   const locationRegistration = register("location");
 
   return (
-    <div className="mt-8 w-full">
-      <p className={cn(montserrat.className, "mb-5 text-[clamp(14px,2.9vw,18px)] leading-[1.25] text-zinc-500")}>
-        Seul le nom du quartier apparaîtra sur ton profil.
-      </p>
+    <div className={cn(submitTarget === "checkout" ? "mt-4" : "mt-8", "w-full")}>
+      {submitTarget === "checkout" ? (
+        <div
+          className="mb-5 h-[clamp(17.5px,3.625vw,22.5px)] shrink-0"
+          aria-hidden
+        />
+      ) : (
+        <p className={cn(montserrat.className, "mb-5 text-[clamp(14px,2.9vw,18px)] leading-[1.25] text-zinc-500")}>
+          Seul le nom du quartier apparaîtra sur ton profil.
+        </p>
+      )}
 
       <div className="relative mb-6 aspect-square w-full overflow-hidden rounded-sm border border-zinc-200 bg-zinc-100">
         <iframe

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 2.5;
@@ -27,8 +29,14 @@ type PhotoModifyEditorProps = {
   onZoomChange: (next: number) => void;
 };
 
-export function PhotoModifyEditor({ dataUrl, aspect, offset, zoom, onOffsetChange, onZoomChange }: PhotoModifyEditorProps) {
+export function PhotoModifyEditor(props: PhotoModifyEditorProps) {
+  return <PhotoModifyEditorImpl key={props.dataUrl} {...props} />;
+}
+
+function PhotoModifyEditorImpl({ dataUrl, aspect, offset, zoom, onOffsetChange, onZoomChange }: PhotoModifyEditorProps) {
   const [imageRatio, setImageRatio] = useState(1);
+  const [bitmapReady, setBitmapReady] = useState(false);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -49,9 +57,39 @@ export function PhotoModifyEditor({ dataUrl, aspect, offset, zoom, onOffsetChang
       if (image.width > 0 && image.height > 0) {
         setImageRatio(image.width / image.height);
       }
+      void (async () => {
+        try {
+          if (typeof image.decode === "function") await image.decode();
+        } catch {
+          /* ignore */
+        }
+        setBitmapReady(true);
+      })();
+    };
+    image.onerror = () => {
+      setBitmapReady(true);
     };
     image.src = dataUrl;
   }, [dataUrl]);
+
+  useLayoutEffect(() => {
+    if (!bitmapReady) return;
+    const el = stageRef.current;
+    if (!el) return;
+    const measure = () => setStageSize({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [bitmapReady, aspect, dataUrl]);
+
+  const backgroundSizePercent = useMemo(() => {
+    const stageWidth = Math.max(stageSize.width, 1);
+    const stageHeight = Math.max(stageSize.height, 1);
+    const stageRatio = stageWidth / stageHeight;
+    const baseWidthPercent = Math.max(100, 100 * (imageRatio / stageRatio));
+    return baseWidthPercent * zoom;
+  }, [stageSize, imageRatio, zoom]);
 
   const computeCoverGeometry = () => {
     if (!stageRef.current) {
@@ -153,14 +191,23 @@ export function PhotoModifyEditor({ dataUrl, aspect, offset, zoom, onOffsetChang
     <div className="bg-white">
       <div
         ref={stageRef}
-        className={`relative w-full overflow-hidden bg-black ${aspect === "portrait" ? "aspect-[3/5]" : "aspect-square"}`}
-        style={{
-          backgroundImage: `url(${dataUrl})`,
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: `calc(50% + ${offset.x}%) calc(50% + ${offset.y}%)`,
-          backgroundSize: `${computeCoverGeometry().baseWidthPercent * zoom}%`,
-        }}
+        className={`relative w-full overflow-hidden ${bitmapReady ? "bg-black" : "bg-zinc-200"} ${aspect === "portrait" ? "aspect-[3/5]" : "aspect-square"}`}
+        style={
+          bitmapReady
+            ? {
+                backgroundImage: `url(${dataUrl})`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: `calc(50% + ${offset.x}%) calc(50% + ${offset.y}%)`,
+                backgroundSize: `${backgroundSizePercent}%`,
+              }
+            : undefined
+        }
       >
+        {!bitmapReady ? (
+          <div className="pointer-events-none absolute inset-0 z-[5]">
+            <SegnaSkeletonBlock className="h-full w-full" rounded="rounded-none" />
+          </div>
+        ) : null}
         <div className="absolute inset-0 bg-black/16" />
 
         <div

@@ -44,6 +44,13 @@ type HomeFeedV1Props = {
   initialCards: FeedCard[];
   initialLikedItemIds: string[];
   initialCursor: { score: number; entity_id: string } | null;
+  initialAdBanner: {
+    id: string;
+    placementKey: string;
+    title: string;
+    imageUrl: string;
+    targetUrl: string;
+  } | null;
 };
 
 function cardKey(card: FeedCard) {
@@ -95,8 +102,8 @@ function FeedProfileVisualization({
   return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} onLikeFrame={onLikeFrame} />;
 }
 
-export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }: HomeFeedV1Props) {
-  const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
+export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, initialAdBanner }: HomeFeedV1Props) {
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [cards, setCards] = useState<FeedCard[]>(initialCards);
   const [index, setIndex] = useState(0);
   const [likedItemIds, setLikedItemIds] = useState<Set<string>>(new Set(initialLikedItemIds));
@@ -440,6 +447,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
         if (options?.addToCart && currentCard.status === "available") {
           const added = await addItemToCartForCurrentMember(currentCard.id);
           if (added) {
+            window.dispatchEvent(new CustomEvent("segna:cart-changed"));
             await supabase.rpc("record_member_item_interaction", {
               p_item_id: currentCard.id,
               p_interaction_type: "cart_add",
@@ -476,6 +484,20 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
 
   return (
     <section className="space-y-4">
+      {initialAdBanner ? (
+        <a
+          href={initialAdBanner.targetUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
+        >
+          <img
+            src={initialAdBanner.imageUrl}
+            alt={initialAdBanner.title}
+            className="h-[128px] w-full object-cover"
+          />
+        </a>
+      ) : null}
       <header className="fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-[430px] bg-white px-6 pt-5 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -544,27 +566,38 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor }:
       )}
       {isLoadingMore ? <p className="text-xs text-zinc-500">Chargement de nouvelles cartes...</p> : null}
 
-      <button
-        type="button"
-        aria-label="Dislike"
-        onClick={() => {
-          void handleDislikeCurrentCard();
-        }}
-        disabled={isDisliking}
-        className="fixed left-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-white/95 text-zinc-950 shadow-lg ring-1 ring-zinc-200 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+      <div
+        className="pointer-events-none fixed inset-x-0 z-40 flex justify-center"
         style={{
           bottom: isTabBarVisible
             ? "calc(56px + env(safe-area-inset-bottom) + 12px)"
             : "calc(env(safe-area-inset-bottom) + 12px)",
         }}
       >
-        <X className="h-7 w-7" strokeWidth={2.2} />
-      </button>
+        <div className="pointer-events-none flex w-full max-w-[430px] justify-start pl-4">
+          <button
+            type="button"
+            aria-label="Dislike"
+            onClick={() => {
+              void handleDislikeCurrentCard();
+            }}
+            disabled={isDisliking}
+            className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-white/95 text-zinc-950 shadow-lg ring-1 ring-zinc-200 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+          >
+            <X className="h-7 w-7" strokeWidth={2.2} />
+          </button>
+        </div>
+      </div>
 
       {isActionsOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/35 p-4" onClick={() => setIsActionsOpen(false)}>
+        <div className="fixed inset-0 z-[60] bg-black/35 px-4 pt-4" onClick={() => setIsActionsOpen(false)}>
           <div
-            className="absolute inset-x-4 bottom-4 mx-auto w-full max-w-[430px] rounded-2xl bg-white p-3 shadow-2xl"
+            className="absolute inset-x-4 mx-auto w-full max-w-[430px] rounded-2xl bg-white p-3 shadow-2xl"
+            style={{
+              bottom: isTabBarVisible
+                ? "calc(56px + env(safe-area-inset-bottom) + 16px)"
+                : "calc(env(safe-area-inset-bottom) + 16px)",
+            }}
             onClick={(event) => event.stopPropagation()}
           >
             <button

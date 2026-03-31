@@ -75,8 +75,8 @@ export type FetchItemDetailResult =
   | { ok: false; kind: "auth" | "not_found" };
 
 /**
- * Charge la fiche pièce (même forme que `ItemDetailView`) pour l’utilisateur courant.
- * Utilisable pour préchargement depuis /exchange.
+ * Charge la fiche pièce si l’utilisateur peut la lire (RLS : catalogue in_cart / available / reserved, ou propriétaire).
+ * Intake / outtake : requêtes séparées réservées au propriétaire (RLS sur les embeds).
  */
 export async function fetchItemDetailDataForOwner(itemId: string): Promise<FetchItemDetailResult> {
   if (!itemId.trim()) return { ok: false, kind: "not_found" };
@@ -92,16 +92,17 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
   const { data: itemRow, error: itemError } = await supabase
     .from("items")
     .select(
-      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id, item_intake(listing_stage,fulfillment_stage,metadata,updated_at), item_outtake(stage,metadata,deleted_at)",
+      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id",
     )
     .eq("id", itemId)
-    .eq("owner_user_id", user.id)
     .is("deleted_at", null)
     .maybeSingle();
 
   if (itemError || !itemRow) return { ok: false, kind: "not_found" };
 
   const row = itemRow as Record<string, unknown>;
+  const ownerUserId = String(row.owner_user_id ?? "");
+  const isOwner = ownerUserId === user.id;
   const categoryId = row.item_category_id as string | null;
   const brandId = row.item_brand_id as string | null;
   const sizeId = row.item_size_id as string | null;
@@ -164,29 +165,33 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
   const compactedSlots = slots.filter(Boolean);
   const filledSlots: Array<ItemViewSlot | null> = [...compactedSlots, ...Array(6 - compactedSlots.length).fill(null)].slice(0, 6);
 
-  const rawIntake = row.item_intake as unknown;
-  const intakeEmb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
   let intake: ItemIntakeSnapshot | null = null;
-  if (intakeEmb && typeof intakeEmb === "object") {
-    const o = intakeEmb as Record<string, unknown>;
-    intake = {
-      listing_stage: typeof o.listing_stage === "string" ? o.listing_stage : null,
-      fulfillment_stage: typeof o.fulfillment_stage === "string" ? o.fulfillment_stage : null,
-      metadata: o.metadata ?? {},
-      updated_at: typeof o.updated_at === "string" ? o.updated_at : null,
-    };
-  }
-
-  const rawOuttake = row.item_outtake as unknown;
-  const outtakeEmb = Array.isArray(rawOuttake) ? rawOuttake[0] : rawOuttake;
   let outtake: { stage: string | null; deletedAt: string | null; metadata: unknown } | null = null;
-  if (outtakeEmb && typeof outtakeEmb === "object") {
-    const o = outtakeEmb as Record<string, unknown>;
-    outtake = {
-      stage: typeof o.stage === "string" ? o.stage : null,
-      deletedAt: typeof o.deleted_at === "string" ? o.deleted_at : null,
-      metadata: o.metadata ?? {},
-    };
+
+  if (isOwner) {
+    const [intakeRes, outtakeRes] = await Promise.all([
+      supabase.from("item_intake").select("listing_stage,fulfillment_stage,metadata,updated_at").eq("item_id", itemId).maybeSingle(),
+      supabase.from("item_outtake").select("stage,metadata,deleted_at").eq("item_id", itemId).maybeSingle(),
+    ]);
+
+    const intakeEmb = intakeRes.data as Record<string, unknown> | null;
+    if (intakeEmb && typeof intakeEmb === "object") {
+      intake = {
+        listing_stage: typeof intakeEmb.listing_stage === "string" ? intakeEmb.listing_stage : null,
+        fulfillment_stage: typeof intakeEmb.fulfillment_stage === "string" ? intakeEmb.fulfillment_stage : null,
+        metadata: intakeEmb.metadata ?? {},
+        updated_at: typeof intakeEmb.updated_at === "string" ? intakeEmb.updated_at : null,
+      };
+    }
+
+    const o = outtakeRes.data as Record<string, unknown> | null;
+    if (o && typeof o === "object") {
+      outtake = {
+        stage: typeof o.stage === "string" ? o.stage : null,
+        deletedAt: typeof o.deleted_at === "string" ? o.deleted_at : null,
+        metadata: o.metadata ?? {},
+      };
+    }
   }
 
   return {
@@ -208,7 +213,7 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
         brand: brandLabel,
         condition: conditionLabel,
       },
-      ownerUserId: row.owner_user_id as string,
+      ownerUserId,
     },
   };
 }

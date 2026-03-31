@@ -10,6 +10,7 @@ import type { ChangeEvent, DragEvent, FormEvent, TouchEvent } from "react";
 import { ItemViewView } from "@/components/item/ItemViewView";
 import { Input } from "@/components/ui/Input";
 import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import {
   dataUrlToFile,
   fileToDataUrl,
@@ -1075,7 +1076,11 @@ export default function NewItemPage() {
   };
 
   const onDeleteDraft = async () => {
-    if (!draftItemId || isDeletingDraft) return;
+    const itemIdToDelete =
+      draftItemId?.trim() ||
+      (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(ACTIVE_DRAFT_ID_STORAGE_KEY)?.trim() : null) ||
+      null;
+    if (!itemIdToDelete || isDeletingDraft) return;
     setErrorMessage(null);
     setIsDeletingDraft(true);
 
@@ -1090,27 +1095,35 @@ export default function NewItemPage() {
       return;
     }
 
-    const { error: deleteError } = await supabase
+    // Brouillon « fantôme » : UUID uniquement en session, aucune ligne `items` tant que pas de sauvegarde.
+    // L’UPDATE ne touche alors aucune ligne (sans erreur PostgREST), et item_intake INSERT échoue sur la FK.
+    const { data: updatedRows, error: deleteError } = await supabase
       .from("items")
       .update({
         status: "draft_deleted",
       })
-      .eq("id", draftItemId)
+      .eq("id", itemIdToDelete)
       .eq("owner_user_id", user.id)
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .select("id");
 
-    setIsDeletingDraft(false);
     if (deleteError) {
+      setIsDeletingDraft(false);
       setErrorMessage(deleteError.message);
       return;
     }
 
-    const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "refused");
-    if (!intakeErr.ok) {
-      setErrorMessage(intakeErr.message);
-      return;
+    const rowWasUpdated = Array.isArray(updatedRows) && updatedRows.length > 0;
+    if (rowWasUpdated) {
+      const intakeErr = await setItemIntakeListingStage(supabase, itemIdToDelete, "refused");
+      if (!intakeErr.ok) {
+        setIsDeletingDraft(false);
+        setErrorMessage(intakeErr.message);
+        return;
+      }
     }
 
+    setIsDeletingDraft(false);
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
@@ -1431,13 +1444,13 @@ export default function NewItemPage() {
                   <div className="absolute inset-0 overflow-hidden rounded-[14px]">
                     {slot ? (
                       <>
-                        <div
-                          className="h-full w-full bg-center bg-no-repeat"
-                          style={{
-                            backgroundColor: "#000000",
-                            backgroundImage: `url(${slot.dataUrl})`,
+                        <RemoteCoverThumb
+                          photoUrl={slot.dataUrl}
+                          frameClassName="h-full w-full"
+                          coverStyle={{
                             backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / ITEM_STAGE_RATIO)) * slot.zoom}%`,
                             backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
+                            backgroundRepeat: "no-repeat",
                           }}
                         />
                         <span className="pointer-events-none absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/92 text-zinc-600 shadow-sm opacity-0 transition-opacity duration-150 group-hover:opacity-100">
@@ -1535,7 +1548,16 @@ export default function NewItemPage() {
           style={{ left: dragPreview.x, top: dragPreview.y }}
           aria-hidden
         >
-          <img src={dragPreview.url} alt="" className="h-full w-full object-cover opacity-95" />
+          <RemoteCoverThumb
+            photoUrl={dragPreview.url}
+            frameClassName="h-full w-full rounded-xl"
+            className="rounded-xl"
+            coverStyle={{
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+            }}
+          />
         </div>
       ) : null}
       {showCancelModal ? (
@@ -1549,6 +1571,7 @@ export default function NewItemPage() {
                 ? "Tu peux garder le brouillon, ou annuler les modifications."
                 : "Tu peux garder le brouillon, ou supprimer définitivement cet item."}
             </p>
+            {errorMessage ? <p className="mt-3 text-sm text-[#E44D3E]">{errorMessage}</p> : null}
             <div className="mt-5 grid gap-2">
               <button
                 type="button"

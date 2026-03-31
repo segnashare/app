@@ -8,8 +8,11 @@ import { ItemDescriptionCard } from "./ItemDescriptionCard";
 import { ItemInfoCard } from "./ItemInfoCard";
 import type { ItemInfoCardData } from "./ItemInfoCard";
 import { ItemMemberSection } from "./ItemMemberSection";
+import { ItemSegnaDetentionSection } from "./ItemSegnaDetentionSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
+import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -49,6 +52,8 @@ type ItemViewViewProps = {
   infoCard: ItemInfoCardData;
   ownerUserId?: string | null;
   onLikeFrame?: () => void;
+  /** Masque les boutons cœur (ex. vue panier / catalogue sans interaction feed). */
+  hideFrameLikeButtons?: boolean;
 };
 
 function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
@@ -65,10 +70,18 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
   );
 }
 
-export function ItemViewView({ description, slots, infoCard, ownerUserId, onLikeFrame }: ItemViewViewProps) {
+export function ItemViewView({
+  description,
+  slots,
+  infoCard,
+  ownerUserId,
+  onLikeFrame,
+  hideFrameLikeButtons = false,
+}: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const filledSlots = slots.filter((s): s is ItemViewSlot => Boolean(s));
-  const { data: memberData, isLoading: memberLoading } = useItemMemberData(ownerUserId ?? null);
+  const isSegnaStockOwner = isSegnaCorporateInventoryUserId(ownerUserId);
+  const { data: memberData, isLoading: memberLoading } = useItemMemberData(isSegnaStockOwner ? null : ownerUserId ?? null);
   const photo2 = filledSlots[1];
   const photo3 = filledSlots[2];
   const remainingPhotos = filledSlots.slice(3);
@@ -84,18 +97,24 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId, onLike
         {filledSlots[0] ? (
           <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
             <ItemViewCoverPhoto slot={filledSlots[0]} />
-            <FrameLikeButton
-              isLiked={Boolean(likedFrames.photo_1)}
-              onToggle={() => {
-                if (onLikeFrame) {
-                  onLikeFrame();
-                  return;
-                }
-                toggleFrameLike("photo_1");
-              }}
-            />
+            {!hideFrameLikeButtons ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.photo_1)}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("photo_1");
+                }}
+              />
+            ) : null}
           </div>
-        ) : <div className="aspect-square w-full rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm" />}
+        ) : (
+          <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
+            <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
+          </div>
+        )}
       </div>
 
       {/* 2. Fiche info */}
@@ -110,16 +129,18 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId, onLike
             <div className="relative aspect-square w-full">
               <ItemViewCoverPhoto slot={photo2} />
             </div>
-            <FrameLikeButton
-              isLiked={Boolean(likedFrames.photo_2)}
-              onToggle={() => {
-                if (onLikeFrame) {
-                  onLikeFrame();
-                  return;
-                }
-                toggleFrameLike("photo_2");
-              }}
-            />
+            {!hideFrameLikeButtons ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.photo_2)}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("photo_2");
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -132,21 +153,27 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId, onLike
             <div className="relative aspect-square w-full">
               <ItemViewCoverPhoto slot={photo3} />
             </div>
-            <FrameLikeButton
-              isLiked={Boolean(likedFrames.photo_3)}
-              onToggle={() => {
-                if (onLikeFrame) {
-                  onLikeFrame();
-                  return;
-                }
-                toggleFrameLike("photo_3");
-              }}
-            />
+            {!hideFrameLikeButtons ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames.photo_3)}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike("photo_3");
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
 
-        {/* 6. Section membre */}
-        <ItemMemberSection data={memberData} isLoading={memberLoading} />
+        {/* 6. Section propriétaire : stock Segna (détention) ou profil membre */}
+        {isSegnaStockOwner ? (
+          <ItemSegnaDetentionSection pricePoints={infoCard.pricePoints} sizeLabel={infoCard.size} />
+        ) : (
+          <ItemMemberSection data={memberData} isLoading={memberLoading} />
+        )}
 
         {/* 7. Photos restantes (4, 5, 6) */}
         {remainingPhotos.map((slot, index) => (
@@ -154,16 +181,18 @@ export function ItemViewView({ description, slots, infoCard, ownerUserId, onLike
             <div className="relative aspect-square w-full">
               <ItemViewCoverPhoto slot={slot} />
             </div>
-            <FrameLikeButton
-              isLiked={Boolean(likedFrames[`photo_${index + 4}`])}
-              onToggle={() => {
-                if (onLikeFrame) {
-                  onLikeFrame();
-                  return;
-                }
-                toggleFrameLike(`photo_${index + 4}`);
-              }}
-            />
+            {!hideFrameLikeButtons ? (
+              <FrameLikeButton
+                isLiked={Boolean(likedFrames[`photo_${index + 4}`])}
+                onToggle={() => {
+                  if (onLikeFrame) {
+                    onLikeFrame();
+                    return;
+                  }
+                  toggleFrameLike(`photo_${index + 4}`);
+                }}
+              />
+            ) : null}
           </div>
         ))}
       </div>

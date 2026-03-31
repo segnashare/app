@@ -4,11 +4,12 @@ import Link from "next/link";
 import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronLeft, MoreVertical } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { ItemIntakePanel, needsItemIntakeUi } from "./ItemIntakePanel";
 import { LogisticsRefusalEntryModal } from "./LogisticsRefusalEntryModal";
 import { ItemViewView } from "./ItemViewView";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
@@ -24,6 +25,78 @@ function canEditDraftItem(status: string): boolean {
   return s === "draft";
 }
 
+function ItemDetailLoadingBody({
+  headerRef,
+  headerHeight,
+  navigateBack,
+}: {
+  headerRef: RefObject<HTMLElement | null>;
+  headerHeight: number;
+  navigateBack: () => void;
+}) {
+  return (
+    <>
+      <header
+        ref={headerRef}
+        className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-6"
+      >
+        <div className="relative flex min-h-[52px] items-center justify-center">
+          <button
+            type="button"
+            onClick={navigateBack}
+            className="absolute left-0 top-1/2 z-10 -translate-y-1/2 p-1"
+            aria-label="Retour"
+          >
+            <ChevronLeft className="h-6 w-6 text-zinc-700" />
+          </button>
+          <SegnaSkeletonBlock className="mx-12 h-7 w-[min(100%,220px)]" rounded="rounded-lg" />
+        </div>
+      </header>
+      <div
+        className="mx-auto max-w-[430px] px-6 pb-12 pt-2"
+        style={{ paddingTop: headerHeight }}
+      >
+        <div className="pb-2">
+          <SegnaSkeletonBlock
+            className="aspect-square w-full border border-zinc-200 shadow-sm"
+            rounded="rounded-2xl"
+          />
+        </div>
+        <div className="pt-2">
+          <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <SegnaSkeletonBlock className="h-14 w-full max-w-[180px]" rounded="rounded-xl" />
+            <SegnaSkeletonBlock className="h-4 w-full" rounded="rounded-md" />
+            <SegnaSkeletonBlock className="h-4 w-full max-w-[90%]" rounded="rounded-md" />
+            <div className="flex gap-2 pt-1">
+              <SegnaSkeletonBlock className="h-9 w-9 shrink-0 rounded-full" rounded="rounded-full" />
+              <SegnaSkeletonBlock className="h-9 flex-1 rounded-xl" rounded="rounded-xl" />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-4 pt-4">
+          <SegnaSkeletonBlock
+            className="aspect-square w-full border border-zinc-200 shadow-sm"
+            rounded="rounded-2xl"
+          />
+          <div className="rounded-2xl border border-zinc-200 py-9 pl-[50px] pr-[60px] shadow-sm">
+            <SegnaSkeletonBlock className="h-5 w-28" rounded="rounded-md" />
+            <SegnaSkeletonBlock className="mt-4 h-9 w-full max-w-[300px]" rounded="rounded-md" />
+            <SegnaSkeletonBlock className="mt-3 h-9 w-full max-w-[260px]" rounded="rounded-md" />
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 px-4 py-3 shadow-sm">
+            <SegnaSkeletonBlock className="h-5 w-36" rounded="rounded-md" />
+            <div className="mt-3 flex gap-2">
+              {[1, 2, 3, 4].map((i) => (
+                <SegnaSkeletonBlock key={i} className="aspect-square w-20 shrink-0" rounded="rounded-xl" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 const ITEM_DETAIL_BACK_HREF_KEY = "segna:item-detail:back-href";
 
 const ITEM_DETAIL_CACHED_EVENT = "segna:item-detail-cached";
@@ -34,6 +107,8 @@ export function ItemDetailView() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const itemId = typeof params.id === "string" ? params.id : null;
+  const fromCart = searchParams.get("from") === "cart";
+  const fromShop = searchParams.get("from") === "shop";
   /** Strip `?verification=1` après chargement (URL propre). */
   const verificationPending = searchParams.get("verification") === "1";
 
@@ -55,9 +130,21 @@ export function ItemDetailView() {
   const itemIdRef = useRef<string | null>(null);
   itemIdRef.current = itemId;
 
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient() as any;
+    void supabase.auth.getUser().then((res: { data: { user?: { id: string } | null } }) => {
+      setAuthUserId(res.data.user?.id ?? null);
+    });
+  }, []);
+
   const navigateBack = useCallback(() => {
+    if (fromCart || fromShop) {
+      router.back();
+      return;
+    }
     router.replace("/exchange");
-  }, [router]);
+  }, [fromCart, fromShop, router]);
 
   /**
    * Après soumission, session = /exchange : Retour / Suivant du navigateur ne doit pas rouvrir le flux
@@ -79,6 +166,7 @@ export function ItemDetailView() {
         if (!id) return;
         const path = window.location.pathname;
         if (path === `/items/${id}`) return;
+        if (path === "/cart") return;
         if (path === "/exchange" || path.startsWith("/exchange/")) return;
         router.replace("/exchange");
       });
@@ -91,8 +179,11 @@ export function ItemDetailView() {
   useEffect(() => {
     if (!itemId || !verificationPending) return;
     const path = pathname && pathname.startsWith("/items/") ? pathname : `/items/${itemId}`;
-    router.replace(path, { scroll: false });
-  }, [itemId, pathname, router, verificationPending]);
+    const qs = new URLSearchParams(searchParams.toString());
+    qs.delete("verification");
+    const q = qs.toString();
+    router.replace(q ? `${path}?${q}` : path, { scroll: false });
+  }, [itemId, pathname, router, searchParams, verificationPending]);
 
   useEffect(() => {
     if (!itemId) {
@@ -168,7 +259,8 @@ export function ItemDetailView() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [actionsMenuOpen]);
 
-  const showHeaderActions = data ? canEditDraftItem(data.status) : false;
+  const isOwner = Boolean(authUserId && data && data.ownerUserId === authUserId);
+  const showHeaderActions = data ? canEditDraftItem(data.status) && isOwner : false;
   const showIntakeStrip = Boolean(
     data?.intake && needsItemIntakeUi(data.intake.listing_stage, data.intake.fulfillment_stage),
   );
@@ -176,7 +268,7 @@ export function ItemDetailView() {
   const showLogisticsRefusalModal = Boolean(
     data?.intake?.listing_stage === "validated" && data?.intake?.fulfillment_stage === "refused",
   );
-  const showRecoveryStatusModal = data?.status?.trim().toLowerCase() === "retired";
+  const showRecoveryStatusModal = data?.status?.trim().toLowerCase() === "retired" && isOwner;
   const recoveryStage = (data?.outtake?.stage ?? "none").trim().toLowerCase();
   const recoveryLabel =
     recoveryStage === "in_transit"
@@ -217,7 +309,7 @@ export function ItemDetailView() {
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [data?.title, showHeaderActions, isLoading, errorMessage]);
+  }, [data?.title, showHeaderActions, isLoading, errorMessage, isOwner]);
 
   useLayoutEffect(() => {
     if (!showIntakeStrip) return;
@@ -357,9 +449,27 @@ export function ItemDetailView() {
         </header>
         <div className="mx-auto max-w-[430px] px-6 py-12" style={{ paddingTop: headerHeight }}>
           <p className="text-sm text-[#E44D3E]">{errorMessage}</p>
-          <Link href="/exchange" className={cn(montserrat.className, "mt-4 inline-block text-[16px] font-semibold text-[#5E3023]")}>
-            Retour à l&apos;échange
-          </Link>
+          {fromCart ? (
+            <button
+              type="button"
+              onClick={navigateBack}
+              className={cn(montserrat.className, "mt-4 block text-left text-[16px] font-semibold text-[#5E3023]")}
+            >
+              Retour au panier
+            </button>
+          ) : fromShop ? (
+            <button
+              type="button"
+              onClick={navigateBack}
+              className={cn(montserrat.className, "mt-4 block text-left text-[16px] font-semibold text-[#5E3023]")}
+            >
+              Retour au catalogue
+            </button>
+          ) : (
+            <Link href="/exchange" className={cn(montserrat.className, "mt-4 inline-block text-[16px] font-semibold text-[#5E3023]")}>
+              Retour à l&apos;échange
+            </Link>
+          )}
         </div>
       </main>
     );
@@ -368,23 +478,11 @@ export function ItemDetailView() {
   if (isLoading || !data) {
     return (
       <main className="min-h-[100dvh] bg-white">
-        <header
-          ref={headerRef}
-          className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-6"
-        >
-          <div className="flex min-h-[52px] items-center gap-2">
-            <button type="button" onClick={navigateBack} className="p-1 -ml-1">
-              <ChevronLeft className="h-6 w-6 text-zinc-700" />
-            </button>
-            <div className="h-6 w-32 animate-pulse rounded bg-zinc-200" />
-          </div>
-        </header>
-        <div
-          className="mx-auto flex max-w-[430px] justify-center px-6 py-12"
-          style={{ paddingTop: headerHeight }}
-        >
-          <p className="text-sm text-zinc-500">Chargement...</p>
-        </div>
+        <ItemDetailLoadingBody
+          headerRef={headerRef}
+          headerHeight={headerHeight}
+          navigateBack={navigateBack}
+        />
       </main>
     );
   }
@@ -592,6 +690,7 @@ export function ItemDetailView() {
           slots={data.slots}
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
+          hideFrameLikeButtons={fromCart || !isOwner}
         />
       </div>
 

@@ -28,7 +28,7 @@ function normalizeExplicitBucket(v: string | null | undefined): string | null {
   return null;
 }
 
-type StorageSignClient = {
+export type StorageSignClient = {
   storage: {
     from: (bucket: string) => {
       createSignedUrl: (

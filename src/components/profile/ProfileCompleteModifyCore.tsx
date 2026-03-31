@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, TouchEvent } from "react";
 
 import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye";
+import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fileToDataUrl, readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
@@ -1488,16 +1490,16 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
               <div className="absolute inset-0 overflow-hidden rounded-[14px]">
                 {slot ? (
                   <>
-                    <div
-                      className="h-full w-full bg-center bg-no-repeat"
-                      style={{
-                        backgroundColor: "#000000",
-                        backgroundImage: `url(${slot.dataUrl})`,
+                    <RemoteCoverThumb
+                      photoUrl={slot.dataUrl}
+                      frameClassName="h-full w-full"
+                      coverStyle={{
                         backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / LOOK_STAGE_RATIO)) * slot.zoom}%`,
                         backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
+                        backgroundRepeat: "no-repeat",
                       }}
                     />
-                    <span className="pointer-events-none absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/92 text-zinc-600 shadow-sm opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                    <span className="pointer-events-none absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/92 text-zinc-600 shadow-sm opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                       <GripVertical size={13} />
                     </span>
                   </>
@@ -1639,22 +1641,29 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
                       );
                     }
                     const postCard = (
-                      <img
+                      <ImageCoverWithSkeleton
                         src={previewUrl}
                         alt={post.caption?.trim() ? post.caption.slice(0, 80) : "Apercu post Instagram"}
-                        className="h-full w-full rounded-lg object-cover"
+                        className="h-full w-full"
+                        imgClassName="rounded-lg"
                         loading="lazy"
                       />
                     );
                     if (post.permalink) {
                       return (
-                        <a key={post.id} href={post.permalink} target="_blank" rel="noreferrer" className="block aspect-square">
+                        <a
+                          key={post.id}
+                          href={post.permalink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block aspect-square overflow-hidden rounded-lg"
+                        >
                           {postCard}
                         </a>
                       );
                     }
                     return (
-                      <div key={post.id} className="aspect-square">
+                      <div key={post.id} className="aspect-square overflow-hidden rounded-lg">
                         {postCard}
                       </div>
                     );
@@ -1688,7 +1697,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
           style={{ left: dragLookPreview.x, top: dragLookPreview.y }}
           aria-hidden
         >
-          <img src={dragLookPreview.url} alt="" className="h-full w-full object-cover opacity-95" />
+          <ImageCoverWithSkeleton src={dragLookPreview.url} alt="" className="h-full w-full" loading="eager" />
         </div>
       ) : null}
     </div>

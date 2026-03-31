@@ -4,10 +4,9 @@ import { useMemo, useState } from "react";
 import { Montserrat } from "next/font/google";
 import Link from "next/link";
 
-import { ChevronDown, Info } from "lucide-react";
+import { Info } from "lucide-react";
 
-import { WalletPanel, type WalletPanelStateContent } from "@/components/exchange/WalletPanel";
-import { cn } from "@/lib/utils/cn";
+import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 
 type ExchangeHeaderProps = {
   membershipLabel: string;
@@ -23,64 +22,13 @@ const montserrat = Montserrat({
   weight: ["700", "800"],
 });
 
-export function ExchangeHeader({ membershipLabel, availablePoints, blockedPoints, totalPoints, activeCartCostPoints, hasReachedLendingCap }: ExchangeHeaderProps) {
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
+export function ExchangeHeader({
+  membershipLabel,
+  availablePoints,
+  activeCartCostPoints,
+  hasReachedLendingCap,
+}: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
-
-  const hasActiveCart = activeCartCostPoints !== null;
-  const balanceUnitLabel = membershipLabel === "Guest" ? "pods" : "mods";
-  const walletPillLabel = hasActiveCart ? `${activeCartCostPoints} / ${availablePoints} ${balanceUnitLabel}` : `${availablePoints} ${balanceUnitLabel}`;
-
-  const walletState = useMemo(() => {
-    if (membershipLabel === "Guest") return "guest";
-    if (membershipLabel === "Membre +" && hasReachedLendingCap) return "segna_plus_cap_reached";
-    if (membershipLabel === "Membre X" && hasReachedLendingCap) return "segna_x_cap_reached";
-    return "subscriber_not_maxed";
-  }, [hasReachedLendingCap, membershipLabel]);
-
-  const walletStateContent = useMemo<WalletPanelStateContent>(() => {
-    if (walletState === "guest") {
-      return {
-        title: "Mode Guest",
-        description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Obtenir des pods",
-        primaryCtaHref: "/profile?tab=obtenirplus",
-        secondaryCtaLabel: "Passe à l'échange",
-        secondaryCtaHref: "/package?plan=plus",
-      };
-    }
-
-    if (walletState === "segna_plus_cap_reached") {
-      return {
-        title: "Plafond Segna+ atteint",
-        description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Passer à SegnaX",
-        primaryCtaHref: "/package?plan=minus",
-        secondaryCtaLabel: "Obtenir des mods",
-        secondaryCtaHref: "/profile?tab=obtenirplus",
-      };
-    }
-
-    if (walletState === "segna_x_cap_reached") {
-      return {
-        title: "Plafond de prêt atteint",
-        description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
-        primaryCtaLabel: "Obtenir des mods",
-        primaryCtaHref: "/profile?tab=obtenirplus",
-        secondaryCtaLabel: "Comprendre",
-        secondaryCtaHref: "/package",
-      };
-    }
-
-    return {
-      title: "Capacité de prêt disponible",
-      description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-      primaryCtaLabel: "Ajouter",
-      primaryCtaHref: "/shop",
-      secondaryCtaLabel: "Obtenir des mods",
-      secondaryCtaHref: "/profile?tab=obtenirplus",
-    };
-  }, [walletState]);
 
   const membershipDescription = useMemo(() => {
     if (membershipLabel === "Membre X") {
@@ -105,26 +53,14 @@ export function ExchangeHeader({ membershipLabel, availablePoints, blockedPoints
           <Info className="h-4 w-4 text-zinc-500" />
         </button>
 
-        <button
-          type="button"
-          onClick={() => setWalletModalOpen(true)}
-          className={cn(
-            "relative z-20 inline-flex items-center gap-2 rounded-[14px] bg-gradient-to-r from-[#5E3023] to-[#895737] px-3 py-2 text-left text-white outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
-          )}
-        >
-          <img src="/ressources/icons/oeil_logo.svg" alt="" aria-hidden className="h-4 w-4 shrink-0 brightness-0 invert" />
-          <span className="text-sm font-semibold">{walletPillLabel}</span>
-          <ChevronDown className="h-4 w-4 shrink-0" />
-        </button>
+        <ExchangeWalletPill
+          membershipLabel={membershipLabel}
+          availablePoints={availablePoints}
+          activeCartCostPoints={activeCartCostPoints}
+          hasReachedLendingCap={hasReachedLendingCap}
+          cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
+        />
       </header>
-
-      <WalletPanel
-        open={walletModalOpen}
-        onClose={() => setWalletModalOpen(false)}
-        availablePoints={availablePoints}
-        balanceUnitLabel={balanceUnitLabel}
-        walletStateContent={walletStateContent}
-      />
 
       {membershipModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">

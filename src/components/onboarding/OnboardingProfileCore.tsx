@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Image as ImageIcon, Plus } from "lucide-react";
 
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   dataUrlToFile,
@@ -201,20 +202,21 @@ export function OnboardingProfileCore({ formId, onCanContinueChange }: Onboardin
           >
             {previewDataUrl ? (
               <>
-                <div
-                  className="h-full w-full bg-center bg-no-repeat"
-                  style={{
-                    backgroundImage: `url(${previewDataUrl})`,
-                    backgroundColor: "#000000",
+                <RemoteCoverThumb
+                  photoUrl={previewDataUrl}
+                  frameClassName="absolute inset-0 h-full w-full rounded-2xl"
+                  className="rounded-2xl"
+                  coverStyle={{
                     backgroundSize: `${Math.max(55, photoZoom * 100)}%`,
                     backgroundPosition: `calc(50% + ${photoOffset.x}%) calc(50% + ${photoOffset.y}%)`,
+                    backgroundRepeat: "no-repeat",
                   }}
                 />
-                <div className="absolute inset-0 bg-black/15" />
+                <div className="pointer-events-none absolute inset-0 z-[3] bg-black/15" />
                 <span
                   className={cn(
                     montserrat.className,
-                    "absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-[12px] font-semibold text-zinc-800",
+                    "absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-[12px] font-semibold text-zinc-800",
                   )}
                 >
                   Modifier

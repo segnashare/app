@@ -10,7 +10,7 @@ import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
 import { cn } from "@/lib/utils/cn";
 
-export type CartLineStatus = "disponible" | "reserve" | "echec";
+export type CartLineStatus = "disponible" | "reserve" | "echec" | "en_attente_wallet";
 
 export type CartLine = {
   id: string;
@@ -22,10 +22,19 @@ export type CartLine = {
 
 const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700", "800"] });
 
-const STATUS_CLASSNAMES: Record<CartLineStatus, string> = {
+function cartLineStatusShortLabel(status: CartLineStatus): string {
+  if (status === "disponible") return "disponible";
+  if (status === "reserve") return "reserve";
+  if (status === "en_attente_wallet") return "non réservé";
+  if (status === "echec") return "echec";
+  return status;
+}
+
+export const CART_LINE_STATUS_CLASSNAMES: Record<CartLineStatus, string> = {
   disponible: "bg-emerald-100 text-emerald-700",
   reserve: "bg-amber-100 text-amber-700",
   echec: "bg-red-100 text-red-700",
+  en_attente_wallet: "bg-slate-100 text-slate-700",
 };
 
 type ExchangeCartSectionProps = {
@@ -87,7 +96,9 @@ export function ExchangeCartSection({ initialLines, cartStatusLabel, membershipL
                 </Link>
                 <p className="mt-1 text-sm text-zinc-600">{line.pricePoints} points</p>
               </div>
-              <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", STATUS_CLASSNAMES[line.status])}>{line.status}</span>
+              <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", CART_LINE_STATUS_CLASSNAMES[line.status])}>
+                {cartLineStatusShortLabel(line.status)}
+              </span>
             </div>
             <div className="mt-3 flex justify-end">
               <button

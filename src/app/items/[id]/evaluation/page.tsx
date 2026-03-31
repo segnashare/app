@@ -6,7 +6,8 @@ import { ChevronLeft } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ItemIntakePanel, needsItemIntakeUi } from "@/components/item/ItemIntakePanel";
+import { ItemIntakePanel } from "@/components/item/ItemIntakePanel";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -139,11 +140,26 @@ export default function ItemEvaluationAnalysisPage() {
           className="fixed left-0 right-0 top-0 z-[60] border-b border-zinc-200 bg-white px-4 py-5"
         >
           <div className="relative mx-auto flex max-w-[460px] min-h-[40px] items-center justify-center">
-            <div className="h-5 w-40 animate-pulse rounded bg-zinc-200" />
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="absolute left-0 top-1/2 -translate-y-1/2 p-1"
+              aria-label="Retour"
+            >
+              <ChevronLeft className="h-6 w-6 text-zinc-700" />
+            </button>
+            <SegnaSkeletonBlock className="h-6 w-[min(100%,200px)]" rounded="rounded-lg" />
           </div>
         </header>
-        <div className="mx-auto max-w-[460px] px-6 py-12" style={{ paddingTop: headerHeight }}>
-          <p className="text-sm text-zinc-500">Chargement...</p>
+        <div
+          className="relative z-0 mx-auto max-w-[460px] space-y-4 px-6 pb-12"
+          style={{ paddingTop: headerHeight + 24 }}
+        >
+          <SegnaSkeletonBlock className="h-3 w-40" rounded="rounded-md" />
+          <SegnaSkeletonBlock className="h-4 w-full max-w-full" rounded="rounded-md" />
+          <SegnaSkeletonBlock className="h-4 w-full max-w-[95%]" rounded="rounded-md" />
+          <SegnaSkeletonBlock className="h-4 w-full max-w-[88%]" rounded="rounded-md" />
+          <SegnaSkeletonBlock className="h-4 w-[min(100%,280px)]" rounded="rounded-md" />
         </div>
       </main>
     );

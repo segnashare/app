@@ -3701,6 +3701,10 @@ export type Database = {
         }
         Returns: Json
       }
+      get_cart_items_competition_state: {
+        Args: { p_item_ids: string[] }
+        Returns: Json
+      }
       revoke_other_user_sessions: {
         Args: { p_current_session_token: string }
         Returns: number

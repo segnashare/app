@@ -3,6 +3,7 @@
 import { Montserrat } from "next/font/google";
 import { Package, Tag } from "lucide-react";
 
+import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
@@ -90,7 +91,19 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     ),
   });
 
-  // 2. Avis (note + étoiles)
+  // 2. Taille (« Taille M »)
+  if (data.size && data.size !== "-") {
+    firstLineItems.push({
+      key: "size",
+      content: (
+        <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900")}>
+          {formatItemSizeLabel(data.size)}
+        </span>
+      ),
+    });
+  }
+
+  // 3. Avis (note + étoiles)
   firstLineItems.push({
     key: "rating",
     content: (
@@ -105,7 +118,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     ),
   });
 
-  // 3. Couleur (pastille + nom) / Taille / Matériaux
+  // 4. Couleur (pastille + nom) / Matériaux
   if (data.color && data.color !== "-") {
     const hex = getColorHexFromLabel(data.color);
     const isGradient = hex.startsWith("linear-gradient");
@@ -125,14 +138,6 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
       ),
     });
   }
-  if (data.size && data.size !== "-") {
-    firstLineItems.push({
-      key: "size",
-      content: (
-        <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900")}>{data.size}</span>
-      ),
-    });
-  }
   if (data.materials && data.materials !== "-") {
     firstLineItems.push({
       key: "materials",
@@ -149,7 +154,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
         className,
       )}
     >
-      {/* Ligne 1 : Prix / Avis / Taille / Matériaux / Couleur */}
+      {/* Ligne 1 : Prix / Taille / Avis / Couleur / Matériaux */}
       <div className="overflow-x-auto overflow-y-hidden pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max items-center">
           {firstLineItems.map((item, index) => (
