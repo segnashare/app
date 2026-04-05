@@ -63,6 +63,8 @@ function pointsLabel(points: number | null) {
 }
 
 function buildItemInfoCard(card: FeedItemCard): ItemInfoCardData {
+  const brandDisplay =
+    (card.brandLabel ?? "").trim() || (card.categorie ?? "-");
   return {
     pricePoints: card.pricePoints,
     ratingValue: "5.0",
@@ -70,7 +72,7 @@ function buildItemInfoCard(card: FeedItemCard): ItemInfoCardData {
     size: card.sizeLabel ?? "-",
     materials: card.materialsLabel ?? "-",
     color: card.colorLabel ?? "-",
-    brand: card.brandLabel ?? "-",
+    brand: brandDisplay,
     condition: card.conditionLabel ?? "-",
   };
 }
@@ -104,10 +106,15 @@ function FeedProfileVisualization({
 
 export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, initialAdBanner }: HomeFeedV1Props) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const rpcUntyped = supabase.rpc as unknown as (
-    fn: string,
-    args?: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  const rpcUntyped = useMemo(
+    () =>
+      async (fn: string, args?: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }> =>
+        (supabase.rpc as unknown as (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: { message?: string } | null }>)(fn, args),
+    [supabase],
+  );
   const [cards, setCards] = useState<FeedCard[]>(initialCards);
   const [index, setIndex] = useState(0);
   const [likedItemIds, setLikedItemIds] = useState<Set<string>>(new Set(initialLikedItemIds));
@@ -159,7 +166,9 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               p_feed_surface: "home_v1",
             };
 
-      const { data, error } = await rpcUntyped("record_member_feed_impression", args);
+      const impressionRes = await rpcUntyped("record_member_feed_impression", args);
+      const data = impressionRes?.data;
+      const error = impressionRes?.error;
       if (!cancelled && !error && typeof data === "string" && data.length > 0) {
         setImpressionsByKey((previous) => ({ ...previous, [currentKey]: data }));
       }
@@ -257,12 +266,14 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
       if (isLoadingMore) return;
       if (index < cards.length - 3) return;
       setIsLoadingMore(true);
-      const { data, error } = await rpcUntyped("get_home_feed_v1", {
+      const feedRes = await rpcUntyped("get_home_feed_v1", {
         p_limit: 20,
         p_cursor_score: nextCursor.score,
         p_cursor_entity_id: nextCursor.entity_id,
         p_exploration_ratio: 0.2,
       });
+      const data = feedRes?.data;
+      const error = feedRes?.error;
       if (cancelled) return;
       setIsLoadingMore(false);
       if (error) return;
@@ -486,6 +497,28 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
     void commitLikeForCurrentCard({ addToCart: false });
   }
 
+  async function handleAddToCartFromFrame() {
+    if (!currentCard || !currentKey || currentCard.kind !== "item" || currentCard.status !== "available" || isLiking) return;
+    setIsLiking(true);
+    try {
+      const impressionId = impressionsByKey[currentKey] ?? null;
+      const added = await addItemToCartForCurrentMember(currentCard.id);
+      if (added) {
+        window.dispatchEvent(new CustomEvent("segna:cart-changed"));
+        await rpcUntyped("record_member_item_interaction", {
+          p_item_id: currentCard.id,
+          p_interaction_type: "cart_add",
+          p_source_surface: "home_v1",
+          p_impression_id: impressionId,
+          p_metadata: { trigger: "add_button" },
+        });
+      }
+    } finally {
+      advanceToNextCardByRemovingCurrent();
+      setIsLiking(false);
+    }
+  }
+
   return (
     <section className="space-y-4">
       {initialAdBanner ? (
@@ -509,25 +542,10 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               <h2 className="truncate text-[32px] font-semibold leading-[1.15] tracking-[-0.025em] text-zinc-950">
                 {currentCard.kind === "item" ? currentCard.title : currentCard.displayName}
               </h2>
-              {currentCard.kind === "item" ? (
-                <span
-                  className={`ml-3 inline-flex self-end items-center gap-2 pb-1 text-[14px] font-semibold ${
-                    currentCard.status === "available" ? "text-emerald-700" : "text-zinc-500"
-                  }`}
-                >
-                  <span
-                    aria-hidden
-                    className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                      currentCard.status === "available" ? "bg-emerald-600" : "bg-zinc-400"
-                    }`}
-                  />
-                  <span>{currentCard.status === "available" ? "Disponible" : "Bientot disponible"}</span>
-                </span>
-              ) : null}
             </div>
-            <p className="mt-0.5 text-sm font-semibold text-zinc-900">
+            <p className="mt-0 text-sm font-semibold text-zinc-900">
               {currentCard.kind === "item"
-                ? (currentCard.categorie ?? "Categorie")
+                ? (currentCard.brandLabel ?? "").trim() || "Marque"
                 : ([currentCard.age ? `${currentCard.age} ans` : null, currentCard.city].filter(Boolean).join(" · ") || "Profil membre")}
             </p>
           </div>
@@ -546,7 +564,6 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
 
       {currentCard.kind === "item" ? (
         <div className="space-y-2">
-          {likedItemIds.has(currentCard.id) ? <p className="text-xs font-medium text-[#8B6A54]">Deja likee</p> : null}
           <div className="bg-white">
             <ItemViewView
               title={currentCard.title}
@@ -554,7 +571,16 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               slots={itemSlotsById[currentCard.id] ?? [null, null, null, null, null, null]}
               infoCard={buildItemInfoCard(currentCard)}
               ownerUserId={currentCard.ownerUserId}
-              onLikeFrame={handleLikeFromFrame}
+              onLikeFrame={likedItemIds.has(currentCard.id) ? undefined : handleLikeFromFrame}
+              onFrameAction={
+                likedItemIds.has(currentCard.id) && currentCard.status === "available"
+                  ? () => {
+                      void handleAddToCartFromFrame();
+                    }
+                  : undefined
+              }
+              frameActionVariant={likedItemIds.has(currentCard.id) ? "plus" : "heart"}
+              hideFrameLikeButtons={likedItemIds.has(currentCard.id) && currentCard.status !== "available"}
             />
           </div>
         </div>

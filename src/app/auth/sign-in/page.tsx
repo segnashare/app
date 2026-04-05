@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Playfair_Display } from "next/font/google";
 
 import { SignInCore } from "@/components/auth/SignInCore";
@@ -14,8 +15,10 @@ const playfairDisplay = Playfair_Display({
   weight: "800",
 });
 
-export default function SignInPage() {
+function SignInPageContent() {
   const [canContinue, setCanContinue] = useState(false);
+  const searchParams = useSearchParams();
+  const memberEntry = searchParams.get("from") === "member";
 
   return (
     <OnboardingScreenShell
@@ -30,7 +33,7 @@ export default function SignInPage() {
           Se connecter
         </h1>
       }
-      mainLayout={<SignInCore formId="signin-form" onCanContinueChange={setCanContinue} />}
+      mainLayout={<SignInCore formId="signin-form" onCanContinueChange={setCanContinue} memberEntry={memberEntry} />}
       footerFrameGaucheLayerCentre={
         <div className={`${themeClassNames.onboarding.shell.footerLigneInfo} ${themeClassNames.onboarding.shell.footerInfoTroisQuarts} text-[16px] text-zinc-950`}>
           <p>
@@ -47,5 +50,17 @@ export default function SignInPage() {
       nextArrowEnabled={canContinue}
       nextArrowAriaLabel="Se connecter"
     />
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[100dvh] items-center justify-center bg-[#f7f7f7] text-zinc-600">Chargement…</div>
+      }
+    >
+      <SignInPageContent />
+    </Suspense>
   );
 }

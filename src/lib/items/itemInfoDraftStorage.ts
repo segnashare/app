@@ -8,6 +8,10 @@ export type ItemInfoDraft = {
   category?: string | null;
   brandId?: string | null;
   brand?: string | null;
+  /** Slug `item_brands.slug` (ex. `autre` pour marque libre). */
+  brandSlug?: string | null;
+  /** Libellé libre formaté (marque « Autre » uniquement), max 30 car. */
+  customBrandLabel?: string | null;
   sizeId?: string | null;
   size?: string | null;
   condition?: string | null;
@@ -31,6 +35,8 @@ function safeParse(raw: string | null): ItemInfoDraft {
       category: stringOrNull(parsed.category),
       brandId: stringOrNull(parsed.brandId),
       brand: stringOrNull(parsed.brand),
+      brandSlug: stringOrNull(parsed.brandSlug),
+      customBrandLabel: stringOrNull(parsed.customBrandLabel),
       sizeId: stringOrNull(parsed.sizeId),
       size: stringOrNull(parsed.size),
       condition: stringOrNull(parsed.condition),

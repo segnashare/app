@@ -1,9 +1,18 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
-import { ArrowRight, ChevronDown, Heart, Plus, Search, ShoppingCart, SlidersHorizontal } from "lucide-react";
+import { Montserrat, Playfair_Display } from "next/font/google";
+import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
@@ -16,17 +25,30 @@ import {
   takeShopCatalogStrictRemountFallback,
   type ShopCatalogSessionSnapshot,
 } from "@/lib/shop/shop-catalog-session";
+import { CmsFrameItem, ShopWideLinkCardBlock } from "@/components/cms/CmsSectionBlocks";
+import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
+import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
+import type { CmsFramePayload, CmsFrameRow, CmsPhotoPosition } from "@/lib/cms/cms-types";
+import { DEFAULT_BOUTIQUE_HUB_SECTION_ORDER, mergeBoutiqueHubOrder } from "@/lib/cms/boutique-hub-order";
+import {
+  buildShopDepartmentHubRail,
+  departmentSlugForCategoryId,
+} from "@/lib/shop/shop-department-categories";
+import { mergeShopHubSectionDisplay, type ShopHubSectionSlug } from "@/lib/cms/shop-hub-sections";
 import { cn } from "@/lib/utils/cn";
-
-const SEGNA_ICON = "/ressources/icons/segna.svg";
 
 /** Chips filtres: base grise, active noire, plus plates et moins arrondies. */
 const filterChipActiveClass = "border-transparent bg-zinc-950 text-white";
 const filterChipInactiveClass = "border-transparent bg-zinc-100 text-zinc-900 hover:bg-zinc-200/90";
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700"] });
+const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700", "800"] });
+const montserratHubWideCard = Montserrat({ subsets: ["latin"], weight: "700" });
+/** Cartes pièce boutique : titre gras, marque italique, ligne d’infos medium. */
+const montserratPieceBold = Montserrat({ subsets: ["latin"], weight: "700" });
+const montserratPieceItalic = Montserrat({ subsets: ["latin"], weight: "500", style: "italic" });
+const montserratPieceMedium = Montserrat({ subsets: ["latin"], weight: "500" });
 const sectionTitleClass = "text-[24px] font-bold leading-[1.1] tracking-tight text-zinc-900";
 
 type SortMode = "recent" | "price_asc" | "price_desc";
@@ -117,6 +139,16 @@ const emptyFilters: ShopFilters = {
   conditionScore: null,
 };
 
+export type ShopFeaturedLender = {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  /** Profil décoratif : pas de fiche /membre */
+  isPlaceholder?: boolean;
+  /** Avatar local / démo : affichage sans lien vers /membre/[id] */
+  skipMemberProfileLink?: boolean;
+};
+
 type ShopCatalogProps = {
   initialItems: ShopCatalogItem[];
   initialLikedItemIds: string[];
@@ -125,6 +157,21 @@ type ShopCatalogProps = {
   brands: FilterOption[];
   colors: FilterOption[];
   materials: FilterOption[];
+  /** Prêteuses réelles (serveur) : photos + lien /membre/[id] */
+  featuredLenders?: ShopFeaturedLender[];
+  /** Pièces du catalogue appartenant à ces prêteuses (vue « tout voir ») */
+  featuredLenderSectionItemIds?: string[];
+  mode?: "hub" | "section";
+  /** Titre page section (/shop/[slug]) */
+  sectionPageTitle?: string | null;
+  /** Top 10 global par likes (rail « plus likées ») */
+  initialMostLikedItems?: ShopCatalogItem[];
+  /** CMS — capsules + éditos (section shop_home_capsules) */
+  initialCmsShopFrames?: CmsFrameRow[];
+  /** CMS — sections hub catalogue (titres, liens, frames pièce/catégorie/marque) */
+  initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
+  /** Ordre vertical des blocs hub (RPC `get_cms_boutique_section_order`). */
+  boutiqueHubSectionOrder?: string[];
 };
 
 type MenuKey = keyof ShopFilters;
@@ -190,8 +237,22 @@ function initCategorySheetBrowse(
   return { l1: root, l2: path[path.length - 2] };
 }
 
-function itemMatchesFilters(item: ShopCatalogItem, f: ShopFilters): boolean {
-  if (f.categoryId && item.item_category_id !== f.categoryId) return false;
+/** Filtre catégorie : accepte l’ID choisi et tout article dont la catégorie est dans le sous-arbre (ex. rayon = toutes sous-catégories). */
+function itemCategoryMatchesFilter(
+  itemCategoryId: string | null | undefined,
+  filterCategoryId: string,
+  categories: CategoryFilterOption[],
+): boolean {
+  if (!itemCategoryId) return false;
+  const path = getCategoryPath(categories, itemCategoryId);
+  return path.includes(filterCategoryId);
+}
+
+function itemMatchesFilters(item: ShopCatalogItem, f: ShopFilters, categories: CategoryFilterOption[]): boolean {
+  if (f.categoryId) {
+    if (!item.item_category_id) return false;
+    if (!itemCategoryMatchesFilter(item.item_category_id, f.categoryId, categories)) return false;
+  }
   if (f.sizeIds.length > 0 && (!item.item_size_id || !f.sizeIds.includes(item.item_size_id))) return false;
   if (f.brandIds.length > 0 && (!item.item_brand_id || !f.brandIds.includes(item.item_brand_id))) return false;
   if (f.colorIds.length > 0 && (!item.item_couleur_id || !f.colorIds.includes(item.item_couleur_id))) return false;
@@ -220,6 +281,403 @@ function pickPseudoFrame(seed: string) {
     color: PSEUDO_FRAME_COLORS[hash % PSEUDO_FRAME_COLORS.length],
     tag: PSEUDO_FRAME_TAGLINES[hash % PSEUDO_FRAME_TAGLINES.length],
   };
+}
+
+function pieceCardConditionLabel(item: ShopCatalogItem): string {
+  const raw = item.condition_label?.trim();
+  if (raw) return raw;
+  const id = item.condition_score?.trim();
+  if (id) return CONDITION_OPTIONS.find((o) => o.id === id)?.label ?? id;
+  return "—";
+}
+
+function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
+  const t = sizeLabel?.trim();
+  return t ? `Taille ${t}` : "Taille unique";
+}
+
+/** Style panneau gauche pour pièces mises en avant via CMS (À découvrir, bons coups, À la une…). */
+export type ShopCmsPieceSpotlight = { bgHex: string; textColor: "white" | "black" };
+
+function parseCmsPieceSpotlightFromPayload(payload: CmsFramePayload): ShopCmsPieceSpotlight | null {
+  const raw = typeof payload.item_spotlight_bg_hex === "string" ? payload.item_spotlight_bg_hex.trim() : "";
+  if (!raw || !/^#?[0-9a-fA-F]{6}$/.test(raw)) return null;
+  const bgHex = raw.startsWith("#") ? raw : `#${raw}`;
+  const textColor = payload.item_spotlight_text_color === "black" ? "black" : "white";
+  return { bgHex, textColor };
+}
+
+/** URL affichable pour la photo CMS du panneau droit (prioritaire sur la cover catalogue). */
+function itemSpotlightCoverUrlFromPayload(payload: CmsFramePayload): string | undefined {
+  const img = payload.item_spotlight_image;
+  if (!img || typeof img !== "object") return undefined;
+  const u = typeof img.signed_url === "string" ? img.signed_url.trim() : "";
+  if (u) return u;
+  return undefined;
+}
+
+/** Cadrage panneau droit (zoom / offset %), même convention que les grandes cartes lien. */
+function itemSpotlightPhotoPositionFromPayload(payload: CmsFramePayload): CmsPhotoPosition {
+  const img = payload.item_spotlight_image;
+  if (!img?.position || img.position === null || typeof img.position !== "object") return null;
+  return img.position;
+}
+
+/** Grille + rails catalogue automatiques : photo carrée, méta en dessous. */
+type ShopPieceSquareCatalogCardProps = {
+  item: ShopCatalogItem;
+  cover: string | undefined;
+  shimmerDurationSec: number;
+  canAddToCart: boolean;
+  inCart: boolean;
+  liked: boolean;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  hideMetaUntilReady: boolean;
+};
+
+function ShopPieceSquareCatalogCard({
+  item,
+  cover,
+  shimmerDurationSec,
+  canAddToCart,
+  inCart,
+  liked,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  hideMetaUntilReady,
+}: ShopPieceSquareCatalogCardProps) {
+  const hasPhotoPath = Boolean(getFirstPhotoStoragePath(item.photos));
+  const [loadState, setLoadState] = useState<RemoteCoverLoadState>(() =>
+    !cover && !hasPhotoPath ? "ready" : "loading",
+  );
+
+  const imageReady = loadState !== "loading" || !hasPhotoPath;
+  const showMeta = !hideMetaUntilReady || imageReady;
+
+  const brandName = (item.brand_label ?? "").trim();
+  const price =
+    typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
+  const sizeLine = pieceCardSizeLine(item.size_label);
+  const condBit = pieceCardConditionLabel(item);
+  const isBlueStatus = item.status === "available" || item.status === "in_cart";
+
+  const actionBtnClass =
+    "bg-white/95 text-zinc-900 shadow-sm ring-1 ring-black/10 backdrop-blur-[2px]";
+
+  return (
+    <div className="w-full">
+      <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-black/[0.06]">
+        {cover ? (
+          <RemoteCoverThumb
+            photoUrl={cover}
+            frameClassName="absolute inset-0 h-full w-full"
+            className="h-full w-full"
+            coverStyle={{
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+            }}
+            onLoadStateChange={setLoadState}
+          />
+        ) : hasPhotoPath ? (
+          <SegnaSkeletonBlock className="h-full w-full" rounded="rounded-none" shimmerDurationSec={shimmerDurationSec} />
+        ) : (
+          <div className="h-full w-full bg-zinc-200" aria-hidden />
+        )}
+        <div className="absolute bottom-2 right-2 z-10 flex gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void onToggleLike(item.id);
+            }}
+            disabled={likeBusyIds.has(item.id)}
+            className={cn(
+              "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+              actionBtnClass,
+            )}
+            title="Ajouter aux favoris"
+          >
+            <Heart className={cn("h-4 w-4", liked && "fill-current")} aria-hidden />
+          </button>
+          {canAddToCart ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void onToggleCart(item.id);
+              }}
+              disabled={cartBusyIds.has(item.id)}
+              className={cn(
+                "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+                actionBtnClass,
+              )}
+              title="Ajouter au panier"
+            >
+              <Plus className={cn("h-4 w-4 transition-transform duration-200", inCart && "rotate-45")} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>
+        <h3
+          className={cn(
+            montserratPieceBold.className,
+            "line-clamp-2 text-left text-[14px] font-bold leading-snug text-zinc-900",
+          )}
+        >
+          {item.title}
+        </h3>
+        {brandName ? (
+          <p
+            className={cn(
+              montserratPieceItalic.className,
+              "line-clamp-1 text-left text-[13px] italic text-zinc-600",
+            )}
+          >
+            {brandName}
+          </p>
+        ) : null}
+        <p
+          className={cn(
+            montserratPieceMedium.className,
+            "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug text-zinc-600",
+          )}
+        >
+          <span className="tabular-nums">{price}</span>
+          <span className="text-zinc-400" aria-hidden>
+            |
+          </span>
+          <span className="max-w-[40%] truncate">{sizeLine}</span>
+          <span className="text-zinc-400" aria-hidden>
+            |
+          </span>
+          <span className="min-w-0 max-w-full truncate">{condBit}</span>
+          <span
+            className={cn(
+              "ml-0.5 inline-flex h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10",
+              isBlueStatus ? "bg-sky-400" : "bg-zinc-300",
+            )}
+            title={isBlueStatus ? "Disponible" : "Indisponible"}
+            aria-label={isBlueStatus ? "Disponible" : "Indisponible"}
+            role="img"
+          />
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Carte split coloré + image : réservée aux frames **CMS** pièce avec `item_spotlight_bg_hex` valide.
+ */
+type ShopPieceSplitCardProps = {
+  item: ShopCatalogItem;
+  cover: string | undefined;
+  shimmerDurationSec: number;
+  canAddToCart: boolean;
+  inCart: boolean;
+  liked: boolean;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  hideMetaUntilReady: boolean;
+  spotlight: ShopCmsPieceSpotlight;
+  /** Photo à droite = image CMS signée (pas la cover catalogue). */
+  useCmsSpotlightImage?: boolean;
+  spotlightPhotoPosition?: CmsPhotoPosition;
+};
+
+function ShopPieceSplitCard({
+  item,
+  cover,
+  shimmerDurationSec,
+  canAddToCart,
+  inCart,
+  liked,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  hideMetaUntilReady,
+  spotlight,
+  useCmsSpotlightImage = false,
+  spotlightPhotoPosition = null,
+}: ShopPieceSplitCardProps) {
+  const hasPhotoPath = Boolean(getFirstPhotoStoragePath(item.photos));
+  const [loadState, setLoadState] = useState<RemoteCoverLoadState>(() => (cover ? "loading" : "ready"));
+
+  useEffect(() => {
+    if (cover) setLoadState("loading");
+  }, [cover]);
+
+  /** Tant que l’URL cover charge : squelette sur toute la frame (pas seulement la photo). */
+  const imageReady = !cover || loadState !== "loading";
+  const showMeta = !hideMetaUntilReady || imageReady;
+  const showFullCardShimmer = Boolean(cover) && loadState === "loading";
+
+  const hex = spotlight.bgHex;
+  const useLightText = spotlight.textColor === "white";
+
+  const brandName = (item.brand_label ?? "").trim();
+  const price =
+    typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
+  const sizeLine = pieceCardSizeLine(item.size_label);
+  const condBit = pieceCardConditionLabel(item);
+
+  const textMain = useLightText ? "text-white" : "text-zinc-900";
+  const textSub = useLightText ? "text-white/90" : "text-zinc-700";
+  const textMeta = useLightText ? "text-white/85" : "text-zinc-600";
+  const sepClass = useLightText ? "text-white/55" : "text-zinc-400";
+
+  const actionBtnClass = useLightText
+    ? "bg-white text-zinc-900 shadow-sm ring-1 ring-black/10"
+    : "bg-zinc-900 text-white shadow-sm ring-1 ring-black/10";
+
+  const metaBlock = (
+    <div className={cn("min-w-0 flex flex-col gap-0.5 pr-0.5", !showMeta && "invisible")}>
+      <h3
+        className={cn(
+          montserratPieceBold.className,
+          "line-clamp-2 text-left text-[clamp(14px,4vw,17px)] font-bold leading-snug",
+          textMain,
+        )}
+      >
+        {item.title}
+      </h3>
+      {brandName ? (
+        <p
+          className={cn(
+            montserratPieceItalic.className,
+            "line-clamp-1 text-left text-[clamp(13px,3.5vw,15px)] italic",
+            textSub,
+          )}
+        >
+          {brandName}
+        </p>
+      ) : null}
+      <p
+        className={cn(
+          montserratPieceMedium.className,
+          "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
+          textMeta,
+        )}
+      >
+        <span className="tabular-nums">{price}</span>
+        <span className={sepClass} aria-hidden>
+          |
+        </span>
+        <span className="max-w-[42%] truncate">{sizeLine}</span>
+        <span className={sepClass} aria-hidden>
+          |
+        </span>
+        <span className="min-w-0 max-w-full truncate">{condBit}</span>
+      </p>
+    </div>
+  );
+
+  const actionRow = (
+    <div className="mt-1.5 flex shrink-0 gap-2 self-start">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void onToggleLike(item.id);
+        }}
+        disabled={likeBusyIds.has(item.id)}
+        className={cn(
+          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+          actionBtnClass,
+        )}
+        title="Ajouter aux favoris"
+      >
+        <Heart className={cn("h-4 w-4", liked && "fill-current")} aria-hidden />
+      </button>
+      {canAddToCart ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void onToggleCart(item.id);
+          }}
+          disabled={cartBusyIds.has(item.id)}
+          className={cn(
+            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+            actionBtnClass,
+          )}
+          title="Ajouter au panier"
+        >
+          <Plus className={cn("h-4 w-4 transition-transform duration-200", inCart && "rotate-45")} aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className="relative flex aspect-[2.12] min-h-[128px] w-full overflow-hidden rounded-2xl bg-zinc-200 ring-1 ring-black/[0.06]">
+      <div
+        className="flex min-w-0 w-[60%] shrink-0 flex-col pl-3.5 pr-2.5 pb-3 pt-3.5"
+        style={{ backgroundColor: hex }}
+      >
+        <div className="min-h-0 min-w-0 flex-1">{metaBlock}</div>
+        {actionRow}
+      </div>
+      <div className="relative h-full min-h-0 w-[40%] shrink-0 bg-zinc-50">
+        {cover ? (
+          <RemoteCoverThumb
+            photoUrl={cover}
+            frameClassName="absolute inset-0 h-full w-full"
+            className="h-full w-full"
+            suppressLoadSkeleton
+            {...(useCmsSpotlightImage
+              ? {
+                  photoPosition: spotlightPhotoPosition ?? null,
+                  photoCoverFill: true,
+                }
+              : {
+                  coverStyle: {
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    backgroundRepeat: "no-repeat",
+                  },
+                })}
+            onLoadStateChange={setLoadState}
+          />
+        ) : hasPhotoPath ? (
+          <SegnaSkeletonBlock className="h-full w-full" rounded="rounded-none" shimmerDurationSec={shimmerDurationSec} />
+        ) : (
+          <div className="h-full w-full bg-zinc-100" aria-hidden />
+        )}
+        <div className="pointer-events-none absolute right-2 top-2 z-[4] sm:right-2.5 sm:top-2.5">
+          <img
+            src="/ressources/signature_segna.svg"
+            alt=""
+            width={120}
+            height={40}
+            className="h-5 w-auto max-w-[min(42vw,96px)] select-none object-contain opacity-[0.92] sm:h-6 sm:max-w-[104px]"
+            aria-hidden
+          />
+        </div>
+      </div>
+      {showFullCardShimmer ? (
+        <SegnaSkeletonBlock
+          className="absolute inset-0 z-[20]"
+          rounded="rounded-2xl"
+          shimmerDurationSec={shimmerDurationSec}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function FilterChipButton({
@@ -304,9 +762,17 @@ export function ShopCatalog({
   brands,
   colors,
   materials,
+  featuredLenders = [],
+  featuredLenderSectionItemIds = [],
+  mode = "hub",
+  sectionPageTitle = null,
+  initialMostLikedItems = [],
+  initialCmsShopFrames = [],
+  initialShopHubSections = {},
+  boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
 }: ShopCatalogProps) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const { itemIds: cartItemIds } = useActiveCartItemIds();
+  const { itemIds: cartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
 
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
@@ -323,10 +789,12 @@ export function ShopCatalog({
   const [sortSheetDraft, setSortSheetDraft] = useState<SortMode>("recent");
   const [categorySheetBrowseL1, setCategorySheetBrowseL1] = useState<string | null>(null);
   const [categorySheetBrowseL2, setCategorySheetBrowseL2] = useState<string | null>(null);
-  const [sectionFocus, setSectionFocus] = useState<{ label: string; itemIds: string[] } | null>(null);
   const [availableVisibleCount, setAvailableVisibleCount] = useState(40);
 
   const [likedSet, setLikedSet] = useState(() => new Set(initialLikedItemIds));
+  const [localCartItemIds, setLocalCartItemIds] = useState<Set<string>>(() => new Set());
+  const [likeBusyIds, setLikeBusyIds] = useState<Set<string>>(() => new Set());
+  const [cartBusyIds, setCartBusyIds] = useState<Set<string>>(() => new Set());
   const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>({});
   const coverResolvedRef = useRef(new Set<string>());
   const filtersRef = useRef(filters);
@@ -335,6 +803,10 @@ export function ShopCatalog({
   sortModeRef.current = sortMode;
   const searchHeaderRef = useRef<HTMLElement | null>(null);
   const [searchHeaderHeight, setSearchHeaderHeight] = useState(0);
+
+  useEffect(() => {
+    setLocalCartItemIds(new Set(cartItemIds));
+  }, [cartItemIds]);
 
   const optionsByKey: Record<MenuKey, FilterOption[]> = useMemo(
     () => ({
@@ -366,18 +838,18 @@ export function ShopCatalog({
   );
 
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = mode === "section" ? "" : search.trim().toLowerCase();
     return initialItems.filter((item) => {
       if (heartsOnly && !likedSet.has(item.id)) return false;
       if (disponiblesOnly && item.status !== "available") return false;
-      if (!itemMatchesFilters(item, filters)) return false;
+      if (!itemMatchesFilters(item, filters, categories)) return false;
       if (!q) return true;
       const brand = (item.brand_label ?? "").toLowerCase();
       const title = item.title.toLowerCase();
       const desc = (item.description ?? "").toLowerCase();
       return title.includes(q) || desc.includes(q) || brand.includes(q);
     });
-  }, [initialItems, search, heartsOnly, disponiblesOnly, filters, likedSet]);
+  }, [mode, initialItems, search, heartsOnly, disponiblesOnly, filters, likedSet, categories]);
 
   const sortedFilteredItems = useMemo(() => {
     const list = [...filteredItems];
@@ -434,7 +906,7 @@ export function ShopCatalog({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [mode, sectionPageTitle]);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -457,13 +929,11 @@ export function ShopCatalog({
     if (!snap) return;
 
     /* Restauration session au retour router.back() : appliquer avant le premier paint sans flash. */
-    /* eslint-disable react-hooks/set-state-in-effect -- synchronisation one-shot lecture sessionStorage */
     setSearch(snap.search);
     setSortMode(snap.sortMode === "price_asc" || snap.sortMode === "price_desc" ? snap.sortMode : "recent");
     setHeartsOnly(Boolean(snap.heartsOnly));
     setDisponiblesOnly(Boolean(snap.disponiblesOnly));
     setFilters({ ...emptyFilters, ...parseShopCatalogFilters(snap.filters) });
-    /* eslint-enable react-hooks/set-state-in-effect */
 
     if (scrollY != null) {
       requestAnimationFrame(() => window.scrollTo(0, scrollY));
@@ -533,8 +1003,178 @@ export function ShopCatalog({
     };
   }, [supabase]);
 
+  const withLikeBusy = useCallback(async (itemId: string, action: () => Promise<void>) => {
+    if (likeBusyIds.has(itemId)) return;
+    setLikeBusyIds((s) => new Set([...s, itemId]));
+    try {
+      await action();
+    } finally {
+      setLikeBusyIds((s) => {
+        const next = new Set(s);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  }, [likeBusyIds]);
+
+  const withCartBusy = useCallback(async (itemId: string, action: () => Promise<void>) => {
+    if (cartBusyIds.has(itemId)) return;
+    setCartBusyIds((s) => new Set([...s, itemId]));
+    try {
+      await action();
+    } finally {
+      setCartBusyIds((s) => {
+        const next = new Set(s);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  }, [cartBusyIds]);
+
+  const getOpenCartId = useCallback(async (userId: string, opts?: { createIfMissing?: boolean }) => {
+    const { data: existingCart } = await supabase
+      .from("carts")
+      .select("id,status")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .in("status", ["active", "reserved"])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingCart?.id) return existingCart.id as string;
+    if (!opts?.createIfMissing) return null;
+    const { data: createdCart } = await supabase
+      .from("carts")
+      .insert({ user_id: userId, status: "active" })
+      .select("id")
+      .single();
+    return (createdCart?.id as string | undefined) ?? null;
+  }, [supabase]);
+
+  const handleToggleLike = useCallback(async (itemId: string) => {
+    await withLikeBusy(itemId, async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const likedNow = likedSet.has(itemId);
+      setLikedSet((prev) => {
+        const next = new Set(prev);
+        if (likedNow) next.delete(itemId);
+        else next.add(itemId);
+        return next;
+      });
+
+      if (likedNow) {
+        await supabase
+          .from("item_favorites")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("user_id", user.id)
+          .eq("item_id", itemId)
+          .is("deleted_at", null);
+        return;
+      }
+
+      const { data: existingAny } = await supabase
+        .from("item_favorites")
+        .select("id,deleted_at")
+        .eq("user_id", user.id)
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingAny?.id) {
+        await supabase
+          .from("item_favorites")
+          .update({ deleted_at: null })
+          .eq("id", existingAny.id);
+      } else {
+        await supabase
+          .from("item_favorites")
+          .insert({ user_id: user.id, item_id: itemId });
+      }
+    });
+  }, [likedSet, supabase, withLikeBusy]);
+
+  const handleToggleCart = useCallback(async (itemId: string) => {
+    await withCartBusy(itemId, async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const inCartNow = localCartItemIds.has(itemId);
+      setLocalCartItemIds((prev) => {
+        const next = new Set(prev);
+        if (inCartNow) next.delete(itemId);
+        else next.add(itemId);
+        return next;
+      });
+
+      if (inCartNow) {
+        const cartId = await getOpenCartId(user.id, { createIfMissing: false });
+        if (cartId) {
+          await supabase
+            .from("cart_items")
+            .update({ deleted_at: new Date().toISOString() })
+            .eq("cart_id", cartId)
+            .eq("item_id", itemId)
+            .is("deleted_at", null);
+        } else {
+          await supabase
+            .from("cart_items")
+            .update({ deleted_at: new Date().toISOString() })
+            .eq("owner_user_id", user.id)
+            .eq("item_id", itemId)
+            .is("deleted_at", null);
+        }
+      } else {
+        const cartId = await getOpenCartId(user.id, { createIfMissing: true });
+        if (!cartId) return;
+
+        const { data: existingActive } = await supabase
+          .from("cart_items")
+          .select("id")
+          .eq("cart_id", cartId)
+          .eq("item_id", itemId)
+          .is("deleted_at", null)
+          .limit(1)
+          .maybeSingle();
+        if (existingActive?.id) return;
+
+        const { data: existingDeleted } = await supabase
+          .from("cart_items")
+          .select("id")
+          .eq("cart_id", cartId)
+          .eq("item_id", itemId)
+          .not("deleted_at", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingDeleted?.id) {
+          await supabase
+            .from("cart_items")
+            .update({ deleted_at: null, status: "in_cart" })
+            .eq("id", existingDeleted.id);
+        } else {
+          await supabase.from("cart_items").insert({
+            cart_id: cartId,
+            item_id: itemId,
+            owner_user_id: user.id,
+            status: "in_cart",
+          });
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent("segna:cart-changed"));
+      await refreshCartItemIds();
+    });
+  }, [getOpenCartId, localCartItemIds, refreshCartItemIds, supabase, withCartBusy]);
+
   const openFilterModal = useCallback(() => {
-    setSectionFocus(null);
     setModalFilters({ ...filters });
     setModalFilterFamily("category");
     setModalCategoryBrowseParentId(null);
@@ -548,13 +1188,11 @@ export function ShopCatalog({
   }, []);
 
   const openFilterDetailSheet = useCallback((key: MenuKey) => {
-    setSectionFocus(null);
     setFilterModalOpen(false);
     setFilterDetailSheet((prev) => (prev === key ? null : key));
   }, []);
 
   const toggleSortSheet = useCallback(() => {
-    setSectionFocus(null);
     setFilterModalOpen(false);
     setFilterDetailSheet((prev) => (prev === "sort" ? null : "sort"));
   }, []);
@@ -812,8 +1450,8 @@ export function ShopCatalog({
     sizes,
   ]);
 
-  const inHubSectionsView =
-    sectionFocus === null && isDefaultCatalogView(filters, search, heartsOnly, disponiblesOnly, sortMode);
+  const showHub =
+    mode === "hub" && isDefaultCatalogView(filters, search, heartsOnly, disponiblesOnly, sortMode);
 
   const pickSectionItems = useCallback(
     (start: number, count: number) => {
@@ -827,11 +1465,21 @@ export function ShopCatalog({
     [initialItems],
   );
 
-  const visibleGridItems = useMemo(() => {
-    if (!sectionFocus) return sortedFilteredItems;
-    const allowed = new Set(sectionFocus.itemIds);
-    return sortedFilteredItems.filter((item) => allowed.has(item.id));
-  }, [sectionFocus, sortedFilteredItems]);
+  /** Même logique que pickSectionItems mais uniquement sur les pièces pas encore likées. */
+  const pickSectionItemsNotLiked = useCallback(
+    (start: number, count: number) => {
+      const pool = initialItems.filter((item) => !likedSet.has(item.id));
+      if (pool.length === 0) return [] as ShopCatalogItem[];
+      const out: ShopCatalogItem[] = [];
+      for (let i = 0; i < Math.min(count, Math.max(count, pool.length)); i += 1) {
+        out.push(pool[(start + i) % pool.length]);
+      }
+      return out;
+    },
+    [initialItems, likedSet],
+  );
+
+  const visibleGridItems = useMemo(() => sortedFilteredItems, [sortedFilteredItems]);
 
   const availableCatalogItems = useMemo(
     () => initialItems.filter((item) => item.status === "available" || item.status === "in_cart"),
@@ -842,45 +1490,231 @@ export function ShopCatalog({
     [availableCatalogItems, availableVisibleCount],
   );
 
-  const likedItems = useMemo(
-    () => initialItems.filter((item) => likedSet.has(item.id)),
-    [initialItems, likedSet],
-  );
+  /** Favoris présents dans le catalogue courant, ordre serveur (created_at desc), max 10. */
+  const likedItems = useMemo(() => {
+    const orderIndex = new Map(initialLikedItemIds.map((id, i) => [id, i] as const));
+    const candidates = initialItems.filter((item) => likedSet.has(item.id));
+    candidates.sort((a, b) => {
+      const ia = orderIndex.has(a.id) ? orderIndex.get(a.id)! : 1_000_000;
+      const ib = orderIndex.has(b.id) ? orderIndex.get(b.id)! : 1_000_000;
+      return ia - ib;
+    });
+    return candidates.slice(0, 10);
+  }, [initialItems, likedSet, initialLikedItemIds]);
 
-  const topDemandItems = useMemo(() => {
-    const withPrice = [...initialItems].sort((a, b) => Number(b.price_points ?? 0) - Number(a.price_points ?? 0));
-    return withPrice;
-  }, [initialItems]);
+  const mostLikedRailItems = useMemo(() => {
+    if (initialMostLikedItems.length > 0) return initialMostLikedItems.slice(0, 10);
+    return pickSectionItems(8, 10);
+  }, [initialMostLikedItems, pickSectionItems]);
 
   const likelyItems = useMemo(() => {
-    const byBrand = initialItems.filter((item) => item.item_brand_id && filters.brandIds.includes(item.item_brand_id));
-    if (byBrand.length > 0) return byBrand;
-    return initialItems;
-  }, [initialItems, filters.brandIds]);
+    const notLiked = (items: ShopCatalogItem[]) => items.filter((item) => !likedSet.has(item.id));
+    const byBrand = initialItems.filter(
+      (item) => item.item_brand_id && filters.brandIds.includes(item.item_brand_id),
+    );
+    const fromBrand = notLiked(byBrand);
+    if (fromBrand.length > 0) return fromBrand;
+    return notLiked(initialItems);
+  }, [initialItems, filters.brandIds, likedSet]);
 
   const preferredBrandSections = useMemo(() => brands.slice(0, 8), [brands]);
   const luxeBrands = useMemo(() => brands.filter((b) => /chanel|dior|saint|louis|herm|celine|balen|givenchy/i.test(b.label)).slice(0, 8), [brands]);
 
-  const supersPreteuses = useMemo(
-    () => [
-      { id: "super-1", label: "Mia", subtitle: "Paris" },
-      { id: "super-2", label: "Nina", subtitle: "Lyon" },
-      { id: "super-3", label: "Lea", subtitle: "Lille" },
-      { id: "super-4", label: "Sarah", subtitle: "Bordeaux" },
-      { id: "super-5", label: "Emma", subtitle: "Nantes" },
-      { id: "super-6", label: "Iris", subtitle: "Marseille" },
-    ],
-    [],
+  const boutiqueHubSectionOrder = useMemo(
+    () =>
+      boutiqueHubSectionOrderProp && boutiqueHubSectionOrderProp.length > 0
+        ? mergeBoutiqueHubOrder(boutiqueHubSectionOrderProp)
+        : [...DEFAULT_BOUTIQUE_HUB_SECTION_ORDER],
+    [boutiqueHubSectionOrderProp],
   );
 
-  const upsellCards = useMemo(
-    () => [
-      { id: "upsell-credits", title: "Crédits boost", subtitle: "Rechargez vos crédits pour débloquer plus de looks", href: "/wallet" },
-      { id: "upsell-plus", title: "Passez à Segna Plus", subtitle: "Plus de prêts, plus de visibilité, plus vite", href: "/onboarding/subscription" },
-      { id: "upsell-pro", title: "Mode vendeuse pro", subtitle: "Publiez en avant-première et convertissez mieux", href: "/home" },
-    ],
-    [],
+  const catalogItemById = useMemo(
+    () => new Map(initialItems.map((i) => [i.id, i] as const)),
+    [initialItems],
   );
+
+  /** Rail « À la une » : refs catalogue + capsules `category_capsule`. */
+  const cmsAtLaUneRows = useMemo(() => {
+    const types = new Set<string>([
+      "shop_category_ref",
+      "shop_brand_ref",
+      "shop_item_ref",
+      "shop_link_card",
+      "category_capsule",
+    ]);
+    return [...initialCmsShopFrames]
+      .filter((r) => types.has(r.frame_type))
+      .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+  }, [initialCmsShopFrames]);
+
+  const cmsHomePromoRows = useMemo(() => {
+    const types = new Set<string>(["editorial_card", "offer_card", "promo_ad"]);
+    return [...initialCmsShopFrames]
+      .filter((r) => types.has(r.frame_type))
+      .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+  }, [initialCmsShopFrames]);
+
+  const discoverHub = useMemo(() => {
+    const conf = mergeShopHubSectionDisplay("discover", initialShopHubSections.discover?.config);
+    const frames = initialShopHubSections.discover?.frames ?? [];
+    const cmsItemRefCount = frames.filter((f) => f.frame_type === "shop_item_ref").length;
+    const byId = new Map(initialItems.map((i) => [i.id, i] as const));
+    const fromCms: {
+      item: ShopCatalogItem;
+      spotlight: ShopCmsPieceSpotlight | null;
+      spotlightCoverUrl: string | undefined;
+      spotlightPhotoPosition: CmsPhotoPosition;
+    }[] = [];
+    for (const f of frames) {
+      if (f.frame_type !== "shop_item_ref") continue;
+      const id = typeof f.payload.item_id === "string" ? f.payload.item_id.trim() : "";
+      if (!id) continue;
+      const it = byId.get(id);
+      if (it)
+        fromCms.push({
+          item: it,
+          spotlight: parseCmsPieceSpotlightFromPayload(f.payload),
+          spotlightCoverUrl: itemSpotlightCoverUrlFromPayload(f.payload),
+          spotlightPhotoPosition: itemSpotlightPhotoPositionFromPayload(f.payload),
+        });
+    }
+    /** null = aucune config CMS publiée → repli catalogue ; [] = CMS actif mais rien à afficher */
+    let railItems: ShopCatalogItem[] | null;
+    let itemSpotlights: (ShopCmsPieceSpotlight | null)[] | null;
+    let spotlightCoverUrls: (string | undefined)[] | null;
+    let spotlightPhotoPositions: CmsPhotoPosition[] | null;
+    if (fromCms.length > 0) {
+      railItems = fromCms.map((x) => x.item);
+      itemSpotlights = fromCms.map((x) => x.spotlight);
+      spotlightCoverUrls = fromCms.map((x) => x.spotlightCoverUrl);
+      spotlightPhotoPositions = fromCms.map((x) => x.spotlightPhotoPosition);
+    } else if (cmsItemRefCount === 0) {
+      railItems = null;
+      itemSpotlights = null;
+      spotlightCoverUrls = null;
+      spotlightPhotoPositions = null;
+    } else {
+      railItems = [];
+      itemSpotlights = [];
+      spotlightCoverUrls = [];
+      spotlightPhotoPositions = [];
+    }
+    return { conf, railItems, itemSpotlights, spotlightCoverUrls, spotlightPhotoPositions };
+  }, [initialShopHubSections.discover, initialItems]);
+
+  const dealsHub = useMemo(() => {
+    const conf = mergeShopHubSectionDisplay("deals", initialShopHubSections.deals?.config);
+    const frames = initialShopHubSections.deals?.frames ?? [];
+    const cmsItemRefCount = frames.filter((f) => f.frame_type === "shop_item_ref").length;
+    const byId = new Map(initialItems.map((i) => [i.id, i] as const));
+    const fromCms: {
+      item: ShopCatalogItem;
+      spotlight: ShopCmsPieceSpotlight | null;
+      spotlightCoverUrl: string | undefined;
+      spotlightPhotoPosition: CmsPhotoPosition;
+    }[] = [];
+    for (const f of frames) {
+      if (f.frame_type !== "shop_item_ref") continue;
+      const id = typeof f.payload.item_id === "string" ? f.payload.item_id.trim() : "";
+      if (!id) continue;
+      const it = byId.get(id);
+      if (it)
+        fromCms.push({
+          item: it,
+          spotlight: parseCmsPieceSpotlightFromPayload(f.payload),
+          spotlightCoverUrl: itemSpotlightCoverUrlFromPayload(f.payload),
+          spotlightPhotoPosition: itemSpotlightPhotoPositionFromPayload(f.payload),
+        });
+    }
+    let railItems: ShopCatalogItem[] | null;
+    let itemSpotlights: (ShopCmsPieceSpotlight | null)[] | null;
+    let spotlightCoverUrls: (string | undefined)[] | null;
+    let spotlightPhotoPositions: CmsPhotoPosition[] | null;
+    if (fromCms.length > 0) {
+      railItems = fromCms.map((x) => x.item);
+      itemSpotlights = fromCms.map((x) => x.spotlight);
+      spotlightCoverUrls = fromCms.map((x) => x.spotlightCoverUrl);
+      spotlightPhotoPositions = fromCms.map((x) => x.spotlightPhotoPosition);
+    } else if (cmsItemRefCount === 0) {
+      railItems = null;
+      itemSpotlights = null;
+      spotlightCoverUrls = null;
+      spotlightPhotoPositions = null;
+    } else {
+      railItems = [];
+      itemSpotlights = [];
+      spotlightCoverUrls = [];
+      spotlightPhotoPositions = [];
+    }
+    return { conf, railItems, itemSpotlights, spotlightCoverUrls, spotlightPhotoPositions };
+  }, [initialShopHubSections.deals, initialItems]);
+
+  const categoriesHub = useMemo(() => {
+    const conf = mergeShopHubSectionDisplay("categories", initialShopHubSections.categories?.config);
+    const frames = initialShopHubSections.categories?.frames ?? [];
+    const departmentRail = buildShopDepartmentHubRail(categories, frames);
+    return { conf, departmentRail };
+  }, [initialShopHubSections.categories, categories]);
+
+  const preferredBrandsHub = useMemo(() => {
+    const conf = mergeShopHubSectionDisplay("preferredBrands", initialShopHubSections.preferredBrands?.config);
+    const frames = [...(initialShopHubSections.preferredBrands?.frames ?? [])].sort(
+      (a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id),
+    );
+    const cmsRefCount = frames.filter(
+      (f) => f.frame_type === "shop_brand_ref" || f.frame_type === "shop_link_card",
+    ).length;
+    const byId = new Map(brands.map((b) => [b.id, b] as const));
+    type Entry = { kind: "brand"; id: string; label: string } | { kind: "link"; frame: CmsFrameRow };
+    const fromCms: Entry[] = [];
+    for (const f of frames) {
+      if (f.frame_type === "shop_link_card") {
+        fromCms.push({ kind: "link", frame: f });
+        continue;
+      }
+      if (f.frame_type !== "shop_brand_ref") continue;
+      const id = typeof f.payload.brand_id === "string" ? f.payload.brand_id.trim() : "";
+      if (!id) continue;
+      const b = byId.get(id);
+      if (b) fromCms.push({ kind: "brand", id: b.id, label: b.label });
+    }
+    let rail: Entry[] | null;
+    if (fromCms.length > 0) rail = fromCms;
+    else if (cmsRefCount === 0) rail = null;
+    else rail = [];
+    return { conf, rail };
+  }, [initialShopHubSections.preferredBrands, brands]);
+
+  const frenchHub = useMemo(() => {
+    const conf = mergeShopHubSectionDisplay("french", initialShopHubSections.french?.config);
+    const frames = [...(initialShopHubSections.french?.frames ?? [])].sort(
+      (a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id),
+    );
+    const cmsRefCount = frames.filter(
+      (f) => f.frame_type === "shop_brand_ref" || f.frame_type === "shop_link_card",
+    ).length;
+    const byId = new Map(brands.map((b) => [b.id, b] as const));
+    type Entry = { kind: "brand"; id: string; label: string } | { kind: "link"; frame: CmsFrameRow };
+    const fromCms: Entry[] = [];
+    for (const f of frames) {
+      if (f.frame_type === "shop_link_card") {
+        fromCms.push({ kind: "link", frame: f });
+        continue;
+      }
+      if (f.frame_type !== "shop_brand_ref") continue;
+      const id = typeof f.payload.brand_id === "string" ? f.payload.brand_id.trim() : "";
+      if (!id) continue;
+      const b = byId.get(id);
+      if (b) fromCms.push({ kind: "brand", id: b.id, label: b.label });
+    }
+    const fallbackSource = luxeBrands.length > 0 ? luxeBrands : brands.slice(0, 6);
+    const fallback: Entry[] = fallbackSource.map((b) => ({ kind: "brand", id: b.id, label: b.label }));
+    let list: Entry[];
+    if (fromCms.length > 0) list = fromCms;
+    else if (cmsRefCount === 0) list = fallback;
+    else list = [];
+    return { conf, list };
+  }, [initialShopHubSections.french, brands, luxeBrands]);
 
   const applyBrandFilterFromSection = useCallback((brandId: string) => {
     setFilters((prev) => ({ ...prev, brandIds: [brandId] }));
@@ -890,57 +1724,602 @@ export function ShopCatalog({
     setFilters((prev) => ({ ...prev, categoryId }));
   }, []);
 
+  function renderBoutiqueHubSection(sectionKey: string): ReactNode {
+    const searchState = { search, sortMode, heartsOnly, disponiblesOnly, filters };
+    switch (sectionKey) {
+      case "shop_section_discover":
+  return (
+              <HubRail
+            title={discoverHub.conf.title}
+            items={discoverHub.railItems === null ? pickSectionItems(0, 10) : discoverHub.railItems}
+            itemSpotlights={
+              discoverHub.railItems === null ? null : discoverHub.itemSpotlights
+            }
+            spotlightCoverUrls={
+              discoverHub.railItems === null ? null : discoverHub.spotlightCoverUrls
+            }
+            spotlightPhotoPositions={
+              discoverHub.railItems === null ? null : discoverHub.spotlightPhotoPositions
+            }
+            sectionHref={
+              discoverHub.conf.show_more_arrow && discoverHub.conf.more_href.trim()
+                ? discoverHub.conf.more_href.trim()
+                : undefined
+            }
+                coverUrlById={coverUrlById}
+                shimmerDurationSec={shimmerDurationSec}
+                cartItemIds={localCartItemIds}
+                likedSet={likedSet}
+                likeBusyIds={likeBusyIds}
+                cartBusyIds={cartBusyIds}
+                onToggleLike={handleToggleLike}
+                onToggleCart={handleToggleCart}
+            searchState={searchState}
+              />
+        );
+      case "shop_system_liked":
+        return (
+              <ItemRailTwoUp
+                title="Pièces likées"
+                items={likedItems}
+                sectionHref="/shop/liked"
+                coverUrlById={coverUrlById}
+                shimmerDurationSec={shimmerDurationSec}
+                cartItemIds={localCartItemIds}
+                likedSet={likedSet}
+                likeBusyIds={likeBusyIds}
+                cartBusyIds={cartBusyIds}
+                onToggleLike={handleToggleLike}
+                onToggleCart={handleToggleCart}
+            searchState={searchState}
+          />
+        );
+      case "shop_section_categories": {
+        if (categoriesHub.departmentRail.length === 0) return null;
+        return (
+              <section className="min-w-0 space-y-3">
+            <SectionHeader
+              title={categoriesHub.conf.title}
+              sectionHref={
+                categoriesHub.conf.show_more_arrow && categoriesHub.conf.more_href.trim()
+                  ? categoriesHub.conf.more_href.trim()
+                  : undefined
+              }
+            />
+                <div className="flex w-full min-w-0 max-w-full flex-nowrap snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
+              {categoriesHub.departmentRail.map((dept) => {
+                    const persist = () =>
+                      persistShopCatalogStateForItemNavigation({
+                        search,
+                        sortMode,
+                        heartsOnly,
+                        disponiblesOnly,
+                        filters: { ...filters },
+                      });
+                    if (dept.linkFrame) {
+                    return (
+                        <div
+                          key={dept.linkFrame.id}
+                          className="w-[min(88vw,410px)] max-w-[410px] shrink-0 snap-start"
+                        >
+                          <ShopWideLinkCardBlock
+                            payload={dept.linkFrame.payload}
+                            aspectClassName="aspect-[2.32]"
+                            wrapperClassName="block w-full rounded-2xl"
+                            onNavigate={persist}
+                          />
+                        </div>
+                      );
+                    }
+                    const pseudo = pickPseudoFrame(`dept-${dept.slug}`);
+                    return (
+                      <Link
+                        key={dept.slug}
+                        href={`/shop/${dept.slug}`}
+                        className="w-[min(88vw,410px)] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
+                        onClick={persist}
+                      >
+                        <div
+                          className={cn(
+                            "flex aspect-[2.32] flex-col justify-start rounded-2xl bg-gradient-to-br p-4 text-white",
+                            pseudo.color,
+                          )}
+                        >
+                          <p
+                            className={cn(
+                              "text-[1.65rem] leading-tight",
+                              montserratHubWideCard.className,
+                            )}
+                          >
+                            {dept.label}
+                          </p>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
+                </div>
+              </section>
+        );
+      }
+      case "shop_system_for_you":
+        return (
+              <ItemRailTwoUp
+                title="Pièces susceptibles de vous plaire"
+                items={(likelyItems.length > 0 ? likelyItems : pickSectionItemsNotLiked(4, 10)).slice(0, 10)}
+                sectionHref="/shop/for-you"
+                coverUrlById={coverUrlById}
+                shimmerDurationSec={shimmerDurationSec}
+                cartItemIds={localCartItemIds}
+                likedSet={likedSet}
+                likeBusyIds={likeBusyIds}
+                cartBusyIds={cartBusyIds}
+                onToggleLike={handleToggleLike}
+                onToggleCart={handleToggleCart}
+            searchState={searchState}
+              />
+        );
+      case "shop_system_popular":
+        return (
+              <ItemRailTwoUp
+                title="Les pièces les plus likées"
+                items={(mostLikedRailItems.length > 0 ? mostLikedRailItems : pickSectionItems(8, 10)).slice(0, 10)}
+                sectionHref="/shop/popular"
+                coverUrlById={coverUrlById}
+                shimmerDurationSec={shimmerDurationSec}
+                cartItemIds={localCartItemIds}
+                likedSet={likedSet}
+                likeBusyIds={likeBusyIds}
+                cartBusyIds={cartBusyIds}
+                onToggleLike={handleToggleLike}
+                onToggleCart={handleToggleCart}
+            searchState={searchState}
+          />
+        );
+      case "shop_section_preferred_brands": {
+        type BrandRailEntry =
+          | { kind: "brand"; id: string; label: string }
+          | { kind: "link"; frame: CmsFrameRow };
+        const brandsForRail: BrandRailEntry[] =
+          preferredBrandsHub.rail === null
+            ? preferredBrandSections.map((b) => ({ kind: "brand", id: b.id, label: b.label }))
+            : preferredBrandsHub.rail;
+        if (brandsForRail.length === 0) return null;
+        return (
+          <section className="min-w-0 space-y-3">
+            <SectionHeader
+              title={preferredBrandsHub.conf.title}
+              sectionHref={
+                preferredBrandsHub.conf.show_more_arrow && preferredBrandsHub.conf.more_href.trim()
+                  ? preferredBrandsHub.conf.more_href.trim()
+                  : undefined
+              }
+            />
+                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0" aria-hidden />
+                {brandsForRail.map((entry) => {
+                  if (entry.kind === "link") {
+                    return (
+                      <ShopWideLinkCardBlock
+                        key={entry.frame.id}
+                        payload={entry.frame.payload}
+                        aspectClassName="aspect-[2.32]"
+                        wrapperClassName="w-[90%] max-w-[410px] shrink-0"
+                        onNavigate={() =>
+                          persistShopCatalogStateForItemNavigation({
+                            search,
+                            sortMode,
+                            heartsOnly,
+                            disponiblesOnly,
+                            filters: { ...filters },
+                          })
+                        }
+                      />
+                    );
+                  }
+                  const brand = entry;
+                    const pseudo = pickPseudoFrame(`brand-${brand.id}`);
+                    return (
+                      <button
+                        key={brand.id}
+                        type="button"
+                        onClick={() => applyBrandFilterFromSection(brand.id)}
+                        className="w-[72%] max-w-[320px] shrink-0 rounded-2xl text-left"
+                      >
+                      <div
+                        className={cn(
+                          "relative flex aspect-[1.65] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
+                          pseudo.color,
+                        )}
+                      >
+                        <p className="text-[2.25rem] font-bold leading-tight">{brand.label}</p>
+                          <span
+                            className="absolute bottom-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-zinc-800 shadow-sm"
+                            title="Ajouter aux favoris"
+                          >
+                            <Heart className="h-5 w-5" aria-hidden />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  <div className="w-3 shrink-0" aria-hidden />
+                </div>
+              </section>
+        );
+      }
+      case "shop_home_capsules": {
+        const capsuleBlock =
+          cmsAtLaUneRows.length > 0 ? (
+            <div className="space-y-3">
+              <SectionHeader title="À la une" showAction={false} />
+              <div className="flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="w-3 shrink-0 snap-start" aria-hidden />
+                {cmsAtLaUneRows.map((row) => (
+                  <ShopCapsuleAtLaUneSlot
+                    key={row.id}
+                    row={row}
+                    categories={categories}
+                    brands={brands}
+                    onCategoryFilter={applyCategoryFilterFromSection}
+                    onBrandFilter={applyBrandFilterFromSection}
+                    itemById={catalogItemById}
+                    coverUrlById={coverUrlById}
+                    shimmerDurationSec={shimmerDurationSec}
+                    cartItemIds={localCartItemIds}
+                    likedSet={likedSet}
+                    likeBusyIds={likeBusyIds}
+                    cartBusyIds={cartBusyIds}
+                    onToggleLike={handleToggleLike}
+                    onToggleCart={handleToggleCart}
+                    searchState={searchState}
+                  />
+                ))}
+                <div className="w-3 shrink-0 snap-start" aria-hidden />
+              </div>
+            </div>
+          ) : null;
+        const promoBlock =
+          cmsHomePromoRows.length > 0 ? (
+              <section className="space-y-3">
+                <div className="flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
+                {cmsHomePromoRows.map((row) => (
+                  <div key={row.id} className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl">
+                    <CmsFrameItem row={row} />
+                        </div>
+                ))}
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
+                </div>
+              </section>
+          ) : null;
+        if (!capsuleBlock && !promoBlock) return null;
+        return (
+          <div className="space-y-6">
+            {capsuleBlock}
+            {promoBlock}
+              </div>
+        );
+      }
+      case "shop_section_deals":
+        return (
+              <HubRail
+            title={dealsHub.conf.title}
+            items={dealsHub.railItems === null ? pickSectionItems(18, 10) : dealsHub.railItems}
+            itemSpotlights={dealsHub.railItems === null ? null : dealsHub.itemSpotlights}
+            spotlightCoverUrls={dealsHub.railItems === null ? null : dealsHub.spotlightCoverUrls}
+            spotlightPhotoPositions={
+              dealsHub.railItems === null ? null : dealsHub.spotlightPhotoPositions
+            }
+            sectionHref={
+              dealsHub.conf.show_more_arrow && dealsHub.conf.more_href.trim()
+                ? dealsHub.conf.more_href.trim()
+                : undefined
+            }
+                coverUrlById={coverUrlById}
+                shimmerDurationSec={shimmerDurationSec}
+                cartItemIds={localCartItemIds}
+                likedSet={likedSet}
+                likeBusyIds={likeBusyIds}
+                cartBusyIds={cartBusyIds}
+                onToggleLike={handleToggleLike}
+                onToggleCart={handleToggleCart}
+            searchState={searchState}
+          />
+        );
+      case "shop_system_lenders":
+        if (featuredLenders.length === 0) return null;
+        return (
+              <section className="space-y-3">
+                <SectionHeader title="Nos supers prêteuses" sectionHref="/shop/lenders" />
+                <div className="grid grid-cols-3 gap-3">
+                  {featuredLenders.map((p) => {
+                    const pseudo = pickPseudoFrame(`lender-${p.userId}`);
+                    const inner = (
+                      <>
+                        <div
+                          className={cn(
+                            "relative mx-auto mb-1.5 h-20 w-20 overflow-hidden rounded-full ring-1 ring-black/5",
+                        p.isPlaceholder && !p.avatarUrl ? cn("bg-gradient-to-br", pseudo.color) : "bg-zinc-200",
+                          )}
+                        >
+                          {p.avatarUrl ? (
+                        <RemoteCoverThumb
+                          photoUrl={p.avatarUrl}
+                          frameClassName="h-full w-full rounded-full"
+                          className="rounded-full"
+                          coverStyle={{
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                            backgroundRepeat: "no-repeat",
+                          }}
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-zinc-700">
+                              {(p.displayName || "?").trim().slice(0, 1).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <p className="line-clamp-1 text-base font-semibold text-zinc-900">{p.displayName}</p>
+                      </>
+                    );
+                    if (p.isPlaceholder || p.skipMemberProfileLink) {
+                      return (
+                        <div
+                          key={p.userId}
+                          className="min-w-0 cursor-default text-center"
+                      aria-label={p.isPlaceholder && !p.avatarUrl ? "Exemple de prêteuse" : p.displayName}
+                        >
+                          {inner}
+                        </div>
+                      );
+                    }
+                    return (
+                      <Link
+                        key={p.userId}
+                        href={`/membre/${p.userId}`}
+                        className="block min-w-0 text-center"
+                        onClick={() => {
+                          persistShopCatalogStateForItemNavigation({
+                            search,
+                            sortMode,
+                            heartsOnly,
+                            disponiblesOnly,
+                            filters: { ...filters },
+                          });
+                        }}
+                      >
+                        {inner}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+        );
+      case "shop_section_french":
+        return (
+              <section className="min-w-0 space-y-3">
+            <SectionHeader
+              title={frenchHub.conf.title}
+              sectionHref={
+                frenchHub.conf.show_more_arrow && frenchHub.conf.more_href.trim()
+                  ? frenchHub.conf.more_href.trim()
+                  : undefined
+              }
+            />
+                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0" aria-hidden />
+              {frenchHub.list.map((entry) => {
+                if (entry.kind === "link") {
+                  return (
+                    <ShopWideLinkCardBlock
+                      key={entry.frame.id}
+                      payload={entry.frame.payload}
+                      aspectClassName="aspect-[2.32]"
+                      wrapperClassName="w-[90%] max-w-[410px] shrink-0"
+                      onNavigate={() =>
+                        persistShopCatalogStateForItemNavigation({
+                          search,
+                          sortMode,
+                          heartsOnly,
+                          disponiblesOnly,
+                          filters: { ...filters },
+                        })
+                      }
+                    />
+                  );
+                }
+                const brand = entry;
+                    const pseudo = pickPseudoFrame(`luxe-${brand.id}`);
+                    return (
+                      <button
+                        key={brand.id}
+                        type="button"
+                        onClick={() => applyBrandFilterFromSection(brand.id)}
+                        className="w-[72%] max-w-[320px] shrink-0 rounded-2xl text-left"
+                      >
+                    <div
+                      className={cn(
+                        "relative flex aspect-[1.65] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
+                        pseudo.color,
+                      )}
+                    >
+                      <p className="text-[2.25rem] font-bold leading-tight text-zinc-900">{brand.label}</p>
+                          <span
+                            className="absolute bottom-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-zinc-800 shadow-sm"
+                            title="Ajouter aux favoris"
+                          >
+                            <Heart className="h-5 w-5" aria-hidden />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  <div className="w-3 shrink-0" aria-hidden />
+                </div>
+              </section>
+        );
+      case "shop_system_available":
+        return (
+              <section className="space-y-3">
+                <SectionHeader title="Disponibles" sectionHref="/shop/available" titleInset={false} />
+                {visibleAvailableCatalogItems.length === 0 ? (
+                  <p className="px-1 py-4 text-sm text-zinc-500">Aucune pièce disponible.</p>
+                ) : (
+                  <>
+                    <ul className="grid grid-cols-2 gap-3">
+                      {visibleAvailableCatalogItems.map((item) => {
+                        const canAddToCart = item.status === "available" || item.status === "in_cart";
+                        const inCart = localCartItemIds.has(item.id);
+                        const liked = likedSet.has(item.id);
+                        const cover = coverUrlById[item.id];
+                        return (
+                          <li key={`available-${item.id}-${cover ?? "nocover"}`}>
+                            <ShopCatalogGridItemCard
+                              item={item}
+                              cover={cover}
+                              shimmerDurationSec={shimmerDurationSec}
+                              canAddToCart={canAddToCart}
+                              inCart={inCart}
+                              liked={liked}
+                              likeBusyIds={likeBusyIds}
+                              cartBusyIds={cartBusyIds}
+                              onToggleLike={handleToggleLike}
+                              onToggleCart={handleToggleCart}
+                              onNavigate={() =>
+                                persistShopCatalogStateForItemNavigation({
+                                  search,
+                                  sortMode,
+                                  heartsOnly,
+                                  disponiblesOnly,
+                                  filters: { ...filters },
+                                })
+                              }
+                            />
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {availableVisibleCount < availableCatalogItems.length ? (
+                                  <button
+                                    type="button"
+                        onClick={() => setAvailableVisibleCount((n) => Math.min(n + 40, availableCatalogItems.length))}
+                        className="mt-4 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-800"
+                      >
+                        Afficher plus
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </section>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div className="min-h-0 bg-white text-zinc-900">
       {/* En-tête recherche : fixe, le reste défile en dessous. */}
       <header
         ref={searchHeaderRef}
-        className="fixed left-0 right-0 top-0 z-40 flex justify-center bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+        className="fixed left-0 right-0 top-0 z-40 flex justify-center bg-white px-4 pt-[max(0.75rem,env(safe-area-inset-top))]"
       >
-        <div className="relative w-full max-w-[430px]">
-          <label className="relative block">
-            <span className="sr-only">Recherche catalogue</span>
-            <Search
-              className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => {
-                setSectionFocus(null);
-                setSearch(e.target.value);
-              }}
-              placeholder="Recherchez sur Segna"
-              className="w-full rounded-full border border-zinc-200 bg-white py-3.5 pl-12 pr-12 text-[15px] text-zinc-800 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.08),0_1px_3px_-2px_rgba(0,0,0,0.05)] placeholder:text-zinc-400 focus:border-[#8B6A54]/45 focus:outline-none focus:ring-2 focus:ring-[#8B6A54]/20 focus:shadow-[0_4px_14px_-4px_rgba(91,48,35,0.1),0_2px_6px_-3px_rgba(0,0,0,0.06)]"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={toggleSortSheet}
-            aria-label="Trier les résultats"
-            aria-expanded={filterDetailSheet === "sort"}
-            className={cn(
-              "absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
-              "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
-              sortMode !== "recent" && "text-[#5E3023]",
-              filterDetailSheet === "sort" && "bg-zinc-100 text-[#5E3023]",
-            )}
-          >
-            <svg
-              className="h-[22px] w-[22px] shrink-0"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden
-            >
-              <path
-                fill="currentColor"
-                d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
-              />
-            </svg>
-          </button>
-        </div>
+        <div className="w-full max-w-[430px]">
+          {mode === "section" && sectionPageTitle ? (
+            <div className="border-b border-zinc-200 pb-4">
+              <div className="relative flex min-h-[52px] items-center justify-center">
+                <Link
+                  href="/shop"
+                  className="absolute left-0 top-1/2 z-10 -translate-y-1/2 rounded-lg p-1 text-zinc-700 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
+                  aria-label="Retour à la boutique"
+                >
+                  <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+                </Link>
+                <h1
+                                    className={cn(
+                    playfairDisplay.className,
+                    "mx-12 max-w-[min(100%,280px)] truncate text-center text-[20px] font-extrabold italic text-zinc-900 sm:max-w-[min(100%,340px)]",
+                                    )}
+                                  >
+                  {sectionPageTitle}
+                </h1>
+                                    <button
+                                      type="button"
+                  onClick={toggleSortSheet}
+                  aria-label="Trier les résultats"
+                  aria-expanded={filterDetailSheet === "sort"}
+                                      className={cn(
+                    "absolute right-0 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
+                    "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
+                    sortMode !== "recent" && "text-[#5E3023]",
+                    filterDetailSheet === "sort" && "bg-zinc-100 text-[#5E3023]",
+                  )}
+                >
+                  <svg
+                    className="h-[22px] w-[22px] shrink-0"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
+                    />
+                  </svg>
+                                    </button>
+                                </div>
+                              </div>
+          ) : (
+            <div className="space-y-3 pb-3">
+              <div className="relative w-full">
+                <label className="relative block">
+                  <span className="sr-only">Recherche catalogue</span>
+                  <Search
+                    className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                    }}
+                    placeholder="Recherchez sur Segna"
+                    className="w-full rounded-full border border-zinc-200 bg-white py-3.5 pl-12 pr-12 text-[15px] text-zinc-800 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.08),0_1px_3px_-2px_rgba(0,0,0,0.05)] placeholder:text-zinc-400 focus:border-[#8B6A54]/45 focus:outline-none focus:ring-2 focus:ring-[#8B6A54]/20 focus:shadow-[0_4px_14px_-4px_rgba(91,48,35,0.1),0_2px_6px_-3px_rgba(0,0,0,0.06)]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={toggleSortSheet}
+                  aria-label="Trier les résultats"
+                  aria-expanded={filterDetailSheet === "sort"}
+                                    className={cn(
+                    "absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
+                    "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
+                    sortMode !== "recent" && "text-[#5E3023]",
+                    filterDetailSheet === "sort" && "bg-zinc-100 text-[#5E3023]",
+                  )}
+                >
+                  <svg
+                    className="h-[22px] w-[22px] shrink-0"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
+                    />
+                  </svg>
+                </button>
+                                </div>
+                                </div>
+          )}
+                              </div>
       </header>
 
       <div
@@ -953,14 +2332,14 @@ export function ShopCatalog({
         {/* Filtres */}
         <div className="border-b border-zinc-200/70 bg-white text-zinc-900">
           <div className="flex items-stretch gap-2 px-2 py-2">
-            <button
-              type="button"
+                      <button
+                        type="button"
               onClick={openFilterModal}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-zinc-800 shadow-[inset_0_0_0_1px_#e4e4e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
               aria-label="Ouvrir les filtres"
-            >
+                      >
               <SlidersHorizontal className="h-5 w-5" />
-            </button>
+                      </button>
             <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <ToggleChip
                 label="Disponibles"
@@ -996,397 +2375,66 @@ export function ShopCatalog({
               En savoir plus
             </button>
           </p>
-        </div>
+              </div>
 
         {/* Contenu principal : hub sections (par défaut) ou grille filtrée */}
-        <div className="bg-white px-3 pb-28 pt-4">
-          {inHubSectionsView ? (
-            <div className="-mx-3 divide-y-[1px] divide-zinc-200">
-              <div className="px-3 pb-5 pt-2">
-              <HubRail
-                title="À découvrir sur Segna"
-                items={pickSectionItems(0, 10)}
-                cartItemIds={cartItemIds}
-                searchState={{ search, sortMode, heartsOnly, disponiblesOnly, filters }}
-                onOpenSection={(itemIds) => setSectionFocus({ label: "À découvrir sur Segna", itemIds })}
-              />
-              </div>
-              <div className="px-3 py-5">
-              <ItemRailTwoUp
-                title="Pièces likées"
-                items={likedItems.length > 0 ? likedItems : pickSectionItems(10, 8)}
-                cartItemIds={cartItemIds}
-                searchState={{ search, sortMode, heartsOnly, disponiblesOnly, filters }}
-                onOpenSection={(itemIds) => setSectionFocus({ label: "Pièces likées", itemIds })}
-              />
-              </div>
-              <div className="px-3 py-5">
-              <section className="space-y-3">
-                <div className="-mx-3 flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                  {categoryRootOptions.map((cat) => {
-                    const pseudo = pickPseudoFrame(`cat-${cat.id}`);
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => applyCategoryFilterFromSection(cat.id)}
-                        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
-                      >
-                        <div className={cn("aspect-[2.32] rounded-2xl bg-gradient-to-br p-4 text-zinc-900", pseudo.color)}>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-700">{pseudo.tag}</p>
-                          <p className="mt-3 text-[1.65rem] font-bold leading-tight text-zinc-900">{cat.label}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                </div>
-              </section>
-              </div>
-              <div className="px-3 py-5">
-              <ItemRailTwoUp
-                title="Pièces susceptibles de vous plaire"
-                items={(likelyItems.length > 0 ? likelyItems : pickSectionItems(4, 10)).slice(0, 10)}
-                cartItemIds={cartItemIds}
-                searchState={{ search, sortMode, heartsOnly, disponiblesOnly, filters }}
-                onOpenSection={(itemIds) => setSectionFocus({ label: "Pièces susceptibles de vous plaire", itemIds })}
-              />
-              </div>
-              <div className="px-3 py-5">
-              <ItemRailTwoUp
-                title="Les pièces les plus demandées"
-                items={(topDemandItems.length > 0 ? topDemandItems : pickSectionItems(8, 10)).slice(0, 10)}
-                cartItemIds={cartItemIds}
-                searchState={{ search, sortMode, heartsOnly, disponiblesOnly, filters }}
-                onOpenSection={(itemIds) => setSectionFocus({ label: "Les pièces les plus demandées", itemIds })}
-              />
-              </div>
-
-              <div className="px-3 py-5">
-              <SectionHeader
-                  title="Vos marques préférées"
-                  onOpen={() => setSectionFocus({ label: "Vos marques préférées", itemIds: pickSectionItems(2, 12).map((i) => i.id) })}
-                />
-              <section className="space-y-3">
-                <div className="-mx-3 flex gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0" aria-hidden />
-                  {preferredBrandSections.map((brand) => {
-                    const pseudo = pickPseudoFrame(`brand-${brand.id}`);
-                    return (
-                      <button
-                        key={brand.id}
-                        type="button"
-                        onClick={() => applyBrandFilterFromSection(brand.id)}
-                        className="w-[72%] max-w-[320px] shrink-0 rounded-2xl text-left"
-                      >
-                        <div className={cn("relative aspect-[1.65] rounded-2xl bg-gradient-to-br p-4 text-zinc-900", pseudo.color)}>
-                          <p className="text-xs font-semibold uppercase tracking-wide">{pseudo.tag}</p>
-                          <p className="mt-2 text-[2.25rem] font-bold leading-tight">{brand.label}</p>
-                          <span
-                            className="absolute bottom-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-zinc-800 shadow-sm"
-                            title="Ajouter aux favoris"
-                          >
-                            <Heart className="h-5 w-5" aria-hidden />
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  <div className="w-3 shrink-0" aria-hidden />
-                </div>
-              </section>
-              </div>
-              <div className="px-3 py-5">
-              <section className="space-y-3">
-                <div className="-mx-3 flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                  {upsellCards.map((card) => {
-                    const pseudo = pickPseudoFrame(card.id);
-                    return (
-                      <Link
-                        key={card.id}
-                        href={card.href}
-                        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl"
-                      >
-                        <div className={cn("aspect-[2.7] rounded-2xl bg-gradient-to-br px-4 py-1", pseudo.color)}>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-700">{pseudo.tag}</p>
-                          <p className="mt-2 text-[1.65rem] font-bold leading-tight text-zinc-900">{card.title}</p>
-                          <p className="mt-1.5 text-[1rem] text-zinc-800">{card.subtitle}</p>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                </div>
-              </section>
-              </div>
-
-              <div className="px-3 py-5">
-              <HubRail
-                title="Les bons coups"
-                items={pickSectionItems(18, 10)}
-                cartItemIds={cartItemIds}
-                searchState={{ search, sortMode, heartsOnly, disponiblesOnly, filters }}
-                onOpenSection={(itemIds) => setSectionFocus({ label: "Les bons coups", itemIds })}
-              />
-              </div>
-
-              <div className="px-3 py-5">
-              <section className="space-y-3">
-                <SectionHeader
-                  title="Nos supers prêteuses"
-                  onOpen={() => setSectionFocus({ label: "Nos supers prêteuses", itemIds: pickSectionItems(6, 12).map((i) => i.id) })}
-                />
-                <div className="grid grid-cols-3 gap-3">
-                  {supersPreteuses.map((p) => {
-                    const pseudo = pickPseudoFrame(p.id);
-                    return (
-                      <div key={p.id} className="text-center">
-                        <div className={cn("mx-auto mb-2 h-20 w-20 rounded-full bg-gradient-to-br", pseudo.color)} />
-                        <p className="text-base font-semibold text-zinc-900">{p.label}</p>
-                        <p className="text-sm text-zinc-500">{p.subtitle}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-              </div>
-
-              <div className="px-3 py-5">
-              <section className="space-y-3">
-                <SectionHeader
-                  title="Le luxe à la française"
-                  onOpen={() => setSectionFocus({ label: "Le luxe à la française", itemIds: pickSectionItems(12, 12).map((i) => i.id) })}
-                />
-                <div className="-mx-3 flex gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0" aria-hidden />
-                  {(luxeBrands.length > 0 ? luxeBrands : brands.slice(0, 6)).map((brand) => {
-                    const pseudo = pickPseudoFrame(`luxe-${brand.id}`);
-                    return (
-                      <button
-                        key={brand.id}
-                        type="button"
-                        onClick={() => applyBrandFilterFromSection(brand.id)}
-                        className="w-[72%] max-w-[320px] shrink-0 rounded-2xl text-left"
-                      >
-                        <div className={cn("relative aspect-[1.65] rounded-2xl bg-gradient-to-br p-4 text-zinc-900", pseudo.color)}>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-700">{pseudo.tag}</p>
-                          <p className="mt-2 text-[2.25rem] font-bold leading-tight text-zinc-900">{brand.label}</p>
-                          <span
-                            className="absolute bottom-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-zinc-800 shadow-sm"
-                            title="Ajouter aux favoris"
-                          >
-                            <Heart className="h-5 w-5" aria-hidden />
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  <div className="w-3 shrink-0" aria-hidden />
-                </div>
-              </section>
-              </div>
-
-              <div className="px-3 py-5">
-              <section className="space-y-3">
-                <SectionHeader
-                  title="Disponibles"
-                  onOpen={() =>
-                    setSectionFocus({
-                      label: "Disponibles",
-                      itemIds: availableCatalogItems.map((i) => i.id),
-                    })
-                  }
-                />
-                {visibleAvailableCatalogItems.length === 0 ? (
-                  <p className="px-1 py-4 text-sm text-zinc-500">Aucune pièce disponible.</p>
-                ) : (
-                  <>
-                    <ul className="grid grid-cols-2 gap-3">
-                      {visibleAvailableCatalogItems.map((item) => {
-                        const cover = coverUrlById[item.id];
-                        const brandName = (item.brand_label ?? "").trim();
-                        const price =
-                          typeof item.price_points === "number" && !Number.isNaN(item.price_points)
-                            ? `${item.price_points}`
-                            : "—";
-                        return (
-                          <li key={`available-${item.id}`}>
-                            <Link
-                              href={`/items/${item.id}?from=shop`}
-                              className="block"
-                              onClick={() => {
-                                persistShopCatalogStateForItemNavigation({
-                                  search,
-                                  sortMode,
-                                  heartsOnly,
-                                  disponiblesOnly,
-                                  filters: { ...filters },
-                                });
-                              }}
-                            >
-                              <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-zinc-200">
-                                {cover ? (
-                                  <RemoteCoverThumb
-                                    photoUrl={cover}
-                                    frameClassName="absolute inset-0 h-full w-full rounded-2xl"
-                                    className="rounded-2xl"
-                                    coverStyle={{
-                                      backgroundSize: "cover",
-                                      backgroundPosition: "center",
-                                      backgroundRepeat: "no-repeat",
-                                    }}
-                                  />
-                                ) : (
-                                  <SegnaSkeletonBlock
-                                    className="h-full w-full"
-                                    rounded="rounded-2xl"
-                                    shimmerDurationSec={shimmerDurationSec}
-                                  />
-                                )}
-                              </div>
-                              <div className="mt-2 space-y-1">
-                                <div className="flex items-start gap-2">
-                                  <h3 className="line-clamp-2 min-w-0 flex-1 text-left text-[14px] font-semibold leading-snug text-zinc-900">
-                                    {item.title}
-                                  </h3>
-                                  {cartItemIds.has(item.id) ? (
-                                    <span
-                                      className="mt-0.5 flex shrink-0 items-center justify-center text-[#5E3023]"
-                                      title="Dans votre panier"
-                                      role="img"
-                                      aria-label="Dans votre panier"
-                                    >
-                                      <ShoppingCart className="h-4 w-4" strokeWidth={2} aria-hidden />
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-sky-500 ring-1 ring-inset ring-black/5"
-                                      title="Disponible"
-                                      aria-label="Disponible"
-                                      role="img"
-                                    />
-                                  )}
-                                </div>
-                                {brandName ? (
-                                  <p className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                                    {brandName}
-                                  </p>
-                                ) : null}
-                                <div className="flex items-center gap-1.5 text-[13px] text-zinc-700">
-                                  <span className="tabular-nums font-medium">{price}</span>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={SEGNA_ICON} alt="" className="h-3.5 w-3.5 opacity-90" />
-                                </div>
-                              </div>
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {availableVisibleCount < availableCatalogItems.length ? (
-                      <button
-                        type="button"
-                        onClick={() => setAvailableVisibleCount((n) => Math.min(n + 40, availableCatalogItems.length))}
-                        className="mt-4 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-800"
-                      >
-                        Afficher plus
-                      </button>
-                    ) : null}
-                  </>
-                )}
-              </section>
-              </div>
-
+        <div className={cn("min-w-0 bg-white pb-28 pt-4", showHub ? "px-0" : "px-3")}>
+          {showHub ? (
+            <div className="divide-y-[1px] divide-zinc-200">
+              {boutiqueHubSectionOrder.map((sectionKey, index) => {
+                const inner = renderBoutiqueHubSection(sectionKey);
+                if (inner === null) return null;
+                const padGridDisponibles = sectionKey === "shop_system_available";
+                return (
+                  <div
+                    key={sectionKey}
+                    className={cn(
+                      "min-w-0",
+                      padGridDisponibles ? "px-3" : "px-0",
+                      index === 0 ? "pb-5 pt-2" : "py-5",
+                    )}
+                  >
+                    {inner}
+                  </div>
+                );
+              })}
             </div>
           ) : visibleGridItems.length === 0 ? (
             <p className="px-1 py-10 text-center text-sm text-zinc-500">
-              {sectionFocus ? `Aucune pièce disponible dans « ${sectionFocus.label} ».` : "Aucune pièce ne correspond à votre recherche."}
+              {mode === "section" && sectionPageTitle
+                ? `Aucune pièce dans « ${sectionPageTitle} » ne correspond à ces filtres.`
+                : "Aucune pièce ne correspond à votre recherche."}
             </p>
           ) : (
             <ul className="grid grid-cols-2 gap-3">
               {visibleGridItems.map((item) => {
-                const available = item.status === "available";
+                const canAddToCart = item.status === "available" || item.status === "in_cart";
+                const inCart = localCartItemIds.has(item.id);
+                const liked = likedSet.has(item.id);
                 const cover = coverUrlById[item.id];
-                const brandName = (item.brand_label ?? "").trim();
-                const price =
-                  typeof item.price_points === "number" && !Number.isNaN(item.price_points)
-                    ? `${item.price_points}`
-                    : "—";
                 return (
-                  <li key={item.id}>
-                    <Link
-                      href={`/items/${item.id}?from=shop`}
-                      className="block"
-                      onClick={() => {
+                  <li key={`${item.id}-${cover ?? "nocover"}`}>
+                    <ShopCatalogGridItemCard
+                      item={item}
+                      cover={cover}
+                      shimmerDurationSec={shimmerDurationSec}
+                      canAddToCart={canAddToCart}
+                      inCart={inCart}
+                      liked={liked}
+                      likeBusyIds={likeBusyIds}
+                      cartBusyIds={cartBusyIds}
+                      onToggleLike={handleToggleLike}
+                      onToggleCart={handleToggleCart}
+                      onNavigate={() =>
                         persistShopCatalogStateForItemNavigation({
                           search,
                           sortMode,
                           heartsOnly,
                           disponiblesOnly,
                           filters: { ...filters },
-                        });
-                      }}
-                    >
-                      <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-zinc-200">
-                        {cover ? (
-                          <RemoteCoverThumb
-                            photoUrl={cover}
-                            frameClassName="absolute inset-0 h-full w-full rounded-2xl"
-                            className="rounded-2xl"
-                            coverStyle={{
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                              backgroundRepeat: "no-repeat",
-                            }}
-                          />
-                        ) : (
-                          <SegnaSkeletonBlock
-                            className="h-full w-full"
-                            rounded="rounded-2xl"
-                            shimmerDurationSec={shimmerDurationSec}
-                          />
-                        )}
-                      </div>
-                      <div className="mt-2 space-y-1">
-                        <div className="flex items-start gap-2">
-                          <h3 className="line-clamp-2 min-w-0 flex-1 text-left text-[14px] font-semibold leading-snug text-zinc-900">
-                            {item.title}
-                          </h3>
-                          {cartItemIds.has(item.id) ? (
-                            <span
-                              className="mt-0.5 flex shrink-0 items-center justify-center text-[#5E3023]"
-                              title="Dans votre panier"
-                              role="img"
-                              aria-label="Dans votre panier"
-                            >
-                              <ShoppingCart className="h-4 w-4" strokeWidth={2} aria-hidden />
-                            </span>
-                          ) : (
-                            <span
-                              className={cn(
-                                "mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
-                                available ? "bg-sky-500" : "bg-zinc-300",
-                              )}
-                              title={available ? "Disponible" : "Indisponible"}
-                              aria-label={available ? "Disponible" : "Indisponible"}
-                              role="img"
-                            />
-                          )}
-                        </div>
-                        {brandName ? (
-                          <p className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                            {brandName}
-                          </p>
-                        ) : null}
-                        <div className="flex items-center gap-1.5 text-[13px] text-zinc-700">
-                          <span className="tabular-nums font-medium">{price}</span>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={SEGNA_ICON} alt="" className="h-3.5 w-3.5 opacity-90" />
-                        </div>
-                      </div>
-                    </Link>
+                        })
+                      }
+                    />
                   </li>
                 );
               })}
@@ -1454,15 +2502,9 @@ export function ShopCatalog({
       ) : null}
 
       {filterDetailSheet ? (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50" role="presentation">
-          <button
-            type="button"
-            className="min-h-0 flex-1 cursor-default border-0 bg-transparent p-0"
-            aria-label="Fermer"
-            onClick={() => setFilterDetailSheet(null)}
-          />
+        <div className="fixed inset-0 z-[60] flex flex-col justify-start bg-black/50" role="presentation">
           <div
-            className="flex max-h-[85dvh] flex-col rounded-t-3xl bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 text-zinc-900 shadow-[0_-8px_40px_rgba(0,0,0,0.2)]"
+            className="flex max-h-[85dvh] flex-col rounded-b-3xl bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-zinc-900 shadow-[0_8px_40px_rgba(0,0,0,0.2)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="shop-filter-detail-title"
@@ -1536,11 +2578,16 @@ export function ShopCatalog({
                       </p>
                       <div className={FILTER_DETAIL_ROW_SCROLL}>
                         <FilterDetailHChip
-                          label="Tous"
-                          active={filterSheetDraft.categoryId === null && categorySheetBrowseL1 === null}
+                          label="Toutes les sous-catégories"
+                          active={
+                            categorySheetBrowseL1 !== null &&
+                            filterSheetDraft.categoryId === categorySheetBrowseL1 &&
+                            categorySheetBrowseL2 === null
+                          }
                           onClick={() => {
-                            setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
-                            setCategorySheetBrowseL1(null);
+                            const l1 = categorySheetBrowseL1;
+                            if (!l1) return;
+                            setFilterSheetDraft((d) => ({ ...d, categoryId: l1 }));
                             setCategorySheetBrowseL2(null);
                           }}
                         />
@@ -1575,11 +2622,12 @@ export function ShopCatalog({
                           label="Tous"
                           active={
                             categorySheetBrowseL2 !== null &&
-                            filterSheetDraft.categoryId === null
+                            filterSheetDraft.categoryId === categorySheetBrowseL2
                           }
                           onClick={() => {
-                            setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
-                            setCategorySheetBrowseL2(null);
+                            const l2 = categorySheetBrowseL2;
+                            if (!l2) return;
+                            setFilterSheetDraft((d) => ({ ...d, categoryId: l2 }));
                           }}
                         />
                         {categoryChildrenOf(categorySheetBrowseL2).map((g) => (
@@ -1655,18 +2703,24 @@ export function ShopCatalog({
             <button
               type="button"
               onClick={applyFilterDetailSheet}
-              className="mt-2 w-full rounded-2xl bg-gradient-to-b from-[#5E3023] to-[#895737] py-4 text-center text-base font-semibold text-white shadow-sm"
+              className="mt-2 w-full rounded-2xl bg-zinc-900 py-4 text-center text-base font-semibold text-white shadow-sm"
             >
               Appliquer
             </button>
             <button
               type="button"
               onClick={resetFilterDetailSheet}
-              className="mt-2 pb-1 pt-2 text-center text-sm font-semibold text-zinc-700"
+              className="mt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 text-center text-sm font-semibold text-zinc-700"
             >
               Réinitialiser
             </button>
           </div>
+          <button
+            type="button"
+            className="min-h-0 flex-1 cursor-default border-0 bg-transparent p-0"
+            aria-label="Fermer"
+            onClick={() => setFilterDetailSheet(null)}
+          />
         </div>
       ) : null}
     </div>
@@ -1697,16 +2751,72 @@ function FilterModalRowChip({
   );
 }
 
-function ItemRailTwoUp({
-  title,
-  items,
-  cartItemIds,
-  searchState,
-  onOpenSection,
+/** Grille boutique : carte carrée (hors frames CMS mises en avant). */
+function ShopCatalogGridItemCard({
+  item,
+  cover,
+  shimmerDurationSec,
+  canAddToCart,
+  inCart,
+  liked,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  onNavigate,
 }: {
-  title: string;
-  items: ShopCatalogItem[];
+  item: ShopCatalogItem;
+  cover: string | undefined;
+  shimmerDurationSec: number;
+  canAddToCart: boolean;
+  inCart: boolean;
+  liked: boolean;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  onNavigate: () => void;
+}) {
+  return (
+    <Link href={`/items/${item.id}?from=shop`} className="block" onClick={onNavigate}>
+      <ShopPieceSquareCatalogCard
+        item={item}
+        cover={cover}
+        shimmerDurationSec={shimmerDurationSec}
+        canAddToCart={canAddToCart}
+        inCart={inCart}
+        liked={liked}
+        likeBusyIds={likeBusyIds}
+        cartBusyIds={cartBusyIds}
+        onToggleLike={onToggleLike}
+        onToggleCart={onToggleCart}
+        hideMetaUntilReady
+      />
+    </Link>
+  );
+}
+
+function ItemRailTwoUpCard({
+  item,
+  cover,
+  shimmerDurationSec,
+  cartItemIds,
+  likedSet,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  searchState,
+}: {
+  item: ShopCatalogItem;
+  cover: string | undefined;
+  shimmerDurationSec: number;
   cartItemIds: Set<string>;
+  likedSet: Set<string>;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
   searchState: {
     search: string;
     sortMode: SortMode;
@@ -1714,87 +2824,134 @@ function ItemRailTwoUp({
     disponiblesOnly: boolean;
     filters: ShopFilters;
   };
-  onOpenSection: (itemIds: string[]) => void;
+}) {
+  const inCart = cartItemIds.has(item.id);
+  const liked = likedSet.has(item.id);
+  const canAddToCart = item.status === "available" || item.status === "in_cart";
+
+  return (
+    <Link
+      href={`/items/${item.id}?from=shop`}
+      className="w-[48%] min-w-[170px] shrink-0"
+      onClick={() => {
+        persistShopCatalogStateForItemNavigation({
+          search: searchState.search,
+          sortMode: searchState.sortMode,
+          heartsOnly: searchState.heartsOnly,
+          disponiblesOnly: searchState.disponiblesOnly,
+          filters: { ...searchState.filters },
+        });
+      }}
+    >
+      <ShopPieceSquareCatalogCard
+        item={item}
+        cover={cover}
+        shimmerDurationSec={shimmerDurationSec}
+        canAddToCart={canAddToCart}
+        inCart={inCart}
+        liked={liked}
+        likeBusyIds={likeBusyIds}
+        cartBusyIds={cartBusyIds}
+        onToggleLike={onToggleLike}
+        onToggleCart={onToggleCart}
+        hideMetaUntilReady
+      />
+    </Link>
+  );
+}
+
+function ItemRailTwoUp({
+  title,
+  items,
+  sectionHref,
+  coverUrlById,
+  shimmerDurationSec,
+  cartItemIds,
+  likedSet,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  searchState,
+}: {
+  title: string;
+  items: ShopCatalogItem[];
+  sectionHref: string;
+  coverUrlById: Record<string, string>;
+  shimmerDurationSec: number;
+  cartItemIds: Set<string>;
+  likedSet: Set<string>;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  searchState: {
+    search: string;
+    sortMode: SortMode;
+    heartsOnly: boolean;
+    disponiblesOnly: boolean;
+    filters: ShopFilters;
+  };
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
 
   return (
     <section className="space-y-3">
-      <SectionHeader title={title} onOpen={() => onOpenSection(railItems.map((i) => i.id))} />
-      <div className="-mx-3 flex gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <SectionHeader title={title} sectionHref={sectionHref} />
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="w-3 shrink-0" aria-hidden />
-        {railItems.map((item, index) => {
-          const available = item.status === "available";
-          const brandName = (item.brand_label ?? "").trim();
-          const price = typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
-          const pseudo = pickPseudoFrame(`${title}-${item.id}-${index}`);
-          return (
-            <Link
-              key={`${title}-${item.id}-${index}`}
-              href={`/items/${item.id}?from=shop`}
-              className="w-[48%] min-w-[170px] shrink-0"
-              onClick={() => {
-                persistShopCatalogStateForItemNavigation({
-                  search: searchState.search,
-                  sortMode: searchState.sortMode,
-                  heartsOnly: searchState.heartsOnly,
-                  disponiblesOnly: searchState.disponiblesOnly,
-                  filters: { ...searchState.filters },
-                });
-              }}
-            >
-              <div className={cn("mb-2 aspect-square rounded-2xl bg-gradient-to-br p-3", pseudo.color)} />
-              <h3 className="line-clamp-2 text-left text-[14px] font-semibold leading-snug text-zinc-900">{item.title}</h3>
-              <div className="mt-0.5 flex min-w-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-[14px] text-zinc-700">
-                {cartItemIds.has(item.id) ? (
-                  <span
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#5E3023]/12 text-[#5E3023]"
-                    title="Dans votre panier"
-                    role="img"
-                    aria-label="Dans votre panier"
-                  >
-                    <ShoppingCart className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                  </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
-                      available ? "bg-sky-500" : "bg-zinc-300",
-                    )}
-                    title={available ? "Disponible" : "Indisponible"}
-                    aria-label={available ? "Disponible" : "Indisponible"}
-                    role="img"
-                  />
-                )}
-                <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                <span className="min-w-0 max-w-[8.5rem] truncate text-[14px] font-medium">{brandName || "Segna"}</span>
-                <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                <span className="tabular-nums font-medium">{price}</span>
-                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={SEGNA_ICON} alt="" className="h-5 w-5 opacity-95" />
-                </span>
-              </div>
-            </Link>
-          );
-        })}
+        {railItems.map((item, index) => (
+          <ItemRailTwoUpCard
+            key={`${title}-${item.id}-${index}-${coverUrlById[item.id] ?? "nocover"}`}
+            item={item}
+            cover={coverUrlById[item.id]}
+            shimmerDurationSec={shimmerDurationSec}
+            cartItemIds={cartItemIds}
+            likedSet={likedSet}
+            likeBusyIds={likeBusyIds}
+            cartBusyIds={cartBusyIds}
+            onToggleLike={onToggleLike}
+            onToggleCart={onToggleCart}
+            searchState={searchState}
+          />
+        ))}
         <div className="w-3 shrink-0" aria-hidden />
       </div>
     </section>
   );
 }
 
-function HubRail({
-  title,
-  items,
+function ShopCapsuleItemRefFrame({
+  rowId: _rowId,
+  item,
+  cover,
+  spotlight,
+  spotlightCoverUrl,
+  spotlightPhotoPosition,
+  shimmerDurationSec,
   cartItemIds,
+  likedSet,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
   searchState,
-  onOpenSection,
 }: {
-  title: string;
-  items: ShopCatalogItem[];
+  rowId: string;
+  item: ShopCatalogItem;
+  cover: string | undefined;
+  spotlight: ShopCmsPieceSpotlight | null;
+  /** Photo CMS panneau droit (si uploadée sur la frame). */
+  spotlightCoverUrl?: string;
+  spotlightPhotoPosition?: CmsPhotoPosition;
+  shimmerDurationSec: number;
   cartItemIds: Set<string>;
+  likedSet: Set<string>;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
   searchState: {
     search: string;
     sortMode: SortMode;
@@ -1802,27 +2959,311 @@ function HubRail({
     disponiblesOnly: boolean;
     filters: ShopFilters;
   };
-  onOpenSection: (itemIds: string[]) => void;
+}) {
+  const inCart = cartItemIds.has(item.id);
+  const liked = likedSet.has(item.id);
+  const canAddToCart = item.status === "available" || item.status === "in_cart";
+
+  const rightCover = spotlight ? (spotlightCoverUrl ?? cover) : cover;
+  const useCmsSpotlightImage = Boolean(spotlight && spotlightCoverUrl?.trim());
+
+  const cardProps = {
+    item,
+    cover: rightCover,
+    shimmerDurationSec,
+    canAddToCart,
+    inCart,
+    liked,
+    likeBusyIds,
+    cartBusyIds,
+    onToggleLike,
+    onToggleCart,
+    hideMetaUntilReady: true as const,
+  };
+
+  return (
+    <Link
+      href={`/items/${item.id}?from=shop`}
+      className={cn(
+        "shrink-0 snap-start",
+        spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
+      )}
+      onClick={() => {
+        persistShopCatalogStateForItemNavigation({
+          search: searchState.search,
+          sortMode: searchState.sortMode,
+          heartsOnly: searchState.heartsOnly,
+          disponiblesOnly: searchState.disponiblesOnly,
+          filters: { ...searchState.filters },
+        });
+      }}
+    >
+      {spotlight ? (
+        <ShopPieceSplitCard
+          {...cardProps}
+          spotlight={spotlight}
+          useCmsSpotlightImage={useCmsSpotlightImage}
+          spotlightPhotoPosition={spotlightPhotoPosition}
+        />
+      ) : (
+        <ShopPieceSquareCatalogCard {...cardProps} />
+      )}
+    </Link>
+  );
+}
+
+function ShopCapsuleAtLaUneSlot({
+  row,
+  categories,
+  brands,
+  onCategoryFilter,
+  onBrandFilter,
+  itemById,
+  coverUrlById,
+  shimmerDurationSec,
+  cartItemIds,
+  likedSet,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  searchState,
+}: {
+  row: CmsFrameRow;
+  categories: CategoryFilterOption[];
+  brands: FilterOption[];
+  onCategoryFilter: (id: string) => void;
+  onBrandFilter: (id: string) => void;
+  itemById: Map<string, ShopCatalogItem>;
+  coverUrlById: Record<string, string>;
+  shimmerDurationSec: number;
+  cartItemIds: Set<string>;
+  likedSet: Set<string>;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  searchState: {
+    search: string;
+    sortMode: SortMode;
+    heartsOnly: boolean;
+    disponiblesOnly: boolean;
+    filters: ShopFilters;
+  };
+}) {
+  const p = row.payload;
+
+  if (row.frame_type === "category_capsule") {
+    return (
+      <div className="shrink-0 snap-start">
+        <CmsFrameItem row={row} />
+      </div>
+    );
+  }
+
+  if (row.frame_type === "shop_link_card") {
+    return (
+      <div className="w-[90%] max-w-[410px] shrink-0 snap-start">
+        <ShopWideLinkCardBlock
+          payload={p}
+          aspectClassName="aspect-[2.32]"
+          wrapperClassName="block w-full rounded-2xl"
+          onNavigate={() =>
+            persistShopCatalogStateForItemNavigation({
+              search: searchState.search,
+              sortMode: searchState.sortMode,
+              heartsOnly: searchState.heartsOnly,
+              disponiblesOnly: searchState.disponiblesOnly,
+              filters: { ...searchState.filters },
+            })
+          }
+        />
+      </div>
+    );
+  }
+
+  if (row.frame_type === "shop_category_ref") {
+    const id = typeof p.category_id === "string" ? p.category_id.trim() : "";
+    const deptSlug = id ? departmentSlugForCategoryId(id, categories) : null;
+    const cat = id ? categories.find((c) => c.id === id) : undefined;
+    const label = cat?.label ?? "Catégorie";
+    const pseudo = pickPseudoFrame(`cms-cat-${row.id}`);
+    const card = (
+      <div
+        className={cn(
+          "flex aspect-[2.32] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
+          pseudo.color,
+        )}
+      >
+        <p className="text-[1.65rem] font-bold leading-tight text-zinc-900">{label}</p>
+      </div>
+    );
+    const persist = () =>
+      persistShopCatalogStateForItemNavigation({
+        search: searchState.search,
+        sortMode: searchState.sortMode,
+        heartsOnly: searchState.heartsOnly,
+        disponiblesOnly: searchState.disponiblesOnly,
+        filters: { ...searchState.filters },
+      });
+    if (deptSlug) {
+      return (
+        <Link
+          href={`/shop/${deptSlug}`}
+          className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
+          onClick={persist}
+        >
+          {card}
+        </Link>
+      );
+    }
+    return (
+                  <button
+                    type="button"
+        onClick={() => {
+          if (id) onCategoryFilter(id);
+        }}
+        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
+      >
+        {card}
+                  </button>
+    );
+  }
+
+  if (row.frame_type === "shop_brand_ref") {
+    const id = typeof p.brand_id === "string" ? p.brand_id.trim() : "";
+    const brand = id ? brands.find((b) => b.id === id) : undefined;
+    const label = brand?.label ?? "Marque";
+    const pseudo = pickPseudoFrame(`cms-brand-${row.id}`);
+    return (
+                    <button
+                      type="button"
+        onClick={() => {
+          if (id) onBrandFilter(id);
+        }}
+        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
+      >
+        <div
+                      className={cn(
+            "flex aspect-[2.32] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
+            pseudo.color,
+                      )}
+                    >
+          <p className="text-[1.65rem] font-bold leading-tight text-zinc-900">{label}</p>
+                </div>
+      </button>
+    );
+  }
+
+  if (row.frame_type === "shop_item_ref") {
+    const id = typeof p.item_id === "string" ? p.item_id.trim() : "";
+    const item = id ? itemById.get(id) : undefined;
+    if (!item) return null;
+    return (
+      <ShopCapsuleItemRefFrame
+        key={`${row.id}-${item.id}-${coverUrlById[item.id] ?? "nocover"}`}
+        rowId={row.id}
+        item={item}
+        cover={coverUrlById[item.id]}
+        spotlight={parseCmsPieceSpotlightFromPayload(p)}
+        spotlightCoverUrl={itemSpotlightCoverUrlFromPayload(p)}
+        spotlightPhotoPosition={itemSpotlightPhotoPositionFromPayload(p)}
+        shimmerDurationSec={shimmerDurationSec}
+        cartItemIds={cartItemIds}
+        likedSet={likedSet}
+        likeBusyIds={likeBusyIds}
+        cartBusyIds={cartBusyIds}
+        onToggleLike={onToggleLike}
+        onToggleCart={onToggleCart}
+        searchState={searchState}
+      />
+    );
+  }
+
+  return null;
+}
+
+
+function HubRail({
+  title,
+  items,
+  itemSpotlights,
+  spotlightCoverUrls,
+  spotlightPhotoPositions,
+  sectionHref,
+  coverUrlById,
+  shimmerDurationSec,
+  cartItemIds,
+  likedSet,
+  likeBusyIds,
+  cartBusyIds,
+  onToggleLike,
+  onToggleCart,
+  searchState,
+}: {
+  title: string;
+  items: ShopCatalogItem[];
+  /** Aligné sur `items` ; null / absent = cartes auto (repli catalogue). */
+  itemSpotlights?: (ShopCmsPieceSpotlight | null)[] | null;
+  /** Photo CMS panneau droit par entrée (même longueur que `items` quand CMS). */
+  spotlightCoverUrls?: (string | undefined)[] | null;
+  /** Cadrage CMS panneau droit (offset % / zoom), aligné sur `items`. */
+  spotlightPhotoPositions?: CmsPhotoPosition[] | null;
+  sectionHref?: string;
+  coverUrlById: Record<string, string>;
+  shimmerDurationSec: number;
+  cartItemIds: Set<string>;
+  likedSet: Set<string>;
+  likeBusyIds: Set<string>;
+  cartBusyIds: Set<string>;
+  onToggleLike: (itemId: string) => Promise<void>;
+  onToggleCart: (itemId: string) => Promise<void>;
+  searchState: {
+    search: string;
+    sortMode: SortMode;
+    heartsOnly: boolean;
+    disponiblesOnly: boolean;
+    filters: ShopFilters;
+  };
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
 
   return (
-    <section className="space-y-1.5">
-      <SectionHeader title={title} onOpen={() => onOpenSection(railItems.map((i) => i.id))} />
-      <div className="-mx-3 flex gap-3 overflow-x-auto px-0 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <section className="space-y-3">
+      <SectionHeader title={title} sectionHref={sectionHref} />
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="w-3 shrink-0" aria-hidden />
         {railItems.map((item, index) => {
-          const pseudo = pickPseudoFrame(`${title}-${item.id}-${index}`);
-          const available = item.status === "available";
-          const brandName = (item.brand_label ?? "").trim();
-          const brandMeta = brandName || "Segna";
-          const price = typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
+          const inCart = cartItemIds.has(item.id);
+          const liked = likedSet.has(item.id);
+          const canAddToCart = item.status === "available" || item.status === "in_cart";
+          const spotlight = itemSpotlights?.[index] ?? null;
+          const catalogCover = coverUrlById[item.id];
+          const cmsSpotUrl = spotlightCoverUrls?.[index]?.trim();
+          const rightCover = spotlight ? (cmsSpotUrl || catalogCover) : catalogCover;
+          const useCmsSpotlightImage = Boolean(spotlight && cmsSpotUrl);
+          const railCardProps = {
+            item,
+            cover: rightCover,
+            shimmerDurationSec,
+            canAddToCart,
+            inCart,
+            liked,
+            likeBusyIds,
+            cartBusyIds,
+            onToggleLike,
+            onToggleCart,
+            hideMetaUntilReady: true as const,
+          };
           return (
             <Link
               key={`${title}-${item.id}-${index}`}
               href={`/items/${item.id}?from=shop`}
-              className="w-[72%] max-w-[320px] shrink-0"
+              className={cn(
+                "shrink-0",
+                spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
+              )}
               onClick={() => {
                 persistShopCatalogStateForItemNavigation({
                   search: searchState.search,
@@ -1833,59 +3274,16 @@ function HubRail({
                 });
               }}
             >
-              <div className={cn("relative mb-2 aspect-[1.65] overflow-hidden rounded-2xl bg-gradient-to-br p-3 text-zinc-900", pseudo.color)}>
-                <p className="text-xs font-semibold uppercase tracking-wide">{pseudo.tag}</p>
-                <p className="mt-2 text-lg font-bold leading-tight">{item.title}</p>
-                <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
-                  <span
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/92 text-zinc-800 shadow-sm"
-                    title="Ajouter aux favoris"
-                  >
-                    <Heart className="h-4 w-4" aria-hidden />
-                  </span>
-                  {available ? (
-                    <span
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-zinc-900 shadow-sm"
-                      title="Ajouter au panier"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden />
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="space-y-0.5">
-                <h3 className="line-clamp-1 text-left text-[14px] font-semibold leading-snug text-zinc-900">{item.title}</h3>
-                <div className="flex min-w-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-[14px] text-zinc-700">
-                {cartItemIds.has(item.id) ? (
-                  <span
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#5E3023]/12 text-[#5E3023]"
-                    title="Dans votre panier"
-                    role="img"
-                    aria-label="Dans votre panier"
-                  >
-                    <ShoppingCart className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                  </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-inset ring-black/5",
-                      available ? "bg-sky-500" : "bg-zinc-300",
-                    )}
-                    title={available ? "Disponible" : "Indisponible"}
-                    aria-label={available ? "Disponible" : "Indisponible"}
-                    role="img"
-                  />
-                )}
-                  <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                  <span className="min-w-0 max-w-[8.5rem] truncate text-[14px] font-medium">{brandMeta}</span>
-                  <span className="text-[16px] font-semibold leading-none text-zinc-500">·</span>
-                  <span className="tabular-nums font-medium">{price}</span>
-                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={SEGNA_ICON} alt="" className="h-5 w-5 opacity-95" />
-                  </span>
-                </div>
-              </div>
+              {spotlight ? (
+                <ShopPieceSplitCard
+                  {...railCardProps}
+                  spotlight={spotlight}
+                  useCmsSpotlightImage={useCmsSpotlightImage}
+                  spotlightPhotoPosition={spotlightPhotoPositions?.[index] ?? null}
+                />
+              ) : (
+                <ShopPieceSquareCatalogCard {...railCardProps} />
+              )}
             </Link>
           );
         })}
@@ -1895,18 +3293,32 @@ function HubRail({
   );
 }
 
-function SectionHeader({ title, onOpen }: { title: string; onOpen: () => void }) {
+function SectionHeader({
+  title,
+  sectionHref,
+  showAction = true,
+  /** Faux si le parent applique déjà le padding horizontal (ex. section Disponibles). */
+  titleInset = true,
+}: {
+  title: string;
+  /** Page liste /shop/[slug] */
+  sectionHref?: string;
+  showAction?: boolean;
+  titleInset?: boolean;
+}) {
+  /** Même hauteur de ligne qu’avec la flèche (`mt-1` + `h-10` → 2,75rem) pour un écart titre → frames identique avec ou sans lien. */
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className={cn("flex min-h-11 items-start justify-between gap-3", titleInset && "px-3")}>
       <h2 className={cn(playfairDisplay.className, sectionTitleClass)}>{title}</h2>
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`Voir la sélection : ${title}`}
-        className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-800 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
-      >
-        <ArrowRight className="h-5 w-5" aria-hidden />
-      </button>
+      {showAction && sectionHref ? (
+        <Link
+          href={sectionHref}
+          aria-label={`Voir la sélection : ${title}`}
+          className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-800 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
+        >
+          <ArrowRight className="h-5 w-5" aria-hidden />
+        </Link>
+      ) : null}
     </div>
   );
 }

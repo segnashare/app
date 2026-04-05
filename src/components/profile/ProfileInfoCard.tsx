@@ -1,7 +1,7 @@
 "use client";
 
 import { Montserrat } from "next/font/google";
-import { Briefcase, Cigarette, Dumbbell, Home, Moon, Wine } from "lucide-react";
+import { Briefcase, Cigarette, Dumbbell, Moon, Wine } from "lucide-react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -146,15 +146,7 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
         </div>
       </div>
 
-      {/* Ligne 2 : ville (user_profiles.city) avec icône maison */}
-      {data.city ? (
-        <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
-          <Home className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
-          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.city}</span>
-        </div>
-      ) : null}
-
-      {/* Ligne 3 : icône travail + profession */}
+      {/* Ligne 2 : icône travail + profession */}
       {data.profession ? (
         <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
           <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
@@ -162,7 +154,7 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
         </div>
       ) : null}
 
-      {/* Ligne 4 : bande Instagram (icône + @handle ou @display_name) */}
+      {/* Ligne 3 : bande Instagram (icône + @handle ou @display_name) */}
       <div className="flex items-center gap-4 border-t border-zinc-100 pt-4 pb-2">
         <img src={INSTAGRAM_ICON_PATH} alt="" className="h-6 w-6 shrink-0" aria-hidden />
         <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>

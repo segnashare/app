@@ -88,6 +88,7 @@ type ItemRow = {
   price_points: number | null;
   status: string | null;
   photos?: unknown | null;
+  item_custom_brand_label?: string | null;
   item_brands?: { label?: string | null } | null;
 };
 
@@ -147,7 +148,7 @@ export async function fetchActiveCartLinesForUser(
   if (itemIds.length > 0) {
     const itemsRes = await supabase
       .from("items")
-      .select("id,title,description,price_points,status,photos,item_brands(label)")
+      .select("id,title,description,price_points,status,photos,item_custom_brand_label,item_brands(label)")
       .in("id", itemIds);
     itemsMap = new Map((itemsRes.data ?? []).map((item: ItemRow) => [item.id, item]));
   }
@@ -178,7 +179,10 @@ export async function fetchActiveCartLinesForUser(
       id: line.id,
       itemId: line.item_id,
       itemName: item?.title?.trim() || "Pièce sans titre",
-      brand: item?.item_brands?.label?.trim() || null,
+      brand:
+        (typeof item?.item_custom_brand_label === "string" && item.item_custom_brand_label.trim()) ||
+        item?.item_brands?.label?.trim() ||
+        null,
       description: item?.description?.trim() || null,
       pricePoints: Number(item?.price_points ?? 0),
       status: mapCartLineStatus(line.status, item?.status ?? null),

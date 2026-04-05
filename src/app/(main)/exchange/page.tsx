@@ -1,4 +1,5 @@
 import { ExchangeCartSection, type CartLine, type CartLineStatus } from "@/components/exchange/ExchangeCartSection";
+import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
@@ -6,6 +7,7 @@ import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLends
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
+import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -179,7 +181,7 @@ export default async function ExchangePage() {
     supabase
       .from("items")
       .select(
-        "id,title,description,price_points,status,photos,item_brand_id,item_brands(label), item_intake(listing_stage, fulfillment_stage, updated_at, metadata)",
+        "id,title,description,price_points,status,photos,item_brand_id,item_custom_brand_label,item_brands(label), item_intake(listing_stage, fulfillment_stage, updated_at, metadata)",
       )
       .eq("owner_user_id", userId)
       .is("deleted_at", null)
@@ -284,6 +286,7 @@ export default async function ExchangePage() {
       price_points: number | null;
       status: string | null;
       photos?: unknown | null;
+      item_custom_brand_label?: string | null;
       item_brands?: { label?: string | null } | null;
       item_intake?:
         | {
@@ -301,7 +304,10 @@ export default async function ExchangePage() {
         | null;
     }) => {
     const photoData = resolveItemPhotoData(item.photos ?? null);
-    const brand = item.item_brands?.label?.trim() || null;
+    const brand =
+      (typeof item.item_custom_brand_label === "string" && item.item_custom_brand_label.trim()) ||
+      item.item_brands?.label?.trim() ||
+      null;
     const rawIntake = item.item_intake;
       const intakeRow = Array.isArray(rawIntake)
         ? [...rawIntake]
@@ -438,6 +444,9 @@ export default async function ExchangePage() {
     includedLendsLimit > 0 &&
     validatedLendsCount >= includedLendsLimit;
 
+  /** Bloc promo — partie Échange (Panier = offres dans CartScreen uniquement). */
+  const commercePromoFrames = await fetchCmsSectionFramesResolved(supabase, "commerce_promo_ad");
+
   return (
     <>
       <ExchangeLendsDetailPrefetch itemIds={lends.map((l) => l.id)} />
@@ -454,6 +463,7 @@ export default async function ExchangePage() {
 
       <MainContent className="flex flex-col space-y-0 bg-zinc-100 px-0 pb-0 pt-0">
         <div className="space-y-[4.5px]">
+          <ExchangeCommercePromo rows={commercePromoFrames} />
           <ExchangeCartSection initialLines={cartLines} cartStatusLabel={cartStatusLabel} membershipLabel={membershipLabel} />
           <ExchangeLendsSection
             lends={lends}

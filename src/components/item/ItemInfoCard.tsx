@@ -91,13 +91,15 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     ),
   });
 
-  // 2. Taille (« Taille M »)
-  if (data.size && data.size !== "-") {
+  // 2. Taille (« Taille M » ou « Taille unique » si absent)
+  {
+    const trimmedSize = data.size?.trim() ?? "";
+    const hasSize = trimmedSize !== "" && trimmedSize !== "-";
     firstLineItems.push({
       key: "size",
       content: (
         <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900")}>
-          {formatItemSizeLabel(data.size)}
+          {hasSize ? formatItemSizeLabel(trimmedSize) : "Taille unique"}
         </span>
       ),
     });

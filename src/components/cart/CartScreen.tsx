@@ -15,8 +15,10 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
+import { CmsFrameItem } from "@/components/cms/CmsSectionBlocks";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -61,6 +63,8 @@ type CartScreenProps = {
   insuranceEuros: number;
   showSubscriptionUpsell: boolean;
   subscriptionUpsellHref: string;
+  /** CMS — partie Panier du bloc promo (« Des offres pour vous ») */
+  initialCmsCartOffers?: CmsFrameRow[];
 };
 
 const OFFERS: OfferCardData[] = [
@@ -151,6 +155,7 @@ export function CartScreen({
   insuranceEuros,
   showSubscriptionUpsell,
   subscriptionUpsellHref,
+  initialCmsCartOffers = [],
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
@@ -518,20 +523,22 @@ export function CartScreen({
         <section className="bg-white px-5 py-4">
           <h2 className="text-[28px] font-bold leading-[1.1] tracking-tight text-zinc-900">Des offres pour vous</h2>
           <div className="-mx-5 mt-3 flex gap-3 overflow-x-auto overflow-y-hidden pb-1 touch-pan-x px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {OFFERS.map((offer) => (
-              <Link
-                key={offer.id}
-                href={offer.href}
-                className={cn(
-                  "w-[min(240px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl border border-zinc-200/80 bg-gradient-to-br p-4 shadow-sm",
-                  offer.accent,
-                )}
-              >
-                <p className="text-[15px] font-semibold leading-snug text-zinc-900">{offer.title}</p>
-                <p className="mt-1 text-[13px] leading-snug text-zinc-600">{offer.subtitle}</p>
-                <span className="mt-3 inline-flex text-xs font-semibold text-[#5E3023]">Découvrir →</span>
-              </Link>
-            ))}
+            {initialCmsCartOffers.length > 0
+              ? initialCmsCartOffers.map((row) => <CmsFrameItem key={row.id} row={row} />)
+              : OFFERS.map((offer) => (
+                  <Link
+                    key={offer.id}
+                    href={offer.href}
+                    className={cn(
+                      "w-[min(240px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl border border-zinc-200/80 bg-gradient-to-br p-4 shadow-sm",
+                      offer.accent,
+                    )}
+                  >
+                    <p className="text-[15px] font-semibold leading-snug text-zinc-900">{offer.title}</p>
+                    <p className="mt-1 text-[13px] leading-snug text-zinc-600">{offer.subtitle}</p>
+                    <span className="mt-3 inline-flex text-xs font-semibold text-[#5E3023]">Découvrir →</span>
+                  </Link>
+                ))}
           </div>
         </section>
 

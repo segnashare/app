@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { CartScreen } from "@/components/cart/CartScreen";
 import { fetchActiveCartLinesForUser, fetchActiveCartSummaryForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
+import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 
@@ -34,9 +35,10 @@ export default async function CartPage() {
   );
   const availablePoints = Math.max(0, totalPoints - blockedPoints);
 
-  const [cartLinesBase, cartSummary] = await Promise.all([
+  const [cartLinesBase, cartSummary, cmsCartOffers] = await Promise.all([
     fetchActiveCartLinesForUser(supabase, userId),
     fetchActiveCartSummaryForUser(supabase, userId),
+    fetchCmsSectionFramesResolved(supabase, "cart_offers"),
   ]);
 
   const itemIdsForComp = [...new Set(cartLinesBase.map((l) => l.itemId))];
@@ -63,6 +65,7 @@ export default async function CartPage() {
         insuranceEuros={INSURANCE_EUROS}
         showSubscriptionUpsell={showSubscriptionUpsell}
         subscriptionUpsellHref={subscriptionUpsellHref}
+        initialCmsCartOffers={cmsCartOffers}
       />
     </main>
   );

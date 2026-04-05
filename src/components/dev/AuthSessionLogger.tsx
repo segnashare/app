@@ -24,23 +24,30 @@ export function AuthSessionLogger() {
     const logEnabled = process.env.NODE_ENV === "development";
 
     const logCurrentUser = async (source: string) => {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
 
-      if (logEnabled && error) {
-        console.info("[auth][client]", { source, pathname, error: error.message });
-        return;
-      }
+        if (logEnabled && error) {
+          console.info("[auth][client]", { source, pathname, error: error.message });
+          return;
+        }
 
-      if (logEnabled) {
-        console.info("[auth][client]", {
-          source,
-          pathname,
-          userId: user?.id ?? null,
-          email: user?.email ?? null,
-        });
+        if (logEnabled) {
+          console.info("[auth][client]", {
+            source,
+            pathname,
+            userId: user?.id ?? null,
+            email: user?.email ?? null,
+          });
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (logEnabled) {
+          console.warn("[auth][client]", { source, pathname, error: message, note: "getUser rejected (often offline)" });
+        }
       }
     };
 
@@ -77,33 +84,46 @@ export function AuthSessionLogger() {
       }
 
       void (async () => {
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
+        try {
+          const {
+            data: { user },
+            error,
+          } = await supabase.auth.getUser();
 
-        if (logEnabled && error) {
-          console.info("[auth][client]", {
-            source: "auth-state-change",
-            event,
-            pathname,
-            sessionUserId: session?.user?.id ?? null,
-            error: error.message,
-          });
-          return;
-        }
+          if (logEnabled && error) {
+            console.info("[auth][client]", {
+              source: "auth-state-change",
+              event,
+              pathname,
+              sessionUserId: session?.user?.id ?? null,
+              error: error.message,
+            });
+            return;
+          }
 
-        if (logEnabled) {
-          console.info("[auth][client]", {
-            source: "auth-state-change",
-            event,
-            pathname,
-            sessionUserId: session?.user?.id ?? null,
-            sessionEmail: session?.user?.email ?? null,
-            validatedUserId: user?.id ?? null,
-            validatedEmail: user?.email ?? null,
-            mismatch: (session?.user?.id ?? null) !== (user?.id ?? null),
-          });
+          if (logEnabled) {
+            console.info("[auth][client]", {
+              source: "auth-state-change",
+              event,
+              pathname,
+              sessionUserId: session?.user?.id ?? null,
+              sessionEmail: session?.user?.email ?? null,
+              validatedUserId: user?.id ?? null,
+              validatedEmail: user?.email ?? null,
+              mismatch: (session?.user?.id ?? null) !== (user?.id ?? null),
+            });
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (logEnabled) {
+            console.warn("[auth][client]", {
+              source: "auth-state-change",
+              event,
+              pathname,
+              error: message,
+              note: "getUser rejected (often offline)",
+            });
+          }
         }
       })();
     });

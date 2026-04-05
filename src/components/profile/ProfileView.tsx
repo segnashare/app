@@ -84,6 +84,22 @@ type ProfileViewProps = {
 
 const LOOK_STAGE_RATIO = 1;
 
+/** Squelette page profil (aligné chargement fiche article). */
+export function ProfileViewLoadingSkeleton() {
+  return (
+    <div className="space-y-4 bg-white py-6">
+      <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
+        <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
+      </div>
+      <div className="mx-auto w-full max-w-[430px] space-y-3 rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <SegnaSkeletonBlock className="h-8 w-48" rounded="rounded-lg" />
+        <SegnaSkeletonBlock className="h-4 w-full max-w-[90%]" rounded="rounded-md" />
+        <SegnaSkeletonBlock className="h-4 w-full max-w-[70%]" rounded="rounded-md" />
+      </div>
+    </div>
+  );
+}
+
 function FrameLikeButton({
   isLiked,
   onToggle,
@@ -125,18 +141,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
   }
 
   if (isLoading) {
-    return (
-      <div className="space-y-4 bg-white py-6">
-        <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
-          <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
-        </div>
-        <div className="mx-auto w-full max-w-[430px] space-y-3 rounded-2xl border border-zinc-200 p-6 shadow-sm">
-          <SegnaSkeletonBlock className="h-8 w-48" rounded="rounded-lg" />
-          <SegnaSkeletonBlock className="h-4 w-full max-w-[90%]" rounded="rounded-md" />
-          <SegnaSkeletonBlock className="h-4 w-full max-w-[70%]" rounded="rounded-md" />
-        </div>
-      </div>
-    );
+    return <ProfileViewLoadingSkeleton />;
   }
 
   if (!data) {
@@ -147,7 +152,6 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
     );
   }
 
-  const visibleInfoItems = data.infoItems.filter((item) => item.visibility === "visible");
   const hasInsights = data.insights.some((i) => i.prompt.trim() || i.response.trim());
   const hasBrands = data.brands.length > 0;
   const hasLentPieces = data.lentPieces.length > 0;

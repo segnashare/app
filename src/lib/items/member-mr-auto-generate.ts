@@ -21,6 +21,15 @@ import { patchItemIntakeMondialRelayMetadata } from "@/lib/items/item-intake-mr-
 const DEFAULT_MAX_RELAYS = 25;
 const DELAY_MS_BETWEEN_RELAY_ATTEMPTS = 400;
 
+/** Logs serveur (terminal `next dev` ou logs Vercel). Désactivable : `MONDR_MR_DEBUG_LOG=0`. Forcer : `MONDR_MR_DEBUG_LOG=1`. */
+function mrAutoLog(phase: string, data: Record<string, unknown>): void {
+  const forcedOff = process.env.MONDR_MR_DEBUG_LOG === "0";
+  const forcedOn = process.env.MONDR_MR_DEBUG_LOG === "1";
+  if (forcedOff) return;
+  if (!forcedOn && process.env.NODE_ENV === "production") return;
+  console.log(`[mr-auto-generate] ${phase}`, data);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -109,6 +118,12 @@ export async function runMemberMrAutoGenerate(
     return { ok: false, error: "Entre 1 et 5 pièces requises.", status: 400 };
   }
 
+  mrAutoLog("start", {
+    userId: params.userId,
+    itemIds: sortedIds,
+    pieceCount: sortedIds.length,
+  });
+
   const config = getMondialRelayConnectEnv();
   if (!config) {
     return {
@@ -191,7 +206,17 @@ export async function runMemberMrAutoGenerate(
   const postcode = addr.sender_postcode.trim();
   const country = (addr.sender_country?.trim().toUpperCase() || "FR").slice(0, 2);
 
+  mrAutoLog("parcel_sender", {
+    country,
+    postcode,
+    city: addr.sender_city?.trim() ?? "",
+    parcelWeightG: parcel.weightG,
+    parcelDimsCm: `${parcel.lengthCm}x${parcel.widthCm}x${parcel.depthCm}`,
+    valueEur: parcel.valueEur,
+  });
+
   let points: Awaited<ReturnType<typeof searchRelayPointsSoap>>["points"];
+  let pointsAfterSoap: number | null = null;
   try {
     const res = await searchRelayPointsSoap(soap, {
       country,
@@ -200,6 +225,11 @@ export async function runMemberMrAutoGenerate(
       action: "24R",
     });
     points = res.points;
+    pointsAfterSoap = points.length;
+    mrAutoLog("soap_search_done", {
+      relaysReturnedBySoap: points.length,
+      sampleCodes: points.slice(0, 8).map((p) => String(p.code ?? "").trim()).filter(Boolean),
+    });
     const hub = getSegnaRecipientFromEnv();
     if (hub && points.length > 0) {
       const { kept } = await filterRelayHitsByPlanTri(soap, points, {
@@ -207,10 +237,19 @@ export async function runMemberMrAutoGenerate(
         destPostcode: hub.PostCode,
         destCountry: hub.CountryCode,
       });
+      const before = points.length;
       points = kept;
+      mrAutoLog("plan_tri_filter", {
+        hubDestPostcode: hub.PostCode,
+        hubDestCountry: hub.CountryCode,
+        before,
+        after: kept.length,
+        removed: before - kept.length,
+      });
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur recherche relais";
+    mrAutoLog("soap_search_error", { message: msg });
     await recordMemberMrFailure(service, sortedIds, msg);
     return { ok: false, error: msg.slice(0, 200), status: 502 };
   }
@@ -229,6 +268,13 @@ export async function runMemberMrAutoGenerate(
     ),
   );
 
+  mrAutoLog("relay_pool", {
+    pointsAvailable: points.length,
+    pointsAfterSoapSearch: pointsAfterSoap,
+    maxRelaysCap: maxRelays,
+    delayMsBetweenAttempts: DELAY_MS_BETWEEN_RELAY_ATTEMPTS,
+  });
+
   type RelayCand = { code: string; label: string };
   const seen = new Set<string>();
   const candidates: RelayCand[] = [];
@@ -243,9 +289,16 @@ export async function runMemberMrAutoGenerate(
 
   if (candidates.length === 0) {
     const msg = "Aucun point relais exploitable après filtrage.";
+    mrAutoLog("no_candidates", { message: msg });
     await recordMemberMrFailure(service, sortedIds, msg);
     return { ok: false, error: msg, status: 422 };
   }
+
+  mrAutoLog("candidates_ready", {
+    count: candidates.length,
+    codes: candidates.map((c) => c.code),
+    labels: candidates.map((c) => c.label),
+  });
 
   const sender: MrPerson = {
     Firstname: fn,
@@ -273,6 +326,14 @@ export async function runMemberMrAutoGenerate(
     if (i > 0) {
       await sleep(DELAY_MS_BETWEEN_RELAY_ATTEMPTS);
     }
+
+    mrAutoLog("connect_attempt_start", {
+      attemptIndex: i + 1,
+      totalCandidates: candidates.length,
+      relayCode: cand.code,
+      relayLabel: cand.label,
+      singleItem: single,
+    });
 
     const orderNoSuffix = single
       ? i > 0
@@ -306,13 +367,38 @@ export async function runMemberMrAutoGenerate(
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erreur étiquette";
       attempts.push({ code: cand.code, error: msg.slice(0, 200) });
+      mrAutoLog("connect_attempt_throw", {
+        relayCode: cand.code,
+        attempt: i + 1,
+        error: msg.slice(0, 300),
+      });
       continue;
     }
 
     if (!result.ok) {
       attempts.push({ code: cand.code, error: result.message.slice(0, 200) });
+      let rawPreview: string | undefined;
+      if ("raw" in result && result.raw != null) {
+        try {
+          rawPreview = JSON.stringify(result.raw).slice(0, 900);
+        } catch {
+          rawPreview = "[raw non sérialisable]";
+        }
+      }
+      mrAutoLog("connect_attempt_mr_error", {
+        relayCode: cand.code,
+        attempt: i + 1,
+        mrMessage: result.message.slice(0, 400),
+        ...(rawPreview ? { mrResponseJsonPreview: rawPreview } : {}),
+      });
       continue;
     }
+
+    mrAutoLog("connect_attempt_ok", {
+      relayCode: cand.code,
+      attempt: i + 1,
+      numeroSuivi: result.sendingNumber,
+    });
 
     const metaNotes = single
       ? [
@@ -364,6 +450,13 @@ export async function runMemberMrAutoGenerate(
   const summary = attempts.map((a) => `${a.code}: ${a.error}`).join(" | ").slice(0, 1800);
   const iso = new Date().toISOString();
   const shortErr = `Aucun relais du CP n’a permis de créer l’étiquette (${attempts.length} essais). Dernier : ${attempts[attempts.length - 1]?.error ?? ""}`;
+
+  mrAutoLog("all_attempts_failed", {
+    attemptsCount: attempts.length,
+    triedRelayCodes: attempts.map((a) => a.code),
+    lastError: attempts[attempts.length - 1]?.error ?? "",
+    errorsByCode: attempts.map((a) => ({ code: a.code, error: a.error.slice(0, 220) })),
+  });
   for (const id of sortedIds) {
     await patchItemIntakeMondialRelayMetadata(service, id, {
       last_member_mr_error_at: iso,

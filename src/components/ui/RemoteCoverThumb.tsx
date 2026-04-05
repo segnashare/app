@@ -2,10 +2,17 @@
 
 import { Image as ImageIcon } from "lucide-react";
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { backgroundStyleCmsPhotoEditorMatch } from "@/lib/cms/cms-editor-photo-style";
 import { cn } from "@/lib/utils/cn";
+
+/** Aligné sur `CMS_PHOTO_CROP_MIN_ZOOM` / `CMS_PHOTO_CROP_MAX_ZOOM` (backoffice). */
+const CMS_PHOTO_ZOOM_MIN = 0.82;
+const CMS_PHOTO_ZOOM_MAX = 4;
+
+export type RemoteCoverLoadState = "loading" | "ready" | "failed";
 
 type PhotoPosition = {
   offset?: { x?: number; y?: number };
@@ -13,11 +20,19 @@ type PhotoPosition = {
   aspect?: string;
 } | null;
 
+function clampCmsPhotoZoom(zoom: unknown): number {
+  const raw = Number(zoom ?? 1);
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(CMS_PHOTO_ZOOM_MAX, Math.max(CMS_PHOTO_ZOOM_MIN, raw));
+}
+
 type RemoteCoverThumbProps = {
   photoUrl: string;
   /** Classes for the outer frame (e.g. aspect-square w-[100px] rounded-md) */
   frameClassName?: string;
   className?: string;
+  /** État de chargement du visuel (titre / méta peuvent attendre `ready`). */
+  onLoadStateChange?: (state: RemoteCoverLoadState) => void;
   /**
    * Exchange-style crop (offset % + zoom as scale of 100%).
    * Ignored if `coverStyle` is passed.
@@ -28,11 +43,19 @@ type RemoteCoverThumbProps = {
    * Use for item view slots (imageRatio × zoom sizing).
    */
   coverStyle?: Pick<CSSProperties, "backgroundSize" | "backgroundPosition" | "backgroundRepeat">;
+  /**
+   * Photo CMS bandeau split pièce : même moteur que `CmsPhotoCropEditor` (ratio image × cadre + zoom × offset)
+   * pour coller au positionnement BO (évite `cover` + `scale`, qui décalait le cadrage).
+   */
+  photoCoverFill?: boolean;
+  /** Si le parent affiche son propre squelette plein cadre (ex. carte split pièce). */
+  suppressLoadSkeleton?: boolean;
 };
 
 function exchangeCoverStyle(photoPosition: PhotoPosition): Pick<CSSProperties, "backgroundSize" | "backgroundPosition" | "backgroundRepeat"> {
+  const z = clampCmsPhotoZoom(photoPosition?.zoom);
   return {
-    backgroundSize: `${Math.max(100, Number(photoPosition?.zoom ?? 1) * 100)}%`,
+    backgroundSize: `${Math.max(12, z * 100)}%`,
     backgroundPosition: `calc(50% + ${Number(photoPosition?.offset?.x ?? 0)}%) calc(50% + ${Number(photoPosition?.offset?.y ?? 0)}%)`,
     backgroundRepeat: "no-repeat",
   };
@@ -45,14 +68,38 @@ export function RemoteCoverThumb(props: RemoteCoverThumbProps) {
   return <RemoteCoverThumbImpl key={props.photoUrl} {...props} />;
 }
 
-function RemoteCoverThumbImpl({ photoUrl, frameClassName, className, photoPosition, coverStyle }: RemoteCoverThumbProps) {
+function RemoteCoverThumbImpl({
+  photoUrl,
+  frameClassName,
+  className,
+  photoPosition,
+  coverStyle,
+  photoCoverFill,
+  suppressLoadSkeleton = false,
+  onLoadStateChange,
+}: RemoteCoverThumbProps) {
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [containerBox, setContainerBox] = useState({ w: 0, h: 0 });
+  const frameRef = useRef<HTMLDivElement>(null);
+  const onLoadStateChangeRef = useRef(onLoadStateChange);
+  onLoadStateChangeRef.current = onLoadStateChange;
 
-  const bgExtras = coverStyle ?? exchangeCoverStyle(photoPosition ?? null);
+  const pos = photoPosition ?? null;
+  const useCoverFill = Boolean(photoCoverFill && !coverStyle);
+  const bgExtras = coverStyle ?? exchangeCoverStyle(pos);
+
+  useEffect(() => {
+    const state: RemoteCoverLoadState = failed ? "failed" : ready ? "ready" : "loading";
+    onLoadStateChangeRef.current?.(state);
+  }, [ready, failed]);
 
   useEffect(() => {
     let cancelled = false;
+    setNaturalSize(null);
+    setReady(false);
+    setFailed(false);
     const img = new Image();
     img.onload = () => {
       void (async () => {
@@ -61,7 +108,10 @@ function RemoteCoverThumbImpl({ photoUrl, frameClassName, className, photoPositi
         } catch {
           /* ignore */
         }
-        if (!cancelled) setReady(true);
+        if (!cancelled) {
+          setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+          setReady(true);
+        }
       })();
     };
     img.onerror = () => {
@@ -75,9 +125,60 @@ function RemoteCoverThumbImpl({ photoUrl, frameClassName, className, photoPositi
     };
   }, [photoUrl]);
 
+  useLayoutEffect(() => {
+    if (!useCoverFill || !ready) return;
+    const el = frameRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      setContainerBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [useCoverFill, ready, photoUrl]);
+
+  const cmsMatchedFillStyle = useMemo(() => {
+    if (!useCoverFill || !ready) return null;
+    const z = clampCmsPhotoZoom(pos?.zoom);
+    const ox = Number(pos?.offset?.x ?? 0);
+    const oy = Number(pos?.offset?.y ?? 0);
+    if (!naturalSize || containerBox.w <= 0 || containerBox.h <= 0) return null;
+    return backgroundStyleCmsPhotoEditorMatch({
+      photoUrl,
+      naturalWidth: naturalSize.w,
+      naturalHeight: naturalSize.h,
+      containerWidth: containerBox.w,
+      containerHeight: containerBox.h,
+      zoom: z,
+      offsetX: ox,
+      offsetY: oy,
+    });
+  }, [
+    useCoverFill,
+    ready,
+    photoUrl,
+    naturalSize,
+    containerBox.w,
+    containerBox.h,
+    pos?.zoom,
+    pos?.offset?.x,
+    pos?.offset?.y,
+  ]);
+
+  const fillLayerStyle =
+    useCoverFill && ready
+      ? (cmsMatchedFillStyle ?? {
+          ...exchangeCoverStyle(pos),
+          backgroundImage: `url(${photoUrl})`,
+        })
+      : null;
+
   return (
-    <div className={cn("relative overflow-hidden bg-zinc-200", frameClassName)}>
-      {!failed && !ready ? (
+    <div ref={frameRef} className={cn("relative overflow-hidden bg-zinc-200", frameClassName)}>
+      {!suppressLoadSkeleton && !failed && !ready ? (
         <SegnaSkeletonBlock
           className="pointer-events-none absolute inset-0 z-[2]"
           rounded="rounded-none"
@@ -88,13 +189,20 @@ function RemoteCoverThumbImpl({ photoUrl, frameClassName, className, photoPositi
           <ImageIcon className="h-7 w-7" aria-hidden />
         </div>
       ) : ready ? (
-        <div
-          className={cn("relative z-[1] h-full w-full bg-center bg-no-repeat", className)}
-          style={{
-            ...bgExtras,
-            backgroundImage: `url(${photoUrl})`,
-          }}
-        />
+        useCoverFill && fillLayerStyle ? (
+          <div
+            className={cn("relative z-[1] h-full w-full bg-no-repeat", className)}
+            style={fillLayerStyle}
+          />
+        ) : (
+          <div
+            className={cn("relative z-[1] h-full w-full bg-center bg-no-repeat", className)}
+            style={{
+              ...bgExtras,
+              backgroundImage: `url(${photoUrl})`,
+            }}
+          />
+        )
       ) : null}
     </div>
   );

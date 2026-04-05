@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
+import { parseUserProfilePhotoPath } from "@/lib/profile/parse-profile-photo-path";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type {
@@ -172,6 +173,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) {
+      setData(null);
       setIsLoading(false);
       return;
     }
@@ -189,6 +191,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       .maybeSingle();
 
     if (error || !row) {
+      setData(null);
       setIsLoading(false);
       return;
     }
@@ -197,19 +200,15 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     const profileData = (profileRow.profile_data ?? {}) as Record<string, unknown>;
     const profileId = typeof profileRow.id === "string" ? profileRow.id : null;
 
-    const parsePhotoPath = () => {
-      const photos = (profileRow.photos ?? {}) as Record<string, unknown>;
-      const photosProfile = (photos.profile ?? {}) as Record<string, unknown>;
-      const candidates = [
-        photos.profile_photo_path,
-        photos.profilePhotoPath,
-        photosProfile.profile_photo_path,
-        photosProfile.profilePhotoPath,
-      ];
-      return candidates.find((v) => typeof v === "string" && (v as string).trim().length > 0)?.toString().trim() ?? null;
-    };
+    const profilePath = parseUserProfilePhotoPath(profileRow);
+    const photosObj = (profileRow.photos ?? {}) as Record<string, unknown>;
+    const directProfilePhotoUrlRaw =
+      (typeof photosObj.profile_photo_public_url === "string" && photosObj.profile_photo_public_url.trim()) ||
+      (typeof photosObj.profilePhotoPublicUrl === "string" && photosObj.profilePhotoPublicUrl.trim()) ||
+      "";
+    const directProfilePhotoUrl =
+      /^https?:\/\//i.test(directProfilePhotoUrlRaw) ? directProfilePhotoUrlRaw : "";
 
-    const profilePath = parsePhotoPath();
     const getSignedUrl = async (path: string) => {
       const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24, {
         explicitBucket: "bucket_focus",
@@ -258,7 +257,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     let profilePhoto: ProfileViewLookSlot | null = null;
     if (profilePath) {
       const url = urlByPath[profilePath] ?? profilePath;
-      const transform = (profileRow.photos as Record<string, unknown>)?.profile_photo_transform as Record<string, unknown> | undefined;
+      const transform = photosObj.profile_photo_transform as Record<string, unknown> | undefined;
       const offsetRaw = (transform?.offset ?? {}) as Record<string, unknown>;
       const zoom = typeof transform?.zoom === "number" ? transform.zoom : 1;
       profilePhoto = {
@@ -266,6 +265,16 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
         offset: { x: clamp(offsetRaw.x), y: clamp(offsetRaw.y) },
         zoom,
         imageRatio: await getImageRatio(url),
+      };
+    } else if (directProfilePhotoUrl) {
+      const transform = photosObj.profile_photo_transform as Record<string, unknown> | undefined;
+      const offsetRaw = (transform?.offset ?? {}) as Record<string, unknown>;
+      const zoom = typeof transform?.zoom === "number" ? transform.zoom : 1;
+      profilePhoto = {
+        dataUrl: directProfilePhotoUrl,
+        offset: { x: clamp(offsetRaw.x), y: clamp(offsetRaw.y) },
+        zoom,
+        imageRatio: await getImageRatio(directProfilePhotoUrl),
       };
     }
 
@@ -321,8 +330,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       }
     }
 
-    const cityLabel = (profileRow.city as string)?.trim() ?? "";
-
     const toDisplay = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
 
     const ageStr = toDisplay(profileRow.age ?? profileData.age);
@@ -352,7 +359,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       alcohol: true,
       sport: false,
       night: true,
-      city: cityLabel || null,
+      city: null,
       profession: workStr || null,
       instagramHandle: instagramHandle?.trim() || null,
       displayName: displayName?.trim() || null,
@@ -360,7 +367,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
     const infoItems = [
       { id: "age", label: "Âge", value: ageStr, visibility: "visible" as const },
-      { id: "location", label: "Position", value: cityLabel, visibility: "visible" as const },
       { id: "work", label: "Profession", value: workStr, visibility: "visible" as const },
     ]
       .filter((i) => i.value.length > 0) as ProfileViewInfoItem[];
@@ -374,22 +380,48 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       insights: answers,
       lentPieces: [],
       instagramUsername: instagramHandle ?? displayName,
-      locationLabel: cityLabel || null,
+      locationLabel: null,
       statsValue: null,
     });
     setIsLoading(false);
   }, [userId]);
 
   useEffect(() => {
+    setData(null);
+    setIsLoading(true);
+  }, [userId]);
+
+  useEffect(() => {
+    let cancelled = false;
     void (async () => {
+      const supabase = createSupabaseBrowserClient() as any;
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+
       if (userId && isSegnaCorporateInventoryUserId(userId)) {
-        setData(null);
-        setIsLoading(false);
+        if (!cancelled) {
+          setData(null);
+          setIsLoading(false);
+        }
         return;
       }
-      const fromCache = await loadFromCache();
-      if (!fromCache) void fetchFromDb();
+
+      const isForeignProfile = Boolean(userId && authUser?.id && userId !== authUser.id);
+
+      if (!isForeignProfile) {
+        const fromCache = await loadFromCache();
+        if (fromCache) {
+          if (!cancelled) setIsLoading(false);
+          return;
+        }
+      }
+
+      if (!cancelled) void fetchFromDb();
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [loadFromCache, fetchFromDb, userId]);
 
   return { data, isLoading, refetch: fetchFromDb };

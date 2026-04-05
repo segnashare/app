@@ -13,7 +13,11 @@ import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
-import { invalidateLendItemDetailCache, primeLendItemDetailCache, readLendItemDetailCache } from "@/lib/items/lend-items-detail-cache";
+import {
+  invalidateLendItemDetailCache,
+  primeLendItemDetailCache,
+  readLendItemDetailCache,
+} from "@/lib/items/lend-items-detail-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -112,9 +116,27 @@ export function ItemDetailView() {
   /** Strip `?verification=1` après chargement (URL propre). */
   const verificationPending = searchParams.get("verification") === "1";
 
-  const [data, setData] = useState<ItemDetailPayload | null>(() => (itemId ? readLendItemDetailCache(itemId) : null));
+  /** Depuis le shop, ne pas réutiliser le cache « échange » (souvent obsolète pour `item_custom_brand_label`). */
+  const [data, setData] = useState<ItemDetailPayload | null>(() => {
+    if (!itemId) return null;
+    if (typeof window !== "undefined") {
+      try {
+        if (new URLSearchParams(window.location.search).get("from") === "shop") return null;
+      } catch {
+        /* noop */
+      }
+    }
+    return readLendItemDetailCache(itemId);
+  });
   const [isLoading, setIsLoading] = useState(() => {
     if (!itemId) return false;
+    if (typeof window !== "undefined") {
+      try {
+        if (new URLSearchParams(window.location.search).get("from") === "shop") return true;
+      } catch {
+        /* noop */
+      }
+    }
     return readLendItemDetailCache(itemId) == null;
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -193,6 +215,12 @@ export function ItemDetailView() {
       return;
     }
     setErrorMessage(null);
+    if (fromShop) {
+      invalidateLendItemDetailCache(itemId);
+      setData(null);
+      setIsLoading(true);
+      return;
+    }
     const snap = readLendItemDetailCache(itemId);
     if (snap) {
       setData(snap);
@@ -201,7 +229,7 @@ export function ItemDetailView() {
       setData(null);
       setIsLoading(true);
     }
-  }, [itemId]);
+  }, [itemId, fromShop]);
 
   useEffect(() => {
     if (!itemId || typeof window === "undefined") return;

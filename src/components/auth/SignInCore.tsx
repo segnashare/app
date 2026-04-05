@@ -20,6 +20,8 @@ type SignInFormValues = {
 type SignInCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  /** From "Je suis membre": show sign-in even if a session exists; offer continue or sign out. */
+  memberEntry?: boolean;
 };
 
 const playfairDisplay = Playfair_Display({
@@ -27,11 +29,12 @@ const playfairDisplay = Playfair_Display({
   weight: "800",
 });
 
-export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
+export function SignInCore({ formId, onCanContinueChange, memberEntry = false }: SignInCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [authErrorType, setAuthErrorType] = useState<"account_not_found" | "wrong_password" | null>(null);
+  const [activeSessionEmail, setActiveSessionEmail] = useState<string | null>(null);
 
   const resolvePostSignInPath = useCallback(
     async (userId: string) => {
@@ -61,6 +64,8 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
   );
 
   useEffect(() => {
+    if (memberEntry) return;
+
     const redirectIfAlreadySignedIn = async () => {
       const {
         data: { user },
@@ -73,7 +78,23 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
     };
 
     void redirectIfAlreadySignedIn();
-  }, [resolvePostSignInPath, router, supabase]);
+  }, [memberEntry, resolvePostSignInPath, router, supabase]);
+
+  useEffect(() => {
+    if (!memberEntry) return;
+
+    void (async () => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user) {
+        setActiveSessionEmail(null);
+        return;
+      }
+      setActiveSessionEmail(user.email ?? null);
+    })();
+  }, [memberEntry, supabase]);
 
   const {
     register,
@@ -135,8 +156,48 @@ export function SignInCore({ formId, onCanContinueChange }: SignInCoreProps) {
   const hasEmailError = Boolean(errors.email) || authErrorType === "account_not_found";
   const hasPasswordError = Boolean(errors.password) || authErrorType === "wrong_password";
 
+  const handleContinueExistingSession = async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) return;
+    const targetPath = await resolvePostSignInPath(user.id);
+    router.replace(targetPath);
+  };
+
+  const handleSignOutMemberEntry = async () => {
+    await supabase.auth.signOut();
+    setActiveSessionEmail(null);
+    router.refresh();
+  };
+
   return (
     <div className="mt-8 w-full">
+      {memberEntry && activeSessionEmail ? (
+        <div className="mb-8 max-w-[370px] rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-zinc-800">
+          <p className="text-[15px] font-medium leading-snug">
+            Tu es déjà connecté avec <span className="text-zinc-950">{activeSessionEmail}</span>.
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            <button
+              type="button"
+              className="rounded-full bg-zinc-900 py-3 text-[15px] font-semibold text-white"
+              onClick={() => void handleContinueExistingSession()}
+            >
+              Continuer où j&apos;en étais
+            </button>
+            <button
+              type="button"
+              className="text-[15px] font-semibold text-[#8B6A54] underline underline-offset-2"
+              onClick={() => void handleSignOutMemberEntry()}
+            >
+              Me déconnecter et me connecter avec un autre compte
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <p className="max-w-[370px] text-[clamp(12px,5.6vw,22px)] leading-[1.3] text-zinc-800">Entre ton e-mail et ton mot de passe.</p>
 
       <form id={formId} className="mt-10 space-y-8" onSubmit={onSubmit} noValidate>

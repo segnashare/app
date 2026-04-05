@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Montserrat } from "next/font/google";
-import { Heart } from "lucide-react";
+import { Heart, Plus } from "lucide-react";
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
 import { ItemInfoCard } from "./ItemInfoCard";
@@ -19,21 +19,33 @@ const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
 
 const ITEM_STAGE_RATIO = 1;
 
-function FrameLikeButton({
-  isLiked,
-  onToggle,
+function FrameActionButton({
+  variant = "heart",
+  isActive,
+  forceDark = false,
+  onPress,
 }: {
-  isLiked: boolean;
-  onToggle: () => void;
+  variant?: "heart" | "plus";
+  isActive: boolean;
+  forceDark?: boolean;
+  onPress: () => void;
 }) {
+  const isHeart = variant === "heart";
   return (
     <button
       type="button"
-      aria-label={isLiked ? "Retirer le like" : "Liker cette frame"}
-      onClick={onToggle}
-      className="absolute bottom-4 right-4 z-10 grid h-14 w-14 place-items-center rounded-full bg-white/95 text-zinc-900 shadow-lg ring-1 ring-zinc-200 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98]"
+      aria-label={isHeart ? (isActive ? "Retirer le like" : "Liker cette frame") : "Ajouter au panier"}
+      onClick={onPress}
+      className={cn(
+        "absolute bottom-4 right-4 z-10 grid h-14 w-14 place-items-center rounded-full shadow-lg ring-1 backdrop-blur-sm transition hover:scale-[1.02] active:scale-[0.98]",
+        forceDark || isActive ? "bg-zinc-900 text-white ring-zinc-900/20" : "bg-white/95 text-zinc-900 ring-zinc-200",
+      )}
     >
-      <Heart className={cn("h-7 w-7", isLiked && "fill-current")} strokeWidth={2.2} />
+      {isHeart ? (
+        <Heart className={cn("h-7 w-7", isActive && "fill-current")} strokeWidth={2.2} />
+      ) : (
+        <Plus className={cn("h-7 w-7 transition-transform duration-200", isActive && "rotate-45")} strokeWidth={2.2} />
+      )}
     </button>
   );
 }
@@ -52,6 +64,10 @@ type ItemViewViewProps = {
   infoCard: ItemInfoCardData;
   ownerUserId?: string | null;
   onLikeFrame?: () => void;
+  onFrameAction?: () => void;
+  frameActionVariant?: "heart" | "plus";
+  frameActionActive?: boolean;
+  forceDarkFrameAction?: boolean;
   /** Masque les boutons cœur (ex. vue panier / catalogue sans interaction feed). */
   hideFrameLikeButtons?: boolean;
 };
@@ -76,6 +92,10 @@ export function ItemViewView({
   infoCard,
   ownerUserId,
   onLikeFrame,
+  onFrameAction,
+  frameActionVariant = "heart",
+  frameActionActive = false,
+  forceDarkFrameAction = false,
   hideFrameLikeButtons = false,
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
@@ -98,9 +118,15 @@ export function ItemViewView({
           <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
             <ItemViewCoverPhoto slot={filledSlots[0]} />
             {!hideFrameLikeButtons ? (
-              <FrameLikeButton
-                isLiked={Boolean(likedFrames.photo_1)}
-                onToggle={() => {
+              <FrameActionButton
+                variant={frameActionVariant}
+                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_1) : frameActionActive}
+                forceDark={forceDarkFrameAction}
+                onPress={() => {
+                  if (onFrameAction) {
+                    onFrameAction();
+                    return;
+                  }
                   if (onLikeFrame) {
                     onLikeFrame();
                     return;
@@ -130,9 +156,15 @@ export function ItemViewView({
               <ItemViewCoverPhoto slot={photo2} />
             </div>
             {!hideFrameLikeButtons ? (
-              <FrameLikeButton
-                isLiked={Boolean(likedFrames.photo_2)}
-                onToggle={() => {
+              <FrameActionButton
+                variant={frameActionVariant}
+                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_2) : frameActionActive}
+                forceDark={forceDarkFrameAction}
+                onPress={() => {
+                  if (onFrameAction) {
+                    onFrameAction();
+                    return;
+                  }
                   if (onLikeFrame) {
                     onLikeFrame();
                     return;
@@ -154,9 +186,15 @@ export function ItemViewView({
               <ItemViewCoverPhoto slot={photo3} />
             </div>
             {!hideFrameLikeButtons ? (
-              <FrameLikeButton
-                isLiked={Boolean(likedFrames.photo_3)}
-                onToggle={() => {
+              <FrameActionButton
+                variant={frameActionVariant}
+                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_3) : frameActionActive}
+                forceDark={forceDarkFrameAction}
+                onPress={() => {
+                  if (onFrameAction) {
+                    onFrameAction();
+                    return;
+                  }
                   if (onLikeFrame) {
                     onLikeFrame();
                     return;
@@ -182,9 +220,15 @@ export function ItemViewView({
               <ItemViewCoverPhoto slot={slot} />
             </div>
             {!hideFrameLikeButtons ? (
-              <FrameLikeButton
-                isLiked={Boolean(likedFrames[`photo_${index + 4}`])}
-                onToggle={() => {
+              <FrameActionButton
+                variant={frameActionVariant}
+                isActive={frameActionVariant === "heart" ? Boolean(likedFrames[`photo_${index + 4}`]) : frameActionActive}
+                forceDark={forceDarkFrameAction}
+                onPress={() => {
+                  if (onFrameAction) {
+                    onFrameAction();
+                    return;
+                  }
                   if (onLikeFrame) {
                     onLikeFrame();
                     return;

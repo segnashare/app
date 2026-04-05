@@ -26,6 +26,7 @@ import {
   setLastDbLoadedItemId,
   type ItemInfoDraft,
 } from "@/lib/items/itemInfoDraftStorage";
+import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -200,16 +201,21 @@ export default function NewItemPage() {
     ["evaluation", "evaluated", "validation_pending"].includes(intakeListingStage);
   const isEditValidationMode = itemStatus != null && isDraftInIntakePipeline;
   const filledPhotosCount = slots.filter(Boolean).length;
+  const categoryId = infoDraft.categoryId?.trim() || null;
+  const brandId = infoDraft.brandId?.trim() || null;
+  const brandNeedsCustomLabel = infoDraft.brandSlug === ITEM_BRAND_AUTRE_SLUG;
+  const formattedCustomBrand =
+    brandNeedsCustomLabel && infoDraft.customBrandLabel?.trim()
+      ? formatItemCustomBrandLabel(infoDraft.customBrandLabel)
+      : null;
   const infoValues = {
     category: infoDraft.category ?? "-",
-    brand: infoDraft.brand ?? "-",
+    brand: formattedCustomBrand ?? infoDraft.brand ?? "-",
     size: infoDraft.size ?? "-",
     condition: infoDraft.condition ?? "-",
     materials: infoDraft.materials ?? "-",
     color: infoDraft.color ?? "-",
   };
-  const categoryId = infoDraft.categoryId?.trim() || null;
-  const brandId = infoDraft.brandId?.trim() || null;
   const sizeId = infoDraft.sizeId?.trim() || null;
   const materialsId = infoDraft.materialsId?.trim() || null;
   const colorId = infoDraft.colorId?.trim() || null;
@@ -242,7 +248,7 @@ export default function NewItemPage() {
     description.trim().length > 0,
     hasMinPhotos,
     Boolean(categoryId),
-    Boolean(brandId),
+    Boolean(brandId) && (!brandNeedsCustomLabel || Boolean(infoDraft.customBrandLabel?.trim())),
     hasCondition,
     Boolean(colorId),
     Boolean(materialsId),
@@ -253,6 +259,7 @@ export default function NewItemPage() {
   const infoIds = {
     ...(categoryId ? { item_category_id: categoryId } : {}),
     ...(brandId ? { item_brand_id: brandId } : {}),
+    item_custom_brand_label: brandNeedsCustomLabel ? formattedCustomBrand : null,
     ...(sizeId ? { item_size_id: sizeId } : {}),
     ...(materialsId ? { item_materiaux_id: materialsId } : {}),
     ...(colorId ? { item_couleur_id: colorId } : {}),
@@ -370,7 +377,7 @@ export default function NewItemPage() {
         const { data: itemData, error: itemError } = await supabase
           .from("items")
           .select(
-            "id,title,description,photos,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id,price_points,status, item_intake(listing_stage)",
+            "id,title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id,price_points,status, item_intake(listing_stage)",
           )
           .eq("id", requestedItemId)
           .eq("owner_user_id", user.id)
@@ -460,13 +467,23 @@ export default function NewItemPage() {
         if (itemData.item_brand_id) {
           const { data: brandRow } = await supabase
             .from("item_brands")
-            .select("label")
+            .select("label,slug")
             .eq("id", itemData.item_brand_id)
             .maybeSingle();
           if (isUnmounted) return;
           if (brandRow) {
+            const slug = (brandRow as { slug?: string }).slug ?? null;
+            const custom = (
+              itemData as { item_custom_brand_label?: string | null }
+            ).item_custom_brand_label?.trim() || null;
             nextInfo.brandId = itemData.item_brand_id;
-            nextInfo.brand = (brandRow as { label?: string }).label ?? "";
+            nextInfo.brandSlug = slug;
+            nextInfo.customBrandLabel = custom;
+            if (slug === ITEM_BRAND_AUTRE_SLUG && custom) {
+              nextInfo.brand = custom;
+            } else {
+              nextInfo.brand = (brandRow as { label?: string }).label ?? "";
+            }
           }
         }
         if (itemData.item_size_id) {
@@ -573,7 +590,7 @@ export default function NewItemPage() {
         setDraftItemId(existingDraftId);
         const { data: existingItemData } = await supabase
           .from("items")
-          .select("title,description,price_points,photos,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id")
+          .select("title,description,price_points,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id")
           .eq("id", existingDraftId)
           .eq("owner_user_id", user.id)
           .is("deleted_at", null)
@@ -621,10 +638,22 @@ export default function NewItemPage() {
             }
           }
           if (d.item_brand_id) {
-            const { data: brandRow } = await supabase.from("item_brands").select("label").eq("id", d.item_brand_id).maybeSingle();
+            const { data: brandRow } = await supabase
+              .from("item_brands")
+              .select("label,slug")
+              .eq("id", d.item_brand_id)
+              .maybeSingle();
             if (brandRow) {
+              const slug = (brandRow as { slug?: string }).slug ?? null;
+              const custom = (d as { item_custom_brand_label?: string | null }).item_custom_brand_label?.trim() || null;
               nextInfo.brandId = d.item_brand_id;
-              nextInfo.brand = (brandRow as { label?: string }).label ?? "";
+              nextInfo.brandSlug = slug;
+              nextInfo.customBrandLabel = custom;
+              if (slug === ITEM_BRAND_AUTRE_SLUG && custom) {
+                nextInfo.brand = custom;
+              } else {
+                nextInfo.brand = (brandRow as { label?: string }).label ?? "";
+              }
             }
           }
           if (d.item_size_id) {

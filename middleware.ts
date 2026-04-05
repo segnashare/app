@@ -23,6 +23,7 @@ const PROTECTED_PREFIXES = [
   "/community",
   "/profile",
   "/items",
+  "/membre",
 ];
 const ONBOARDING_PATHS = [
   "/onboarding/welcome",
@@ -107,6 +108,13 @@ function isPublicRoute(pathname: string) {
 
 function isProtectedRoute(pathname: string) {
   return PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+/** Lets returning members open sign-in even with an active session (switch account / re-auth). */
+function isExplicitMemberSignIn(request: NextRequest) {
+  return (
+    request.nextUrl.pathname === "/auth/sign-in" && request.nextUrl.searchParams.get("from") === "member"
+  );
 }
 
 export async function middleware(request: NextRequest) {
@@ -253,7 +261,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (session && isPublicRoute(pathname) && pathname !== "/") {
+  if (session && isPublicRoute(pathname) && pathname !== "/" && !isExplicitMemberSignIn(request)) {
     const { reachedIndex, status } = await getReachedState();
     const url = request.nextUrl.clone();
     url.pathname = status === "completed" ? "/home" : getOnboardingPathFromIndex(reachedIndex);

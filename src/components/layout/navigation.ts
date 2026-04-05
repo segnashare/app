@@ -19,7 +19,11 @@ export const MAIN_TABS: MainTab[] = [
 const TASK_SEGMENTS = new Set(["edit", "create", "complete", "checkout", "completion", "transaction"]);
 
 export function isMainTabRoute(pathname: string): boolean {
-  return MAIN_TABS.some((tab) => pathname === tab.href);
+  return MAIN_TABS.some((tab) => {
+    if (pathname === tab.href) return true;
+    if (tab.href === "/shop" && pathname.startsWith("/shop/")) return true;
+    return false;
+  });
 }
 
 export function shouldShowTabBar(pathname: string): boolean {
@@ -30,11 +34,11 @@ export function shouldShowTabBar(pathname: string): boolean {
   return isMainTabRoute(pathname);
 }
 
-/** Bouton flottant « Voir le panier » : feed + catalogue uniquement. */
+/** Bouton flottant « Voir le panier » : feed + catalogue (y compris sous-pages /shop/…). */
 export function shouldShowFloatingCartButton(pathname: string): boolean {
-  return pathname === "/home" || pathname === "/shop";
+  return pathname === "/home" || pathname === "/shop" || pathname.startsWith("/shop/");
 }
 
 export function isShopTabActive(pathname: string): boolean {
-  return pathname === "/shop";
+  return pathname === "/shop" || pathname.startsWith("/shop/");
 }

@@ -1,5 +1,6 @@
 import type { ItemInfoCardData } from "@/components/item/ItemInfoCard";
 import type { ItemViewSlot } from "@/components/item/ItemViewView";
+import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -92,7 +93,7 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
   const { data: itemRow, error: itemError } = await supabase
     .from("items")
     .select(
-      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_size_id,item_materiaux_id,item_couleur_id",
+      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id",
     )
     .eq("id", itemId)
     .is("deleted_at", null)
@@ -111,7 +112,7 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
 
   const [categoryRes, brandRes, sizeRes, materialsRes, colorRes, conditionRes] = await Promise.all([
     categoryId ? supabase.from("item_categories").select("name").eq("id", categoryId).maybeSingle() : { data: null },
-    brandId ? supabase.from("item_brands").select("label").eq("id", brandId).maybeSingle() : { data: null },
+    brandId ? supabase.from("item_brands").select("label,slug").eq("id", brandId).maybeSingle() : { data: null },
     sizeId ? supabase.from("sizes").select("label").eq("id", sizeId).maybeSingle() : { data: null },
     materialsId ? supabase.from("item_materiaux").select("label").eq("id", materialsId).maybeSingle() : { data: null },
     colorId ? supabase.from("item_couleurs").select("label").eq("id", colorId).maybeSingle() : { data: null },
@@ -129,7 +130,19 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
   const conditionLabel = conditionScore ? CONDITION_SCORE_TO_LABEL[conditionScore] ?? conditionScore : "—";
 
   const categoryLabel = (categoryRes.data as { name?: string } | null)?.name ?? "—";
-  const brandLabel = (brandRes.data as { label?: string } | null)?.label ?? "—";
+  const customBrand = typeof row.item_custom_brand_label === "string" ? row.item_custom_brand_label.trim() : "";
+  const brandRow = brandRes.data as { label?: string | null; slug?: string | null } | null;
+  const brandFallback = brandRow?.label?.trim() || "—";
+  const rawTitle = typeof row.title === "string" ? row.title.trim() : "";
+  const titleAsBrandHint = rawTitle ? formatItemCustomBrandLabel(rawTitle) : "";
+  const slugLower = brandRow?.slug?.trim().toLowerCase() ?? "";
+  const isAutreBrand =
+    slugLower === ITEM_BRAND_AUTRE_SLUG || brandFallback.trim().toLowerCase() === "autre";
+  const brandLabel = customBrand
+    ? customBrand
+    : isAutreBrand && titleAsBrandHint
+      ? titleAsBrandHint
+      : brandFallback;
   const sizeLabel = (sizeRes.data as { label?: string } | null)?.label ?? "—";
   const materialsLabel = (materialsRes.data as { label?: string } | null)?.label ?? "—";
   const colorLabel = (colorRes.data as { label?: string } | null)?.label ?? "—";

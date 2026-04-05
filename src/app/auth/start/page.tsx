@@ -16,7 +16,11 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    redirect(isMemberIntent ? "/auth/sign-in" : "/auth/sign-up/email");
+    redirect(isMemberIntent ? "/auth/sign-in?from=member" : "/auth/sign-up/email");
+  }
+
+  if (isMemberIntent) {
+    redirect("/auth/sign-in?from=member");
   }
 
   const { data } = await supabase

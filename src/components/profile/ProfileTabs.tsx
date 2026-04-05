@@ -6,12 +6,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ShieldCheck, Settings, Sparkles, CircleHelp, CircleAlert, Shield, Flag, Ban, PhoneCall } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CmsFrameItem } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
 import { CommunityBadgesGrid } from "@/components/community/CommunityBadgesGrid";
 import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySummary";
 import { MarketplaceSection, type MarketplaceMembershipTier } from "@/components/profile/MarketplaceSection";
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { cn } from "@/lib/utils/cn";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -26,6 +28,8 @@ type ProfileTabId = (typeof PROFILE_TABS)[number]["id"];
 type ProfileTabsProps = {
   initialTab?: string;
   initialDisplayName?: string;
+  /** CMS — onglet Obtenir plus */
+  initialPlusTabCmsFrames?: CmsFrameRow[];
 };
 
 type ProfileHeaderData = {
@@ -142,8 +146,14 @@ function getProfileHeaderFromRow(row: Record<string, unknown> | null | undefined
   const rawKyc = row.kyc_status ?? profileData.kyc_status ?? profileData.verification_status ?? profileData.kyc;
   const kycStatus = normalizeKycStatus(rawKyc);
   const displayName = typeof row.display_name === "string" && row.display_name.trim() ? row.display_name.trim() : undefined;
-  const avatarUrl = typeof row.avatar_url === "string" && row.avatar_url.trim() ? row.avatar_url.trim() : null;
   const photos = (row.photos ?? {}) as Record<string, unknown>;
+  const avatarFromPhotos =
+    (typeof photos.profile_photo_public_url === "string" && photos.profile_photo_public_url.trim()) ||
+    (typeof photos.profilePhotoPublicUrl === "string" && photos.profilePhotoPublicUrl.trim()) ||
+    "";
+  const avatarUrl =
+    (typeof row.avatar_url === "string" && row.avatar_url.trim() ? row.avatar_url.trim() : null) ??
+    (/^https?:\/\//i.test(avatarFromPhotos) ? avatarFromPhotos : null);
   const photosProfile = (photos.profile ?? {}) as Record<string, unknown>;
   const profilePhotoPathCandidates = [
     photos.profile_photo_path,
@@ -249,7 +259,7 @@ function writeProfileHeaderCache(userId: string, headerData: ProfileHeaderData) 
   }
 }
 
-export function ProfileTabs({ initialTab, initialDisplayName }: ProfileTabsProps) {
+export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsFrames = [] }: ProfileTabsProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -640,7 +650,18 @@ export function ProfileTabs({ initialTab, initialDisplayName }: ProfileTabsProps
   const panelContent = useMemo(() => {
     if (activeTab === "plus") {
       if (!membershipTier) return null;
-      return <MarketplaceSection membershipTier={membershipTier} />;
+      return (
+        <div className="space-y-5">
+          {initialPlusTabCmsFrames.length > 0 ? (
+            <div className="-mx-1 flex gap-3 overflow-x-auto overflow-y-hidden pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {initialPlusTabCmsFrames.map((row) => (
+                <CmsFrameItem key={row.id} row={row} />
+              ))}
+            </div>
+          ) : null}
+          <MarketplaceSection membershipTier={membershipTier} />
+        </div>
+      );
     }
 
     if (activeTab === "security") {
@@ -786,7 +807,16 @@ export function ProfileTabs({ initialTab, initialDisplayName }: ProfileTabsProps
         )}
       </div>
     );
-  }, [activeTab, gamificationData, headerData.completionScore, headerData.kycStatus, isLoadingGamification, isLoadingHeader, membershipTier]);
+  }, [
+    activeTab,
+    gamificationData,
+    headerData.completionScore,
+    headerData.kycStatus,
+    initialPlusTabCmsFrames,
+    isLoadingGamification,
+    isLoadingHeader,
+    membershipTier,
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
