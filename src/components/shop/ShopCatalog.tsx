@@ -427,14 +427,25 @@ function ShopPieceSquareCatalogCard({
         </div>
       </div>
       <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>
-        <h3
-          className={cn(
-            montserratPieceBold.className,
-            "line-clamp-2 text-left text-[14px] font-bold leading-snug text-zinc-900",
-          )}
-        >
-          {item.title}
-        </h3>
+        <div className="flex min-w-0 items-end justify-between gap-2">
+          <h3
+            className={cn(
+              montserratPieceBold.className,
+              "min-w-0 flex-1 line-clamp-2 text-left text-[14px] font-bold leading-snug text-zinc-900",
+            )}
+          >
+            {item.title}
+          </h3>
+          <span
+            className={cn(
+              "mb-px inline-flex h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10",
+              isBlueStatus ? "bg-sky-400" : "bg-zinc-300",
+            )}
+            title={isBlueStatus ? "Disponible" : "Indisponible"}
+            aria-label={isBlueStatus ? "Disponible" : "Indisponible"}
+            role="img"
+          />
+        </div>
         {brandName ? (
           <p
             className={cn(
@@ -460,15 +471,6 @@ function ShopPieceSquareCatalogCard({
             |
           </span>
           <span className="min-w-0 max-w-full truncate">{condBit}</span>
-          <span
-            className={cn(
-              "ml-0.5 inline-flex h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10",
-              isBlueStatus ? "bg-sky-400" : "bg-zinc-300",
-            )}
-            title={isBlueStatus ? "Disponible" : "Indisponible"}
-            aria-label={isBlueStatus ? "Disponible" : "Indisponible"}
-            role="img"
-          />
         </p>
       </div>
     </div>
