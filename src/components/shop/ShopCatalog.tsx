@@ -427,18 +427,18 @@ function ShopPieceSquareCatalogCard({
         </div>
       </div>
       <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>
-        <div className="flex min-w-0 items-end justify-between gap-2">
+        <div className="relative min-w-0">
           <h3
             className={cn(
               montserratPieceBold.className,
-              "min-w-0 flex-1 line-clamp-2 text-left text-[14px] font-bold leading-snug text-zinc-900",
+              "line-clamp-2 pr-5 text-left text-[14px] font-bold leading-snug text-zinc-900",
             )}
           >
             {item.title}
           </h3>
           <span
             className={cn(
-              "mb-px inline-flex h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10",
+              "absolute right-2 top-1.5 inline-flex h-1.5 w-1.5 rounded-full ring-1 ring-inset ring-black/10",
               isBlueStatus ? "bg-sky-400" : "bg-zinc-300",
             )}
             title={isBlueStatus ? "Disponible" : "Indisponible"}
