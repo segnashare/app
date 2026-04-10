@@ -113,7 +113,7 @@ begin
   on conflict (user_id, role) do nothing;
 
   insert into public.user_wallets (user_id, balance_consumption_points, balance_exchange_points)
-  values (v_uid, 0, 0)
+  values (v_uid, 0, null)
   on conflict (user_id) do nothing;
 
   insert into public.user_profiles (user_id)
@@ -194,7 +194,7 @@ begin
       v_pts := greatest(0::bigint, trunc(coalesce(v_reward.wallet_amount, 0))::bigint);
 
       insert into public.user_wallets (user_id, balance_consumption_points, balance_exchange_points)
-      values (p_user_id, 0, 0)
+      values (p_user_id, 0, null)
       on conflict (user_id) do nothing;
 
       update public.user_wallets uw

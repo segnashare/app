@@ -13,7 +13,7 @@ type SegnaPointsUnitDisplayProps = {
 };
 
 /**
- * Montant en points + icône Segna + « de consommation » (sans le mot « crédits »), ou libellé « crédits d'échange ».
+ * Montant + icône Segna (consommation), ou montant + libellé « crédits d'échange ».
  */
 export function SegnaPointsUnitDisplay({
   points,
@@ -36,19 +36,14 @@ export function SegnaPointsUnitDisplay({
         {formatted}
       </span>
       {showConsumptionIcon ? (
-        <>
-          <img
-            src={SEGNA_CONSUMPTION_ICON_SRC}
-            alt=""
-            width={18}
-            height={18}
-            className="h-[1.15em] w-[1.15em] shrink-0 self-center object-contain"
-            aria-hidden
-          />
-          <span className={cn("text-left leading-tight", numberClassName)} aria-hidden>
-            de consommation
-          </span>
-        </>
+        <img
+          src={SEGNA_CONSUMPTION_ICON_SRC}
+          alt=""
+          width={18}
+          height={18}
+          className="h-[1.15em] w-[1.15em] shrink-0 self-center object-contain"
+          aria-hidden
+        />
       ) : (
         <span className={cn("max-w-[9rem] text-left text-[11px] font-semibold leading-tight", numberClassName)}>
           {unitLabel}
@@ -64,10 +59,10 @@ type SegnaConsumptionCreditPhraseProps = {
   textClassName?: string;
 };
 
-/** Icône `segna.svg` + « de consommation » — pour phrases (« X … couverts ») sans écrire « crédits ». */
+/** Icône `segna.svg` seule — pour phrases (« X … couverts ») où l’unité consommation est déjà implicite. */
 export function SegnaConsumptionCreditPhrase({ className, textClassName }: SegnaConsumptionCreditPhraseProps) {
   return (
-    <span className={cn("inline-flex items-center gap-1", className)} aria-hidden>
+    <span className={cn("inline-flex items-center", className, textClassName)} aria-hidden>
       <img
         src={SEGNA_CONSUMPTION_ICON_SRC}
         alt=""
@@ -76,7 +71,6 @@ export function SegnaConsumptionCreditPhrase({ className, textClassName }: Segna
         className="h-[1.1em] w-[1.1em] shrink-0 object-contain"
         aria-hidden
       />
-      <span className={cn("leading-snug", textClassName)}>de consommation</span>
     </span>
   );
 }
