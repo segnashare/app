@@ -1,9 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Check, Search, ChevronRight, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
 
 import { mergeItemInfoDraft, getItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
@@ -16,8 +18,8 @@ type ItemCategory = {
   parent_category_id: string | null;
 };
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
-const montserratItalic = Montserrat({ subsets: ["latin"], weight: "500", style: "italic" });
+
+
 
 export default function NewItemCategoryPage() {
   const router = useRouter();
@@ -157,7 +159,7 @@ export default function NewItemCategoryPage() {
               <span
                 className={cn(
                   "inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center self-center rounded-full border",
-                  isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                  isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                 )}
                 aria-hidden
               >
@@ -175,11 +177,11 @@ export default function NewItemCategoryPage() {
     <main className="min-h-[100dvh] bg-white">
       <header className="fixed inset-x-0 top-0 z-10 flex justify-center border-b border-zinc-100 bg-white">
         <div className="flex w-full max-w-[460px] items-center justify-between px-5 pb-4 pt-7">
-          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
             Annuler
           </button>
           <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Catégorie</h1>
-          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={confirmSelection}>
+          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={confirmSelection}>
             Terminé
           </button>
         </div>
@@ -201,7 +203,7 @@ export default function NewItemCategoryPage() {
 
           <div className="mt-4 max-h-[calc(100dvh-220px)] overflow-y-auto">
             {isLoading ? <p className="px-4 py-6 text-sm text-zinc-500">Chargement...</p> : null}
-            {errorMessage ? <p className="px-4 py-6 text-sm text-[#E44D3E]">{errorMessage}</p> : null}
+            {errorMessage ? <p className="px-4 py-6 text-sm text-zinc-600">{errorMessage}</p> : null}
 
             {!isLoading && !errorMessage ? (
               query.trim().length > 0 ? (
@@ -222,7 +224,7 @@ export default function NewItemCategoryPage() {
                         <span
                           className={cn(
                             "inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center self-center rounded-full border",
-                            isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                            isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                           )}
                           aria-hidden
                         >

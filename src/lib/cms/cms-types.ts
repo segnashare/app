@@ -1,6 +1,7 @@
 export type CmsPhotoPosition = {
   offset?: { x?: number; y?: number };
   zoom?: number;
+  /** ex. `wide` (grande carte), `profile_plus_hero` (500×350), `square`, `shop_split_right` */
   aspect?: string;
 } | null;
 
@@ -14,11 +15,15 @@ export type CmsFrameType =
   | "shop_item_ref"
   | "shop_category_ref"
   | "shop_brand_ref"
-  | "shop_link_card";
+  | "shop_link_card"
+  /** Hero plein largeur (profil — Obtenir plus) : label + titre + sous-titre + CTA sur image. */
+  | "profile_plus_hero";
 
 /** Config publiée d’une section hub catalogue (titre, flèche, lien « voir plus »). */
 export type CmsCatalogSectionConfig = {
   title?: string;
+  /** Si true : pas de titre de section dans l’app (uniquement le contenu / frames). */
+  hide_section_title?: boolean;
   show_more_arrow?: boolean;
   /** Chemin interne (ex. /shop/discover) ou URL absolue */
   more_href?: string;
@@ -47,6 +52,10 @@ export type CmsBackgroundPayload = {
 export type CmsLinkCardTitleColor = "white" | "black";
 
 export type CmsFramePayload = {
+  /**
+   * Titre d’affichage. Grande carte hub (`shop_link_card`) : sauts de ligne (`\n`) affichés tels quels.
+   * Section `segna_stock_property` : `{{segna_mods}}` (points) et `{{segna_taille}}` sur la fiche stock Segna.
+   */
   title?: string;
   /** Grande carte hub (`shop_link_card`) : blanc ou noir. */
   title_color?: CmsLinkCardTitleColor;
@@ -54,7 +63,12 @@ export type CmsFramePayload = {
   body?: string;
   label?: string;
   header?: string;
+  /** Grande carte : libellé du bouton CTA ; portions en gras avec la syntaxe `**texte**`. */
   cta_label?: string;
+  /**
+   * Grande carte hub (`shop_link_card`) et hero profil (`profile_plus_hero`) : pastille CTA (`cta_label`).
+   */
+  cta_pill?: boolean;
   button_label?: string;
   target_url?: string;
   background?: CmsBackgroundPayload;

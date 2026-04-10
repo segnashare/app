@@ -1,10 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Crosshair } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -60,10 +61,7 @@ type LocationSuggestion = {
   timezone: string;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 const DEFAULT_CENTER = { lat: 48.8566, lon: 2.3522 };
 const MAP_DELTA = 0.18;

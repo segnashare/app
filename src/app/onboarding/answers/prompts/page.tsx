@@ -1,19 +1,17 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
 import { ANSWERS_PROMPTS_BY_TAB, ANSWERS_TABS, type AnswersTabId } from "@/lib/onboarding/answersPrompts";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 function isAnswersTab(value: string): value is AnswersTabId {
   return ANSWERS_TABS.some((tab) => tab.id === value);

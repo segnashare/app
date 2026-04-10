@@ -1,17 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Montserrat, Playfair_Display } from "next/font/google";
-
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
-
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-});
-
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 const featureHeading = `${montserrat.className} text-[clamp(18px,11.5vw,24px)] font-semibold leading-[0.98] tracking-[-0.035em] text-zinc-900 md:text-[22px]`;
 const featureBody = `${montserrat.className} mt-1.5 text-[clamp(14px,4.5vw,18px)] font-medium leading-snug tracking-[-0.02em] text-zinc-700 md:mt-2 md:text-[16px] md:leading-relaxed`;
 

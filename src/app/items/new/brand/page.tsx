@@ -1,9 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Check, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
 
 import {
   formatItemCustomBrandLabel,
@@ -21,8 +23,8 @@ type BrandOption = {
   slug: string;
 };
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
-const montserratItalic = Montserrat({ subsets: ["latin"], weight: "500", style: "italic" });
+
+
 
 export default function NewItemBrandPage() {
   const router = useRouter();
@@ -140,11 +142,11 @@ export default function NewItemBrandPage() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Marque</h1>
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={confirmSelection}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={confirmSelection}>
           Terminé
         </button>
       </header>
@@ -167,7 +169,7 @@ export default function NewItemBrandPage() {
 
           <div className="max-h-[calc(100dvh-220px)] overflow-y-auto">
             {isLoading ? <p className="py-6 text-sm text-zinc-500">Chargement...</p> : null}
-            {errorMessage ? <p className="py-2 text-sm text-[#E44D3E]">{errorMessage}</p> : null}
+            {errorMessage ? <p className="py-2 text-sm text-zinc-600">{errorMessage}</p> : null}
 
             {!isLoading ? (
               <>
@@ -190,7 +192,7 @@ export default function NewItemBrandPage() {
                         <span
                           className={cn(
                             "inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center self-center rounded-full border",
-                            isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                            isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                           )}
                           aria-hidden
                         >
@@ -223,7 +225,7 @@ export default function NewItemBrandPage() {
                         className={cn(
                           "inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center self-center rounded-full border",
                           isAutreSelected
-                            ? "border-[#5E3023] bg-[#5E3023] text-white"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
                             : "border-zinc-300 bg-zinc-200 text-transparent",
                         )}
                         aria-hidden
@@ -242,13 +244,13 @@ export default function NewItemBrandPage() {
                           onChange={(e) => setCustomBrandDraft(e.target.value)}
                           onBlur={() => setCustomBrandDraft((v) => formatItemCustomBrandLabel(v))}
                           placeholder="Ex. Maison locale"
-                          className="mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-[16px] text-zinc-900 outline-none focus:border-[#5E3023]"
+                          className="mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-[16px] text-zinc-900 outline-none focus:border-zinc-900"
                         />
                       </label>
                     ) : null}
                   </div>
                 ) : !autreOption && !isLoading ? (
-                  <p className="mt-4 text-xs text-amber-700">
+                  <p className="mt-4 text-xs text-zinc-600">
                     La marque « Autre » n’est pas encore disponible en base. Exécute la migration récente ou ajoute une ligne{" "}
                     <code className="rounded bg-zinc-100 px-1">item_brands</code> avec le slug <code className="rounded bg-zinc-100 px-1">autre</code>.
                   </p>

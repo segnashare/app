@@ -3,17 +3,14 @@
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Playfair_Display } from "next/font/google";
-
 import { SignInCore } from "@/components/auth/SignInCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 function SignInPageContent() {
   const [canContinue, setCanContinue] = useState(false);

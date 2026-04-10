@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
 import { emailSchema } from "@/features/auth/lib/schemas";
@@ -22,10 +23,7 @@ type SignUpEmailCoreProps = {
   onCanContinueChange?: (value: boolean) => void;
 };
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export function SignUpEmailCore({ formId, onCanContinueChange }: SignUpEmailCoreProps) {
   const router = useRouter();

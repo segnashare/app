@@ -5,15 +5,20 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { WalletPanel, type WalletPanelStateContent } from "@/components/exchange/WalletPanel";
+import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeWalletPillProps = {
   membershipLabel: string;
   availablePoints: number;
+  /** Solde crédits de consommation (persisté `balance_consumption_points`). */
+  balanceConsumptionPoints: number;
+  /** Solde crédits d'échange (persisté `balance_exchange_points`). */
+  balanceExchangePoints: number;
   /** Somme des points des lignes du panier actif, ou null si aucun panier. */
   activeCartCostPoints: number | null;
   hasReachedLendingCap: boolean;
-  /** Total panier > capacité emprunt (mods / pods) : pastille alerte (fond blanc, texte et bordure rouges). */
+  /** Total panier > capacité emprunt : pastille contrastée (sans rouge ni animation). */
   cartExceedsWallet?: boolean;
   /** Ouverture / fermeture du panneau Wallet (ex. masquer le CTA panier). */
   onWalletPanelOpenChange?: (open: boolean) => void;
@@ -23,6 +28,8 @@ type ExchangeWalletPillProps = {
 export function ExchangeWalletPill({
   membershipLabel,
   availablePoints,
+  balanceConsumptionPoints,
+  balanceExchangePoints,
   activeCartCostPoints,
   hasReachedLendingCap,
   cartExceedsWallet = false,
@@ -36,7 +43,9 @@ export function ExchangeWalletPill({
   }, [walletModalOpen, onWalletPanelOpenChange]);
 
   const hasActiveCart = activeCartCostPoints !== null;
-  const balanceUnitLabel = membershipLabel === "Guest" ? "pods" : "mods";
+  const walletCreditKind = walletCreditKindForMembership(
+    membershipLabel as "Guest" | "Membre +" | "Membre X",
+  );
   const walletPillLabel = hasActiveCart
     ? `${activeCartCostPoints} / ${availablePoints}`
     : `${availablePoints}`;
@@ -54,7 +63,7 @@ export function ExchangeWalletPill({
         title: "Mode Guest",
         description:
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Obtenir des pods",
+        primaryCtaLabel: "Obtenir des crédits de consommation",
         primaryCtaHref: "/profile?tab=obtenirplus",
         secondaryCtaLabel: "Passe à l'échange",
         secondaryCtaHref: "/package?plan=plus",
@@ -68,7 +77,7 @@ export function ExchangeWalletPill({
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
         primaryCtaLabel: "Passer à SegnaX",
         primaryCtaHref: "/package?plan=minus",
-        secondaryCtaLabel: "Obtenir des mods",
+        secondaryCtaLabel: "Obtenir des crédits d'échange",
         secondaryCtaHref: "/profile?tab=obtenirplus",
       };
     }
@@ -77,7 +86,7 @@ export function ExchangeWalletPill({
       return {
         title: "Plafond de prêt atteint",
         description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
-        primaryCtaLabel: "Obtenir des mods",
+        primaryCtaLabel: "Obtenir des crédits d'échange",
         primaryCtaHref: "/profile?tab=obtenirplus",
         secondaryCtaLabel: "Comprendre",
         secondaryCtaHref: "/package",
@@ -90,7 +99,7 @@ export function ExchangeWalletPill({
         "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
       primaryCtaLabel: "Ajouter",
       primaryCtaHref: "/shop",
-      secondaryCtaLabel: "Obtenir des mods",
+      secondaryCtaLabel: "Obtenir des crédits d'échange",
       secondaryCtaHref: "/profile?tab=obtenirplus",
     };
   }, [walletState]);
@@ -103,27 +112,14 @@ export function ExchangeWalletPill({
         className={cn(
           "relative z-20 inline-flex items-center gap-2 rounded-[14px] px-3 py-2 text-left outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
           cartExceedsWallet
-            ? "cart-wallet-exceed-vibrate border-2 border-current bg-white text-red-600 shadow-sm"
-            : "bg-gradient-to-r from-[#5E3023] to-[#895737] text-white",
+            ? "border-2 border-zinc-300 bg-white text-zinc-900 shadow-sm"
+            : "bg-zinc-950 text-white shadow-sm",
           className,
         )}
       >
         <span className="min-w-0 truncate text-sm font-semibold">{walletPillLabel}</span>
         {cartExceedsWallet ? (
-          <span
-            aria-hidden
-            className="inline-block h-5 w-5 shrink-0 bg-current"
-            style={{
-              maskImage: "url(/ressources/icons/segna.svg)",
-              maskSize: "contain",
-              maskRepeat: "no-repeat",
-              maskPosition: "center",
-              WebkitMaskImage: "url(/ressources/icons/segna.svg)",
-              WebkitMaskSize: "contain",
-              WebkitMaskRepeat: "no-repeat",
-              WebkitMaskPosition: "center",
-            }}
-          />
+          <img src="/ressources/icons/segna.svg" alt="" aria-hidden className="h-4 w-4 shrink-0" />
         ) : (
           <img src="/ressources/icons/segna.svg" alt="" aria-hidden className="h-4 w-4 shrink-0 brightness-0 invert" />
         )}
@@ -134,7 +130,10 @@ export function ExchangeWalletPill({
         open={walletModalOpen}
         onClose={() => setWalletModalOpen(false)}
         availablePoints={availablePoints}
-        balanceUnitLabel={balanceUnitLabel}
+        balanceConsumptionPoints={balanceConsumptionPoints}
+        balanceExchangePoints={balanceExchangePoints}
+        membershipLabel={membershipLabel as "Guest" | "Membre +" | "Membre X"}
+        walletCreditKind={walletCreditKind}
         walletStateContent={walletStateContent}
       />
     </>

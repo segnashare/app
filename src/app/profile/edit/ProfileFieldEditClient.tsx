@@ -1,8 +1,9 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { OnboardingBirthCore } from "@/components/onboarding/OnboardingBirthCore";
 import { OnboardingBrandsCore } from "@/components/onboarding/OnboardingBrandsCore";
@@ -72,7 +73,7 @@ const FIELD_CONFIG: Record<FieldId, FieldConfig> = {
   ethic: { id: "ethic", label: "Éthique", kind: "ethic" },
 };
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 
 export function ProfileFieldEditClient() {
   const router = useRouter();
@@ -224,11 +225,11 @@ export function ProfileFieldEditClient() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={() => router.push(returnPath)}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={() => router.push(returnPath)}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>{config.label}</h1>
-        <button type="submit" form={formId} disabled={!canContinue} className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023] disabled:opacity-40")}>
+        <button type="submit" form={formId} disabled={!canContinue} className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}>
           Terminé
         </button>
       </header>
@@ -239,7 +240,7 @@ export function ProfileFieldEditClient() {
             <div className="flex min-h-[55vh] items-center justify-center">
               <div
                 aria-label="Chargement"
-                className="h-12 w-12 animate-spin rounded-full border-[4px] border-zinc-200 border-t-[#5E3023] border-r-[#5E3023]"
+                className="h-12 w-12 animate-spin rounded-full border-[4px] border-zinc-200 border-t-zinc-900 border-r-zinc-900"
               />
             </div>
           ) : (

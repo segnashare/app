@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, isSupabaseAuthLockAbortError } from "@/lib/supabase/client";
 import { buildSessionCacheKey, upsertSessionLog } from "@/lib/supabase/userSessions";
 
 const isExpectedInvalidSessionError = (message: string) => {
@@ -26,9 +26,9 @@ export function AuthSessionLogger() {
     const logCurrentUser = async (source: string) => {
       try {
         const {
-          data: { user },
+          data: { session },
           error,
-        } = await supabase.auth.getUser();
+        } = await supabase.auth.getSession();
 
         if (logEnabled && error) {
           console.info("[auth][client]", { source, pathname, error: error.message });
@@ -39,19 +39,21 @@ export function AuthSessionLogger() {
           console.info("[auth][client]", {
             source,
             pathname,
-            userId: user?.id ?? null,
-            email: user?.email ?? null,
+            userId: session?.user?.id ?? null,
+            email: session?.user?.email ?? null,
           });
         }
       } catch (e) {
+        if (isSupabaseAuthLockAbortError(e)) return;
         const message = e instanceof Error ? e.message : String(e);
         if (logEnabled) {
-          console.warn("[auth][client]", { source, pathname, error: message, note: "getUser rejected (often offline)" });
+          console.warn("[auth][client]", { source, pathname, error: message, note: "getSession rejected (often offline)" });
         }
       }
     };
 
-    void logCurrentUser("page-load");
+    /** Laisser la page critique (ex. ensureDraft) prendre le verrou GoTrue avant le log dev. */
+    const pageLoadLogTimer = window.setTimeout(() => void logCurrentUser("page-load"), 120);
 
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (
@@ -83,52 +85,21 @@ export function AuthSessionLogger() {
         invalidSessionRef.current = false;
       }
 
-      void (async () => {
-        try {
-          const {
-            data: { user },
-            error,
-          } = await supabase.auth.getUser();
-
-          if (logEnabled && error) {
-            console.info("[auth][client]", {
-              source: "auth-state-change",
-              event,
-              pathname,
-              sessionUserId: session?.user?.id ?? null,
-              error: error.message,
-            });
-            return;
-          }
-
-          if (logEnabled) {
-            console.info("[auth][client]", {
-              source: "auth-state-change",
-              event,
-              pathname,
-              sessionUserId: session?.user?.id ?? null,
-              sessionEmail: session?.user?.email ?? null,
-              validatedUserId: user?.id ?? null,
-              validatedEmail: user?.email ?? null,
-              mismatch: (session?.user?.id ?? null) !== (user?.id ?? null),
-            });
-          }
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          if (logEnabled) {
-            console.warn("[auth][client]", {
-              source: "auth-state-change",
-              event,
-              pathname,
-              error: message,
-              note: "getUser rejected (often offline)",
-            });
-          }
-        }
-      })();
+      if (logEnabled) {
+        console.info("[auth][client]", {
+          source: "auth-state-change",
+          event,
+          pathname,
+          userId: session?.user?.id ?? null,
+          email: session?.user?.email ?? null,
+        });
+      }
     });
 
-    return () => data.subscription.unsubscribe();
+    return () => {
+      window.clearTimeout(pageLoadLogTimer);
+      data.subscription.unsubscribe();
+    };
   }, [pathname]);
 
   return null;

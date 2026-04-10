@@ -1,11 +1,12 @@
 "use client";
 
-import { Montserrat, Playfair_Display } from "next/font/google";
-
 import { cn } from "@/lib/utils/cn";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
+
+
 
 export type InsightCardData = {
   prompt: string;

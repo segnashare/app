@@ -1,16 +1,17 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useEffect, useRef, useState } from "react";
 import type { WheelEvent as ReactWheelEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 const WHEEL_STEP_THRESHOLD = 120;
 const WHEEL_COOLDOWN_MS = 140;
 
@@ -188,13 +189,13 @@ export default function NewItemSizePage() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Taille</h1>
         <button
           type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023] disabled:opacity-40")}
+          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
           disabled={!selectedSize || isLoading}
           onClick={goBackWithSize}
         >
@@ -208,7 +209,7 @@ export default function NewItemSizePage() {
 
           {isLoading ? (
             <div className="flex min-h-[120px] items-center justify-center">
-              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-[#5E3023]" />
+              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
             </div>
           ) : sizes.length === 0 ? (
             <p className="py-6 text-sm text-zinc-500">Aucune taille disponible pour cette catégorie.</p>

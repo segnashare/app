@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Montserrat } from "next/font/google";
 import { Heart } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { BrandsCard } from "./BrandsCard";
 import { InsightCard } from "./InsightCard";
@@ -11,7 +12,7 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 
 export type ProfileViewMode = "visualisation" | "vue_etrangere";
 

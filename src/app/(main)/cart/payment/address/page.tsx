@@ -43,7 +43,7 @@ export default function CheckoutDeliveryAddressPage() {
   }, [router]);
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-zinc-100">
+    <div className="flex min-h-[100dvh] flex-col bg-white">
       <header className="fixed inset-x-0 top-0 z-30 border-b border-zinc-200 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px)+8px)]">
         <div className="relative mx-auto flex h-11 max-w-[430px] items-center justify-between">
           <div className="flex w-14 shrink-0 justify-start">
@@ -82,7 +82,7 @@ export default function CheckoutDeliveryAddressPage() {
             className={cn(
               "flex h-[52px] w-full items-center justify-center rounded-xl text-[16px] font-bold text-white shadow-sm",
               canContinue
-                ? "bg-gradient-to-b from-[#5E3023] to-[#895737]"
+                ? "bg-zinc-950 hover:bg-zinc-900"
                 : "cursor-not-allowed bg-zinc-300",
             )}
             aria-label="Enregistrer l'adresse de livraison"

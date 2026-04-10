@@ -3,6 +3,7 @@ import { ShopCatalog, type ShopCatalogItem } from "@/components/shop/ShopCatalog
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import { fetchCmsCatalogSectionResolved } from "@/lib/cms/fetch-cms-catalog-section";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
+import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { fetchBoutiqueHubSectionOrder } from "@/lib/cms/fetch-boutique-hub-section-order";
 import { SHOP_HUB_SECTION_KEYS } from "@/lib/cms/shop-hub-sections";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
@@ -46,6 +47,7 @@ export default async function ShopPage() {
     colRes,
     matRes,
     cmsShopFrames,
+    shopHomeCapsulesDisplay,
     cmsHubDiscover,
     cmsHubCategories,
     cmsHubPreferredBrands,
@@ -67,6 +69,7 @@ export default async function ShopPage() {
     anySb.from("item_couleurs").select("id,label").order("label", { ascending: true }),
     anySb.from("item_materiaux").select("id,label").order("label", { ascending: true }),
     fetchCmsSectionFramesResolved(supabase, "shop_home_capsules"),
+    fetchCmsSectionPublishedDisplay(supabase, "shop_home_capsules"),
     fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.discover),
     fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.categories),
     fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.preferredBrands),
@@ -151,6 +154,7 @@ export default async function ShopPage() {
         featuredLenders={featuredLendersPadded}
         featuredLenderSectionItemIds={featuredLenderSectionItemIds}
         initialCmsShopFrames={cmsShopFrames}
+        shopHomeCapsulesSectionDisplay={shopHomeCapsulesDisplay}
         initialShopHubSections={{
           discover: cmsHubDiscover,
           categories: cmsHubCategories,

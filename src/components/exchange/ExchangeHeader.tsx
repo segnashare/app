@@ -1,30 +1,31 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Montserrat } from "next/font/google";
 import Link from "next/link";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { Info } from "lucide-react";
 
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
+import { SegnaDialogDismissButton } from "@/components/ui/SegnaAppDialog";
 
 type ExchangeHeaderProps = {
   membershipLabel: string;
   availablePoints: number;
-  blockedPoints: number;
-  totalPoints: number;
+  balanceConsumptionPoints: number;
+  balanceExchangePoints: number;
   activeCartCostPoints: number | null;
   hasReachedLendingCap: boolean;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: ["700", "800"],
-});
+
 
 export function ExchangeHeader({
   membershipLabel,
   availablePoints,
+  balanceConsumptionPoints,
+  balanceExchangePoints,
   activeCartCostPoints,
   hasReachedLendingCap,
 }: ExchangeHeaderProps) {
@@ -43,7 +44,7 @@ export function ExchangeHeader({
 
   return (
     <>
-      <header className="flex items-start justify-between gap-3 px-5 pb-2 pt-8">
+      <header className="flex items-start justify-between gap-3 px-5 pb-4 pt-8">
         <button
           type="button"
           onClick={() => setMembershipModalOpen(true)}
@@ -56,6 +57,8 @@ export function ExchangeHeader({
         <ExchangeWalletPill
           membershipLabel={membershipLabel}
           availablePoints={availablePoints}
+          balanceConsumptionPoints={balanceConsumptionPoints}
+          balanceExchangePoints={balanceExchangePoints}
           activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
           cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
@@ -64,8 +67,9 @@ export function ExchangeHeader({
 
       {membershipModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-[400px] rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-center gap-2">
+          <div className="relative w-full max-w-[400px] rounded-2xl bg-white p-5 shadow-xl">
+            <SegnaDialogDismissButton onClick={() => setMembershipModalOpen(false)} />
+            <div className="flex items-center gap-2 pr-10">
               <Info className="h-4 w-4 text-zinc-700" />
               <p className="text-lg font-semibold text-zinc-950">{membershipLabel}</p>
             </div>

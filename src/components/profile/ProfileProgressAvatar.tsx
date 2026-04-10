@@ -32,8 +32,8 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
       <svg viewBox="0 0 160 160" className="absolute inset-0 h-full w-full -rotate-90">
         <defs>
           <linearGradient id={ringGradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#5E3023" />
-            <stop offset="100%" stopColor="#895737" />
+            <stop offset="0%" stopColor="#27272a" />
+            <stop offset="100%" stopColor="#18181b" />
           </linearGradient>
         </defs>
         <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="6" className="text-zinc-200" fill="none" />
@@ -55,7 +55,7 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
         type="button"
         onClick={onPhotoClick}
         aria-label="Modifier la photo de profil"
-        className="relative h-32 w-32 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5E3023]"
+        className="relative h-32 w-32 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
       >
         {avatarUrl ? (
           <RemoteCoverThumb
@@ -75,7 +75,7 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
         )}
 
         {clampedScore < 100 ? (
-          <span className="absolute bottom-2 left-1/2 inline-flex h-6 -translate-x-1/2 items-center justify-center rounded-[7px] bg-gradient-to-b from-[#5E3023] to-[#895737] px-1 text-white shadow-[0_6px_14px_rgba(0,0,0,0.16)]">
+          <span className="absolute bottom-2 left-1/2 inline-flex h-6 -translate-x-1/2 items-center justify-center rounded-[7px] bg-gradient-to-b from-zinc-800 to-zinc-950 px-1 text-white shadow-[0_6px_14px_rgba(0,0,0,0.16)]">
             <span className="text-[16px] font-medium leading-none tracking-[-0.01em] tabular-nums">{clampedScore} %</span>
           </span>
         ) : null}
@@ -84,7 +84,7 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
       <Link
         href={editHref}
         aria-label="Completer le profil"
-        className="absolute right-1 top-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5E3023]"
+        className="absolute right-1 top-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
       >
         <Pencil size={20} strokeWidth={2.3} />
       </Link>

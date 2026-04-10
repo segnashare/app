@@ -1,18 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
 import { useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { SignUpEmailCore } from "@/components/auth/SignUpEmailCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export default function SignUpEmailPage() {
   const [canContinue, setCanContinue] = useState(false);

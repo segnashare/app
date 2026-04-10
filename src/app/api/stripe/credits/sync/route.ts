@@ -4,12 +4,7 @@ import Stripe from "stripe";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-type CreditKind = "pods" | "mods";
-
-function isCreditKind(value: unknown): value is CreditKind {
-  return value === "pods" || value === "mods";
-}
+import { normalizeWalletCreditKind, type WalletCreditKind } from "@/lib/wallet/credit-kind";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -49,9 +44,11 @@ export async function GET(request: Request) {
       return NextResponse.redirect(new URL("/profile?tab=plus&credits=error&reason=payment_not_paid", url.origin));
     }
 
-    const creditKindRaw = session.metadata?.credits_kind ?? "pods";
+    const creditKindRaw = session.metadata?.credits_kind;
     const creditsAmountRaw = Number(session.metadata?.credits_amount ?? 0);
-    const creditKind: CreditKind = isCreditKind(creditKindRaw) ? creditKindRaw : "pods";
+    const creditKind: WalletCreditKind = normalizeWalletCreditKind(
+      typeof creditKindRaw === "string" ? creditKindRaw : undefined,
+    );
     const creditsAmount = Number.isFinite(creditsAmountRaw) ? Math.trunc(creditsAmountRaw) : 0;
 
     if (creditsAmount <= 0) {

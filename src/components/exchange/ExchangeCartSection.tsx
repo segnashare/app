@@ -1,134 +1,189 @@
 "use client";
 
-import { useMemo, useState } from "react";
-
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { Playfair_Display } from "next/font/google";
 
+import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
+import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
+import { CMS_SHOP_HUB_FRAME_WIDE_STACK_OUTER_CLASS, CmsHorizontalScrollRow } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
+import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
+import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-export type CartLineStatus = "disponible" | "reserve" | "echec" | "en_attente_wallet";
-
-export type CartLine = {
-  id: string;
-  itemId: string | null;
-  itemName: string;
-  pricePoints: number;
-  status: CartLineStatus;
-};
-
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700", "800"] });
-
-function cartLineStatusShortLabel(status: CartLineStatus): string {
-  if (status === "disponible") return "disponible";
-  if (status === "reserve") return "reserve";
-  if (status === "en_attente_wallet") return "non réservé";
-  if (status === "echec") return "echec";
-  return status;
-}
-
-export const CART_LINE_STATUS_CLASSNAMES: Record<CartLineStatus, string> = {
-  disponible: "bg-emerald-100 text-emerald-700",
-  reserve: "bg-amber-100 text-amber-700",
-  echec: "bg-red-100 text-red-700",
-  en_attente_wallet: "bg-slate-100 text-slate-700",
-};
+export type { CartLineStatus } from "@/lib/cart/cart-line-status";
+export { CART_LINE_STATUS_CLASSNAMES } from "@/lib/cart/cart-line-status";
 
 type ExchangeCartSectionProps = {
-  initialLines: CartLine[];
-  cartStatusLabel: string;
+  initialLines: CartLineRowData[];
+  activeCartId: string | null;
   membershipLabel: "Guest" | "Membre +" | "Membre X";
+  availablePoints: number;
+  /** Rail CMS sous le titre « Panier » lorsque le panier est vide (`exchange_cart_empty`). */
+  emptyCartCms?: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } | null;
+  emptyCartCmsCatalogItems?: ShopCatalogItem[];
 };
 
-export function ExchangeCartSection({ initialLines, cartStatusLabel, membershipLabel }: ExchangeCartSectionProps) {
-  const [lines, setLines] = useState<CartLine[]>(initialLines);
-  const totalPoints = useMemo(() => lines.reduce((sum, line) => sum + line.pricePoints, 0), [lines]);
-  const emptyCartSubtitle =
-    membershipLabel === "Membre X"
-      ? "Emprunte jusqu'à 10 items"
-      : membershipLabel === "Membre +"
-        ? "Emprunte jusqu'à 5 items"
-        : "Loue jusqu'à 5 items";
+export function ExchangeCartSection({
+  initialLines,
+  activeCartId,
+  membershipLabel,
+  availablePoints,
+  emptyCartCms = null,
+  emptyCartCmsCatalogItems = [],
+}: ExchangeCartSectionProps) {
+  const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
+  const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
+  const [removingLineId, setRemovingLineId] = useState<string | null>(null);
+  const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLines(sortCartLinesByPriceAsc(initialLines));
+  }, [initialLines]);
+
+  const orderedLines = useMemo(() => sortCartLinesByPriceAsc(lines), [lines]);
+
+  const competitionItemIdsKey = useMemo(
+    () =>
+      [...new Set(lines.map((l) => l.itemId))]
+        .sort()
+        .join(","),
+    [lines],
+  );
+
+  useEffect(() => {
+    if (!competitionItemIdsKey) return;
+    const itemIds = competitionItemIdsKey.split(",").filter(Boolean);
+    let cancelled = false;
+
+    async function refreshCompetition() {
+      const { data, error } = await supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIds });
+      if (cancelled || error) return;
+      setLines((prev) => sortCartLinesByPriceAsc(mergeCompetitionIntoCartLines(prev, data)));
+    }
+
+    const channel = supabase
+      .channel(`exchange-cart-competition:${competitionItemIdsKey.slice(0, 120)}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "items",
+          filter: `id=in.(${itemIds.join(",")})`,
+        },
+        () => void refreshCompetition(),
+      )
+      .subscribe();
+
+    void refreshCompetition();
+    const intervalId = window.setInterval(() => void refreshCompetition(), 12000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      void supabase.removeChannel(channel);
+    };
+  }, [competitionItemIdsKey, supabase]);
+
+  const removeLine = useCallback(
+    async (lineId: string) => {
+      if (!activeCartId) {
+        setLineRemoveError("Panier introuvable.");
+        return;
+      }
+      setLineRemoveError(null);
+      setRemovingLineId(lineId);
+      try {
+        const { data, error } = await supabase
+          .from("cart_items")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", lineId)
+          .eq("cart_id", activeCartId)
+          .is("deleted_at", null)
+          .select("id")
+          .maybeSingle();
+        if (error) {
+          setLineRemoveError(error.message ?? "Impossible de retirer cet article.");
+          return;
+        }
+        if (!data) {
+          setLineRemoveError("Cette ligne n’a pas pu être retirée.");
+          return;
+        }
+        setLines((prev) => prev.filter((l) => l.id !== lineId));
+        try {
+          window.dispatchEvent(new CustomEvent("segna:cart-changed"));
+        } catch {
+          /* noop */
+        }
+        router.refresh();
+      } finally {
+        setRemovingLineId(null);
+      }
+    },
+    [activeCartId, router, supabase],
+  );
 
   return (
     <SectionBlock
       title="Panier"
-      description={lines.length === 0 ? emptyCartSubtitle : undefined}
+      titleHref="/cart"
       className="w-full bg-white px-5 py-4"
-      titleClassName={cn(playfairDisplay.className, "text-[28px] font-bold leading-none")}
-      descriptionClassName="font-medium text-[20px] leading-none tracking-normal text-[#424242]"
+      titleClassName={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}
     >
-      <CardBase className="!rounded-none !border-0 !bg-transparent !p-0 !shadow-none space-y-3">
-        {lines.length > 0 ? (
-          <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-            <span className="text-sm font-medium text-zinc-700">Statut panier</span>
-            <span className="rounded-full bg-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-700">{cartStatusLabel}</span>
-          </div>
-        ) : null}
-
-        {lines.length === 0 ? (
-          <div className="space-y-2">
-            <div className="rounded-xl bg-white px-3 py-4">
-              <p className="text-center text-sm font-semibold text-zinc-700">Panier vide</p>
-            </div>
-
-            <div className="flex justify-end rounded-xl py-0.5">
-              <Link
-                href="/shop"
-                className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
-              >
-                <Plus className="h-4 w-4" strokeWidth={2.5} />
-                <span>Ajouter des articles</span>
-              </Link>
-            </div>
-          </div>
-        ) : null}
-
-        {lines.map((line) => (
-          <article key={line.id} className="rounded-xl border border-zinc-200 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <Link href={line.itemId ? `/items/${line.itemId}` : "/shop"} className="block truncate text-sm font-semibold text-zinc-900 underline-offset-2 hover:underline">
-                  {line.itemName}
+      <CardBase className="!rounded-none !border-0 !bg-transparent !p-0 !shadow-none space-y-0">
+        {orderedLines.length === 0 ? (
+          <div className="space-y-3">
+            {emptyCartCms && emptyCartCms.frames.length > 0 ? (
+              <CartCmsShopHubProvider catalogItems={emptyCartCmsCatalogItems} onCartMutation={() => router.refresh()}>
+                {!emptyCartCms.display.hide_section_title ? (
+                  <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+                    {emptyCartCms.display.title?.trim() || "Pour commencer"}
+                  </h2>
+                ) : null}
+                <CmsHorizontalScrollRow
+                  rows={emptyCartCms.frames}
+                  className={emptyCartCms.display.hide_section_title ? "!mt-0" : undefined}
+                  hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_STACK_OUTER_CLASS}
+                  layout="stack"
+                />
+              </CartCmsShopHubProvider>
+            ) : null}
+            <div className="space-y-2">
+              <div className="flex justify-end rounded-xl py-0.5">
+                <Link
+                  href="/shop"
+                  className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2.5} />
+                  <span>Ajouter des articles</span>
                 </Link>
-                <p className="mt-1 text-sm text-zinc-600">{line.pricePoints} points</p>
               </div>
-              <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", CART_LINE_STATUS_CLASSNAMES[line.status])}>
-                {cartLineStatusShortLabel(line.status)}
-              </span>
             </div>
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                className="text-xs font-semibold text-zinc-500 underline underline-offset-2"
-                onClick={() => setLines((previous) => previous.filter((entry) => entry.id !== line.id))}
-              >
-                Retirer
-              </button>
-            </div>
-          </article>
-        ))}
-
-        {lines.length > 0 ? (
-          <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-            <span className="text-sm font-medium text-zinc-700">Total panier actif</span>
-            <span className="text-sm font-semibold text-zinc-900">{totalPoints} points</span>
           </div>
-        ) : null}
-
-        {lines.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Link href="/items/new?fresh=1" className="inline-flex h-11 items-center justify-center rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-800">
-              Ajouter une piece
-            </Link>
-            <button type="button" className="inline-flex h-11 items-center justify-center rounded-xl bg-zinc-950 text-sm font-semibold text-white">
-              Reserver
-            </button>
-          </div>
-        ) : null}
+        ) : (
+          <CartPanierLineRows
+            lines={orderedLines}
+            membershipLabel={membershipLabel}
+            availablePoints={availablePoints}
+            removingLineId={removingLineId}
+            lineRemoveError={lineRemoveError}
+            onRemoveLine={(id) => void removeLine(id)}
+            showAddArticlesLink
+            exchangeUiCalm
+          />
+        )}
       </CardBase>
     </SectionBlock>
   );

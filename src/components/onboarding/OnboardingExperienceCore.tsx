@@ -1,10 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Check } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -24,10 +25,7 @@ const EXPERIENCE_OPTIONS = [
   "Je ne sais pas trop encore.",
 ] as const;
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export function OnboardingExperienceCore({ formId, onCanContinueChange, redirectPath }: OnboardingExperienceCoreProps) {
   const router = useRouter();
@@ -111,7 +109,7 @@ export function OnboardingExperienceCore({ formId, onCanContinueChange, redirect
                 <span
                   className={cn(
                     "ml-4 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border",
-                    isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                    isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                   )}
                   aria-hidden
                 >

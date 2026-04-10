@@ -2,17 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Playfair_Display } from "next/font/google";
-
 import { ResetPasswordCore } from "@/components/auth/ResetPasswordCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export default function ResetPasswordPage() {
   const [canContinue, setCanContinue] = useState(false);

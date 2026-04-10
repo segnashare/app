@@ -1,17 +1,15 @@
 "use client";
 
-import { Playfair_Display } from "next/font/google";
 import { useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { OnboardingPhoneCore } from "@/components/onboarding/OnboardingPhoneCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export default function OnboardingPhonePage() {
   const [canContinue, setCanContinue] = useState(false);

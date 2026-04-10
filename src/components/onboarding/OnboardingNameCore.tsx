@@ -1,9 +1,11 @@
 "use client";
 
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -24,14 +26,8 @@ type OnboardingNameCoreProps = {
   initialLastName?: string;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
+
 
 export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, initialFirstName, initialLastName }: OnboardingNameCoreProps) {
   const router = useRouter();

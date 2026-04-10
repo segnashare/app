@@ -11,8 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
@@ -25,12 +25,21 @@ import {
   takeShopCatalogStrictRemountFallback,
   type ShopCatalogSessionSnapshot,
 } from "@/lib/shop/shop-catalog-session";
-import { CmsFrameItem, ShopWideLinkCardBlock } from "@/components/cms/CmsSectionBlocks";
+import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
+import {
+  CMS_SHOP_HUB_FRAME_OUTER_CLASS,
+  CmsFrameItem,
+  ShopWideLinkCardBlock,
+  useCmsHubFrameOuterOverride,
+} from "@/components/cms/CmsSectionBlocks";
+import { pickPseudoFrame } from "@/lib/cms/cms-pseudo-frame";
 import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
+import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import type { CmsFramePayload, CmsFrameRow, CmsPhotoPosition } from "@/lib/cms/cms-types";
 import { DEFAULT_BOUTIQUE_HUB_SECTION_ORDER, mergeBoutiqueHubOrder } from "@/lib/cms/boutique-hub-order";
 import {
@@ -39,19 +48,21 @@ import {
 } from "@/lib/shop/shop-department-categories";
 import { mergeShopHubSectionDisplay, type ShopHubSectionSlug } from "@/lib/cms/shop-hub-sections";
 import { cn } from "@/lib/utils/cn";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+
+const montserratHubWideCard = segnaMontserrat;
+const montserratPieceBold = segnaMontserrat;
+const montserratPieceItalic = segnaMontserrat;
+const montserratPieceMedium = segnaMontserrat;
 
 /** Chips filtres: base grise, active noire, plus plates et moins arrondies. */
 const filterChipActiveClass = "border-transparent bg-zinc-950 text-white";
 const filterChipInactiveClass = "border-transparent bg-zinc-100 text-zinc-900 hover:bg-zinc-200/90";
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700", "800"] });
-const montserratHubWideCard = Montserrat({ subsets: ["latin"], weight: "700" });
-/** Cartes pièce boutique : titre gras, marque italique, ligne d’infos medium. */
-const montserratPieceBold = Montserrat({ subsets: ["latin"], weight: "700" });
-const montserratPieceItalic = Montserrat({ subsets: ["latin"], weight: "500", style: "italic" });
-const montserratPieceMedium = Montserrat({ subsets: ["latin"], weight: "500" });
-const sectionTitleClass = "text-[24px] font-bold leading-[1.1] tracking-tight text-zinc-900";
 
-type SortMode = "recent" | "price_asc" | "price_desc";
+/** Cartes pièce boutique : titre gras, marque italique, ligne d’infos medium. */
+
+export type SortMode = "recent" | "price_asc" | "price_desc";
 
 const SORT_OPTIONS: { mode: SortMode; label: string; description?: string }[] = [
   { mode: "recent", label: "Nouveautés", description: "Les pièces les plus récentes d’abord" },
@@ -103,25 +114,7 @@ const CONDITION_OPTIONS: FilterOption[] = [
   { id: "degrade", label: "Dégradé" },
 ];
 
-const PSEUDO_FRAME_TAGLINES = [
-  "Edito Segna",
-  "Sélection du moment",
-  "Vu sur le feed",
-  "Tendance capsule",
-  "Drop exclusif",
-  "Nouveau chez Segna",
-];
-
-const PSEUDO_FRAME_COLORS = [
-  "from-[#FDE68A] to-[#FCA5A5]",
-  "from-[#BFDBFE] to-[#C4B5FD]",
-  "from-[#A7F3D0] to-[#67E8F9]",
-  "from-[#FDBA74] to-[#F9A8D4]",
-  "from-[#DDD6FE] to-[#93C5FD]",
-  "from-[#FECACA] to-[#FDE68A]",
-];
-
-type ShopFilters = {
+export type ShopFilters = {
   categoryId: string | null;
   brandIds: string[];
   colorIds: string[];
@@ -130,7 +123,7 @@ type ShopFilters = {
   conditionScore: string | null;
 };
 
-const emptyFilters: ShopFilters = {
+export const emptyShopCatalogFilters: ShopFilters = {
   categoryId: null,
   brandIds: [],
   colorIds: [],
@@ -168,6 +161,8 @@ type ShopCatalogProps = {
   initialMostLikedItems?: ShopCatalogItem[];
   /** CMS — capsules + éditos (section shop_home_capsules) */
   initialCmsShopFrames?: CmsFrameRow[];
+  /** Config publiée `shop_home_capsules` (titre « À la une », masquer l’en-tête). */
+  shopHomeCapsulesSectionDisplay?: CmsSectionPublishedDisplay;
   /** CMS — sections hub catalogue (titres, liens, frames pièce/catégorie/marque) */
   initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
   /** Ordre vertical des blocs hub (RPC `get_cms_boutique_section_order`). */
@@ -272,17 +267,6 @@ function isDefaultCatalogView(filters: ShopFilters, search: string, heartsOnly: 
   return search.trim() === "" && !heartsOnly && !disponiblesOnly && !hasFilter && sortMode === "recent";
 }
 
-function pickPseudoFrame(seed: string) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return {
-    color: PSEUDO_FRAME_COLORS[hash % PSEUDO_FRAME_COLORS.length],
-    tag: PSEUDO_FRAME_TAGLINES[hash % PSEUDO_FRAME_TAGLINES.length],
-  };
-}
-
 function pieceCardConditionLabel(item: ShopCatalogItem): string {
   const raw = item.condition_label?.trim();
   if (raw) return raw;
@@ -299,7 +283,7 @@ function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
 /** Style panneau gauche pour pièces mises en avant via CMS (À découvrir, bons coups, À la une…). */
 export type ShopCmsPieceSpotlight = { bgHex: string; textColor: "white" | "black" };
 
-function parseCmsPieceSpotlightFromPayload(payload: CmsFramePayload): ShopCmsPieceSpotlight | null {
+export function parseCmsPieceSpotlightFromPayload(payload: CmsFramePayload): ShopCmsPieceSpotlight | null {
   const raw = typeof payload.item_spotlight_bg_hex === "string" ? payload.item_spotlight_bg_hex.trim() : "";
   if (!raw || !/^#?[0-9a-fA-F]{6}$/.test(raw)) return null;
   const bgHex = raw.startsWith("#") ? raw : `#${raw}`;
@@ -308,7 +292,7 @@ function parseCmsPieceSpotlightFromPayload(payload: CmsFramePayload): ShopCmsPie
 }
 
 /** URL affichable pour la photo CMS du panneau droit (prioritaire sur la cover catalogue). */
-function itemSpotlightCoverUrlFromPayload(payload: CmsFramePayload): string | undefined {
+export function itemSpotlightCoverUrlFromPayload(payload: CmsFramePayload): string | undefined {
   const img = payload.item_spotlight_image;
   if (!img || typeof img !== "object") return undefined;
   const u = typeof img.signed_url === "string" ? img.signed_url.trim() : "";
@@ -317,7 +301,7 @@ function itemSpotlightCoverUrlFromPayload(payload: CmsFramePayload): string | un
 }
 
 /** Cadrage panneau droit (zoom / offset %), même convention que les grandes cartes lien. */
-function itemSpotlightPhotoPositionFromPayload(payload: CmsFramePayload): CmsPhotoPosition {
+export function itemSpotlightPhotoPositionFromPayload(payload: CmsFramePayload): CmsPhotoPosition {
   const img = payload.item_spotlight_image;
   if (!img?.position || img.position === null || typeof img.position !== "object") return null;
   return img.position;
@@ -770,6 +754,7 @@ export function ShopCatalog({
   sectionPageTitle = null,
   initialMostLikedItems = [],
   initialCmsShopFrames = [],
+  shopHomeCapsulesSectionDisplay = { hide_section_title: false, title: null },
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
 }: ShopCatalogProps) {
@@ -780,14 +765,14 @@ export function ShopCatalog({
   const [sortMode, setSortMode] = useState<SortMode>("recent");
   const [heartsOnly, setHeartsOnly] = useState(false);
   const [disponiblesOnly, setDisponiblesOnly] = useState(false);
-  const [filters, setFilters] = useState<ShopFilters>(emptyFilters);
-  const [modalFilters, setModalFilters] = useState<ShopFilters>(emptyFilters);
+  const [filters, setFilters] = useState<ShopFilters>(emptyShopCatalogFilters);
+  const [modalFilters, setModalFilters] = useState<ShopFilters>(emptyShopCatalogFilters);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [modalFilterFamily, setModalFilterFamily] = useState<ModalFilterFamily>("category");
   const [modalCategoryBrowseParentId, setModalCategoryBrowseParentId] = useState<string | null>(null);
   /** Feuille modale « détail filtre » (type Uber) : tri ou un critère à la fois. */
   const [filterDetailSheet, setFilterDetailSheet] = useState<OpenPanelKey | null>(null);
-  const [filterSheetDraft, setFilterSheetDraft] = useState<ShopFilters>(emptyFilters);
+  const [filterSheetDraft, setFilterSheetDraft] = useState<ShopFilters>(emptyShopCatalogFilters);
   const [sortSheetDraft, setSortSheetDraft] = useState<SortMode>("recent");
   const [categorySheetBrowseL1, setCategorySheetBrowseL1] = useState<string | null>(null);
   const [categorySheetBrowseL2, setCategorySheetBrowseL2] = useState<string | null>(null);
@@ -935,7 +920,7 @@ export function ShopCatalog({
     setSortMode(snap.sortMode === "price_asc" || snap.sortMode === "price_desc" ? snap.sortMode : "recent");
     setHeartsOnly(Boolean(snap.heartsOnly));
     setDisponiblesOnly(Boolean(snap.disponiblesOnly));
-    setFilters({ ...emptyFilters, ...parseShopCatalogFilters(snap.filters) });
+    setFilters({ ...emptyShopCatalogFilters, ...parseShopCatalogFilters(snap.filters) });
 
     if (scrollY != null) {
       requestAnimationFrame(() => window.scrollTo(0, scrollY));
@@ -1039,7 +1024,7 @@ export function ShopCatalog({
       .select("id,status")
       .eq("user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["active", "reserved"])
+      .in("status", [...CART_STATUSES_OPEN])
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -1235,10 +1220,44 @@ export function ShopCatalog({
   }, [modalFilters]);
 
   const resetModalFilters = useCallback(() => {
-    setModalFilters({ ...emptyFilters });
+    setModalFilters({ ...emptyShopCatalogFilters });
     setModalCategoryBrowseParentId(null);
     setModalFilterFamily("category");
   }, []);
+
+  /** Filtres catalogue (chips + Disponibles / Cœurs) — hors recherche et tri. */
+  const hasActiveCatalogFilters = useMemo(() => {
+    const f = filters;
+    return (
+      f.categoryId !== null ||
+      f.materialId !== null ||
+      f.conditionScore !== null ||
+      f.brandIds.length > 0 ||
+      f.colorIds.length > 0 ||
+      f.sizeIds.length > 0 ||
+      heartsOnly ||
+      disponiblesOnly
+    );
+  }, [filters, heartsOnly, disponiblesOnly]);
+
+  const clearAllCatalogFilters = useCallback(() => {
+    setFilters({ ...emptyShopCatalogFilters });
+    setHeartsOnly(false);
+    setDisponiblesOnly(false);
+    setFilterModalOpen(false);
+    setFilterDetailSheet(null);
+    setModalFilters({ ...emptyShopCatalogFilters });
+    setModalCategoryBrowseParentId(null);
+    setModalFilterFamily("category");
+  }, []);
+
+  const onSlidersFilterClick = useCallback(() => {
+    if (hasActiveCatalogFilters) {
+      clearAllCatalogFilters();
+      return;
+    }
+    openFilterModal();
+  }, [hasActiveCatalogFilters, clearAllCatalogFilters, openFilterModal]);
 
   const applyFilterDetailSheet = useCallback(() => {
     if (filterDetailSheet === "sort") {
@@ -1305,28 +1324,35 @@ export function ShopCatalog({
       case "category": {
         if (modalCategoryBrowseParentId) {
           if (categoryChildOptions.length === 0) {
+            const pid = modalCategoryBrowseParentId;
             return (
               <div className={FILTER_DETAIL_ROW_SCROLL}>
                 <FilterModalRowChip
-                  label="Tous"
+                  label="Toutes les sous-catégories"
+                  active={modalFilters.categoryId === pid}
+                  onClick={() => setModalFilters((f) => ({ ...f, categoryId: pid }))}
+                />
+                <span className="self-center px-1 text-sm text-zinc-500">Aucune sous-catégorie</span>
+                <FilterModalRowChip
+                  label="Tous les rayons"
                   active={modalFilters.categoryId === null}
                   onClick={() => {
                     setModalFilters((f) => ({ ...f, categoryId: null }));
                     setModalCategoryBrowseParentId(null);
                   }}
                 />
-                <span className="self-center px-1 text-sm text-zinc-500">Aucune sous-catégorie</span>
               </div>
             );
           }
           return (
             <div className={FILTER_DETAIL_ROW_SCROLL}>
               <FilterModalRowChip
-                label="Tous"
-                active={modalFilters.categoryId === null}
+                label="Toutes les sous-catégories"
+                active={modalFilters.categoryId === modalCategoryBrowseParentId}
                 onClick={() => {
-                  setModalFilters((f) => ({ ...f, categoryId: null }));
-                  setModalCategoryBrowseParentId(null);
+                  const parentId = modalCategoryBrowseParentId;
+                  if (!parentId) return;
+                  setModalFilters((f) => ({ ...f, categoryId: parentId }));
                 }}
               />
               {categoryChildOptions.map((c) => (
@@ -1337,6 +1363,14 @@ export function ShopCatalog({
                   onClick={() => setModalFilters((f) => ({ ...f, categoryId: c.id }))}
                 />
               ))}
+              <FilterModalRowChip
+                label="Tous les rayons"
+                active={modalFilters.categoryId === null}
+                onClick={() => {
+                  setModalFilters((f) => ({ ...f, categoryId: null }));
+                  setModalCategoryBrowseParentId(null);
+                }}
+              />
             </div>
           );
         }
@@ -1355,7 +1389,7 @@ export function ShopCatalog({
                 onClick={() => {
                   if (categoryHasChildren(c.id)) {
                     setModalCategoryBrowseParentId(c.id);
-                    setModalFilters((f) => ({ ...f, categoryId: null }));
+                    setModalFilters((f) => ({ ...f, categoryId: c.id }));
                   } else {
                     setModalFilters((f) => ({ ...f, categoryId: c.id }));
                   }
@@ -1726,6 +1760,83 @@ export function ShopCatalog({
     setFilters((prev) => ({ ...prev, categoryId }));
   }, []);
 
+  const cmsAtLaUneHubEnv = useMemo<CmsShopHubFramesEnv>(
+    () => ({
+      categories,
+      brands,
+      onCategoryFilter: applyCategoryFilterFromSection,
+      onBrandFilter: applyBrandFilterFromSection,
+      renderShopLinkCard: (row) => (
+        <div className={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}>
+          <ShopWideLinkCardBlock
+            payload={row.payload}
+            aspectClassName="aspect-[2.32]"
+            wrapperClassName="block w-full rounded-2xl"
+            onNavigate={() =>
+              persistShopCatalogStateForItemNavigation({
+                search,
+                sortMode,
+                heartsOnly,
+                disponiblesOnly,
+                filters: { ...filters },
+              })
+            }
+          />
+        </div>
+      ),
+      renderShopItemRef: (row) => {
+        const p = row.payload;
+        const id = typeof p.item_id === "string" ? p.item_id.trim() : "";
+        const item = id ? catalogItemById.get(id) : undefined;
+        if (!item) return null;
+        return (
+          <ShopCapsuleItemRefFrame
+            rowId={row.id}
+            item={item}
+            cover={coverUrlById[item.id]}
+            spotlight={parseCmsPieceSpotlightFromPayload(p)}
+            spotlightCoverUrl={itemSpotlightCoverUrlFromPayload(p)}
+            spotlightPhotoPosition={itemSpotlightPhotoPositionFromPayload(p)}
+            shimmerDurationSec={shimmerDurationSec}
+            cartItemIds={localCartItemIds}
+            likedSet={likedSet}
+            likeBusyIds={likeBusyIds}
+            cartBusyIds={cartBusyIds}
+            onToggleLike={handleToggleLike}
+            onToggleCart={handleToggleCart}
+            searchState={{
+              search,
+              sortMode,
+              heartsOnly,
+              disponiblesOnly,
+              filters,
+            }}
+          />
+        );
+      },
+    }),
+    [
+      categories,
+      brands,
+      applyCategoryFilterFromSection,
+      applyBrandFilterFromSection,
+      catalogItemById,
+      coverUrlById,
+      shimmerDurationSec,
+      localCartItemIds,
+      likedSet,
+      likeBusyIds,
+      cartBusyIds,
+      handleToggleLike,
+      handleToggleCart,
+      search,
+      sortMode,
+      heartsOnly,
+      disponiblesOnly,
+      filters,
+    ],
+  );
+
   function renderBoutiqueHubSection(sectionKey: string): ReactNode {
     const searchState = { search, sortMode, heartsOnly, disponiblesOnly, filters };
     switch (sectionKey) {
@@ -1733,6 +1844,7 @@ export function ShopCatalog({
   return (
               <HubRail
             title={discoverHub.conf.title}
+            hideSectionTitle={discoverHub.conf.hide_section_title}
             items={discoverHub.railItems === null ? pickSectionItems(0, 10) : discoverHub.railItems}
             itemSpotlights={
               discoverHub.railItems === null ? null : discoverHub.itemSpotlights
@@ -1780,6 +1892,7 @@ export function ShopCatalog({
         if (categoriesHub.departmentRail.length === 0) return null;
         return (
               <section className="min-w-0 space-y-3">
+            {!categoriesHub.conf.hide_section_title ? (
             <SectionHeader
               title={categoriesHub.conf.title}
               sectionHref={
@@ -1788,7 +1901,8 @@ export function ShopCatalog({
                   : undefined
               }
             />
-                <div className="flex w-full min-w-0 max-w-full flex-nowrap snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            ) : null}
+                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
               {categoriesHub.departmentRail.map((dept) => {
                     const persist = () =>
@@ -1890,6 +2004,7 @@ export function ShopCatalog({
         if (brandsForRail.length === 0) return null;
         return (
           <section className="min-w-0 space-y-3">
+            {!preferredBrandsHub.conf.hide_section_title ? (
             <SectionHeader
               title={preferredBrandsHub.conf.title}
               sectionHref={
@@ -1898,7 +2013,8 @@ export function ShopCatalog({
                   : undefined
               }
             />
-                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            ) : null}
+                <div className="flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0" aria-hidden />
                 {brandsForRail.map((entry) => {
                   if (entry.kind === "link") {
@@ -1907,7 +2023,7 @@ export function ShopCatalog({
                         key={entry.frame.id}
                         payload={entry.frame.payload}
                         aspectClassName="aspect-[2.32]"
-                        wrapperClassName="w-[90%] max-w-[410px] shrink-0"
+                        wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}
                         onNavigate={() =>
                           persistShopCatalogStateForItemNavigation({
                             search,
@@ -1952,47 +2068,49 @@ export function ShopCatalog({
         );
       }
       case "shop_home_capsules": {
+        const capsulesCapTitle = shopHomeCapsulesSectionDisplay.title?.trim() || "À la une";
+        const capsulesHideHeader = shopHomeCapsulesSectionDisplay.hide_section_title;
         const capsuleBlock =
           cmsAtLaUneRows.length > 0 ? (
             <div className="space-y-3">
-              <SectionHeader title="À la une" showAction={false} />
-              <div className="flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="w-3 shrink-0 snap-start" aria-hidden />
-                {cmsAtLaUneRows.map((row) => (
-                  <ShopCapsuleAtLaUneSlot
-                    key={row.id}
-                    row={row}
-                    categories={categories}
-                    brands={brands}
-                    onCategoryFilter={applyCategoryFilterFromSection}
-                    onBrandFilter={applyBrandFilterFromSection}
-                    itemById={catalogItemById}
-                    coverUrlById={coverUrlById}
-                    shimmerDurationSec={shimmerDurationSec}
-                    cartItemIds={localCartItemIds}
-                    likedSet={likedSet}
-                    likeBusyIds={likeBusyIds}
-                    cartBusyIds={cartBusyIds}
-                    onToggleLike={handleToggleLike}
-                    onToggleCart={handleToggleCart}
-                    searchState={searchState}
-                  />
-                ))}
-                <div className="w-3 shrink-0 snap-start" aria-hidden />
+              {!capsulesHideHeader ? (
+                <SectionHeader title={capsulesCapTitle} showAction={false} />
+              ) : null}
+              <div
+                className={cn(
+                  "flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                  cmsAtLaUneRows.length === 1
+                    ? "justify-center"
+                    : "snap-x snap-mandatory scroll-pl-3",
+                )}
+              >
+                {cmsAtLaUneRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
+                <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
+                  {/* Enfants directs du flex : comme le panier (`CmsFrameItem` seul), pour une largeur de carte stable. */}
+                  {cmsAtLaUneRows.map((row) => (
+                    <CmsFrameItem key={row.id} row={row} />
+                  ))}
+                </CmsShopHubFramesProvider>
+                {cmsAtLaUneRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
               </div>
             </div>
           ) : null;
         const promoBlock =
           cmsHomePromoRows.length > 0 ? (
               <section className="space-y-3">
-                <div className="flex snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                {cmsHomePromoRows.map((row) => (
-                  <div key={row.id} className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl">
-                    <CmsFrameItem row={row} />
-                        </div>
-                ))}
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
+                <div
+                  className={cn(
+                    "flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    cmsHomePromoRows.length === 1
+                      ? "justify-center"
+                      : "snap-x snap-mandatory scroll-pl-3",
+                  )}
+                >
+                  {cmsHomePromoRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
+                  {cmsHomePromoRows.map((row) => (
+                    <CmsFrameItem key={row.id} row={row} />
+                  ))}
+                  {cmsHomePromoRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
                 </div>
               </section>
           ) : null;
@@ -2008,6 +2126,7 @@ export function ShopCatalog({
         return (
               <HubRail
             title={dealsHub.conf.title}
+            hideSectionTitle={dealsHub.conf.hide_section_title}
             items={dealsHub.railItems === null ? pickSectionItems(18, 10) : dealsHub.railItems}
             itemSpotlights={dealsHub.railItems === null ? null : dealsHub.itemSpotlights}
             spotlightCoverUrls={dealsHub.railItems === null ? null : dealsHub.spotlightCoverUrls}
@@ -2102,6 +2221,7 @@ export function ShopCatalog({
       case "shop_section_french":
         return (
               <section className="min-w-0 space-y-3">
+            {!frenchHub.conf.hide_section_title ? (
             <SectionHeader
               title={frenchHub.conf.title}
               sectionHref={
@@ -2110,7 +2230,8 @@ export function ShopCatalog({
                   : undefined
               }
             />
-                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            ) : null}
+                <div className="flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0" aria-hidden />
               {frenchHub.list.map((entry) => {
                 if (entry.kind === "link") {
@@ -2119,7 +2240,7 @@ export function ShopCatalog({
                       key={entry.frame.id}
                       payload={entry.frame.payload}
                       aspectClassName="aspect-[2.32]"
-                      wrapperClassName="w-[90%] max-w-[410px] shrink-0"
+                      wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}
                       onNavigate={() =>
                         persistShopCatalogStateForItemNavigation({
                           search,
@@ -2241,7 +2362,7 @@ export function ShopCatalog({
                 </Link>
                 <h1
                                     className={cn(
-                    playfairDisplay.className,
+                    segnaPlayfairDisplay.className,
                     "mx-12 max-w-[min(100%,280px)] truncate text-center text-[20px] font-extrabold italic text-zinc-900 sm:max-w-[min(100%,340px)]",
                                     )}
                                   >
@@ -2336,11 +2457,16 @@ export function ShopCatalog({
           <div className="flex items-stretch gap-2 px-2 py-2">
                       <button
                         type="button"
-              onClick={openFilterModal}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-zinc-800 shadow-[inset_0_0_0_1px_#e4e4e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
-              aria-label="Ouvrir les filtres"
+              onClick={onSlidersFilterClick}
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/25",
+                hasActiveCatalogFilters
+                  ? "bg-zinc-950 text-white shadow-none"
+                  : "bg-white text-zinc-800 shadow-[inset_0_0_0_1px_#e4e4e7]",
+              )}
+              aria-label={hasActiveCatalogFilters ? "Réinitialiser les filtres" : "Ouvrir les filtres"}
                       >
-              <SlidersHorizontal className="h-5 w-5" />
+              <SlidersHorizontal className="h-5 w-5" strokeWidth={2.25} />
                       </button>
             <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <ToggleChip
@@ -2459,15 +2585,12 @@ export function ShopCatalog({
             role="dialog"
             aria-labelledby="shop-filter-title"
           >
-            <h2
-              id="shop-filter-title"
-              className="border-b border-zinc-200 px-1 pb-3 text-center text-lg font-bold text-zinc-900"
-            >
+            <h2 id="shop-filter-title" className={cn(segnaDialogTitleClass(), "border-b border-zinc-100 pb-3")}>
               Filtrer par…
             </h2>
 
             <div className="pt-4">
-              <p className="mb-2 text-sm font-semibold text-zinc-900">Type de filtre</p>
+              <p className={cn(segnaDialogBodyClass("mb-2 font-semibold text-zinc-900"))}>Type de filtre</p>
               <div className={FILTER_DETAIL_ROW_SCROLL}>
                 {MODAL_FILTER_FAMILIES.map((f) => (
                   <FilterModalRowChip
@@ -2481,14 +2604,14 @@ export function ShopCatalog({
             </div>
 
             <div className="pt-5">
-              <p className="mb-2 text-sm font-semibold text-zinc-900">{modalLine2Title}</p>
+              <p className={cn(segnaDialogBodyClass("mb-2 font-semibold text-zinc-900"))}>{modalLine2Title}</p>
               {modalLine2}
             </div>
 
             <button
               type="button"
               onClick={applyModal}
-              className="mt-8 w-full rounded-2xl bg-gradient-to-b from-[#5E3023] to-[#895737] py-4 text-center text-base font-semibold text-white shadow-sm"
+              className="mt-8 w-full rounded-2xl bg-zinc-900 py-4 text-center text-base font-semibold text-white shadow-sm"
             >
               Appliquer
             </button>
@@ -2513,7 +2636,7 @@ export function ShopCatalog({
           >
             <h2
               id="shop-filter-detail-title"
-              className="border-b border-zinc-200 px-1 pb-3 text-center text-lg font-bold text-zinc-900"
+              className={cn(segnaDialogTitleClass(), "border-b border-zinc-100 pb-3")}
             >
               {filterDetailSheet === "sort" ? "Trier" : MENU_LABELS[filterDetailSheet]}
             </h2>
@@ -2534,9 +2657,7 @@ export function ShopCatalog({
               ) : filterDetailSheet === "categoryId" ? (
                 <div className="space-y-4">
                   <div>
-                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Rayons
-                    </p>
+                    <p className={cn(segnaDialogBodyClass("mb-1.5 font-semibold text-zinc-900"))}>Rayons</p>
                     <div className={FILTER_DETAIL_ROW_SCROLL}>
                       <FilterDetailHChip
                         label="Tous"
@@ -2562,7 +2683,7 @@ export function ShopCatalog({
                             if (categoryHasChildren(r.id)) {
                               setCategorySheetBrowseL1(r.id);
                               setCategorySheetBrowseL2(null);
-                              setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
+                              setFilterSheetDraft((d) => ({ ...d, categoryId: r.id }));
                             } else {
                               setFilterSheetDraft((d) => ({ ...d, categoryId: r.id }));
                               setCategorySheetBrowseL1(null);
@@ -2575,9 +2696,7 @@ export function ShopCatalog({
                   </div>
                   {categorySheetBrowseL1 && categoryChildrenOf(categorySheetBrowseL1).length > 0 ? (
                     <div>
-                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        Sous-catégories
-                      </p>
+                      <p className={cn(segnaDialogBodyClass("mb-1.5 font-semibold text-zinc-900"))}>Sous-catégories</p>
                       <div className={FILTER_DETAIL_ROW_SCROLL}>
                         <FilterDetailHChip
                           label="Toutes les sous-catégories"
@@ -2603,7 +2722,7 @@ export function ShopCatalog({
                             onClick={() => {
                               if (categoryHasChildren(c.id)) {
                                 setCategorySheetBrowseL2(c.id);
-                                setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
+                                setFilterSheetDraft((d) => ({ ...d, categoryId: c.id }));
                               } else {
                                 setFilterSheetDraft((d) => ({ ...d, categoryId: c.id }));
                                 setCategorySheetBrowseL2(null);
@@ -2616,9 +2735,7 @@ export function ShopCatalog({
                   ) : null}
                   {categorySheetBrowseL2 && categoryChildrenOf(categorySheetBrowseL2).length > 0 ? (
                     <div>
-                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        Affiner
-                      </p>
+                      <p className={cn(segnaDialogBodyClass("mb-1.5 font-semibold text-zinc-900"))}>Affiner</p>
                       <div className={FILTER_DETAIL_ROW_SCROLL}>
                         <FilterDetailHChip
                           label="Tous"
@@ -2640,7 +2757,7 @@ export function ShopCatalog({
                             onClick={() => {
                               if (categoryHasChildren(g.id)) {
                                 setCategorySheetBrowseL2(g.id);
-                                setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
+                                setFilterSheetDraft((d) => ({ ...d, categoryId: g.id }));
                               } else {
                                 setFilterSheetDraft((d) => ({ ...d, categoryId: g.id }));
                               }
@@ -2809,6 +2926,8 @@ function ItemRailTwoUpCard({
   onToggleLike,
   onToggleCart,
   searchState,
+  itemFromQuery = "shop",
+  skipCatalogNavigationPersist = false,
 }: {
   item: ShopCatalogItem;
   cover: string | undefined;
@@ -2826,6 +2945,8 @@ function ItemRailTwoUpCard({
     disponiblesOnly: boolean;
     filters: ShopFilters;
   };
+  itemFromQuery?: string;
+  skipCatalogNavigationPersist?: boolean;
 }) {
   const inCart = cartItemIds.has(item.id);
   const liked = likedSet.has(item.id);
@@ -2833,9 +2954,10 @@ function ItemRailTwoUpCard({
 
   return (
     <Link
-      href={`/items/${item.id}?from=shop`}
+      href={`/items/${item.id}?from=${encodeURIComponent(itemFromQuery)}`}
       className="w-[48%] min-w-[170px] shrink-0"
       onClick={() => {
+        if (skipCatalogNavigationPersist) return;
         persistShopCatalogStateForItemNavigation({
           search: searchState.search,
           sortMode: searchState.sortMode,
@@ -2862,7 +2984,8 @@ function ItemRailTwoUpCard({
   );
 }
 
-function ItemRailTwoUp({
+/** Rail 2 colonnes (ex. « Susceptibles de vous plaire ») — réutilisable sur le panier via `itemFromQuery` / `skipCatalogNavigationPersist`. */
+export function ItemRailTwoUp({
   title,
   items,
   sectionHref,
@@ -2875,6 +2998,8 @@ function ItemRailTwoUp({
   onToggleLike,
   onToggleCart,
   searchState,
+  itemFromQuery = "shop",
+  skipCatalogNavigationPersist = false,
 }: {
   title: string;
   items: ShopCatalogItem[];
@@ -2894,6 +3019,8 @@ function ItemRailTwoUp({
     disponiblesOnly: boolean;
     filters: ShopFilters;
   };
+  itemFromQuery?: string;
+  skipCatalogNavigationPersist?: boolean;
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
@@ -2916,6 +3043,8 @@ function ItemRailTwoUp({
             onToggleLike={onToggleLike}
             onToggleCart={onToggleCart}
             searchState={searchState}
+            itemFromQuery={itemFromQuery}
+            skipCatalogNavigationPersist={skipCatalogNavigationPersist}
           />
         ))}
         <div className="w-3 shrink-0" aria-hidden />
@@ -2924,7 +3053,7 @@ function ItemRailTwoUp({
   );
 }
 
-function ShopCapsuleItemRefFrame({
+export function ShopCapsuleItemRefFrame({
   rowId: _rowId,
   item,
   cover,
@@ -2939,6 +3068,10 @@ function ShopCapsuleItemRefFrame({
   onToggleLike,
   onToggleCart,
   searchState,
+  /** @default "shop" — utiliser `"cart"` sur l’écran panier. */
+  itemFromQuery = "shop",
+  /** Panier / hors hub : ne pas enregistrer l’état filtres boutique pour le retour. */
+  skipCatalogNavigationPersist = false,
 }: {
   rowId: string;
   item: ShopCatalogItem;
@@ -2961,10 +3094,13 @@ function ShopCapsuleItemRefFrame({
     disponiblesOnly: boolean;
     filters: ShopFilters;
   };
+  itemFromQuery?: string;
+  skipCatalogNavigationPersist?: boolean;
 }) {
   const inCart = cartItemIds.has(item.id);
   const liked = likedSet.has(item.id);
   const canAddToCart = item.status === "available" || item.status === "in_cart";
+  const cmsHubFrameOuterOverride = useCmsHubFrameOuterOverride();
 
   const rightCover = spotlight ? (spotlightCoverUrl ?? cover) : cover;
   const useCmsSpotlightImage = Boolean(spotlight && spotlightCoverUrl?.trim());
@@ -2983,22 +3119,31 @@ function ShopCapsuleItemRefFrame({
     hideMetaUntilReady: true as const,
   };
 
+  const itemRefLinkClassName =
+    cmsHubFrameOuterOverride != null
+      ? cn("snap-start", cmsHubFrameOuterOverride)
+      : cn(
+          "shrink-0 snap-start",
+          spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
+        );
+
   return (
     <Link
-      href={`/items/${item.id}?from=shop`}
-      className={cn(
-        "shrink-0 snap-start",
-        spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
-      )}
-      onClick={() => {
-        persistShopCatalogStateForItemNavigation({
-          search: searchState.search,
-          sortMode: searchState.sortMode,
-          heartsOnly: searchState.heartsOnly,
-          disponiblesOnly: searchState.disponiblesOnly,
-          filters: { ...searchState.filters },
-        });
-      }}
+      href={`/items/${item.id}?from=${encodeURIComponent(itemFromQuery)}`}
+      className={itemRefLinkClassName}
+      onClick={
+        skipCatalogNavigationPersist
+          ? undefined
+          : () => {
+              persistShopCatalogStateForItemNavigation({
+                search: searchState.search,
+                sortMode: searchState.sortMode,
+                heartsOnly: searchState.heartsOnly,
+                disponiblesOnly: searchState.disponiblesOnly,
+                filters: { ...searchState.filters },
+              });
+            }
+      }
     >
       {spotlight ? (
         <ShopPieceSplitCard
@@ -3014,180 +3159,9 @@ function ShopCapsuleItemRefFrame({
   );
 }
 
-function ShopCapsuleAtLaUneSlot({
-  row,
-  categories,
-  brands,
-  onCategoryFilter,
-  onBrandFilter,
-  itemById,
-  coverUrlById,
-  shimmerDurationSec,
-  cartItemIds,
-  likedSet,
-  likeBusyIds,
-  cartBusyIds,
-  onToggleLike,
-  onToggleCart,
-  searchState,
-}: {
-  row: CmsFrameRow;
-  categories: CategoryFilterOption[];
-  brands: FilterOption[];
-  onCategoryFilter: (id: string) => void;
-  onBrandFilter: (id: string) => void;
-  itemById: Map<string, ShopCatalogItem>;
-  coverUrlById: Record<string, string>;
-  shimmerDurationSec: number;
-  cartItemIds: Set<string>;
-  likedSet: Set<string>;
-  likeBusyIds: Set<string>;
-  cartBusyIds: Set<string>;
-  onToggleLike: (itemId: string) => Promise<void>;
-  onToggleCart: (itemId: string) => Promise<void>;
-  searchState: {
-    search: string;
-    sortMode: SortMode;
-    heartsOnly: boolean;
-    disponiblesOnly: boolean;
-    filters: ShopFilters;
-  };
-}) {
-  const p = row.payload;
-
-  if (row.frame_type === "category_capsule") {
-    return (
-      <div className="shrink-0 snap-start">
-        <CmsFrameItem row={row} />
-      </div>
-    );
-  }
-
-  if (row.frame_type === "shop_link_card") {
-    return (
-      <div className="w-[90%] max-w-[410px] shrink-0 snap-start">
-        <ShopWideLinkCardBlock
-          payload={p}
-          aspectClassName="aspect-[2.32]"
-          wrapperClassName="block w-full rounded-2xl"
-          onNavigate={() =>
-            persistShopCatalogStateForItemNavigation({
-              search: searchState.search,
-              sortMode: searchState.sortMode,
-              heartsOnly: searchState.heartsOnly,
-              disponiblesOnly: searchState.disponiblesOnly,
-              filters: { ...searchState.filters },
-            })
-          }
-        />
-      </div>
-    );
-  }
-
-  if (row.frame_type === "shop_category_ref") {
-    const id = typeof p.category_id === "string" ? p.category_id.trim() : "";
-    const deptSlug = id ? departmentSlugForCategoryId(id, categories) : null;
-    const cat = id ? categories.find((c) => c.id === id) : undefined;
-    const label = cat?.label ?? "Catégorie";
-    const pseudo = pickPseudoFrame(`cms-cat-${row.id}`);
-    const card = (
-      <div
-        className={cn(
-          "flex aspect-[2.32] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
-          pseudo.color,
-        )}
-      >
-        <p className="text-[1.65rem] font-bold leading-tight text-zinc-900">{label}</p>
-      </div>
-    );
-    const persist = () =>
-      persistShopCatalogStateForItemNavigation({
-        search: searchState.search,
-        sortMode: searchState.sortMode,
-        heartsOnly: searchState.heartsOnly,
-        disponiblesOnly: searchState.disponiblesOnly,
-        filters: { ...searchState.filters },
-      });
-    if (deptSlug) {
-      return (
-        <Link
-          href={`/shop/${deptSlug}`}
-          className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
-          onClick={persist}
-        >
-          {card}
-        </Link>
-      );
-    }
-    return (
-                  <button
-                    type="button"
-        onClick={() => {
-          if (id) onCategoryFilter(id);
-        }}
-        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
-      >
-        {card}
-                  </button>
-    );
-  }
-
-  if (row.frame_type === "shop_brand_ref") {
-    const id = typeof p.brand_id === "string" ? p.brand_id.trim() : "";
-    const brand = id ? brands.find((b) => b.id === id) : undefined;
-    const label = brand?.label ?? "Marque";
-    const pseudo = pickPseudoFrame(`cms-brand-${row.id}`);
-    return (
-                    <button
-                      type="button"
-        onClick={() => {
-          if (id) onBrandFilter(id);
-        }}
-        className="w-[90%] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
-      >
-        <div
-                      className={cn(
-            "flex aspect-[2.32] flex-col justify-end rounded-2xl bg-gradient-to-br p-4 text-zinc-900",
-            pseudo.color,
-                      )}
-                    >
-          <p className="text-[1.65rem] font-bold leading-tight text-zinc-900">{label}</p>
-                </div>
-      </button>
-    );
-  }
-
-  if (row.frame_type === "shop_item_ref") {
-    const id = typeof p.item_id === "string" ? p.item_id.trim() : "";
-    const item = id ? itemById.get(id) : undefined;
-    if (!item) return null;
-    return (
-      <ShopCapsuleItemRefFrame
-        key={`${row.id}-${item.id}-${coverUrlById[item.id] ?? "nocover"}`}
-        rowId={row.id}
-        item={item}
-        cover={coverUrlById[item.id]}
-        spotlight={parseCmsPieceSpotlightFromPayload(p)}
-        spotlightCoverUrl={itemSpotlightCoverUrlFromPayload(p)}
-        spotlightPhotoPosition={itemSpotlightPhotoPositionFromPayload(p)}
-        shimmerDurationSec={shimmerDurationSec}
-        cartItemIds={cartItemIds}
-        likedSet={likedSet}
-        likeBusyIds={likeBusyIds}
-        cartBusyIds={cartBusyIds}
-        onToggleLike={onToggleLike}
-        onToggleCart={onToggleCart}
-        searchState={searchState}
-      />
-    );
-  }
-
-  return null;
-}
-
-
 function HubRail({
   title,
+  hideSectionTitle,
   items,
   itemSpotlights,
   spotlightCoverUrls,
@@ -3204,6 +3178,7 @@ function HubRail({
   searchState,
 }: {
   title: string;
+  hideSectionTitle?: boolean;
   items: ShopCatalogItem[];
   /** Aligné sur `items` ; null / absent = cartes auto (repli catalogue). */
   itemSpotlights?: (ShopCmsPieceSpotlight | null)[] | null;
@@ -3233,8 +3208,8 @@ function HubRail({
 
   return (
     <section className="space-y-3">
-      <SectionHeader title={title} sectionHref={sectionHref} />
-      <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {!hideSectionTitle ? <SectionHeader title={title} sectionHref={sectionHref} /> : null}
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="w-3 shrink-0" aria-hidden />
         {railItems.map((item, index) => {
           const inCart = cartItemIds.has(item.id);
@@ -3311,7 +3286,7 @@ function SectionHeader({
   /** Même hauteur de ligne qu’avec la flèche (`mt-1` + `h-10` → 2,75rem) pour un écart titre → frames identique avec ou sans lien. */
   return (
     <div className={cn("flex min-h-11 items-start justify-between gap-3", titleInset && "px-3")}>
-      <h2 className={cn(playfairDisplay.className, sectionTitleClass)}>{title}</h2>
+      <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>{title}</h2>
       {showAction && sectionHref ? (
         <Link
           href={sectionHref}

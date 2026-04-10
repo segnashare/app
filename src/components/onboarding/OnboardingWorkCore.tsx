@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -21,10 +22,7 @@ type OnboardingWorkCoreProps = {
   initialProfession?: string;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export function OnboardingWorkCore({ formId, onCanContinueChange, redirectPath, initialProfession }: OnboardingWorkCoreProps) {
   const router = useRouter();

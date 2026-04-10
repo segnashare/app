@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
@@ -12,7 +13,7 @@ import { cn } from "@/lib/utils/cn";
 
 type MaterialOption = { id: string; label: string };
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
 
 export default function NewItemMaterialsPage() {
@@ -82,7 +83,7 @@ export default function NewItemMaterialsPage() {
   return (
     <main className="flex min-h-[100dvh] flex-col overflow-hidden bg-white">
       <header className="shrink-0 mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 bg-white px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>
@@ -90,7 +91,7 @@ export default function NewItemMaterialsPage() {
         </h1>
         <button
           type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023] disabled:opacity-40")}
+          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
           disabled={!selectedId}
           onClick={confirm}
         >
@@ -104,7 +105,7 @@ export default function NewItemMaterialsPage() {
           </p>
           {isLoading ? (
             <div className="flex min-h-[120px] items-center justify-center">
-              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-[#5E3023]" />
+              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
             </div>
           ) : options.length === 0 ? (
             <p className={cn(montserrat.className, "py-6 text-[14px] text-zinc-500")}>Aucun matériau disponible.</p>
@@ -126,7 +127,7 @@ export default function NewItemMaterialsPage() {
                     <span
                       className={cn(
                         "ml-4 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border",
-                        isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                        isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                       )}
                       aria-hidden
                     >

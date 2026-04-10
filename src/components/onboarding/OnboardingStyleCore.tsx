@@ -1,8 +1,9 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -22,10 +23,7 @@ const STYLE_OPTIONS = [
   "Vintage/friperie (70s-90s, seconde main, ...)",
 ] as const;
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export function OnboardingStyleCore({ formId, onCanContinueChange, redirectPath }: OnboardingStyleCoreProps) {
   const router = useRouter();
@@ -132,7 +130,7 @@ export function OnboardingStyleCore({ formId, onCanContinueChange, redirectPath 
                 <span
                   className={cn(
                     "h-6 w-6 shrink-0 rounded-full border transition",
-                    isSelected ? "border-[#5E3023] bg-[#5E3023]" : "border-zinc-300 bg-zinc-200",
+                    isSelected ? "border-zinc-900 bg-zinc-900" : "border-zinc-300 bg-zinc-200",
                   )}
                   aria-hidden
                 />

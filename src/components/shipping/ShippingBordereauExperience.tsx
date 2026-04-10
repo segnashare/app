@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronDown, ChevronLeft, ExternalLink, LifeBuoy, Loader2, Package } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfair = segnaPlayfairDisplay;
 
 import {
   mondialRelayLabelMatchesItemGroup,
@@ -13,8 +15,8 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: ["500", "600"] });
-const playfair = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
+
+
 
 type IntakeSnap = {
   listing_stage: string | null;
@@ -267,7 +269,7 @@ export function ShippingBordereauExperience({
                 <li key={row.id}>
                   <Link
                     href={`/items/${encodeURIComponent(row.id)}`}
-                    className={cn(montserrat.className, "text-[14px] font-semibold text-[#5E3023] underline-offset-2 hover:underline")}
+                    className={cn(montserrat.className, "text-[14px] font-semibold text-black underline-offset-2 hover:underline")}
                   >
                     {row.title}
                   </Link>
@@ -307,7 +309,7 @@ export function ShippingBordereauExperience({
                 rel="noreferrer"
                 className={cn(
                   montserrat.className,
-                  "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#5E3023] px-6 text-[15px] font-semibold text-white",
+                  "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-black px-6 text-[15px] font-semibold text-white",
                 )}
               >
                 Ouvrir le bordereau (PDF)
@@ -323,7 +325,7 @@ export function ShippingBordereauExperience({
                 disabled={helpPhase === "sending" || helpPhase === "sent"}
                 className={cn(
                   montserrat.className,
-                  "flex w-full items-center justify-center gap-2 text-center text-[13px] font-semibold text-[#5E3023] underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-60",
+                  "flex w-full items-center justify-center gap-2 text-center text-[13px] font-semibold text-black underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-60",
                 )}
               >
                 <LifeBuoy className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -355,7 +357,7 @@ export function ShippingBordereauExperience({
                 "mt-4 flex items-center gap-3 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-3 text-[14px] text-amber-950",
               )}
             >
-              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#5E3023]" aria-hidden />
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-black" aria-hidden />
               <p className="leading-snug">
                 Création automatique : recherche des relais près de ton code postal, puis essai successif sur la liste (comme
                 « tous les relais » côté Segna)…
@@ -402,7 +404,7 @@ export function ShippingBordereauExperience({
                 disabled={helpPhase === "sending" || helpPhase === "sent"}
                 className={cn(
                   montserrat.className,
-                  "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#5E3023] px-6 text-[14px] font-semibold text-white disabled:opacity-60",
+                  "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-black px-6 text-[14px] font-semibold text-white disabled:opacity-60",
                 )}
               >
                 <LifeBuoy className="h-4 w-4" aria-hidden />
@@ -485,7 +487,7 @@ export function ShippingBordereauExperience({
               href={mondial.lien_suivi}
               target="_blank"
               rel="noreferrer"
-              className={cn(montserrat.className, "mt-2 inline-flex items-center gap-1 text-[14px] font-semibold text-[#5E3023] underline")}
+              className={cn(montserrat.className, "mt-2 inline-flex items-center gap-1 text-[14px] font-semibold text-black underline")}
             >
               Suivre le colis
               <ExternalLink className="h-3.5 w-3.5" aria-hidden />

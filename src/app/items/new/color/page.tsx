@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
@@ -42,7 +43,7 @@ const COLOR_SLUG_TO_HEX: Record<string, string> = {
   nude: "#e2c9a9",
   kaki: "#8b7355",
   "multi-colore":
-    "linear-gradient(90deg, #ef4444 0%, #eab308 25%, #22c55e 50%, #3b82f6 75%, #a855f7 100%)",
+    "linear-gradient(90deg, #18181b 0%, #71717a 35%, #a1a1aa 65%, #e4e4e7 100%)",
 };
 
 function getColorHex(slug: string): { hex: string; isGradient: boolean } {
@@ -51,7 +52,7 @@ function getColorHex(slug: string): { hex: string; isGradient: boolean } {
   return { hex, isGradient: hex.startsWith("linear-gradient") };
 }
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
 
 export default function NewItemColorPage() {
@@ -126,7 +127,7 @@ export default function NewItemColorPage() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="sticky top-0 z-10 mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 bg-white px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>
@@ -134,7 +135,7 @@ export default function NewItemColorPage() {
         </h1>
         <button
           type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023] disabled:opacity-40")}
+          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
           disabled={!selectedId}
           onClick={confirm}
         >
@@ -148,7 +149,7 @@ export default function NewItemColorPage() {
           </p>
           {isLoading ? (
             <div className="flex min-h-[120px] items-center justify-center">
-              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-[#5E3023]" />
+              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
             </div>
           ) : options.length === 0 ? (
             <p className={cn(montserrat.className, "py-6 text-[14px] text-zinc-500")}>Aucune couleur disponible.</p>
@@ -183,7 +184,7 @@ export default function NewItemColorPage() {
                     <span
                       className={cn(
                         "ml-2 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border",
-                        isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                        isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                       )}
                       aria-hidden
                     >

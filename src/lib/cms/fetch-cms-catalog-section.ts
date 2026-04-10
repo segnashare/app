@@ -5,6 +5,7 @@ import type {
   CmsFrameType,
   CmsPlanCode,
 } from "@/lib/cms/cms-types";
+import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
 import { resolveCmsPayloadStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
 import { createSignedUrlForStoragePath, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -17,6 +18,7 @@ const FRAME_TYPES: CmsFrameType[] = [
   "shop_category_ref",
   "shop_brand_ref",
   "shop_link_card",
+  "profile_plus_hero",
 ];
 const PLAN_CODES: CmsPlanCode[] = ["guest", "segna_plus", "segna_x"];
 
@@ -48,6 +50,7 @@ function parseCatalogConfig(raw: unknown): CmsCatalogSectionConfig {
   const o = raw as Record<string, unknown>;
   const out: CmsCatalogSectionConfig = {};
   if (typeof o.title === "string") out.title = o.title;
+  if (o.hide_section_title === true) out.hide_section_title = true;
   if (typeof o.show_more_arrow === "boolean") out.show_more_arrow = o.show_more_arrow;
   if (typeof o.more_href === "string") out.more_href = o.more_href;
   const vpc = o.visible_plan_codes;
@@ -105,56 +108,64 @@ export async function fetchCmsCatalogSectionResolved(
     ) => Promise<{ data: unknown; error: { message?: string } | null }>;
   };
 
-  const { data, error } = await rpc.rpc("get_cms_catalog_section", { p_section_key: sectionKey });
-  if (error) {
-    const msg = error.message ?? "";
-    const rpcMissing =
-      msg.includes("Could not find the function") ||
-      msg.includes("schema cache") ||
-      /PGRST202|42883/i.test(msg);
-    if (rpcMissing) {
-      if (process.env.NODE_ENV === "development") {
-        console.info(
-          `[CMS] RPC get_cms_catalog_section absente — appliquer la migration 20260502160000_cms_shop_hub_catalog.sql (section: ${sectionKey}).`,
+  try {
+    const { data, error } = await rpc.rpc("get_cms_catalog_section", { p_section_key: sectionKey });
+    if (error) {
+      const msg = error.message ?? "";
+      const rpcMissing =
+        msg.includes("Could not find the function") ||
+        msg.includes("schema cache") ||
+        /PGRST202|42883/i.test(msg);
+      if (rpcMissing) {
+        if (process.env.NODE_ENV === "development") {
+          console.info(
+            `[CMS] RPC get_cms_catalog_section absente — appliquer la migration 20260502160000_cms_shop_hub_catalog.sql (section: ${sectionKey}).`,
+          );
+        }
+      } else if (isSupabaseTransportFailure(msg)) {
+        warnCmsSupabaseUnreachable(`get_cms_catalog_section "${sectionKey}"`, msg);
+      } else {
+        console.error("get_cms_catalog_section", sectionKey, msg);
+      }
+      return { config: {}, frames: [] };
+    }
+
+    const root = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+    const config = parseCatalogConfig(root.config);
+    const framesRaw = root.frames;
+    const rawLen = Array.isArray(framesRaw) ? framesRaw.length : 0;
+    const rows = parseFrameRows(framesRaw);
+    if (process.env.SEGNA_DEBUG_CMS === "1") {
+      const payload = (p: CmsFramePayload) => ({
+        title: typeof p.title === "string" ? p.title : "",
+        target_url: typeof p.target_url === "string" ? p.target_url : "",
+      });
+      console.info(
+        `[SEGNA_DEBUG_CMS] get_cms_catalog_section("${sectionKey}") raw frames: ${rawLen}, après parse: ${rows.length}`,
+      );
+      if (rawLen !== rows.length) {
+        console.warn(
+          "[SEGNA_DEBUG_CMS] Des frames RPC ont été ignorées (id invalide, frame_type ou plan_code inconnu).",
         );
       }
-    } else {
-      console.error("get_cms_catalog_section", sectionKey, msg);
-    }
-    return { config: {}, frames: [] };
-  }
-
-  const root = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
-  const config = parseCatalogConfig(root.config);
-  const framesRaw = root.frames;
-  const rawLen = Array.isArray(framesRaw) ? framesRaw.length : 0;
-  const rows = parseFrameRows(framesRaw);
-  if (process.env.SEGNA_DEBUG_CMS === "1") {
-    const payload = (p: CmsFramePayload) => ({
-      title: typeof p.title === "string" ? p.title : "",
-      target_url: typeof p.target_url === "string" ? p.target_url : "",
-    });
-    console.info(
-      `[SEGNA_DEBUG_CMS] get_cms_catalog_section("${sectionKey}") raw frames: ${rawLen}, après parse: ${rows.length}`,
-    );
-    if (rawLen !== rows.length) {
-      console.warn(
-        "[SEGNA_DEBUG_CMS] Des frames RPC ont été ignorées (id invalide, frame_type ou plan_code inconnu).",
+      console.info(
+        "[SEGNA_DEBUG_CMS] frames parsées:",
+        rows.map((r) => ({ id: r.id, type: r.frame_type, ...payload(r.payload) })),
       );
     }
-    console.info(
-      "[SEGNA_DEBUG_CMS] frames parsées:",
-      rows.map((r) => ({ id: r.id, type: r.frame_type, ...payload(r.payload) })),
-    );
-  }
-  const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
+    const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
 
-  const resolved: CmsFrameRow[] = [];
-  for (const row of rows) {
-    resolved.push({
-      ...row,
-      payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
-    });
+    const resolved: CmsFrameRow[] = [];
+    for (const row of rows) {
+      resolved.push({
+        ...row,
+        payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
+      });
+    }
+    return { config, frames: resolved };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    warnCmsSupabaseUnreachable(`get_cms_catalog_section "${sectionKey}"`, msg);
+    return { config: {}, frames: [] };
   }
-  return { config, frames: resolved };
 }

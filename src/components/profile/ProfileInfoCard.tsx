@@ -1,11 +1,12 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Briefcase, Cigarette, Dumbbell, Moon, Wine } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 
 const INSTAGRAM_ICON_PATH = "/ressources/icons/instagram.svg";
 

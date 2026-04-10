@@ -143,7 +143,8 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
     : isAutreBrand && titleAsBrandHint
       ? titleAsBrandHint
       : brandFallback;
-  const sizeLabel = (sizeRes.data as { label?: string } | null)?.label ?? "—";
+  const rawSizeLabel = (sizeRes.data as { label?: string } | null)?.label?.trim();
+  const sizeLabel = rawSizeLabel ? rawSizeLabel : "";
   const materialsLabel = (materialsRes.data as { label?: string } | null)?.label ?? "—";
   const colorLabel = (colorRes.data as { label?: string } | null)?.label ?? "—";
 

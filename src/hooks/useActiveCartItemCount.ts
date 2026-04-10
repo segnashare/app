@@ -2,43 +2,50 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
+import { createSupabaseBrowserClient, isSupabaseAuthLockAbortError } from "@/lib/supabase/client";
 
 export function useActiveCartItemCount() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [count, setCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
+      if (!user) {
+        setCount(0);
+        return;
+      }
+      const { data: activeCart } = await supabase
+        .from("carts")
+        .select("id")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .in("status", [...CART_STATUSES_OPEN])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!activeCart?.id) {
+        setCount(0);
+        return;
+      }
+      const { count: rowCount, error } = await supabase
+        .from("cart_items")
+        .select("id", { count: "exact", head: true })
+        .eq("cart_id", activeCart.id)
+        .is("deleted_at", null);
+      if (error) {
+        setCount(0);
+        return;
+      }
+      setCount(rowCount ?? 0);
+    } catch (e) {
+      if (isSupabaseAuthLockAbortError(e)) return;
       setCount(0);
-      return;
     }
-    const { data: activeCart } = await supabase
-      .from("carts")
-      .select("id")
-      .eq("user_id", user.id)
-      .is("deleted_at", null)
-      .in("status", ["active", "reserved"])
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!activeCart?.id) {
-      setCount(0);
-      return;
-    }
-    const { count: rowCount, error } = await supabase
-      .from("cart_items")
-      .select("id", { count: "exact", head: true })
-      .eq("cart_id", activeCart.id)
-      .is("deleted_at", null);
-    if (error) {
-      setCount(0);
-      return;
-    }
-    setCount(rowCount ?? 0);
   }, [supabase]);
 
   useEffect(() => {

@@ -1,8 +1,9 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Plus } from "lucide-react";
 import type { RefObject } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { cn } from "@/lib/utils/cn";
 
@@ -17,11 +18,7 @@ type StyleAdditionalInputProps = {
   textareaClassName?: string;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "500",
-  style: "italic",
-});
+
 
 export function StyleAdditionalInput({
   value,
@@ -49,7 +46,7 @@ export function StyleAdditionalInput({
       />
       <button
         type="button"
-        className="absolute right-[7px] top-[7px] inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#5E3023] text-white"
+        className="absolute right-[7px] top-[7px] inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-zinc-900 text-white"
         onClick={onAddClick}
         aria-label="Ajouter un style"
       >

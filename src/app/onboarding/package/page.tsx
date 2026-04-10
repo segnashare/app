@@ -1,19 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useState } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
+
 
 type PackageMode = "plus" | "minus";
 

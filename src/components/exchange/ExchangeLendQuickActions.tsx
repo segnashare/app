@@ -7,6 +7,12 @@ import { useState } from "react";
 
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  SEGNA_DIALOG_CARD_CLASS,
+  SegnaDialogDismissButton,
+  segnaDialogBodyClass,
+  segnaDialogTitleClass,
+} from "@/components/ui/SegnaAppDialog";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeLendQuickActionsProps = {
@@ -96,15 +102,19 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
       {returnConfirmOpen ? (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]">
           <div
-            className="w-full max-w-[380px] rounded-2xl bg-white p-4 shadow-xl"
+            className={cn(SEGNA_DIALOG_CARD_CLASS, "relative")}
             role="dialog"
             aria-modal="true"
             aria-labelledby={`confirm-return-${id}`}
           >
-            <h3 id={`confirm-return-${id}`} className="text-base font-semibold text-zinc-900">
+            <SegnaDialogDismissButton onClick={() => setReturnConfirmOpen(false)} />
+            <h2
+              id={`confirm-return-${id}`}
+              className={segnaDialogTitleClass("pr-10 text-[20px] sm:text-[22px]")}
+            >
               Récupérer cette pièce ?
-            </h3>
-            <p className="mt-2 text-sm text-zinc-600">
+            </h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
               Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -121,7 +131,7 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
                   setReturnConfirmOpen(false);
                   router.push(`/items/${encodeURIComponent(id)}/retour`);
                 }}
-                className="h-10 rounded-lg bg-[#5E3023] text-sm font-semibold text-white"
+                className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
               >
                 Oui, récupérer
               </button>

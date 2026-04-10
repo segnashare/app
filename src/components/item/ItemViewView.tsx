@@ -1,21 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { Montserrat } from "next/font/google";
 import { Heart, Plus } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
 import { ItemInfoCard } from "./ItemInfoCard";
 import type { ItemInfoCardData } from "./ItemInfoCard";
 import { ItemMemberSection } from "./ItemMemberSection";
-import { ItemSegnaDetentionSection } from "./ItemSegnaDetentionSection";
+import { ItemSegnaPropertyCmsSection } from "./ItemSegnaPropertyCmsSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
+import { useSegnaStockPropertyCmsRows } from "@/hooks/useSegnaStockPropertyCmsRows";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 
 const ITEM_STAGE_RATIO = 1;
 
@@ -70,6 +73,10 @@ type ItemViewViewProps = {
   forceDarkFrameAction?: boolean;
   /** Masque les boutons cœur (ex. vue panier / catalogue sans interaction feed). */
   hideFrameLikeButtons?: boolean;
+  /**
+   * Frames CMS section `segna_stock_property` (Propriété Segna). Si défini (ex. SSR fiche pièce), pas de chargement client.
+   */
+  segnaStockPropertyCmsFrames?: CmsFrameRow[];
 };
 
 function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
@@ -97,10 +104,14 @@ export function ItemViewView({
   frameActionActive = false,
   forceDarkFrameAction = false,
   hideFrameLikeButtons = false,
+  segnaStockPropertyCmsFrames,
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const filledSlots = slots.filter((s): s is ItemViewSlot => Boolean(s));
   const isSegnaStockOwner = isSegnaCorporateInventoryUserId(ownerUserId);
+  const fetchSegnaCmsClient = isSegnaStockOwner && segnaStockPropertyCmsFrames === undefined;
+  const { rows: clientSegnaCmsRows, loading: segnaCmsLoading } = useSegnaStockPropertyCmsRows(fetchSegnaCmsClient);
+  const segnaCmsRows = segnaStockPropertyCmsFrames !== undefined ? segnaStockPropertyCmsFrames : clientSegnaCmsRows;
   const { data: memberData, isLoading: memberLoading } = useItemMemberData(isSegnaStockOwner ? null : ownerUserId ?? null);
   const photo2 = filledSlots[1];
   const photo3 = filledSlots[2];
@@ -208,7 +219,12 @@ export function ItemViewView({
 
         {/* 6. Section propriétaire : stock Segna (détention) ou profil membre */}
         {isSegnaStockOwner ? (
-          <ItemSegnaDetentionSection pricePoints={infoCard.pricePoints} sizeLabel={infoCard.size} />
+          <ItemSegnaPropertyCmsSection
+            cmsRows={segnaCmsRows}
+            loadingClientCms={fetchSegnaCmsClient && segnaCmsLoading}
+            pricePoints={infoCard.pricePoints}
+            sizeLabel={infoCard.size}
+          />
         ) : (
           <ItemMemberSection data={memberData} isLoading={memberLoading} />
         )}

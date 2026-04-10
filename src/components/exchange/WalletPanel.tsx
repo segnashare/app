@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "700",
-});
+import {
+  SegnaDialogDismissButton,
+  segnaDialogBodyClass,
+  segnaDialogTitleClass,
+  SEGNA_DIALOG_SHEET_CLASS,
+} from "@/components/ui/SegnaAppDialog";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
+import { cn } from "@/lib/utils/cn";
 
 export type WalletPanelStateContent = {
   title: string;
@@ -21,43 +27,110 @@ type WalletPanelProps = {
   open: boolean;
   onClose: () => void;
   availablePoints: number;
-  balanceUnitLabel: string;
+  balanceConsumptionPoints: number;
+  balanceExchangePoints: number;
+  membershipLabel: "Guest" | "Membre +" | "Membre X";
+  walletCreditKind: WalletCreditKind;
   walletStateContent: WalletPanelStateContent;
 };
 
-export function WalletPanel({ open, onClose, availablePoints, balanceUnitLabel, walletStateContent }: WalletPanelProps) {
-  if (!open) return null;
-  const isGuestBalance = balanceUnitLabel.toLowerCase() === "pods";
-  const balanceLabel = isGuestBalance ? "Crédits de location" : "Crédits d'échange";
+/**
+ * Bottom sheet (poignée, titre Montserrat, séparateur) : deux CTA pleine largeur — secondaire blanc bord noir, principal noir.
+ */
+export function WalletPanel({
+  open,
+  onClose,
+  availablePoints,
+  balanceConsumptionPoints,
+  balanceExchangePoints,
+  membershipLabel,
+  walletCreditKind,
+  walletStateContent,
+}: WalletPanelProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/18 backdrop-blur-[3px]" onClick={onClose}>
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const showDualBalances = membershipLabel !== "Guest";
+
+  const overlay = (
+    <div
+      className="fixed inset-0 z-[100] flex flex-col justify-end bg-black/40"
+      role="presentation"
+      onClick={onClose}
+    >
       <div
-        className="absolute inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom)+12px)] flex justify-center px-4 md:bottom-[88px]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wallet-panel-title"
+        className={cn(SEGNA_DIALOG_SHEET_CLASS, "relative")}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="w-full max-w-[398px] rounded-[22px] bg-gradient-to-b from-[#5E3023] to-[#895737] px-5 pb-6 pt-3 text-white shadow-[0_12px_34px_rgba(20,10,6,0.42)]">
-          <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-white/70" aria-hidden />
+        <SegnaDialogDismissButton onClick={onClose} className="right-3 top-3" />
+        <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
 
-          <h3 className={`${playfairDisplay.className} text-center text-[40px] font-bold leading-none`}>Wallet</h3>
+        <h2 id="wallet-panel-title" className={cn(segnaDialogTitleClass(), "pr-10")}>
+          {walletStateContent.title}
+        </h2>
 
-          <div className="mt-6 flex items-center justify-between text-[23px] font-bold leading-none">
-            <span>{balanceLabel}</span>
-            <span>{availablePoints} {balanceUnitLabel}</span>
-          </div>
+        <div className="mt-5 space-y-4">
+          {showDualBalances ? (
+            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-[14px] font-semibold text-zinc-900">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 shrink text-zinc-600">Crédits d&apos;échange</span>
+                <span className="shrink-0 tabular-nums">
+                  {balanceExchangePoints} <span className="font-medium text-zinc-500">pts</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2 border-t border-zinc-200/80 pt-2">
+                <span className="min-w-0 shrink text-zinc-600">Consommation</span>
+                <span className="shrink-0 tabular-nums">
+                  {balanceConsumptionPoints} <span className="font-medium text-zinc-500">pts</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2 border-t border-zinc-300 pt-2 text-[13px] text-zinc-500">
+                <span>Total utilisable</span>
+                <span className="tabular-nums font-semibold text-zinc-800">{availablePoints} pts</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-baseline justify-between gap-2 text-[15px] font-semibold text-zinc-900">
+              <span className="min-w-0 shrink text-zinc-600">Disponible</span>
+              <SegnaPointsUnitDisplay
+                points={availablePoints}
+                creditKind={walletCreditKind}
+                className="shrink-0"
+                numberClassName="font-semibold tabular-nums text-zinc-900"
+              />
+            </div>
+          )}
 
-          <div className="mt-4 rounded-xl bg-white/14 px-3 py-2 text-[12px] leading-[1.35] text-zinc-100/95">{walletStateContent.description}</div>
+          <p className={segnaDialogBodyClass()}>{walletStateContent.description}</p>
 
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-2">
             <Link
               href={walletStateContent.secondaryCtaHref}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-3 text-base font-semibold text-[#5E3023]"
+              onClick={onClose}
+              className="inline-flex h-12 w-full items-center justify-center rounded-xl border-2 border-zinc-950 bg-white px-3 text-center text-[15px] font-semibold text-zinc-950 transition active:bg-zinc-50"
             >
               {walletStateContent.secondaryCtaLabel}
             </Link>
             <Link
               href={walletStateContent.primaryCtaHref}
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/65 px-3 text-base font-semibold text-white"
+              onClick={onClose}
+              className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 px-3 text-center text-[15px] font-semibold text-white shadow-sm transition active:bg-zinc-800"
             >
               {walletStateContent.primaryCtaLabel}
             </Link>
@@ -66,4 +139,10 @@ export function WalletPanel({ open, onClose, availablePoints, balanceUnitLabel, 
       </div>
     </div>
   );
+
+  if (typeof document === "undefined" || !mounted) {
+    return null;
+  }
+
+  return createPortal(overlay, document.body);
 }

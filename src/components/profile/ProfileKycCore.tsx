@@ -3,18 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Playfair_Display } from "next/font/google";
-
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 type ProfileKycCoreProps = {
   backTab: "plus" | "security" | "me";
 };
 
 type VerificationStatus = "not_started" | "pending" | "in_review" | "verified" | "rejected";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: ["700", "800"],
-});
+
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v1";
 
 export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
@@ -124,7 +121,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
   return (
     <main className="mx-auto flex min-h-[100dvh] w-full max-w-[430px] flex-col bg-white px-5 py-6">
       <header className="flex items-center justify-start">
-        <Link href={`/profile?tab=${backTab}`} className="inline-flex h-10 items-center text-[18px] font-bold text-[#5E3023]">
+        <Link href={`/profile?tab=${backTab}`} className="inline-flex h-10 items-center text-[18px] font-bold text-zinc-900">
           Annuler
         </Link>
       </header>
@@ -143,7 +140,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
             {errorMessage ? <p className="mb-3 text-sm text-[#E44D3E]">{errorMessage}</p> : null}
             <Link
               href={`/profile?tab=${backTab}`}
-              className="inline-flex h-12 min-w-[240px] items-center justify-center rounded-full bg-[#5E3023] px-8 text-[17px] font-semibold text-white transition hover:bg-[#4B261B]"
+              className="inline-flex h-12 min-w-[240px] items-center justify-center rounded-full bg-zinc-900 px-8 text-[17px] font-semibold text-white transition hover:bg-zinc-800"
             >
               Retour au profil
             </Link>
@@ -175,7 +172,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
             {isVerified ? (
               <Link
                 href={`/profile?tab=${backTab}`}
-                className="mx-auto inline-flex h-12 min-w-[230px] items-center justify-center rounded-full bg-[#5E3023] px-8 text-[17px] font-semibold text-white transition hover:bg-[#4B261B]"
+                className="mx-auto inline-flex h-12 min-w-[230px] items-center justify-center rounded-full bg-zinc-900 px-8 text-[17px] font-semibold text-white transition hover:bg-zinc-800"
               >
                 Retour au profil
               </Link>
@@ -184,7 +181,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
                 type="button"
                 onClick={() => void startKyc()}
                 disabled={!canRetry}
-                className="mx-auto inline-flex h-12 min-w-[260px] items-center justify-center rounded-full bg-[#5E3023] px-8 text-[17px] font-semibold text-white transition hover:bg-[#4B261B] disabled:cursor-not-allowed disabled:opacity-60"
+                className="mx-auto inline-flex h-12 min-w-[260px] items-center justify-center rounded-full bg-zinc-900 px-8 text-[17px] font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {retryLabel}
               </button>
@@ -193,7 +190,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
                 type="button"
                 onClick={() => void startKyc()}
                 disabled={isStarting || isSyncing}
-                className="mx-auto inline-flex h-12 min-w-[260px] items-center justify-center rounded-full bg-[#5E3023] px-8 text-[17px] font-semibold text-white transition hover:bg-[#4B261B] disabled:cursor-not-allowed disabled:opacity-60"
+                className="mx-auto inline-flex h-12 min-w-[260px] items-center justify-center rounded-full bg-zinc-900 px-8 text-[17px] font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isStarting ? "Redirection..." : isSyncing ? "Synchronisation..." : "Commencer la vérification"}
               </button>

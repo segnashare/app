@@ -1,8 +1,9 @@
 "use client";
 
-import { Playfair_Display } from "next/font/google";
 import { Search } from "lucide-react";
 import { useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { OnboardingExperienceCore } from "@/components/onboarding/OnboardingExperienceCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -10,10 +11,7 @@ import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export default function OnboardingExperiencePage() {
   const [canContinue, setCanContinue] = useState(false);

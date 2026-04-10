@@ -1,10 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Check } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -25,10 +26,7 @@ const SHARE_OPTIONS = [
 ] as const;
 const LATER_OPTION = "Je verrai plus tard, je veux d’abord tester les emprunts";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export function OnboardingShareCore({ formId, onCanContinueChange, redirectPath }: OnboardingShareCoreProps) {
   const router = useRouter();
@@ -121,7 +119,7 @@ export function OnboardingShareCore({ formId, onCanContinueChange, redirectPath 
                   <span
                     className={cn(
                       "ml-4 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border",
-                      isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                      isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                     )}
                     aria-hidden
                   >
@@ -131,7 +129,7 @@ export function OnboardingShareCore({ formId, onCanContinueChange, redirectPath 
                   <span
                     className={cn(
                       "ml-4 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center border",
-                      isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                      isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                     )}
                     aria-hidden
                   >

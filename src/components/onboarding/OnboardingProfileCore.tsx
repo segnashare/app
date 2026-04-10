@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Image as ImageIcon, Plus } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -26,10 +27,7 @@ type PhotoOffset = {
   y: number;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 2.5;

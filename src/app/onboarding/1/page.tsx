@@ -1,21 +1,17 @@
 "use client";
 
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "700",
-});
+
+
 
 export default function OnboardingCheckpointOnePage() {
   const router = useRouter();

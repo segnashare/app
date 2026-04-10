@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronRight, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent, TouchEvent } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
+import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { ItemViewView } from "@/components/item/ItemViewView";
 import { Input } from "@/components/ui/Input";
 import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
@@ -29,25 +33,15 @@ import {
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/lib/items/new-item-nav";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, getBrowserAuthUser } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
 
-const montserratItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "500",
-  style: "italic",
-});
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
+
+
 
 const INFO_LINKS = [
   { key: "category", label: "Catégorie", href: "/items/new/category" },
@@ -79,6 +73,17 @@ function compactSlotsLeft(next: Array<ItemPhotoSlot | null>): Array<ItemPhotoSlo
 const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
 const ITEM_SLOTS_DRAFT_STORAGE_KEY = "segna:new-item:slots-draft";
 const ITEM_TEXT_DRAFT_STORAGE_KEY = "segna:new-item:text-draft";
+/** Parcours /items/proposal → première ligne `items` avec `pre_subscribe_proposal` (pas d’expédition auto à la validation). */
+const PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY = "segna:new-item:pre-subscribe-proposal";
+
+function readPreSubscribeProposalFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 const CONDITION_LABEL_TO_SCORE: Record<string, string> = {
   "Neuf avec étiquette": "neuf_etiquette",
@@ -159,6 +164,7 @@ export default function NewItemPage() {
   const searchParams = useSearchParams();
   const requestedItemId = searchParams.get("itemId")?.trim() || null;
   const forceFreshDraft = searchParams.get("fresh") === "1";
+  const proposalFromUrl = searchParams.get("proposal") === "1";
   const photoModifyIdFromUrl = searchParams.get("photoModifyId");
   /** Evite de relancer ensureDraft a chaque changement de reference de searchParams (clignotement loader / contenu). */
   const searchParamsRef = useRef(searchParams);
@@ -270,15 +276,18 @@ export default function NewItemPage() {
     if (!forceFreshDraft) return;
     const params = new URLSearchParams();
     if (requestedItemId) params.set("itemId", requestedItemId);
+    if (searchParams.get("proposal") === "1") params.set("proposal", "1");
     router.replace(params.toString() ? `/items/new?${params.toString()}` : "/items/new");
-  }, [forceFreshDraft, requestedItemId, router]);
+  }, [forceFreshDraft, requestedItemId, router, searchParams]);
 
   useEffect(() => {
-    void supabase.auth.getUser().then((res: { data: { user?: { id: string } | null } }) => {
-      const uid = res.data.user?.id;
-      if (uid) setCurrentUserId(uid);
-    });
-  }, [supabase]);
+    if (!proposalFromUrl) return;
+    try {
+      sessionStorage.setItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY, "1");
+    } catch {
+      // ignore
+    }
+  }, [proposalFromUrl]);
 
   useEffect(() => {
     let isUnmounted = false;
@@ -291,20 +300,44 @@ export default function NewItemPage() {
         sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
         clearItemInfoDraft();
         setSlots([null, null, null, null, null, null]);
+        try {
+          if (searchParamsRef.current.get("proposal") === "1") {
+            sessionStorage.setItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY, "1");
+          } else {
+            sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+          }
+        } catch {
+          // ignore
+        }
+      } else if (!requestedItemId && !forceFreshDraft) {
+        try {
+          if (searchParamsRef.current.get("proposal") !== "1") {
+            sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+          }
+        } catch {
+          // ignore
+        }
       }
       const {
         data: { user },
         error: userError,
-      } = await supabase.auth.getUser();
+      } = await getBrowserAuthUser(supabase);
 
       if (isUnmounted) return;
       if (userError || !user) {
+        setCurrentUserId(null);
         setErrorMessage("Session invalide.");
         setIsInitializingDraft(false);
         return;
       }
+      setCurrentUserId(user.id);
 
       if (requestedItemId) {
+        try {
+          sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+        } catch {
+          // ignore
+        }
         if (forceFreshDraft) setLastDbLoadedItemId(null);
         const existingDraftId = sessionStorage.getItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
         if (existingDraftId && existingDraftId !== requestedItemId) {
@@ -896,7 +929,7 @@ export default function NewItemPage() {
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await getBrowserAuthUser(supabase);
     if (userError || !user) {
       setIsSubmitting(false);
       setErrorMessage("Session invalide.");
@@ -919,6 +952,7 @@ export default function NewItemPage() {
       return;
     }
 
+    const proposalCols = readPreSubscribeProposalFlag() ? { pre_subscribe_proposal: true as const } : {};
     const { error: upsertError } = await supabase
       .from("items")
       .upsert(
@@ -930,6 +964,7 @@ export default function NewItemPage() {
           photos: photosPayload,
           status: "draft",
           ...infoIds,
+          ...proposalCols,
         },
         { onConflict: "id" },
       );
@@ -956,6 +991,11 @@ export default function NewItemPage() {
     if (!intakeErr.ok) {
       setErrorMessage(intakeErr.message);
       return;
+    }
+    try {
+      sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+    } catch {
+      // ignore
     }
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
@@ -984,7 +1024,7 @@ export default function NewItemPage() {
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await getBrowserAuthUser(supabase);
     if (userError || !user) {
       setIsSubmitting(false);
       setErrorMessage("Session invalide.");
@@ -1001,6 +1041,7 @@ export default function NewItemPage() {
       return;
     }
 
+    const proposalCols = readPreSubscribeProposalFlag() ? { pre_subscribe_proposal: true as const } : {};
     const { error: upsertError } = await supabase
       .from("items")
       .update({
@@ -1009,6 +1050,7 @@ export default function NewItemPage() {
         photos: photosPayload,
         status: "draft",
         ...infoIds,
+        ...proposalCols,
       })
       .eq("id", draftItemId)
       .eq("owner_user_id", user.id)
@@ -1023,6 +1065,11 @@ export default function NewItemPage() {
     if (!intakeErr.ok) {
       setErrorMessage(intakeErr.message);
       return;
+    }
+    try {
+      sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+    } catch {
+      // ignore
     }
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
@@ -1040,7 +1087,7 @@ export default function NewItemPage() {
       const {
         data: { user },
         error: userError,
-      } = await supabase.auth.getUser();
+      } = await getBrowserAuthUser(supabase);
 
       if (userError || !user) {
         setIsKeepingDraft(false);
@@ -1058,6 +1105,7 @@ export default function NewItemPage() {
         return;
       }
 
+      const proposalCols = readPreSubscribeProposalFlag() ? { pre_subscribe_proposal: true as const } : {};
       const { error: upsertError } = await supabase
         .from("items")
         .upsert(
@@ -1069,6 +1117,7 @@ export default function NewItemPage() {
             photos: photosPayload,
             status: "draft",
             ...infoIds,
+            ...proposalCols,
           },
           { onConflict: "id" },
         );
@@ -1099,6 +1148,11 @@ export default function NewItemPage() {
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    try {
+      sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
+    } catch {
+      // ignore
+    }
     clearItemInfoDraft();
     setShowCancelModal(false);
     router.push("/exchange");
@@ -1116,7 +1170,7 @@ export default function NewItemPage() {
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await getBrowserAuthUser(supabase);
 
     if (userError || !user) {
       setIsDeletingDraft(false);
@@ -1191,7 +1245,7 @@ export default function NewItemPage() {
   };
 
   const uploadSlotsAndBuildPayload = async (): Promise<{ photosPayload: Record<string, unknown>; updatedSlots: Array<ItemPhotoSlot | null> }> => {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } = await getBrowserAuthUser(supabase);
     if (!userData.user?.id || !draftItemId) throw new Error("Session ou brouillon introuvable.");
     const userId = userData.user.id;
     const bucketId = "bucket_items";
@@ -1284,20 +1338,20 @@ export default function NewItemPage() {
       <header className="sticky top-0 z-20 bg-white pt-5">
         <div className="border-b border-zinc-200 px-4 pb-4">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center">
-            <button type="button" onClick={() => setShowCancelModal(true)} className="justify-self-start px-2 text-[20px] font-bold text-[#5E3023]">
+            <button type="button" onClick={() => setShowCancelModal(true)} className="justify-self-start px-2 text-[20px] font-bold text-zinc-900">
               Annuler
             </button>
             {isEditValidationMode ? (
               <div className="text-center">
                 <h1 className="text-[24px] font-semibold leading-none text-zinc-950">Modification</h1>
-                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-emerald-600" : "text-[#E44D3E]")} suppressHydrationWarning>
+                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-zinc-900" : "text-zinc-500")} suppressHydrationWarning>
                   {isInitializingDraft ? "—" : `${completionScore}`} % Terminé
                 </p>
               </div>
             ) : (
               <div className="text-center">
                 <h1 className="text-[24px] font-semibold leading-none text-zinc-950">New Item</h1>
-                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-emerald-600" : "text-[#E44D3E]")} suppressHydrationWarning>
+                <p className={cn("mt-1 text-[14px] font-semibold", completionScore >= 100 ? "text-zinc-900" : "text-zinc-500")} suppressHydrationWarning>
                   {isInitializingDraft ? "—" : `${completionScore}`} % Terminé
                 </p>
               </div>
@@ -1308,7 +1362,7 @@ export default function NewItemPage() {
               disabled={!canSubmit}
               className={cn(
                 "justify-self-end px-2 text-[20px] font-bold transition-colors",
-                canSubmit ? "text-[#5E3023]" : "text-zinc-300",
+                canSubmit ? "text-zinc-900" : "text-zinc-300",
               )}
             >
               {isSubmitting ? "..." : isEditValidationMode ? "Terminer" : "Soumettre"}
@@ -1322,7 +1376,7 @@ export default function NewItemPage() {
               onClick={() => setMode("edit")}
               className={cn(
                 "h-12 border-b-2 text-[20px] font-extrabold",
-                mode === "edit" ? "border-[#5E3023] text-[#5E3023]" : "border-transparent text-zinc-300",
+                mode === "edit" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-300",
               )}
             >
               Modifier
@@ -1332,7 +1386,7 @@ export default function NewItemPage() {
               onClick={() => setMode("view")}
               className={cn(
                 "h-12 border-b-2 text-[20px] font-extrabold",
-                mode === "view" ? "border-[#5E3023] text-[#5E3023]" : "border-transparent text-zinc-300",
+                mode === "view" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-300",
               )}
             >
               Voir
@@ -1464,8 +1518,8 @@ export default function NewItemPage() {
                   }}
                   className={cn(
                     "group relative aspect-square overflow-visible rounded-2xl border-2 border-dashed transition",
-                    index < 4 ? "border-[#5E3023]/55 bg-[#f7f3ef]" : "border-zinc-300 bg-white",
-                    dragOverIndex === index ? "border-[#5E3023] bg-[#f3ece5]" : "",
+                    index < 4 ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
+                    dragOverIndex === index ? "border-zinc-900 bg-zinc-100" : "",
                     slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
                     draggingIndex === index ? "opacity-30" : "",
                   )}
@@ -1490,7 +1544,7 @@ export default function NewItemPage() {
                       <div className="flex h-full w-full items-center justify-center">
                         <div className="relative inline-flex items-center justify-center">
                           <ImageIcon size={28} className="text-zinc-400" />
-                          <span className="absolute -bottom-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#5E3023] text-white">
+                          <span className="absolute -bottom-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-zinc-900 text-white">
                             <Plus size={14} strokeWidth={3} />
                           </span>
                         </div>
@@ -1523,7 +1577,7 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1">
               <p className={cn(montserrat.className, "text-[14px] italic text-zinc-400")}>Fais glisser une photo pour réorganiser l&apos;ordre.</p>
-              <p className={cn(montserrat.className, "-mt-0.5 text-[14px] font-bold leading-none text-[#5E3023]")}>Ajoute 4 à 6 photos</p>
+              <p className={cn(montserrat.className, "-mt-0.5 text-[14px] font-bold leading-none text-zinc-700")}>Ajoute 4 à 6 photos</p>
             </div>
           </section>
 
@@ -1565,7 +1619,7 @@ export default function NewItemPage() {
               ))}
             </div>
           </section>
-          {errorMessage ? <p className="text-sm text-[#E44D3E]">{errorMessage}</p> : null}
+          {errorMessage ? <p className="text-sm text-zinc-600">{errorMessage}</p> : null}
         </div>
         )}
         </div>
@@ -1591,16 +1645,16 @@ export default function NewItemPage() {
       ) : null}
       {showCancelModal ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-[430px] rounded-3xl bg-white p-5 shadow-xl">
-            <h3 className="text-[20px] font-semibold text-zinc-900">
+          <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[430px]")}>
+            <h2 className={segnaDialogTitleClass()}>
               {isEditValidationMode ? "Quitter ?" : "Quitter l'édition ?"}
-            </h3>
-            <p className="mt-2 text-sm text-zinc-600">
+            </h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
               {requestedItemId || isEditValidationMode
                 ? "Tu peux garder le brouillon, ou annuler les modifications."
                 : "Tu peux garder le brouillon, ou supprimer définitivement cet item."}
             </p>
-            {errorMessage ? <p className="mt-3 text-sm text-[#E44D3E]">{errorMessage}</p> : null}
+            {errorMessage ? <p className="mt-3 text-sm text-zinc-600">{errorMessage}</p> : null}
             <div className="mt-5 grid gap-2">
               <button
                 type="button"
@@ -1614,7 +1668,7 @@ export default function NewItemPage() {
                 <button
                   type="button"
                   onClick={onDiscardChanges}
-                  className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white"
+                  className="h-11 rounded-xl bg-zinc-900 text-sm font-semibold text-white"
                 >
                   Annuler les modifications
                 </button>
@@ -1623,7 +1677,7 @@ export default function NewItemPage() {
                   type="button"
                   onClick={onDeleteDraft}
                   disabled={isDeletingDraft}
-                  className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-60"
+                  className="h-11 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
                 >
                   {isDeletingDraft ? "Suppression..." : "Supprimer cet item"}
                 </button>

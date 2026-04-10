@@ -4,28 +4,14 @@ import Stripe from "stripe";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
-type CreditKind = "pods" | "mods";
-type MembershipTier = "guest" | "segna_plus" | "segna_x";
+/** Packs catalogue « Obtenir plus » — alignés sur les prix Stripe (STRIPE_PRICE_CREDITS_*). */
+export const CREDIT_PACK_AMOUNTS = [200, 500, 1000] as const;
+export type CreditPackAmount = (typeof CREDIT_PACK_AMOUNTS)[number];
 
-function isCreditKind(value: unknown): value is CreditKind {
-  return value === "pods" || value === "mods";
-}
-
-function isValidPack(creditKind: CreditKind, pack: unknown): pack is number {
-  if (typeof pack !== "number" || !Number.isInteger(pack)) return false;
-  if (creditKind === "pods") return pack === 20 || pack === 50 || pack === 100;
-  return pack === 10 || pack === 20 || pack === 50;
-}
-
-function getUserMembershipTier(planCode: string | null | undefined, status: string | null | undefined): MembershipTier {
-  const normalizedPlan = (planCode ?? "").toLowerCase();
-  const normalizedStatus = (status ?? "").toLowerCase();
-  const isActive = normalizedStatus === "active" || normalizedStatus === "trialing";
-  if (!isActive) return "guest";
-  if (normalizedPlan === "segna_x") return "segna_x";
-  if (normalizedPlan === "segna_plus") return "segna_plus";
-  return "guest";
+function isCreditPackAmount(value: unknown): value is CreditPackAmount {
+  return typeof value === "number" && Number.isInteger(value) && (CREDIT_PACK_AMOUNTS as readonly number[]).includes(value);
 }
 
 async function resolvePriceIdFromEnvKey(stripe: Stripe, envKey: string): Promise<string | null> {
@@ -46,19 +32,21 @@ async function resolvePriceIdFromEnvKey(stripe: Stripe, envKey: string): Promise
   return null;
 }
 
-function envKeyForPack(creditKind: CreditKind, pack: number): string {
-  if (creditKind === "pods") return `STRIPE_PRICE_PODS_${pack}`;
-  return `STRIPE_PRICE_MODS_${pack}`;
+function envKeyForCreditPack(pack: CreditPackAmount): string {
+  return `STRIPE_PRICE_CREDITS_${pack}`;
 }
 
+/**
+ * Achat pack de crédits (profil « Obtenir plus »).
+ * Body : `{ "pack": 200 | 500 | 1000 }` — consommation vs échange dérivé de l’abonnement côté serveur.
+ */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => null)) as { creditKind?: unknown; pack?: unknown } | null;
-    const creditKind = body?.creditKind;
+    const body = (await request.json().catch(() => null)) as { pack?: unknown; creditKind?: unknown } | null;
     const pack = body?.pack;
 
-    if (!isCreditKind(creditKind) || !isValidPack(creditKind, pack)) {
-      return NextResponse.json({ message: "Pack invalide." }, { status: 400 });
+    if (!isCreditPackAmount(pack)) {
+      return NextResponse.json({ message: "Pack invalide (200, 500 ou 1000 crédits)." }, { status: 400 });
     }
 
     const supabase = (await createSupabaseServerClient()) as any;
@@ -81,19 +69,21 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    const membershipTier = getUserMembershipTier(subscriptionRow?.plan_code ?? null, subscriptionRow?.status ?? null);
-    const expectedKind: CreditKind = membershipTier === "guest" ? "pods" : "mods";
-    if (creditKind !== expectedKind) {
-      return NextResponse.json({ message: "Produit indisponible pour ce statut d'abonnement." }, { status: 403 });
-    }
+    const creditsKind = walletCreditKindForBillingSubscription(
+      subscriptionRow?.plan_code ?? null,
+      subscriptionRow?.status ?? null,
+    );
 
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
 
-    const envKey = envKeyForPack(creditKind, pack);
+    const envKey = envKeyForCreditPack(pack);
     const priceId = await resolvePriceIdFromEnvKey(stripe, envKey);
     if (!priceId) {
-      return NextResponse.json({ message: `Price introuvable pour ${envKey}. Utilise un price_... ou prod_... valide.` }, { status: 400 });
+      return NextResponse.json(
+        { message: `Price introuvable pour ${envKey}. Définis un price_… ou prod_… dans .env.local.` },
+        { status: 400 },
+      );
     }
 
     const { data: billingCustomerRow } = await admin
@@ -127,7 +117,7 @@ export async function POST(request: Request) {
     }
 
     const successUrl = `${config.returnUrlBase}/api/stripe/credits/sync?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${config.returnUrlBase}/profile?tab=plus&credits=cancelled&kind=${creditKind}&pack=${pack}`;
+    const cancelUrl = `${config.returnUrlBase}/profile?tab=plus&credits=cancelled&kind=${creditsKind}&pack=${pack}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -144,7 +134,7 @@ export async function POST(request: Request) {
       client_reference_id: user.id,
       metadata: {
         checkout_kind: "credits_purchase",
-        credits_kind: creditKind,
+        credits_kind: creditsKind,
         credits_amount: String(pack),
         user_id: user.id,
       },

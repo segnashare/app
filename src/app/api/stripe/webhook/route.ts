@@ -2,8 +2,14 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import {
+  confirmCartPaidFromStripeSession,
+  debitCartExchangeWalletFromStripeSession,
+} from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
+import { promotePendingLenderIntakesAfterStripeSubscription } from "@/lib/stripe/promote-pending-lender-intakes";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
 
 type PlanCode = "guest" | "segna_plus" | "segna_x";
 
@@ -96,6 +102,38 @@ async function upsertSubscriptionAndEntitlements(
     p_user_id: userId,
     p_plan_code: entitlementPlan,
   });
+
+  await promotePendingLenderIntakesAfterStripeSubscription(admin, userId, subscription, planCode);
+}
+
+/** Complément crédits payé dans une commande panier (montant = metadata). */
+async function applyCartOrderWalletFromCheckout(admin: any, session: Stripe.Checkout.Session, userId: string): Promise<boolean> {
+  const checkoutKind = session.metadata?.checkout_kind ?? null;
+  if (checkoutKind !== "cart_order") return false;
+
+  const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
+  const missing = Number.isFinite(missingRaw) ? Math.trunc(missingRaw) : 0;
+  if (missing <= 0) return true;
+
+  const creditKind = normalizeWalletCreditKind(session.metadata?.exchange_credits_kind ?? undefined);
+
+  const { error: creditRpcError } = await admin.rpc("wallet_credit_purchase", {
+    p_user_id: userId,
+    p_amount_points: missing,
+    p_credit_kind: creditKind,
+    p_provider: "stripe",
+    p_checkout_session_id: session.id,
+    p_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
+    p_idempotency_key: `stripe:cart_order_wallet:${session.id}`,
+    p_metadata: {
+      customer_id: typeof session.customer === "string" ? session.customer : null,
+      webhook_event: "checkout.session.completed",
+      checkout_kind: "cart_order",
+    },
+  });
+  if (creditRpcError) throw new Error(creditRpcError.message);
+
+  return true;
 }
 
 async function applyWalletCreditFromCheckout(admin: any, session: Stripe.Checkout.Session, userId: string): Promise<boolean> {
@@ -109,7 +147,7 @@ async function applyWalletCreditFromCheckout(admin: any, session: Stripe.Checkou
   const { error: creditRpcError } = await admin.rpc("wallet_credit_purchase", {
     p_user_id: userId,
     p_amount_points: creditsAmount,
-    p_credit_kind: session.metadata?.credits_kind ?? "pods",
+    p_credit_kind: normalizeWalletCreditKind(session.metadata?.credits_kind ?? undefined),
     p_provider: "stripe",
     p_checkout_session_id: session.id,
     p_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
@@ -143,6 +181,9 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       await upsertBillingCustomer(admin, userId, stripeCustomerId, session.metadata ?? {});
 
       await applyWalletCreditFromCheckout(admin, session, userId);
+      await applyCartOrderWalletFromCheckout(admin, session, userId);
+      await debitCartExchangeWalletFromStripeSession(admin, session, userId);
+      await confirmCartPaidFromStripeSession(admin, session, userId);
 
       if (typeof session.subscription === "string") {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);

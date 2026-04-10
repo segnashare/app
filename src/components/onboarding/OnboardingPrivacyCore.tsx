@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -21,10 +22,7 @@ type OnboardingPrivacyCoreProps = {
   onCanContinueChange?: (value: boolean) => void;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "700",
-});
+
 
 export function OnboardingPrivacyCore({ formId, onCanContinueChange }: OnboardingPrivacyCoreProps) {
   const router = useRouter();

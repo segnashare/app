@@ -1,12 +1,13 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Package, Tag } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 const SEGNA_ICON_PATH = "/ressources/icons/segna.svg";
 const STAR_ICON_PATH = "/ressources/icons/star.svg";
 const RATING_STARS = 5;
@@ -80,7 +81,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
 
   const firstLineItems: Array<{ key: string; content: React.ReactNode }> = [];
 
-  // 1. Prix en mods (x + icône crédit Segna)
+  // 1. Prix en points + icône crédit Segna
   firstLineItems.push({
     key: "price",
     content: (
@@ -94,7 +95,9 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
   // 2. Taille (« Taille M » ou « Taille unique » si absent)
   {
     const trimmedSize = data.size?.trim() ?? "";
-    const hasSize = trimmedSize !== "" && trimmedSize !== "-";
+    const isPlaceholder =
+      trimmedSize === "" || trimmedSize === "-" || trimmedSize === "—" || trimmedSize === "–";
+    const hasSize = !isPlaceholder;
     firstLineItems.push({
       key: "size",
       content: (

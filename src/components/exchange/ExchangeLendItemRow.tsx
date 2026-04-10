@@ -9,7 +9,15 @@ import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-m
 import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import {
+  SEGNA_DIALOG_CARD_CLASS,
+  SegnaDialogDismissButton,
+  segnaDialogBodyClass,
+  segnaDialogTitleClass,
+} from "@/components/ui/SegnaAppDialog";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 
 type ExchangeLendItemRowProps = {
   id: string;
@@ -29,8 +37,8 @@ type ExchangeLendItemRowProps = {
     zoom?: number;
     aspect?: string;
   } | null;
-  /** Unité affichée avec le prix (alignée sur le wallet : pods / mods). */
-  pointsUnitLabel: string;
+  /** Unité affichée avec le prix (alignée sur le wallet). */
+  creditKind: WalletCreditKind;
 };
 
 /** Prix connu côté membre après proposition (hors phase « en évaluation » seule). */
@@ -64,11 +72,18 @@ function getStatusLabel(
     return "Refus contrôle";
   }
 
-  // Priorité affichage sur la pipeline (fulfillment). verified + items.status available : distingo UI « Vérifiée ».
+  // Pipeline validée + contrôle OK : si la pièce est déjà `available` en DB, c’est le statut catalogue (bleu), pas l’étape « Vérifiée ».
   if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "Éligible (abonnement)";
+    if (intakeFulfillmentStage === "awaiting_subscription") return "Abonnement requis";
     if (intakeFulfillmentStage === "shipping") return "Expédition";
     if (intakeFulfillmentStage === "in_verification") return "Vérification";
-    if (intakeFulfillmentStage === "verified") return "Vérifiée";
+    if (intakeFulfillmentStage === "verified") {
+      if (normalized === "available" || normalized === "disponible" || normalized === "in_cart") {
+        return "Disponible";
+      }
+      return "Vérifiée";
+    }
   }
   if (intakeListingStage === "evaluation") return "En évaluation";
   if (intakeListingStage === "evaluated") return "Évaluée";
@@ -77,9 +92,17 @@ function getStatusLabel(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "pre_subscribe_eligible") return "Éligible (abonnement)";
+      if (fs === "awaiting_subscription") return "Abonnement requis";
       if (fs === "shipping") return "Expédition";
       if (fs === "in_verification") return "Vérification";
-      if (fs === "verified") return "Vérifiée";
+      if (fs === "verified") {
+        const st = status.trim().toLowerCase();
+        if (st === "available" || st === "disponible" || st === "in_cart") {
+          return "Disponible";
+        }
+        return "Vérifiée";
+      }
     }
     if (intake?.listing_stage === "evaluation") return "En évaluation";
     if (intake?.listing_stage === "evaluated") return "Évaluée";
@@ -109,18 +132,33 @@ function statusPillClassName(
 
   // Priorité affichage sur la pipeline (fulfillment).
   if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "bg-violet-100 text-violet-900";
+    if (intakeFulfillmentStage === "awaiting_subscription") return "bg-violet-100 text-violet-900";
     if (intakeFulfillmentStage === "shipping") return "bg-blue-100 text-blue-700";
     if (intakeFulfillmentStage === "in_verification") return "bg-amber-100 text-amber-900";
-    if (intakeFulfillmentStage === "verified") return "bg-emerald-100 text-emerald-900";
+    if (intakeFulfillmentStage === "verified") {
+      if (normalized === "available" || normalized === "disponible" || normalized === "in_cart") {
+        return "bg-blue-100 text-blue-800";
+      }
+      return "bg-emerald-100 text-emerald-900";
+    }
   }
   if (intakeListingStage === "validation_pending") return "bg-[#E7772C] text-white";
 
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "pre_subscribe_eligible") return "bg-violet-100 text-violet-900";
+      if (fs === "awaiting_subscription") return "bg-violet-100 text-violet-900";
       if (fs === "shipping") return "bg-blue-100 text-blue-700";
       if (fs === "in_verification") return "bg-amber-100 text-amber-900";
-      if (fs === "verified") return "bg-emerald-100 text-emerald-900";
+      if (fs === "verified") {
+        const st = status.trim().toLowerCase();
+        if (st === "available" || st === "disponible" || st === "in_cart") {
+          return "bg-blue-100 text-blue-800";
+        }
+        return "bg-emerald-100 text-emerald-900";
+      }
     }
     return "bg-[#E7772C] text-white";
   }
@@ -164,7 +202,7 @@ export function ExchangeLendItemRow({
   intake,
   photoUrl,
   photoPosition,
-  pointsUnitLabel,
+  creditKind,
 }: ExchangeLendItemRowProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient() as any;
@@ -250,14 +288,21 @@ export function ExchangeLendItemRow({
           </p>
           {brand ? <span className="font-semibold text-[16px] not-italic"> ({brand})</span> : null}
           {description ? <p className="mt-1 text-[13px] leading-[1.3] text-zinc-500 break-words">{description}</p> : null}
-          {showPriceRow ? (
+          {showPriceRow && currentValue != null ? (
             <p
               className={cn(
-                "mt-1 text-[15px] tabular-nums tracking-tight",
+                "mt-1 text-[15px] tracking-tight",
                 priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
               )}
             >
-              {Math.floor(currentValue).toLocaleString("fr-FR")} {pointsUnitLabel}
+              <SegnaPointsUnitDisplay
+                points={currentValue}
+                creditKind={creditKind}
+                numberClassName={cn(
+                  "text-[15px] tabular-nums",
+                  priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
+                )}
+              />
             </p>
           ) : null}
           <span
@@ -313,15 +358,19 @@ export function ExchangeLendItemRow({
       {returnConfirmOpen ? (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]">
           <div
-            className="w-full max-w-[380px] rounded-2xl bg-white p-4 shadow-xl"
+            className={cn(SEGNA_DIALOG_CARD_CLASS, "relative")}
             role="dialog"
             aria-modal="true"
             aria-labelledby={`confirm-return-${id}`}
           >
-            <h3 id={`confirm-return-${id}`} className="text-base font-semibold text-zinc-900">
+            <SegnaDialogDismissButton onClick={() => setReturnConfirmOpen(false)} />
+            <h2
+              id={`confirm-return-${id}`}
+              className={segnaDialogTitleClass("pr-10 text-[20px] sm:text-[22px]")}
+            >
               Récupérer cette pièce ?
-            </h3>
-            <p className="mt-2 text-sm text-zinc-600">
+            </h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
               Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -338,7 +387,7 @@ export function ExchangeLendItemRow({
                   setReturnConfirmOpen(false);
                   router.push(`/items/${encodeURIComponent(id)}/retour`);
                 }}
-                className="h-10 rounded-lg bg-[#5E3023] text-sm font-semibold text-white"
+                className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
               >
                 Oui, récupérer
               </button>

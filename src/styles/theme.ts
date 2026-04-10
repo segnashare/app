@@ -9,7 +9,7 @@ export const themeClassNames = {
       microUpperCase: "text-center font-semibold uppercase tracking-[0] text-[clamp(10.46px,2vw,14px)] text-[#919191]",
       helperMuted: "leading-[1.25] text-zinc-400",
       helperTailleFluide: "text-[clamp(1rem,3.6vw,1.125rem)]",
-      accentMarron: "font-semibold text-[#5E3023]",
+      accentMarron: "font-semibold text-zinc-900",
       erreurFormulaire: "text-[18px] font-medium text-[#E44D3E]",
       champPrincipalBase:
         "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-3 pt-0 font-semibold leading-none outline-none placeholder:text-zinc-900 focus:border-b-2",

@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat } from "next/font/google";
 import { useEffect, useState } from "react";
+import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: ["600", "500"] });
+
 
 const storageKey = (itemId: string) => `segna:seen-logistics-refusal-modal:${itemId}`;
 
@@ -42,19 +44,11 @@ export function LogisticsRefusalEntryModal({ itemId }: Props) {
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]">
-      <div
-        className="w-full max-w-[400px] rounded-2xl bg-white p-5 shadow-xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="logistics-refusal-modal-title"
-      >
-        <h2
-          id="logistics-refusal-modal-title"
-          className={cn(montserrat.className, "text-lg font-semibold text-zinc-900")}
-        >
+      <div className={SEGNA_DIALOG_CARD_CLASS} role="dialog" aria-modal="true" aria-labelledby="logistics-refusal-modal-title">
+        <h2 id="logistics-refusal-modal-title" className={segnaDialogTitleClass()}>
           Refus après contrôle
         </h2>
-        <p className={cn(montserrat.className, "mt-3 text-sm leading-relaxed text-zinc-600")}>
+        <p className={cn(segnaDialogBodyClass(), "mt-3")}>
           Ta pièce n&apos;a pas été retenue suite à la vérification physique. Elle reste visible dans tes prêts avec le
           statut « Refus contrôle ». Tu peux consulter le motif et la suite à donner (retour, litige) sur la page
           dédiée.
@@ -65,7 +59,7 @@ export function LogisticsRefusalEntryModal({ itemId }: Props) {
             onClick={dismiss}
             className={cn(
               montserrat.className,
-              "flex h-11 items-center justify-center rounded-xl bg-[#5E3023] text-center text-sm font-semibold text-white",
+              "flex h-11 items-center justify-center rounded-xl bg-zinc-900 text-center text-sm font-semibold text-white",
             )}
           >
             Voir les détails

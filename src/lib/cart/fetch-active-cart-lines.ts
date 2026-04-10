@@ -1,5 +1,6 @@
-import type { CartLineRowData } from "@/components/cart/CartScreen";
-import type { CartLineStatus } from "@/components/exchange/ExchangeCartSection";
+import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
+import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import type { CartLineStatus } from "@/lib/cart/cart-line-status";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import {
   createSignedUrlForStoragePath,
@@ -15,11 +16,11 @@ function mapCartLineStatus(cartItemStatus: string | null, itemStatus: string | n
   return "echec";
 }
 
-function isHttpUrl(value: string): boolean {
+export function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
-type ResolvedPhotoData = {
+export type ResolvedPhotoData = {
   path: string | null;
   position: {
     offset?: { x?: number; y?: number };
@@ -28,7 +29,7 @@ type ResolvedPhotoData = {
   } | null;
 };
 
-function resolveItemPhotoData(photosRaw: unknown): ResolvedPhotoData {
+export function resolveItemPhotoData(photosRaw: unknown): ResolvedPhotoData {
   if (!photosRaw || typeof photosRaw !== "object") return { path: null, position: null };
   const photos = photosRaw as Record<string, unknown>;
   const candidates = [photos.main_url, photos.mainUrl, photos.cover_url, photos.coverUrl, photos.primary_url, photos.primaryUrl, photos.url];
@@ -104,7 +105,7 @@ export async function fetchActiveCartSummaryForUser(
     .select("id,status,updated_at")
     .eq("user_id", userId)
     .is("deleted_at", null)
-    .in("status", ["active", "reserved"])
+    .in("status", [...CART_STATUSES_OPEN])
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -124,7 +125,7 @@ export async function fetchActiveCartLinesForUser(
     .select("id,status,updated_at")
     .eq("user_id", userId)
     .is("deleted_at", null)
-    .in("status", ["active", "reserved"])
+    .in("status", [...CART_STATUSES_OPEN])
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();

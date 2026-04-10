@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronLeft } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfair = segnaPlayfairDisplay;
 
 import { ItemIntakePanel } from "@/components/item/ItemIntakePanel";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
@@ -15,8 +17,8 @@ function intakeUsesFloatingCard(listingStage: string | null | undefined) {
   return listingStage === "validation_pending";
 }
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: ["600"] });
-const playfair = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
+
+
 
 type IntakeSnap = {
   listing_stage: string | null;

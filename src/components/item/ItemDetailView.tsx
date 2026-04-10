@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { ChevronLeft, MoreVertical } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
-import { ItemIntakePanel, needsItemIntakeUi } from "./ItemIntakePanel";
+import { ItemIntakePanel } from "./ItemIntakePanel";
+import { needsItemIntakeUi } from "@/lib/items/item-intake-ui";
 import { LogisticsRefusalEntryModal } from "./LogisticsRefusalEntryModal";
 import { ItemViewView } from "./ItemViewView";
+import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
@@ -21,8 +26,8 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
+
+
 
 function canEditDraftItem(status: string): boolean {
   const s = status.trim().toLowerCase();
@@ -105,7 +110,12 @@ const ITEM_DETAIL_BACK_HREF_KEY = "segna:item-detail:back-href";
 
 const ITEM_DETAIL_CACHED_EVENT = "segna:item-detail-cached";
 
-export function ItemDetailView() {
+type ItemDetailViewProps = {
+  /** Préchargement SSR des frames « Propriété Segna » (membre connecté uniquement côté page). */
+  initialSegnaStockPropertyCmsFrames?: CmsFrameRow[];
+};
+
+export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetailViewProps = {}) {
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -719,16 +729,17 @@ export function ItemDetailView() {
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
           hideFrameLikeButtons={fromCart || !isOwner}
+          segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
         />
       </div>
 
       {deleteModalOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-[430px] rounded-3xl bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="item-delete-title">
-            <h3 id="item-delete-title" className="text-[20px] font-semibold text-zinc-900">
+          <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[430px]")} role="dialog" aria-modal="true" aria-labelledby="item-delete-title">
+            <h2 id="item-delete-title" className={segnaDialogTitleClass()}>
               Supprimer cette pièce ?
-            </h3>
-            <p className="mt-2 text-sm text-zinc-600">
+            </h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
               Elle sera retirée de ton espace. Tu pourras créer une nouvelle fiche plus tard si besoin.
             </p>
             {deleteError ? <p className="mt-2 text-sm text-[#E44D3E]">{deleteError}</p> : null}
@@ -759,11 +770,11 @@ export function ItemDetailView() {
 
       {itemId && recoveryConfirmOpen ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/20 p-4">
-          <div className="w-full max-w-[320px] rounded-xl border border-zinc-200 bg-white p-4 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="confirm-recovery-title">
-            <p id="confirm-recovery-title" className="text-sm font-semibold text-zinc-900">
+          <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[320px]")} role="dialog" aria-modal="true" aria-labelledby="confirm-recovery-title">
+            <h2 id="confirm-recovery-title" className={segnaDialogTitleClass("text-[20px] sm:text-[21px]")}>
               Vous confirmez avoir récupéré votre pièce ?
-            </p>
-            <div className="mt-3 flex items-center justify-end gap-2">
+            </h2>
+            <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setRecoveryConfirmOpen(false)}

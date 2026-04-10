@@ -1,18 +1,16 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { PhotoModifyEditor } from "@/components/onboarding/PhotoModifyEditor";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dataUrlToFile, fileToDataUrl, readPhotoModifyDraft, savePhotoModifyDraft, type PhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 type Offset = { x: number; y: number };
 
@@ -136,7 +134,7 @@ export function ModifyPageClient() {
       <main className="flex min-h-[100dvh] items-center justify-center bg-white px-6">
         <div className="text-center">
           <p className={cn(montserrat.className, "text-zinc-700")}>Photo introuvable.</p>
-          <button type="button" onClick={() => router.back()} className="mt-4 text-[#5E3023] underline">
+          <button type="button" onClick={() => router.back()} className="mt-4 text-zinc-900 underline">
             Revenir
           </button>
         </div>
@@ -147,13 +145,13 @@ export function ModifyPageClient() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={handleCancel}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={handleCancel}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[clamp(22px,2vw,26px)] font-bold leading-none text-zinc-900")}>
           Modifie la photo
         </h1>
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={handleDone}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={handleDone}>
           {isSaving ? "..." : "Terminé"}
         </button>
       </header>

@@ -1,16 +1,17 @@
 "use client";
 
-import { Playfair_Display } from "next/font/google";
 import { ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { ProfileView, ProfileViewLoadingSkeleton, type ProfileViewData } from "@/components/profile/ProfileView";
 import { useProfileViewData } from "@/components/profile/useProfileViewData";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
+
 
 export function MemberProfileById({ userId }: { userId: string }) {
   const router = useRouter();

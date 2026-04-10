@@ -2,20 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useEffect, useRef, useState } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { cn } from "@/lib/utils/cn";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
+
 
 const benefits = [
   { title: "Plus de pièces", description: "Emprunte 10 pièces par mois avec une valeur allant jusqu'à 5000€", faded: false },

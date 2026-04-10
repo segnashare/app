@@ -1,9 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Check, Search, X } from "lucide-react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -22,15 +24,8 @@ type BrandOption = {
   label: string;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
-const montserratItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "500",
-  style: "italic",
-});
+
+
 
 export function OnboardingBrandsCore({
   formId,
@@ -185,7 +180,7 @@ export function OnboardingBrandsCore({
                 <span
                   className={cn(
                     "inline-flex h-[26px] w-[26px] items-center justify-center border",
-                    isSelected ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                    isSelected ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                   )}
                   aria-hidden
                 >
@@ -277,12 +272,12 @@ export function OnboardingBrandsCore({
                   }}
                   className={cn(
                     "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition",
-                    dragOverRankIndex === index ? "border-[#5E3023] bg-[#f3ece5]" : "border-zinc-200 bg-white",
+                    dragOverRankIndex === index ? "border-zinc-700 bg-zinc-100" : "border-zinc-200 bg-white",
                   )}
                   style={{ touchAction: "none" }}
                 >
                   <div className="inline-flex items-center gap-3">
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#5E3023] text-xs font-semibold text-white">{index + 1}</span>
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white">{index + 1}</span>
                     <span className={cn(montserrat.className, "text-[15px] text-zinc-900")}>{brand.label}</span>
                   </div>
                   <button

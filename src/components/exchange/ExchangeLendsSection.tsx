@@ -1,13 +1,21 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { Playfair_Display } from "next/font/google";
 
+import {
+  CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
+  CmsHorizontalScrollRow,
+} from "@/components/cms/CmsSectionBlocks";
+import { ExchangeLendsEmptyCmsBlock } from "@/components/exchange/ExchangeLendsEmptyCmsBlock";
 import { ExchangeLendItemRow } from "@/components/exchange/ExchangeLendItemRow";
+import { ExchangeMergeShippingBanner } from "@/components/exchange/ExchangeMergeShippingBanner";
 import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
+import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
-
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["600", "700", "800"] });
 
 /** Aligné sur le tri de `exchange/page.tsx` (mêmes rangs que `lendPipelineRank`). */
 function lendPipelineRankForSection(l: LendItem): number {
@@ -16,7 +24,7 @@ function lendPipelineRankForSection(l: LendItem): number {
   if (ls === "validated") {
     if (fs === "verified") return 0;
     if (fs === "in_verification") return 1;
-    if (fs === "shipping" || fs === "") return 2;
+    if (fs === "shipping" || fs === "pre_subscribe_eligible" || fs === "awaiting_subscription" || fs === "") return 2;
   }
   if (ls === "validation_pending") return 3;
   if (ls === "evaluated") return 4;
@@ -48,49 +56,39 @@ export type LendItem = {
 type ExchangeLendsSectionProps = {
   lends: LendItem[];
   membershipLabel: "Guest" | "Membre +" | "Membre X";
-  /** Plafond prêts (depuis user_monthly_entitlements / fallback produit). 0 = pas d’affichage compteur. */
+  /** Plafond prêts (depuis user_monthly_entitlements / fallback produit). */
   includedLendsLimit: number;
-  /** Pièces déjà validées (intake annonce `validated`) — seules comptées pour n / max. */
+  /** Pièces déjà validées (intake annonce `validated`). */
   validatedLendsCount: number;
   /** Pièces en expédition membre — si 2–5, proposition d’envoi groupé. */
   mergedShippingCandidateIds: string[];
+  /** Bloc CMS `commerce_promo_ad` fusionné sous le titre (abonnés : image seule). */
+  promoAdRows?: CmsFrameRow[];
+  /** Rail CMS lorsque `lends` est vide (`exchange_lends_empty`), comme panier vide dans Panier actif. */
+  emptyLendsCms?: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } | null;
+  emptyLendsCmsCatalogItems?: ShopCatalogItem[];
 };
 
 export function ExchangeLendsSection({
   lends,
   membershipLabel,
-  includedLendsLimit,
-  validatedLendsCount,
   mergedShippingCandidateIds,
+  promoAdRows = [],
+  emptyLendsCms = null,
+  emptyLendsCmsCatalogItems = [],
+  ..._quotaProps
 }: ExchangeLendsSectionProps) {
-  const isGuest = membershipLabel === "Guest";
-  const showGuestUpsell = isGuest && lends.length === 0;
-  const emptyLendsSubtitle =
-    membershipLabel === "Membre X"
-      ? "Prête jusqu'à 10 items pour maximiser ta capacité d'emprunt !"
-      : membershipLabel === "Membre +"
-        ? "Prête jusqu'à 5 items pour maximiser ta capacité d'emprunt !"
-        : "N'achète plus de crédits: prête et emprunte en illimité !";
+  void _quotaProps;
+  /** Invité sans proposition : pas de liste (bloc promo commerce ailleurs dans la page). */
+  if (membershipLabel === "Guest" && lends.length === 0) return null;
 
-  const lendsTitle =
-    !isGuest && includedLendsLimit > 0
-      ? `Prêts (${validatedLendsCount}/${includedLendsLimit})`
-      : "Prêts";
-
-  const balanceUnitLabel = membershipLabel === "Guest" ? "pods" : "mods";
-
-  const verifiedLendingCreditPoints = lends.reduce((sum, l) => {
-    const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
-    const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
-    if (ls !== "validated" || fs !== "verified") return sum;
-    const pts = l.currentValue;
-    if (pts == null || !Number.isFinite(pts) || pts <= 0) return sum;
-    return sum + Math.floor(pts);
-  }, 0);
+  const lendPriceCreditKind = walletCreditKindForMembership(membershipLabel);
 
   const showMergePopup =
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
   const mergeHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
+
+  const lendsSectionTitle = membershipLabel === "Guest" ? "Propositions de Prêts" : "Mes Prêts";
 
   const lendsPreShipping: LendItem[] = [];
   const lendsShippingOnly: LendItem[] = [];
@@ -102,29 +100,28 @@ export function ExchangeLendsSection({
     else lendsAfterShipping.push(item);
   }
 
-  const titleEnd =
-    lends.length > 0 ? (
-      <div className="max-w-[min(100%,11rem)] text-right">
-        <p className="text-[13px] font-semibold leading-tight tracking-tight text-zinc-900 tabular-nums">
-          +{verifiedLendingCreditPoints.toLocaleString("fr-FR")} {balanceUnitLabel}
-        </p>
-        <p className="mt-0.5 text-[10px] font-medium leading-tight text-zinc-500">Prêts vérifiés</p>
-      </div>
-    ) : null;
-
   return (
     <SectionBlock
-      title={lendsTitle}
-      titleEnd={titleEnd}
-      description={lends.length === 0 ? emptyLendsSubtitle : undefined}
+      title={lendsSectionTitle}
+      titleEnd={null}
       className="w-full bg-white px-5 py-4"
-      titleClassName={cn(playfairDisplay.className, "text-[30px] font-bold leading-none")}
-      descriptionClassName="font-medium text-[20px] leading-none tracking-normal text-[#424242]"
+      titleClassName={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}
     >
       <CardBase className="!rounded-none !border-0 !bg-transparent !p-0 !shadow-none space-y-3">
-        {!showGuestUpsell && lends.length === 0 ? (
-          <div className="rounded-xl bg-white px-3 py-4">
-            <p className="text-center text-sm font-semibold text-zinc-700">Pas de prêts</p>
+        {promoAdRows.length > 0 ? (
+          <CmsHorizontalScrollRow
+            rows={promoAdRows}
+            layout="rail"
+            hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+            promoVisualOnly
+            className="!mt-0"
+          />
+        ) : null}
+        {lends.length === 0 ? (
+          <div className="space-y-3">
+            {emptyLendsCms && emptyLendsCms.frames.length > 0 ? (
+              <ExchangeLendsEmptyCmsBlock cms={emptyLendsCms} catalogItems={emptyLendsCmsCatalogItems} />
+            ) : null}
           </div>
         ) : null}
 
@@ -142,7 +139,7 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
-                  pointsUnitLabel={balanceUnitLabel}
+                  creditKind={lendPriceCreditKind}
                 />
               </div>
             ))}
@@ -166,7 +163,7 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
-                  pointsUnitLabel={balanceUnitLabel}
+                  creditKind={lendPriceCreditKind}
                 />
               </div>
             ))}
@@ -174,25 +171,11 @@ export function ExchangeLendsSection({
         ) : null}
 
         {showMergePopup ? (
-          <div
-            className="rounded-2xl border border-sky-400 bg-sky-100/65 p-4 shadow-[0_8px_30px_rgba(56,189,248,0.12)] backdrop-blur-[2px]"
-            role="dialog"
-            aria-label="Proposition d'expédition groupée"
-          >
-            <p className="text-[15px] font-semibold text-sky-950">
-              {mergedShippingCandidateIds.length} pièces à expédier
-            </p>
-            <p className="mt-1.5 text-sm leading-snug text-sky-900/90">
-              Tu peux préparer <strong>un envoi regroupé</strong> (même colis vers Segna). Ouvre la page transverse pour
-              la liste et le bordereau.
-            </p>
-            <Link
-              href={mergeHref}
-              className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-sky-700 px-4 py-2.5 text-sm font-bold text-white"
-            >
-              Expédition fusionnée
-            </Link>
-          </div>
+          <ExchangeMergeShippingBanner
+            key={[...mergedShippingCandidateIds].sort().join(",")}
+            candidateIds={mergedShippingCandidateIds}
+            mergeHref={mergeHref}
+          />
         ) : null}
 
         {lendsAfterShipping.length > 0 ? (
@@ -209,35 +192,22 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
-                  pointsUnitLabel={balanceUnitLabel}
+                  creditKind={lendPriceCreditKind}
                 />
               </div>
             ))}
           </div>
         ) : null}
 
-        {showGuestUpsell ? (
-          <Link href="/package" className="inline-flex w-full items-center justify-between gap-3 rounded-2xl border border-[#EEDDBB] bg-[#FFEFC9] px-4 py-3 text-left">
-            <span className="inline-flex min-w-0 items-center gap-3">
-              <span className="text-[18px] font-bold leading-[1.05] text-[#000000]">
-                -30% avec Segna+ en choisissant l'abonn...
-              </span>
-            </span>
-            <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-gradient-to-r from-[#FAE1B7] to-[#EAB25A] px-4 font-semibold text-[#000000]">
-              Changer
-            </span>
+        <div className="flex justify-end rounded-xl py-0.5">
+          <Link
+            href="/items/new?fresh=1"
+            className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+            Proposer une pièce
           </Link>
-        ) : (
-          <div className="flex justify-end rounded-xl py-0.5">
-            <Link
-              href="/items/new?fresh=1"
-              className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2.5} />
-              Prêter une pièce
-            </Link>
-          </div>
-        )}
+        </div>
       </CardBase>
     </SectionBlock>
   );

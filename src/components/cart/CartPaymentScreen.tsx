@@ -4,23 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Briefcase,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Home,
-  Store,
-  Tag,
-  User,
-  Zap,
-} from "lucide-react";
+import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, User, Zap } from "lucide-react";
 
-import type { CartLineRowData } from "@/components/cart/CartScreen";
-import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
-import type { CartLineStatus } from "@/components/exchange/ExchangeCartSection";
-import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
+import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
   isParisDeliveryArea,
   readCheckoutDeliveryAddress,
@@ -31,31 +19,26 @@ import {
   type CheckoutDeliveryAddress,
   type CheckoutRelaySelection,
 } from "@/lib/cart/checkout-delivery-storage";
+import { CART_CHECKOUT_VAT_LABEL, computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
+import {
+  CART_PRIORITY_PARIS_SURCHARGE_CENTS,
+  CART_PRIORITY_PARIS_SURCHARGE_EUROS,
+  cartPaymentServiceFeeHtCents,
+} from "@/lib/cart/cart-payment-fees";
+import { includedOrdersUsedThisMonth } from "@/lib/billing/membership-included-orders";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
+import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
+import { walletCreditKindLabel } from "@/lib/wallet/credit-kind";
+import {
+  centsToEuros,
+  computeExchangeRoundTripShippingCents,
+} from "@/lib/shipping/exchange-shipping-pricing";
+import { SegnaConsumptionCreditPhrase, SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
 const TIMER_MS = 10 * 60 * 1000;
 const RELAY_SEARCH_WEIGHT_G = 900;
-
-/** Récap panier paiement : bleu = ligne réservée (wallet), gris = non réservée. */
-function paymentCartLineChrome(status: CartLineStatus) {
-  const reserved = status === "reserve";
-  return {
-    row: reserved
-      ? "border-l-[3px] border-l-blue-500 bg-blue-50/80 hover:bg-blue-50"
-      : "border-l-[3px] border-l-zinc-300 bg-zinc-100/70 hover:bg-zinc-100",
-    title: reserved ? "text-blue-950" : "text-zinc-800",
-    brand: reserved ? "text-blue-700/80" : "text-zinc-500",
-    price: reserved ? "text-blue-900" : "text-zinc-600",
-    thumbRing: reserved ? "ring-1 ring-blue-200/80" : "ring-1 ring-zinc-200",
-    badge: reserved ? "bg-blue-100 text-blue-800" : "bg-zinc-200 text-zinc-600",
-  };
-}
-
-const DELIVERY_HOME_EUROS = 6.49;
-const DELIVERY_RELAY_EUROS = 2.99;
-const DELIVERY_PRIORITY_SURCHARGE_EUROS = 1.49;
-const SERVICE_FEE_EUROS = 0.99;
 
 function euros(value: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value);
@@ -88,20 +71,45 @@ function userFacingRelaySearchError(status: number, raw?: string): string {
 
 type CartPaymentScreenProps = {
   initialLines: CartLineRowData[];
-  /** Sous-total € (mods / crédits convertis comme sur le panier). */
-  subtotalEuros: number;
+  /** Unité de crédit affichée (consommation vs échange), alignée commande / échange. */
+  walletCreditKind: WalletCreditKind;
+  /**
+   * € à régler pour les crédits d’échange au-delà du solde wallet.
+   * Aligné sur la section « Échange » du panier : le solde d’emprunt couvre la partie correspondante.
+   */
+  exchangeCreditsChargeEuros: number;
+  /** Solde wallet au moment du chargement — pour l’explication « couvert par le solde ». */
+  availableWalletMods: number;
   /** Invité : pas de compteur explicite en tête (réservation serveur inchangée). */
   hideReservationTimer?: boolean;
-  /** Guest / Membre + : ne pas afficher pastille ni surlignage « réservé wallet » (comportement serveur inchangé). */
-  hideWalletReservationChrome?: boolean;
+  /**
+   * Aller-retour non facturé : abonné avec quota `remaining_orders_this_month` > 0
+   * (plafonds `billing_plan_entitlement_limits.included_orders_limit`).
+   */
+  waiveIncludedRoundTripShipping?: boolean;
+  /** Repère affichage / cohérence avec le serveur au chargement de la page. */
+  remainingIncludedOrdersThisMonth?: number;
+  /** Plafond mensuel `included_orders_limit` (pour affichage type 1/2). */
+  includedOrdersLimitThisMonth?: number;
+  /** Sous-titre bleu sous Mondial Relay (forfait SegnaX / Segna+). */
+  includedShippingForfaitLine?: string;
+  /** Retour Stripe `/api/stripe/cart/sync` en erreur (débit wallet ou confirmation panier). */
+  postStripeSyncError?: { reason: string; detail?: string } | null;
 };
 
 export function CartPaymentScreen({
   initialLines,
-  subtotalEuros,
+  walletCreditKind,
+  exchangeCreditsChargeEuros,
+  availableWalletMods,
   hideReservationTimer = false,
-  hideWalletReservationChrome = false,
+  waiveIncludedRoundTripShipping = false,
+  remainingIncludedOrdersThisMonth = 0,
+  includedOrdersLimitThisMonth = 0,
+  includedShippingForfaitLine,
+  postStripeSyncError = null,
 }: CartPaymentScreenProps) {
+  const creditKindLabel = walletCreditKindLabel(walletCreditKind);
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
   const [homeSpeed, setHomeSpeed] = useState<HomeDeliverySpeed>("standard");
@@ -114,10 +122,11 @@ export function CartPaymentScreen({
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [instructionsDraft, setInstructionsDraft] = useState("");
   const [instructionsSaved, setInstructionsSaved] = useState("");
-  const [panierOpen, setPanierOpen] = useState(false);
   const [feesModalOpen, setFeesModalOpen] = useState(false);
-  const [newsletterOn, setNewsletterOn] = useState(false);
+  const [rentalTermsAccepted, setRentalTermsAccepted] = useState(false);
   const [remainingMs, setRemainingMs] = useState(TIMER_MS);
+  const [stripeCheckoutBusy, setStripeCheckoutBusy] = useState(false);
+  const [stripeCheckoutError, setStripeCheckoutError] = useState<string | null>(null);
 
   const refreshCheckoutLocalState = useCallback(() => {
     setDeliveryAddress(readCheckoutDeliveryAddress());
@@ -150,13 +159,104 @@ export function CartPaymentScreen({
     }
   }, [deliveryChannel, isParis, homeSpeed]);
 
+  const itemCount = initialLines.length;
+  const cartTotalMods = useMemo(
+    () => initialLines.reduce((sum, line) => sum + line.pricePoints, 0),
+    [initialLines],
+  );
+  const walletAppliedMods = Math.min(cartTotalMods, Math.max(0, availableWalletMods));
+  const walletAppliedModsFloor = Math.floor(walletAppliedMods);
+  const walletAppliedModsFormattedFr = walletAppliedModsFloor.toLocaleString("fr-FR");
+  const walletCoverBalanceAriaLabel =
+    walletCreditKind === "consumption"
+      ? `${walletAppliedModsFormattedFr} ${walletAppliedModsFloor === 1 ? "point" : "points"} Segna de consommation couverts par ton solde d’emprunt`
+      : `${walletAppliedModsFormattedFr} ${creditKindLabel} couverts par ton solde d’emprunt`;
+  const exchangeShipping = useMemo(
+    () =>
+      computeExchangeRoundTripShippingCents(itemCount, deliveryChannel === "relay" ? "relay" : "home"),
+    [itemCount, deliveryChannel],
+  );
+  /** Tarif barème (affichage détail) ; la facturation peut être à 0 si forfait abonnement. */
+  const referenceRoundTripEuros = centsToEuros(exchangeShipping.subtotalCents);
+  const billedRoundTripSubtotalCents = waiveIncludedRoundTripShipping ? 0 : exchangeShipping.subtotalCents;
+  const billedRoundTripEuros = centsToEuros(billedRoundTripSubtotalCents);
+
+  const includedShippingQuotaLabel =
+    waiveIncludedRoundTripShipping && includedOrdersLimitThisMonth > 0
+      ? `${includedOrdersUsedThisMonth(remainingIncludedOrdersThisMonth, includedOrdersLimitThisMonth)}/${includedOrdersLimitThisMonth}`
+      : null;
+
   const prioritySurchargeEuro =
-    deliveryChannel === "home" && isParis && homeSpeed === "priority" ? DELIVERY_PRIORITY_SURCHARGE_EUROS : 0;
-  const deliveryEuro =
-    deliveryChannel === "home" ? DELIVERY_HOME_EUROS + prioritySurchargeEuro : DELIVERY_RELAY_EUROS;
-  const serviceEuro = SERVICE_FEE_EUROS;
-  const feesTotal = serviceEuro + deliveryEuro;
-  const grandTotal = subtotalEuros + feesTotal;
+    deliveryChannel === "home" && isParis && homeSpeed === "priority" ? CART_PRIORITY_PARIS_SURCHARGE_EUROS : 0;
+  const deliveryEuroHt = billedRoundTripEuros + prioritySurchargeEuro;
+  const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
+  const serviceEuroHt = centsToEuros(serviceHtCents);
+
+  const shippingHtCents = useMemo(() => {
+    const priorityCents =
+      deliveryChannel === "home" && isParis && homeSpeed === "priority" ? CART_PRIORITY_PARIS_SURCHARGE_CENTS : 0;
+    return billedRoundTripSubtotalCents + priorityCents;
+  }, [deliveryChannel, billedRoundTripSubtotalCents, homeSpeed, isParis]);
+
+  const feesPricing = useMemo(
+    () => computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents),
+    [shippingHtCents, serviceHtCents],
+  );
+
+  const feesHtEuros = centsToEuros(feesPricing.feesHtCents);
+  const feesVatEuros = centsToEuros(feesPricing.feesVatCents);
+  const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
+  const serviceTtcEuros = centsToEuros(feesPricing.serviceTtcCents);
+  const shippingTtcEuros = centsToEuros(feesPricing.shippingTtcCents);
+  const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
+  const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
+
+  const deliveryReady =
+    deliveryChannel === "relay" ? selectedRelay != null : deliveryAddress != null;
+
+  const startStripeCheckout = useCallback(async () => {
+    setStripeCheckoutError(null);
+    if (!deliveryReady) {
+      setStripeCheckoutError(
+        deliveryChannel === "relay"
+          ? "Choisis un point relais avant de payer."
+          : "Renseigne une adresse de livraison avant de payer.",
+      );
+      return;
+    }
+    if (!rentalTermsAccepted) {
+      setStripeCheckoutError("Tu dois confirmer avoir lu les conditions générales de location pour continuer.");
+      return;
+    }
+    setStripeCheckoutBusy(true);
+    try {
+      const res = await fetch("/api/stripe/cart/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryChannel,
+          homeSpeed,
+          relaySelection: deliveryChannel === "relay" ? selectedRelay : undefined,
+          deliveryAddress: deliveryChannel === "home" ? deliveryAddress : undefined,
+          acceptRentalTerms: true,
+        }),
+      });
+      const j = (await res.json()) as { url?: string; message?: string };
+      if (!res.ok) {
+        setStripeCheckoutError(j.message ?? "Paiement impossible.");
+        return;
+      }
+      if (j.url) {
+        window.location.href = j.url;
+        return;
+      }
+      setStripeCheckoutError("Réponse Stripe inattendue.");
+    } catch {
+      setStripeCheckoutError("Connexion impossible. Réessaie.");
+    } finally {
+      setStripeCheckoutBusy(false);
+    }
+  }, [deliveryAddress, deliveryChannel, deliveryReady, homeSpeed, rentalTermsAccepted, selectedRelay]);
 
   const searchRelayPoints = useCallback(async () => {
     const pc = relayPostal.replace(/\D/g, "").slice(0, 5);
@@ -253,46 +353,64 @@ export function CartPaymentScreen({
   const timerLastMinute = remainingMs < 60_000;
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-zinc-100">
-      {/* Header — fixe en haut pendant le scroll */}
-      <header className="fixed inset-x-0 top-0 z-30 border-b border-zinc-200 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px)+8px)]">
-        <div className="relative mx-auto flex h-11 max-w-[430px] items-center justify-between">
-          <div className="flex w-14 shrink-0 justify-start">
+    <div className="flex min-h-[100dvh] flex-col bg-white">
+      {/* Header — même logique que le panier : flèche + timer, titre Playfair en dessous, sans trait de séparation */}
+      <header className="fixed left-1/2 top-0 z-30 w-full max-w-[430px] -translate-x-1/2 bg-white">
+        <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
+          <div className="flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-800"
+              className="-ml-1.5 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-zinc-900"
               aria-label="Retour"
             >
-              <ChevronLeft className="h-7 w-7" strokeWidth={2.25} aria-hidden />
+              <ChevronLeft className="h-8 w-8" strokeWidth={2.25} aria-hidden />
             </button>
+            {hideReservationTimer ? (
+              <div className="h-12 w-12 shrink-0" aria-hidden />
+            ) : (
+              <div
+                className={cn(
+                  "flex min-h-12 shrink-0 items-center justify-end font-mono text-[17px] font-semibold tabular-nums leading-none tracking-tight",
+                  timerLastMinute ? "text-red-600" : "text-zinc-900",
+                )}
+                title="Temps restant pour finaliser"
+              >
+                {formatMmSs(remainingMs)}
+              </div>
+            )}
           </div>
-          <h1 className="pointer-events-none absolute left-1/2 top-1/2 z-0 max-w-[min(100%,12rem)] -translate-x-1/2 -translate-y-1/2 text-center text-[17px] font-semibold text-zinc-900">
-            Paiement
-          </h1>
-          {hideReservationTimer ? (
-            <div className="w-14 shrink-0" aria-hidden />
-          ) : (
-            <div
-              className={cn(
-                "flex w-14 shrink-0 justify-end font-mono text-[17px] font-semibold tabular-nums leading-none tracking-tight",
-                timerLastMinute ? "text-red-600" : "text-zinc-900",
-              )}
-              title="Temps restant pour finaliser"
-            >
-              {formatMmSs(remainingMs)}
-            </div>
-          )}
+          <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Paiement</h1>
         </div>
       </header>
 
-      {/* Décalage = hauteur header (safe area + barre titre + pb) */}
-      {/* Une colonne blanche, séparations fines type lignes d’items (pas de gutter zinc entre sections) */}
-      <div className="mx-auto w-full max-w-[430px] flex-1 bg-white pt-[calc(max(0.75rem,env(safe-area-inset-top,0px)+8px)+3.25rem)] pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))]">
+      {/* Réserve la hauteur du header fixe (aligné panier, sans sous-titre → un peu moins haut) */}
+      <div
+        className="mx-auto h-[calc(env(safe-area-inset-top,0px)+9rem)] w-full max-w-[430px] shrink-0 bg-white"
+        aria-hidden
+      />
+
+      {/* Une colonne blanche, séparations fines type lignes d’items */}
+      <div className="mx-auto w-full max-w-[430px] flex-1 bg-white pb-[calc(10.5rem+env(safe-area-inset-bottom,0px))]">
+        {postStripeSyncError ? (
+          <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-[13px] leading-snug text-red-950">
+            <p className="font-semibold">Le paiement a réussi, mais la commande n’a pas été finalisée.</p>
+            <p className="mt-1 text-red-900/90">
+              Code : <span className="font-mono">{postStripeSyncError.reason}</span>
+            </p>
+            {postStripeSyncError.detail ? (
+              <p className="mt-2 break-words font-mono text-[11px] text-red-800">{postStripeSyncError.detail}</p>
+            ) : null}
+            <p className="mt-2 text-[12px] text-red-800/90">
+              Réessaie dans quelques secondes ou contacte le support avec l’ID de session Stripe. Si tu es en local,
+              vérifie que les migrations SQL (wallet_debit + confirm_cart) sont bien appliquées sur ta base.
+            </p>
+          </div>
+        ) : null}
         <div className="divide-y divide-zinc-200">
         {/* Switch Point relais / Domicile */}
         <section className="px-5 py-4">
-          <div className="flex rounded-full bg-[#8B6A54]/14 p-1">
+          <div className="flex rounded-full bg-zinc-100 p-1 ring-1 ring-zinc-200/80">
             <button
               type="button"
               onClick={() => setDeliveryChannel("relay")}
@@ -319,16 +437,35 @@ export function CartPaymentScreen({
         {deliveryChannel === "relay" ? (
           <>
             <section className="px-5 py-4">
+              <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+                Point relais
+              </h2>
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold text-zinc-900">Mondial Relay</p>
-                    <p className="text-[13px] leading-snug text-zinc-500">3–5 j ouvrés · selon disponibilités</p>
+                    <p className="text-[13px] leading-snug text-zinc-500">
+                      Aller-retour en relais · 3–5 j ouvrés · selon disponibilités
+                      {waiveIncludedRoundTripShipping && includedShippingForfaitLine ? (
+                        <span className="mt-0.5 block text-[13px] font-medium text-blue-700">{includedShippingForfaitLine}</span>
+                      ) : null}
+                    </p>
                   </div>
                 </div>
-                <span className="shrink-0 pt-0.5 text-[15px] font-semibold tabular-nums text-zinc-900">
-                  {euros(DELIVERY_RELAY_EUROS)}
+                <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">
+                  {waiveIncludedRoundTripShipping ? (
+                    includedShippingQuotaLabel ? (
+                      <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                    ) : (
+                      <span className="text-emerald-700">Offert</span>
+                    )
+                  ) : (
+                    <>
+                      {euros(billedRoundTripEuros)}
+                      <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
+                    </>
+                  )}
                 </span>
               </div>
               <label className="block">
@@ -347,7 +484,7 @@ export function CartPaymentScreen({
                     type="button"
                     onClick={() => void searchRelayPoints()}
                     disabled={relayLoading}
-                    className="shrink-0 rounded-xl bg-gradient-to-b from-[#5E3023] to-[#895737] px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm disabled:opacity-60"
+                    className="shrink-0 rounded-xl bg-zinc-950 px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-60"
                   >
                     {relayLoading ? "…" : "Rechercher"}
                   </button>
@@ -423,8 +560,10 @@ export function CartPaymentScreen({
               </button>
             </section>
             <section className="px-5 py-4">
-              <h2 className="text-[17px] font-bold text-zinc-900">Options de livraison</h2>
-              <p className="mt-1 text-[13px] text-zinc-500">Créneaux indicatifs — confirmation après paiement.</p>
+              <h2 className={cn("min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+                Options de livraison
+              </h2>
+              <p className="mt-2 text-[13px] text-zinc-500">Créneaux indicatifs — confirmation après paiement.</p>
               <div className="mt-3 grid gap-2">
                 {isParis ? (
                   <button
@@ -439,8 +578,9 @@ export function CartPaymentScreen({
                     <div className="min-w-0 flex-1 pr-2">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-[15px] font-semibold text-zinc-900">Priorité</p>
-                        <span className="shrink-0 text-[14px] font-semibold tabular-nums text-zinc-900">
-                          +{euros(DELIVERY_PRIORITY_SURCHARGE_EUROS)}
+                        <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
+                          +{euros(CART_PRIORITY_PARIS_SURCHARGE_EUROS)}
+                          <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
                         </span>
                       </div>
                       <p className="text-[13px] text-zinc-500">25 min – 45 min · Paris</p>
@@ -462,8 +602,26 @@ export function CartPaymentScreen({
                 >
                   <Home className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-semibold text-zinc-900">Standard</p>
-                    <p className="text-[13px] text-zinc-500">45 min – 1 h 30 · selon disponibilités</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[15px] font-semibold text-zinc-900">Standard</p>
+                      <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
+                        {waiveIncludedRoundTripShipping ? (
+                          includedShippingQuotaLabel ? (
+                            <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                          ) : (
+                            <span className="text-emerald-700">Offert</span>
+                          )
+                        ) : (
+                          <>
+                            {euros(billedRoundTripEuros)}
+                            <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    <p className="text-[13px] text-zinc-500">
+                      Aller domicile + retour relais · 45 min – 1 h 30 · selon disponibilités
+                    </p>
                   </div>
                 </button>
               </div>
@@ -471,212 +629,171 @@ export function CartPaymentScreen({
           </>
         )}
 
-        {/* Récap panier */}
-        <section className="px-5 py-4">
-          <button
-            type="button"
-            onClick={() => setPanierOpen((o) => !o)}
-            className="flex w-full items-center gap-3 text-left"
-          >
-            <img
-              src="/icon/segan.svg"
-              alt=""
-              className="h-10 w-10 shrink-0 object-contain"
-              width={40}
-              height={40}
+        {/* Panier — même grille que le détail commande */}
+        <section className="px-5 pb-4 pt-2">
+          <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Panier</h2>
+          {initialLines.length === 0 ? (
+            <p className="text-sm text-zinc-500">Aucun article.</p>
+          ) : (
+            <CommandeOrderLineRows
+              lines={initialLines}
+              creditKind={walletCreditKind}
+              itemHrefSuffix=""
             />
-            <div className="min-w-0 flex-1">
-              <p className="text-[16px] font-bold text-zinc-900">Panier</p>
-              <p className="text-[14px] text-zinc-500">
-                {initialLines.length} article{initialLines.length > 1 ? "s" : ""}
-              </p>
+          )}
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+            <span className="text-[16px] font-bold text-zinc-900">Total échangé</span>
+            <SegnaPointsUnitDisplay
+              points={cartTotalMods}
+              creditKind={walletCreditKind}
+              numberClassName="text-[17px] font-bold text-zinc-900"
+            />
+          </div>
+          {walletAppliedMods > 0 ? (
+            <div className="mt-4 space-y-2.5 border-t border-zinc-100 pt-4 text-[15px] leading-snug">
+              <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                <span className="min-w-0 pr-2">Solde d&apos;emprunt</span>
+                <span className="shrink-0 font-medium text-zinc-900">
+                  <SegnaPointsUnitDisplay
+                    points={walletAppliedMods}
+                    creditKind={walletCreditKind}
+                    numberClassName="font-medium text-zinc-900"
+                  />
+                </span>
+              </div>
+              {complementMods > 0 ? (
+                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                  <span className="min-w-0 pr-2">Complément d&apos;échange</span>
+                  <span className="shrink-0 font-medium text-zinc-900">
+                    <SegnaPointsUnitDisplay
+                      points={complementMods}
+                      creditKind={walletCreditKind}
+                      numberClassName="font-medium text-zinc-900"
+                    />
+                  </span>
+                </div>
+              ) : null}
             </div>
-            <ChevronDown
-              className={cn("h-5 w-5 shrink-0 text-zinc-500 transition", panierOpen && "rotate-180")}
-              aria-hidden
-            />
-          </button>
-          {panierOpen ? (
-            <ul className="mt-3 space-y-1 border-t border-zinc-200 pt-3">
-              {initialLines.map((line) => {
-                const chromeStatus: CartLineStatus =
-                  hideWalletReservationChrome && line.status === "reserve" ? "disponible" : line.status;
-                const chrome = paymentCartLineChrome(chromeStatus);
-                const otherMembersHint = formatOtherMembersDiscreteLine(line.otherShoppersInCart ?? 0);
-                return (
-                  <li key={line.id}>
-                    <Link
-                      href={`/items/${line.itemId}`}
-                      className={cn(
-                        "flex gap-3 rounded-r-xl rounded-l-sm py-2.5 pl-2 pr-2 transition active:opacity-90",
-                        chrome.row,
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-white/80",
-                          chrome.thumbRing,
-                        )}
-                      >
-                        {line.photoUrl ? (
-                          <RemoteCoverThumb
-                            photoUrl={line.photoUrl}
-                            photoPosition={line.photoPosition}
-                            frameClassName="h-14 w-14"
-                          />
-                        ) : null}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={cn("text-[14px] font-semibold leading-tight", chrome.title)}>{line.itemName}</p>
-                        {otherMembersHint ? (
-                          <p className="mt-0.5 text-[12px] italic leading-snug text-zinc-500">{otherMembersHint}</p>
-                        ) : null}
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 gap-y-1">
-                          {!hideWalletReservationChrome && line.status === "reserve" ? (
-                            <span
-                              className={cn(
-                                "inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                                chrome.badge,
-                              )}
-                            >
-                              Réservé
-                            </span>
-                          ) : null}
-                          {line.status === "en_attente_wallet" ? (
-                            <span className="inline-flex shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
-                              Non réservé
-                            </span>
-                          ) : null}
-                          {line.status === "echec" ? (
-                            <span className="inline-flex shrink-0 rounded-md bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800">
-                              À vérifier
-                            </span>
-                          ) : null}
-                        </div>
-                        {line.brand ? (
-                          <p className={cn("mt-0.5 text-[12px] leading-tight", chrome.brand)}>{line.brand}</p>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end justify-center self-stretch pl-1">
-                        <p
-                          className={cn(
-                            "text-[14px] font-semibold tabular-nums tracking-tight",
-                            chrome.price,
-                          )}
-                        >
-                          {Math.floor(line.pricePoints).toLocaleString("fr-FR")} mods
-                        </p>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
           ) : null}
         </section>
 
-        {/* Moyen de paiement */}
+        {/* Frais — aligné page commande */}
         <section className="px-5 py-4">
-          <h2 className="text-[17px] font-bold text-zinc-900">Moyen de paiement</h2>
-          <button
-            type="button"
-            className="mt-3 flex w-full items-center justify-between gap-3 rounded-lg py-2 text-left"
-          >
-            <div className="min-w-0">
-              <p className="text-[15px] font-medium text-zinc-900">Carte bancaire</p>
-              <p className="text-[13px] text-zinc-500">Visa, Mastercard, Apple Pay</p>
-            </div>
-            <ChevronRight className="h-5 w-5 shrink-0 text-zinc-400" aria-hidden />
-          </button>
-        </section>
-
-        <section className="px-5 py-4">
-          <button type="button" className="flex w-full items-center gap-3 py-2 text-left">
-            <Tag className="h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
-            <span className="flex-1 text-[15px] text-zinc-900">Ajouter un code promotionnel</span>
-            <ChevronRight className="h-5 w-5 shrink-0 text-zinc-400" aria-hidden />
-          </button>
-        </section>
-
-        {/* Totaux */}
-        <section className="px-5 py-4">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[15px] text-zinc-600">Sous-total</span>
-            <span className="text-[15px] font-medium tabular-nums text-zinc-900">{euros(subtotalEuros)}</span>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1 text-[15px] text-zinc-600">
-              Frais
-              <button
-                type="button"
-                onClick={() => setFeesModalOpen(true)}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold text-zinc-500"
-                aria-label="Détail des frais"
-              >
-                i
-              </button>
-            </span>
-            <span className="text-[15px] font-medium tabular-nums text-zinc-900">{euros(feesTotal)}</span>
-          </div>
-          <div className="mt-3 flex items-baseline justify-between border-t border-zinc-200 pt-3">
-            <span className="text-[18px] font-bold text-zinc-900">Total</span>
-            <span className="text-[18px] font-bold tabular-nums text-zinc-900">{euros(grandTotal)}</span>
-          </div>
-        </section>
-
-        {/* Newsletter — case alignée sur la 1re ligne de texte, taille proche des autres cases du flux */}
-        <section className="px-5 py-4">
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-[15px] font-normal leading-snug text-zinc-900">
-                Inscrivez-vous pour recevoir par e-mail l&apos;actualité et les offres de :{" "}
-                <span className="font-semibold">Segna</span>.
-              </p>
-              <p className="text-[11px] leading-relaxed text-zinc-500">
-                Déclaration de confidentialité : en cochant cette case, vous acceptez de recevoir des communications
-                marketing de la part de Segna. Vous pourrez vous désinscrire à tout moment.
-              </p>
-              <p className="pt-1 text-[11px] leading-relaxed text-zinc-500">
-                <Link href="/legal/confidentialite" className="font-semibold text-[#5E3023] underline underline-offset-2">
-                  Politique de confidentialité
-                </Link>
-                {" · "}
-                <Link href="/legal/contrat-services" className="font-semibold text-[#5E3023] underline underline-offset-2">
-                  Contrat sur les services
-                </Link>
-              </p>
-            </div>
-            <label className="relative mt-[0.2em] inline-flex size-[18px] shrink-0 cursor-pointer items-center justify-center self-start">
-              <input
-                type="checkbox"
-                checked={newsletterOn}
-                onChange={(e) => setNewsletterOn(e.target.checked)}
-                className="peer sr-only"
-                aria-label="S’inscrire à la newsletter Segna"
-              />
+          <h2 className={cn("mb-4 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+            Frais facturés
+          </h2>
+          {walletAppliedMods > 0 ? (
+            <p
+              className="mb-4 text-[12px] leading-snug text-zinc-500"
+              aria-label={walletCoverBalanceAriaLabel}
+            >
+              <span className="tabular-nums">{walletAppliedModsFormattedFr}</span>{" "}
+              {walletCreditKind === "consumption" ? (
+                <SegnaConsumptionCreditPhrase textClassName="text-zinc-500" />
+              ) : (
+                <span>{creditKindLabel}</span>
+              )}{" "}
+              couverts par ton solde d’emprunt
+              {exchangeCreditsChargeEuros > 0
+                ? ` — complément ${euros(exchangeCreditsChargeEuros)} à régler en €.`
+                : " — aucun complément € sur les articles."}
+            </p>
+          ) : null}
+          <div className="space-y-2.5 text-[15px] leading-snug">
+            <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+              <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
               <span
                 className={cn(
-                  "pointer-events-none flex size-[18px] items-center justify-center rounded-sm border border-zinc-900 bg-white peer-focus-visible:ring-2 peer-focus-visible:ring-zinc-400 peer-focus-visible:ring-offset-2",
-                  newsletterOn && "border-zinc-900 bg-zinc-900",
+                  "shrink-0 tabular-nums font-medium",
+                  exchangeCreditsChargeEuros > 0 ? "text-red-600" : "text-zinc-900",
                 )}
-                aria-hidden
               >
-                {newsletterOn ? <Check className="h-3 w-3 text-white" strokeWidth={3} aria-hidden /> : null}
+                {euros(exchangeCreditsChargeEuros)}
               </span>
-            </label>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+              <span className="min-w-0 pr-2">Frais de service (TTC)</span>
+              <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+              <span className="inline-flex min-w-0 items-center gap-1 pr-2">
+                Frais de livraison (TTC)
+                <button
+                  type="button"
+                  onClick={() => setFeesModalOpen(true)}
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold text-zinc-500"
+                  aria-label="Détail des frais"
+                >
+                  i
+                </button>
+              </span>
+              <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
+            </div>
+            {feesVatEuros > 0 ? (
+              <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                <span className="min-w-0 pr-2">dont TVA (frais)</span>
+                <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(feesVatEuros)}</span>
+              </div>
+            ) : null}
+            <div className="mt-4 flex items-baseline justify-between gap-3 border-t border-zinc-200 pt-4">
+              <span className="text-[17px] font-bold text-zinc-900">Total à payer</span>
+              <span className="text-[18px] font-bold tabular-nums text-zinc-900">{euros(grandTotal)}</span>
+            </div>
           </div>
         </section>
         </div>
       </div>
 
-      {/* Dock CTA */}
+      {/* Dock CTA + CGV */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] pt-3">
-        <div className="mx-auto max-w-[430px]">
+        <div className="mx-auto max-w-[430px] space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-normal leading-snug text-zinc-600">
+                Je confirme avoir pris connaissance des{" "}
+                <a
+                  href="/ressources/conditions-generales-location.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-zinc-800 underline underline-offset-2"
+                >
+                  conditions générales de location
+                </a>{" "}
+                de Segna.
+              </p>
+            </div>
+            <label className="relative mt-0.5 inline-flex size-[18px] shrink-0 cursor-pointer items-center justify-center self-start">
+              <input
+                type="checkbox"
+                checked={rentalTermsAccepted}
+                onChange={(e) => {
+                  setRentalTermsAccepted(e.target.checked);
+                  if (e.target.checked) setStripeCheckoutError(null);
+                }}
+                className="peer sr-only"
+                aria-label="Je confirme avoir pris connaissance des conditions générales de location"
+              />
+              <span
+                className={cn(
+                  "pointer-events-none flex size-[18px] items-center justify-center rounded-sm border border-zinc-900 bg-white peer-focus-visible:ring-2 peer-focus-visible:ring-zinc-400 peer-focus-visible:ring-offset-2",
+                  rentalTermsAccepted && "border-zinc-900 bg-zinc-900",
+                )}
+                aria-hidden
+              >
+                {rentalTermsAccepted ? <Check className="h-3 w-3 text-white" strokeWidth={3} aria-hidden /> : null}
+              </span>
+            </label>
+          </div>
+          {stripeCheckoutError ? (
+            <p className="text-center text-[13px] font-medium leading-snug text-red-600">{stripeCheckoutError}</p>
+          ) : null}
           <button
             type="button"
-            className="flex h-[52px] w-full items-center justify-center rounded-xl bg-gradient-to-b from-[#5E3023] to-[#895737] text-[16px] font-bold text-white shadow-sm"
+            disabled={stripeCheckoutBusy || !deliveryReady || !rentalTermsAccepted}
+            onClick={() => void startStripeCheckout()}
+            className="flex h-[52px] w-full items-center justify-center rounded-xl bg-zinc-950 text-[16px] font-bold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-50"
           >
-            Commander et payer
+            {stripeCheckoutBusy ? "Redirection vers Stripe…" : "Commander et payer"}
           </button>
         </div>
       </div>
@@ -684,17 +801,14 @@ export function CartPaymentScreen({
       {/* Modale frais */}
       {feesModalOpen ? (
         <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40" onClick={() => setFeesModalOpen(false)}>
-          <div
-            className="max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-white px-5 pb-8 pt-3 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className={SEGNA_DIALOG_SHEET_CLASS} onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
-            <h3 className="text-center text-[17px] font-bold text-zinc-900">Ce que comprennent vos frais</h3>
+            <h2 className={segnaDialogTitleClass()}>Ce que comprennent vos frais</h2>
             <div className="mt-6 space-y-4">
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[15px] font-semibold text-zinc-900">Service</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceEuro)}</span>
+                  <span className="text-[15px] font-semibold text-zinc-900">Service (HT)</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceEuroHt)}</span>
                 </div>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                   Frais fixes pour le traitement et le suivi de ta commande.
@@ -702,26 +816,71 @@ export function CartPaymentScreen({
               </div>
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[15px] font-semibold text-zinc-900">Livraison</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(deliveryEuro)}</span>
+                  <span className="text-[15px] font-semibold text-zinc-900">Livraison (HT)</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(deliveryEuroHt)}</span>
                 </div>
-                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+                    <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                   {deliveryChannel === "home"
                     ? isParis && homeSpeed === "priority"
-                      ? `Domicile : forfait ${euros(DELIVERY_HOME_EUROS)} + priorité Paris ${euros(DELIVERY_PRIORITY_SURCHARGE_EUROS)}.`
-                      : "Livraison à l’adresse indiquée (forfait domicile)."
-                    : "Retrait en point relais Mondial Relay sélectionné."}
+                      ? `Aller domicile + retour relais (${waiveIncludedRoundTripShipping ? "offert" : `${euros(referenceRoundTripEuros)} HT`}) + priorité Paris (${euros(CART_PRIORITY_PARIS_SURCHARGE_EUROS)} HT).`
+                      : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais.`
+                    : `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € HT par article au-delà de 3.`}
+                  {waiveIncludedRoundTripShipping ? (
+                    <span className="mt-1 block text-emerald-800/90">
+                      Le trajet aller-retour du barème est pris en charge par ton abonnement
+                      {remainingIncludedOrdersThisMonth > 0
+                        ? ` (${remainingIncludedOrdersThisMonth} inclusion${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} restante${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} ce mois-ci avant paiement)`
+                        : ""}
+                      .
+                    </span>
+                  ) : null}
                 </p>
+                <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 text-[12px] text-zinc-600">
+                  <div className="flex justify-between gap-2">
+                    <span>Aller (HT)</span>
+                    <span className="tabular-nums text-right">
+                      {waiveIncludedRoundTripShipping ? (
+                        <span className="text-emerald-700">Offert</span>
+                      ) : (
+                        euros(centsToEuros(exchangeShipping.outboundCents))
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span>Retour relais (HT)</span>
+                    <span className="tabular-nums text-right">
+                      {waiveIncludedRoundTripShipping ? (
+                        <span className="text-emerald-700">Offert</span>
+                      ) : (
+                        euros(centsToEuros(exchangeShipping.returnRelayCents))
+                      )}
+                    </span>
+                  </div>
+                  {prioritySurchargeEuro > 0 ? (
+                    <div className="flex justify-between gap-2">
+                      <span>Priorité Paris (HT)</span>
+                      <span className="tabular-nums">{euros(prioritySurchargeEuro)}</span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex items-baseline justify-between border-t border-zinc-200 pt-4">
-                <span className="text-[16px] font-bold text-zinc-900">Total des frais</span>
-                <span className="text-[16px] font-bold tabular-nums text-zinc-900">{euros(feesTotal)}</span>
+              <div className="flex items-baseline justify-between border-t border-zinc-200 pt-3">
+                <span className="text-[15px] font-semibold text-zinc-900">Total frais HT</span>
+                <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(feesHtEuros)}</span>
+              </div>
+              <div className="flex items-baseline justify-between border-t border-zinc-100 pt-2">
+                <span className="text-[15px] font-bold text-zinc-900">{CART_CHECKOUT_VAT_LABEL}</span>
+                <span className="text-[15px] font-bold tabular-nums text-zinc-900">{euros(feesVatEuros)}</span>
+              </div>
+              <div className="flex items-baseline justify-between pt-1">
+                <span className="text-[16px] font-bold text-zinc-900">Total frais TTC</span>
+                <span className="text-[16px] font-bold tabular-nums text-zinc-900">{euros(feesTtcEuros)}</span>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setFeesModalOpen(false)}
-              className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-gradient-to-b from-[#5E3023] to-[#895737] text-[15px] font-bold text-white shadow-sm"
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
             >
               OK
             </button>
@@ -735,13 +894,10 @@ export function CartPaymentScreen({
           className="fixed inset-0 z-[58] flex flex-col justify-end bg-black/40"
           onClick={() => setInstructionsOpen(false)}
         >
-          <div
-            className="max-h-[85dvh] rounded-t-2xl bg-white px-5 pb-8 pt-3 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className={SEGNA_DIALOG_SHEET_CLASS} onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
-            <h3 className="text-center text-[17px] font-bold text-zinc-900">Instructions de livraison</h3>
-            <p className="mt-2 text-center text-[13px] text-zinc-500">Interphone, digicode, étage…</p>
+            <h2 className={segnaDialogTitleClass()}>Instructions de livraison</h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>Interphone, digicode, étage…</p>
             <textarea
               value={instructionsDraft}
               onChange={(e) => setInstructionsDraft(e.target.value)}
@@ -757,7 +913,7 @@ export function CartPaymentScreen({
                 setInstructionsSaved(t);
                 setInstructionsOpen(false);
               }}
-              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-gradient-to-b from-[#5E3023] to-[#895737] text-[15px] font-bold text-white shadow-sm"
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
             >
               Enregistrer
             </button>

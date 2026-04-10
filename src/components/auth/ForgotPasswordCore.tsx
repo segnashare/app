@@ -1,9 +1,10 @@
 "use client";
 
-import { Playfair_Display } from "next/font/google";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
 import { emailSchema } from "@/features/auth/lib/schemas";
@@ -19,10 +20,7 @@ type ForgotPasswordCoreProps = {
   onCanContinueChange?: (value: boolean) => void;
 };
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export function ForgotPasswordCore({ formId, onCanContinueChange }: ForgotPasswordCoreProps) {
   const supabase = createSupabaseBrowserClient();

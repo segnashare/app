@@ -1,8 +1,9 @@
 "use client";
 
-import { Playfair_Display } from "next/font/google";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { OnboardingShareCore } from "@/components/onboarding/OnboardingShareCore";
@@ -10,10 +11,7 @@ import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
+
 
 export default function OnboardingSharePage() {
   const [canContinue, setCanContinue] = useState(false);

@@ -27,7 +27,7 @@ export function ProfileCompleteHeader({
     <header className="w-full px-1 pt-5">
       <div className="w-full p-2">
         <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <Link href={`/profile?tab=${backTab}`} className="justify-self-start px-2 text-[20px] font-bold text-[#5E3023]">
+          <Link href={`/profile?tab=${backTab}`} className="justify-self-start px-2 text-[20px] font-bold text-zinc-900">
             Annuler
           </Link>
           <div className="px-3 py-1 text-center">
@@ -37,11 +37,11 @@ export function ProfileCompleteHeader({
             </p>
           </div>
           {onDone ? (
-            <button type="button" onClick={onDone} className="justify-self-end px-2 text-[20px] font-bold text-[#5E3023]">
+            <button type="button" onClick={onDone} className="justify-self-end px-2 text-[20px] font-bold text-zinc-900">
               Terminé
             </button>
           ) : (
-            <Link href={`/profile?tab=${backTab}`} className="justify-self-end px-2 text-[20px] font-bold text-[#5E3023]">
+            <Link href={`/profile?tab=${backTab}`} className="justify-self-end px-2 text-[20px] font-bold text-zinc-900">
               Terminé
             </Link>
           )}
@@ -55,7 +55,7 @@ export function ProfileCompleteHeader({
           onClick={() => onModeChange("edit")}
           className={cn(
             "h-12 border-b-2 text-[20px] font-extrabold",
-            mode === "edit" ? "border-[#5E3023] text-[#5E3023]" : "border-transparent text-zinc-300",
+            mode === "edit" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-300",
           )}
         >
           Modifier
@@ -65,7 +65,7 @@ export function ProfileCompleteHeader({
           onClick={() => onModeChange("view")}
           className={cn(
             "h-12 border-b-2 text-[20px] font-extrabold",
-            mode === "view" ? "border-[#5E3023] text-[#5E3023]" : "border-transparent text-zinc-300",
+            mode === "view" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-300",
           )}
         >
           Voir

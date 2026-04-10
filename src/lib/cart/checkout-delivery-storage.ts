@@ -74,14 +74,30 @@ export function writeCheckoutRelaySelection(value: CheckoutRelaySelection | null
   window.sessionStorage.setItem(CHECKOUT_RELAY_SELECTION_KEY, JSON.stringify(value));
 }
 
+/** Champs suffisants pour détecter Paris (client ou corps JSON API checkout). */
+export type ParisDeliveryCheckFields = {
+  label?: string;
+  city?: string | null;
+  relativeCity?: string | null;
+};
+
 /** Paris intra-muros : ville Paris ou libellé BAN avec arrondissement. */
-export function isParisDeliveryArea(addr: CheckoutDeliveryAddress | null): boolean {
+export function isParisDeliveryAreaFields(addr: ParisDeliveryCheckFields | null): boolean {
   if (!addr) return false;
   const city = (addr.city ?? "").trim();
   if (/^Paris$/i.test(city)) return true;
-  const label = addr.label.toLowerCase();
-  if (/\b750\d{2}\b/.test(label) && label.includes("paris")) return true;
+  const label = (addr.label ?? "").toLowerCase();
+  if (label && /\b750\d{2}\b/.test(label) && label.includes("paris")) return true;
   const rel = (addr.relativeCity ?? "").toLowerCase();
   if (rel.startsWith("paris") && /\d/.test(rel)) return true;
   return false;
+}
+
+export function isParisDeliveryArea(addr: CheckoutDeliveryAddress | null): boolean {
+  if (!addr) return false;
+  return isParisDeliveryAreaFields({
+    label: addr.label,
+    city: addr.city,
+    relativeCity: addr.relativeCity,
+  });
 }

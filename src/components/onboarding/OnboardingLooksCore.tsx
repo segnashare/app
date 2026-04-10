@@ -1,10 +1,11 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Image as ImageIcon, Lightbulb, Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -39,10 +40,7 @@ const getImageRatio = (dataUrl: string) =>
     image.src = dataUrl;
   });
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingLooksCoreProps) {
   const router = useRouter();

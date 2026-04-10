@@ -1,7 +1,8 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useState } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { OnboardingBirthCore } from "@/components/onboarding/OnboardingBirthCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
@@ -9,10 +10,7 @@ import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 export default function OnboardingBirthPage() {
   const [canContinue, setCanContinue] = useState(false);

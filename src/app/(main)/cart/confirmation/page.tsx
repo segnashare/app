@@ -28,7 +28,7 @@ export default async function CartConfirmationPage() {
         >
           Retour à l&apos;échange
         </Link>
-        <Link href="/cart" className="mt-3 block text-center text-sm font-semibold text-[#5E3023]">
+        <Link href="/cart" className="mt-3 block text-center text-sm font-semibold text-zinc-900 underline underline-offset-2">
           Voir le panier
         </Link>
       </div>

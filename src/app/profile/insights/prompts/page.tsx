@@ -1,18 +1,16 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { ANSWERS_PROMPTS_BY_TAB, ANSWERS_TABS, type AnswersTabId } from "@/lib/onboarding/answersPrompts";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 function isAnswersTab(value: string): value is AnswersTabId {
   return ANSWERS_TABS.some((tab) => tab.id === value);
@@ -99,7 +97,7 @@ function ProfileInsightsPromptsPageContent() {
     <AppViewport className="bg-[#f9f9f8] px-0 py-0 md:w-[min(92vw,760px)] md:!max-w-[760px] md:py-0">
       <div className="px-5 pb-4 pt-4 md:px-8">
         <div className="mb-4 flex items-center justify-between">
-          <button type="button" onClick={() => router.push(buildInsightsUrl())} className={cn(montserrat.className, "text-[clamp(16px,2.8vw,22px)] text-[#5E3023]")}>
+          <button type="button" onClick={() => router.push(buildInsightsUrl())} className={cn(montserrat.className, "text-[clamp(16px,2.8vw,22px)] text-zinc-900")}>
             Voir tout
           </button>
           <p className={cn(montserrat.className, "text-[clamp(20px,3.3vw,30px)] font-semibold text-zinc-950")}>Insights</p>
@@ -146,7 +144,7 @@ function ProfileInsightsPromptsPageContent() {
                 className={cn(
                   montserrat.className,
                   "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-[clamp(13px,2vw,18px)]",
-                  isActive ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-200 bg-white text-zinc-900",
+                  isActive ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-900",
                 )}
               >
                 {tab.label}

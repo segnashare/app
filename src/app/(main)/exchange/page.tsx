@@ -1,14 +1,46 @@
-import { ExchangeCartSection, type CartLine, type CartLineStatus } from "@/components/exchange/ExchangeCartSection";
+import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
+import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
+import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
+import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
-import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
+import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
+import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
+import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
+import {
+  getMemberOutboundShipmentPhaseCopy,
+  getOutboundShipmentDeliverySubtitle,
+} from "@/lib/cart/member-outbound-shipment-copy";
+import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
+import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
+import {
+  fetchCmsSectionPublishedDisplay,
+  type CmsSectionPublishedDisplay,
+} from "@/lib/cms/fetch-cms-section-published-config";
+import { collectCmsShopItemIdsFromFrameRows } from "@/lib/cms/collect-cms-shop-item-ids";
+import {
+  EXCHANGE_CART_EMPTY_CMS_SECTION_KEY,
+  EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY,
+  isExchangeGuestRedundantPretsModularSection,
+} from "@/lib/cms/echange-section-order";
+import { fetchEchangeSectionOrder } from "@/lib/cms/fetch-echange-section-order";
+import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import {
+  effectiveCatalogSortRank,
+  lendPipelineRank,
+  needsItemIntakeUi,
+  normalizeItemIntakeEmbed,
+} from "@/lib/items/item-intake-ui";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
 function toMembershipLabel(roles: string[]): "Guest" | "Membre +" | "Membre X" {
@@ -58,15 +90,6 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
   if (planCode === "segna_x") return "Membre X";
   if (planCode === "segna_plus") return "Membre +";
   return "Guest";
-}
-
-function mapCartLineStatus(cartItemStatus: string | null, itemStatus: string | null): CartLineStatus {
-  if (cartItemStatus === "reserved" && itemStatus === "reserved") return "reserve";
-  if (cartItemStatus === "reservation_pending" && (itemStatus === "available" || itemStatus === "listed")) {
-    return "en_attente_wallet";
-  }
-  if (cartItemStatus === "in_cart" && (itemStatus === "available" || itemStatus === "in_cart")) return "disponible";
-  return "echec";
 }
 
 function isHttpUrl(value: string): boolean {
@@ -143,6 +166,13 @@ function resolveItemPhotoData(photosRaw: unknown): ResolvedPhotoData {
   return { path: null, position: null };
 }
 
+/** Blocs 100 % natifs : pas de chargement frames CMS (cf. panier `cart_system_*`). */
+const EXCHANGE_NATIVE_SECTION_KEYS = new Set([
+  "exchange_system_cart",
+  "exchange_system_lends",
+  "exchange_system_history",
+]);
+
 export default async function ExchangePage() {
   const supabase = (await createSupabaseServerClient()) as any;
   const {
@@ -154,9 +184,8 @@ export default async function ExchangePage() {
   }
 
   const userId = user.id as string;
-  const nowIso = new Date().toISOString();
-
-  const [membershipStateRes, subscriptionRowRes, rolesRes, walletRes, holdsRes, activeCartRes, lendsRes, disputesRes, historyRes, historyCountRes] = await Promise.all([
+  const [membershipStateRes, subscriptionRowRes, rolesRes, walletRes, activeCartRes, lendsRes, ongoingRes, historyRes, intakeBannersRes] =
+    await Promise.all([
     supabase.rpc("get_current_membership_state"),
     supabase
       .from("user_subscriptions")
@@ -167,14 +196,18 @@ export default async function ExchangePage() {
       .limit(1)
       .maybeSingle(),
     supabase.from("user_roles").select("role").eq("user_id", userId),
-    supabase.from("user_wallets").select("balance_points").eq("user_id", userId).is("deleted_at", null).maybeSingle(),
-    supabase.from("wallet_holds").select("amount_points").eq("user_id", userId).eq("status", "active").gt("expires_at", nowIso),
+    supabase
+      .from("user_wallets")
+      .select("balance_points, balance_consumption_points, balance_exchange_points")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle(),
     supabase
       .from("carts")
       .select("id,status,updated_at")
       .eq("user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["active", "reserved"])
+      .in("status", [...CART_STATUSES_OPEN])
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -188,9 +221,32 @@ export default async function ExchangePage() {
       .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
       .limit(8),
-    supabase.from("cart_disputes").select("id", { count: "exact", head: true }).eq("opened_by_user_id", userId).is("deleted_at", null),
-    supabase.from("carts").select("id,status,updated_at").eq("user_id", userId).is("deleted_at", null).neq("status", "active").order("updated_at", { ascending: false }).limit(3),
-    supabase.from("carts").select("id", { count: "exact", head: true }).eq("user_id", userId).is("deleted_at", null).neq("status", "active"),
+    supabase
+      .from("carts")
+      .select("id,status,created_at,updated_at")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .eq("status", "confirmed")
+      .order("updated_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("carts")
+      .select("id,status,created_at,updated_at")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .eq("status", "archived")
+      .order("updated_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("items")
+      .select(
+        "id,price_points,status, item_intake(listing_stage, fulfillment_stage, updated_at, metadata)",
+      )
+      .eq("owner_user_id", userId)
+      .is("deleted_at", null)
+      .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
+      .order("updated_at", { ascending: false })
+      .limit(50),
   ]);
 
   const roles: string[] = (rolesRes.data ?? []).map((entry: { role?: string | null }) => entry.role ?? "").filter(Boolean);
@@ -213,50 +269,22 @@ export default async function ExchangePage() {
   const includedLendsLimitFromRpc = parseIncludedLendsLimitRpc(membershipStateRes.data);
   const includedLendsLimit = resolveIncludedLendsLimit(membershipLabel, includedLendsLimitFromRpc);
 
-  const totalPoints = Number(walletRes.data?.balance_points ?? 0);
-  const blockedPoints = (holdsRes.data ?? []).reduce((sum: number, hold: { amount_points?: number | null }) => sum + Number(hold.amount_points ?? 0), 0);
-  const availablePoints = Math.max(0, totalPoints - blockedPoints);
+  const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
+  const availablePoints = walletPoints.total;
 
-  const activeCart = activeCartRes.data;
-  let cartLines: CartLine[] = [];
-  let activeCartCostPoints: number | null = null;
-  let cartStatusLabel = "Aucun panier actif";
+  const activeCart = activeCartRes.data as { id: string; status: string } | null;
+  const activeCartId = activeCart?.id ?? null;
 
-  if (activeCart?.id) {
-    const [cartItemsRes, itemRowsRes] = await Promise.all([
-      supabase.from("cart_items").select("id,item_id,status").eq("cart_id", activeCart.id).is("deleted_at", null).order("created_at", { ascending: true }),
-      supabase.from("cart_items").select("item_id").eq("cart_id", activeCart.id).is("deleted_at", null),
-    ]);
-
-    const itemIds = (itemRowsRes.data ?? []).map((row: { item_id?: string | null }) => row.item_id).filter(Boolean);
-    let itemsMap = new Map<string, { title: string | null; price_points: number | null; status: string | null }>();
-
-    if (itemIds.length > 0) {
-      const itemsRes = await supabase.from("items").select("id,title,price_points,status").in("id", itemIds);
-      itemsMap = new Map(
-        (itemsRes.data ?? []).map((item: { id: string; title: string | null; price_points: number | null; status: string | null }) => [
-          item.id,
-          { title: item.title, price_points: item.price_points, status: item.status },
-        ]),
-      );
+  let cartLines = await fetchActiveCartLinesForUser(supabase, userId);
+  const itemIdsForComp = [...new Set(cartLines.map((l) => l.itemId))];
+  if (itemIdsForComp.length > 0) {
+    const compRes = await supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIdsForComp });
+    if (compRes.error == null) {
+      cartLines = mergeCompetitionIntoCartLines(cartLines, compRes.data);
     }
-
-    cartLines = sortCartLinesByPriceAsc(
-      (cartItemsRes.data ?? []).map((line: { id: string; item_id: string; status: string | null }) => {
-        const item = itemsMap.get(line.item_id);
-        const pricePoints = Number(item?.price_points ?? 0);
-        return {
-          id: line.id,
-          itemId: line.item_id ?? null,
-          itemName: item?.title?.trim() || "Piece sans titre",
-          pricePoints,
-          status: mapCartLineStatus(line.status, item?.status ?? null),
-        };
-      }),
-    );
-    activeCartCostPoints = cartLines.reduce((sum, line) => sum + line.pricePoints, 0);
-    cartStatusLabel = activeCart.status === "reserved" ? "Reserve (10 min)" : "Actif";
   }
+  const activeCartCostPoints =
+    cartLines.length > 0 ? cartLines.reduce((sum, line) => sum + line.pricePoints, 0) : null;
 
   const rawLends: Array<{
     id: string;
@@ -358,45 +386,9 @@ export default async function ExchangePage() {
     }),
   );
 
-  const statusSortOrder: Record<string, number> = {
-    available: 0,
-    in_cart: 0,
-    listed: 1,
-    draft: 3,
-    reserved: 3,
-  };
-
-  /** Plus la valeur est basse, plus l’étape pipeline est avancée (affichage en premier). */
-  function lendPipelineRank(item: (typeof rawLends)[0]): number {
-    const st = item.itemStatus.toLowerCase();
-    const ls = item.intake?.listing_stage?.toLowerCase() ?? "";
-    const fs = item.intake?.fulfillment_stage?.toLowerCase() ?? "";
-    if (st === "refused" || fs === "refused") return -1;
-    if (ls === "validated") {
-      if (fs === "verified") return 0;
-      if (fs === "in_verification") return 1;
-      // Intake « expédition » : fulfillment shipping ou encore non renseigné.
-      if (fs === "shipping" || fs === "") return 2;
-    }
-    if (ls === "validation_pending") return 3;
-    if (ls === "evaluated") return 4;
-    if (ls === "evaluation") return 5;
-    return 6;
-  }
-
-  /** verified = disponible au catalogue : même rang de tri que `available`, pas `listed`. */
-  function effectiveCatalogSortRank(itemStatus: string, intake: (typeof rawLends)[0]["intake"]): number {
-    const key = itemStatus.toLowerCase();
-    const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
-    if (key === "refused" || fs === "refused") return -1;
-    const ls = intake?.listing_stage?.toLowerCase() ?? "";
-    if (ls === "validated" && fs === "verified") return statusSortOrder.available;
-    return statusSortOrder[key] ?? 3;
-  }
-
   const sortedRawLends = [...rawLends].sort((a, b) => {
-    const pa = lendPipelineRank(a);
-    const pb = lendPipelineRank(b);
+    const pa = lendPipelineRank(a.itemStatus, a.intake);
+    const pb = lendPipelineRank(b.itemStatus, b.intake);
     if (pa !== pb) return pa - pb;
     const ca = effectiveCatalogSortRank(a.itemStatus, a.intake);
     const cb = effectiveCatalogSortRank(b.itemStatus, b.intake);
@@ -433,19 +425,195 @@ export default async function ExchangePage() {
     })
     .map((l) => l.id);
 
-  const recentOrders = (historyRes.data ?? []).map((order: { id: string; status: string; updated_at: string }) => ({
-    id: order.id,
-    status: order.status,
-    updatedAt: new Date(order.updated_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+  type IntakeBannerSourceRow = {
+    id: string;
+    price_points: number | null;
+    status: string | null;
+    item_intake: unknown;
+  };
+
+  const intakeBannerRows =
+    intakeBannersRes.error == null && Array.isArray(intakeBannersRes.data)
+      ? (intakeBannersRes.data as IntakeBannerSourceRow[])
+      : [];
+
+  type IntakeBannerCandidate = {
+    id: string;
+    itemStatus: string;
+    listingStage: string;
+    fulfillmentStage: string | null;
+    metadata: unknown;
+    updatedAt: string | null;
+    pricePoints: number | null;
+  };
+
+  const intakeBannerCandidates: IntakeBannerCandidate[] = intakeBannerRows
+    .map((item) => {
+      const intake = normalizeItemIntakeEmbed(item.item_intake);
+      if (!intake || !needsItemIntakeUi(intake.listing_stage, intake.fulfillment_stage)) return null;
+      return {
+        id: item.id,
+        itemStatus: item.status ?? "inconnu",
+        listingStage: intake.listing_stage,
+        fulfillmentStage: intake.fulfillment_stage,
+        metadata: intake.metadata,
+        updatedAt: intake.updated_at ?? null,
+        pricePoints: item.price_points == null ? null : Number(item.price_points),
+      };
+    })
+    .filter((x): x is IntakeBannerCandidate => x != null);
+
+  intakeBannerCandidates.sort((a, b) => {
+    const pa = lendPipelineRank(a.itemStatus, {
+      listing_stage: a.listingStage,
+      fulfillment_stage: a.fulfillmentStage,
+    });
+    const pb = lendPipelineRank(b.itemStatus, {
+      listing_stage: b.listingStage,
+      fulfillment_stage: b.fulfillmentStage,
+    });
+    if (pa !== pb) return pa - pb;
+    const ca = effectiveCatalogSortRank(a.itemStatus, {
+      listing_stage: a.listingStage,
+      fulfillment_stage: a.fulfillmentStage,
+    });
+    const cb = effectiveCatalogSortRank(b.itemStatus, {
+      listing_stage: b.listingStage,
+      fulfillment_stage: b.fulfillmentStage,
+    });
+    if (ca !== cb) return ca - cb;
+    return 0;
+  });
+
+  const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerCandidates.map((c) => ({
+    id: c.id,
+    listingStage: c.listingStage,
+    fulfillmentStage: c.fulfillmentStage,
+    metadata: c.metadata,
+    updatedAt: c.updatedAt,
+    pricePoints: c.pricePoints,
   }));
+
+  const fmtOrderDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  function formatOrderNumberCompact(cartId: string): string {
+    return cartId.replace(/-/g, "").slice(0, 8).toUpperCase();
+  }
+
+  type CartOrderListRow = { id: string; status: string; created_at?: string | null; updated_at: string };
+
+  const ongoingCartRows = (ongoingRes.data ?? []) as CartOrderListRow[];
+  const historyCartRows = (historyRes.data ?? []) as CartOrderListRow[];
+
+  const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
+
+  const [thumbUrlsByCartId, outboundShipRes] = await Promise.all([
+    fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds),
+    orderCardCartIds.length > 0
+      ? supabase
+          .from("shipments")
+          .select("cart_id,status,updated_at")
+          .in("cart_id", orderCardCartIds)
+          .eq("context", "cart_outbound")
+          .is("deleted_at", null)
+      : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
+  ]);
+
+  const outboundShipmentByCartId = new Map<string, { status: string; updated_at: string }>();
+  if (outboundShipRes.error == null && Array.isArray(outboundShipRes.data)) {
+    for (const row of outboundShipRes.data as { cart_id: string; status: string; updated_at: string }[]) {
+      const cartId = row.cart_id;
+      const prev = outboundShipmentByCartId.get(cartId);
+      if (!prev || new Date(row.updated_at) > new Date(prev.updated_at)) {
+        outboundShipmentByCartId.set(cartId, { status: row.status, updated_at: row.updated_at });
+      }
+    }
+  }
+
+  function buildExchangeOrderCard(
+    order: CartOrderListRow,
+    thumbs: string[],
+    opts: { historyFallback: boolean },
+  ) {
+    const ship = outboundShipmentByCartId.get(order.id);
+    if (!ship) {
+      return {
+        id: order.id,
+        orderNumberCompact: formatOrderNumberCompact(order.id),
+        statusLabel: opts.historyFallback ? "Commande archivée" : "Suivi non disponible",
+        deliveryLabel: null as string | null,
+        itemThumbUrls: thumbs,
+      };
+    }
+    const phase = getMemberOutboundShipmentPhaseCopy(ship.status);
+    const deliveryLabel = getOutboundShipmentDeliverySubtitle(ship.status, ship.updated_at, fmtOrderDate);
+    const st = ship.status.toLowerCase();
+    const detailHref = st === "delivered" ? (`/exchange/emprunt/${order.id}` as const) : undefined;
+    return {
+      id: order.id,
+      orderNumberCompact: formatOrderNumberCompact(order.id),
+      statusLabel: phase.title,
+      deliveryLabel,
+      itemThumbUrls: thumbs,
+      ...(detailHref ? { detailHref } : {}),
+      ...(phase.pulse ? { showPulse: true as const } : {}),
+    };
+  }
+
+  /** Pastille + sous-texte livraison : uniquement depuis l’expédition aller (`shipments`), pas le statut panier. */
+  const ongoingOrders = ongoingCartRows.map((order) =>
+    buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: false }),
+  );
+
+  const recentOrders = historyCartRows.map((order) =>
+    buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: true }),
+  );
 
   const hasReachedLendingCap =
     (membershipLabel === "Membre +" || membershipLabel === "Membre X") &&
     includedLendsLimit > 0 &&
     validatedLendsCount >= includedLendsLimit;
 
-  /** Bloc promo — partie Échange (Panier = offres dans CartScreen uniquement). */
-  const commercePromoFrames = await fetchCmsSectionFramesResolved(supabase, "commerce_promo_ad");
+  const memberSubscriber = membershipLabel === "Membre +" || membershipLabel === "Membre X";
+
+  const echangeSectionOrder = await fetchEchangeSectionOrder(supabase);
+  const cmsKeysToResolve = [...new Set(echangeSectionOrder.filter((k) => !EXCHANGE_NATIVE_SECTION_KEYS.has(k)))];
+  const cmsSectionsByKey: Record<string, { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay }> = {};
+  await Promise.all(
+    cmsKeysToResolve.map(async (sectionKey) => {
+      const [frames, display] = await Promise.all([
+        fetchCmsSectionFramesResolved(supabase, sectionKey),
+        fetchCmsSectionPublishedDisplay(supabase, sectionKey),
+      ]);
+      cmsSectionsByKey[sectionKey] = { frames, display };
+    }),
+  );
+
+  const [emptyCartFrames, emptyCartDisplay, emptyLendsFrames, emptyLendsDisplay] = await Promise.all([
+    fetchCmsSectionFramesResolved(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY),
+    fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY),
+    fetchCmsSectionFramesResolved(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY),
+    fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY),
+  ]);
+  const emptyCartCms: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } = {
+    frames: emptyCartFrames,
+    display: emptyCartDisplay,
+  };
+  const emptyLendsCms: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } = {
+    frames: emptyLendsFrames,
+    display: emptyLendsDisplay,
+  };
+  const emptyCartItemIds = collectCmsShopItemIdsFromFrameRows(emptyCartFrames);
+  const emptyLendsItemIds = collectCmsShopItemIdsFromFrameRows(emptyLendsFrames);
+  const [emptyCartCmsCatalogItems, emptyLendsCmsCatalogItems] = await Promise.all([
+    emptyCartItemIds.length > 0 ? fetchShopCatalogItemsByIds(supabase, emptyCartItemIds) : Promise.resolve([]),
+    emptyLendsItemIds.length > 0 ? fetchShopCatalogItemsByIds(supabase, emptyLendsItemIds) : Promise.resolve([]),
+  ]);
+
+  const outboundShipmentSummary = await fetchLatestConfirmedCartOutboundShipmentSummary(supabase, userId);
+  const showOutboundCallout =
+    outboundShipmentSummary != null && outboundShipmentSummary.status.toLowerCase() !== "closed";
 
   return (
     <>
@@ -454,25 +622,81 @@ export default async function ExchangePage() {
         <ExchangeHeader
           membershipLabel={membershipLabel}
           availablePoints={availablePoints}
-          blockedPoints={blockedPoints}
-          totalPoints={totalPoints}
+          balanceConsumptionPoints={walletPoints.consumption}
+          balanceExchangePoints={walletPoints.exchange}
           activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
+        />
+        <ExchangeHeaderAlertStack
+          intakeItems={exchangeIntakeBannerItems}
+          outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}
         />
       </div>
 
       <MainContent className="flex flex-col space-y-0 bg-zinc-100 px-0 pb-0 pt-0">
         <div className="space-y-[4.5px]">
-          <ExchangeCommercePromo rows={commercePromoFrames} />
-          <ExchangeCartSection initialLines={cartLines} cartStatusLabel={cartStatusLabel} membershipLabel={membershipLabel} />
-          <ExchangeLendsSection
-            lends={lends}
-            membershipLabel={membershipLabel}
-            includedLendsLimit={includedLendsLimit}
-            validatedLendsCount={validatedLendsCount}
-            mergedShippingCandidateIds={mergedShippingCandidateIds}
-          />
-          <ExchangeInteractionsSection totalOrders={historyCountRes.count ?? 0} recentOrders={recentOrders} disputesCount={disputesRes.count ?? 0} />
+          {echangeSectionOrder.map((sectionKey) => {
+            switch (sectionKey) {
+              case "commerce_promo_ad":
+                if (memberSubscriber) return null;
+                /* Invité avec au moins une proposition : même parcours visuel que l’abonné (liste Prêts, pas bannière seule). */
+                if (lends.length > 0) return null;
+                return (
+                  <ExchangeCommercePromo
+                    key={sectionKey}
+                    rows={cmsSectionsByKey[sectionKey]?.frames ?? []}
+                  />
+                );
+              case "exchange_system_cart":
+                return (
+                  <ExchangeCartSection
+                    key={sectionKey}
+                    initialLines={cartLines}
+                    activeCartId={activeCartId}
+                    membershipLabel={membershipLabel}
+                    availablePoints={availablePoints}
+                    emptyCartCms={emptyCartCms}
+                    emptyCartCmsCatalogItems={emptyCartCmsCatalogItems}
+                  />
+                );
+              case "exchange_system_lends":
+                return (
+                  <ExchangeLendsSection
+                    key={sectionKey}
+                    lends={lends}
+                    membershipLabel={membershipLabel}
+                    includedLendsLimit={includedLendsLimit}
+                    validatedLendsCount={validatedLendsCount}
+                    mergedShippingCandidateIds={mergedShippingCandidateIds}
+                    promoAdRows={
+                      memberSubscriber ? (cmsSectionsByKey.commerce_promo_ad?.frames ?? []) : []
+                    }
+                    emptyLendsCms={emptyLendsCms}
+                    emptyLendsCmsCatalogItems={emptyLendsCmsCatalogItems}
+                  />
+                );
+              case "exchange_system_history":
+                return (
+                  <ExchangeInteractionsSection
+                    key={sectionKey}
+                    ongoingOrders={ongoingOrders}
+                    recentOrders={recentOrders}
+                  />
+                );
+              default: {
+                const cms = cmsSectionsByKey[sectionKey];
+                if (!cms) return null;
+                if (
+                  membershipLabel === "Guest" &&
+                  lends.length > 0 &&
+                  isExchangeGuestRedundantPretsModularSection(sectionKey, cms.display)
+                ) {
+                  return null;
+                }
+                return <ExchangeDynamicCmsSection key={sectionKey} sectionKey={sectionKey} cms={cms} />;
+              }
+            }
+          })}
         </div>
         <ExchangeEmptyFill />
       </MainContent>

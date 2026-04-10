@@ -1,18 +1,19 @@
 "use client";
 
 import { BadgeCheck, Package } from "lucide-react";
-import { Montserrat, Playfair_Display } from "next/font/google";
-
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
 import { cn } from "@/lib/utils/cn";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
-const playfairDisplay = Playfair_Display({ subsets: ["latin"], weight: ["800"] });
+
+
 
 const SEGNA_ICON_PATH = "/ressources/icons/segna.svg";
 
 export type ItemSegnaDetentionSectionProps = {
-  /** Points affichés comme sur la fiche info (mods Segna). */
+  /** Points affichés comme sur la fiche info. */
   pricePoints: number | null;
   /** Libellé taille brut (ex. « M »), comme `ItemInfoCardData.size`. */
   sizeLabel: string;
@@ -22,8 +23,15 @@ export type ItemSegnaDetentionSectionProps = {
 /**
  * Carte propriétaire pour le stock Segna (compte `corporate_inventory`) : pas un profil membre.
  */
+function hasMeaningfulSizeLabel(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return false;
+  if (t === "-" || t === "—" || t === "–") return false;
+  return true;
+}
+
 export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }: ItemSegnaDetentionSectionProps) {
-  const hasSize = Boolean(sizeLabel && sizeLabel !== "-");
+  const hasSize = hasMeaningfulSizeLabel(sizeLabel);
   const priceText = pricePoints != null ? String(pricePoints) : "—";
 
   return (
@@ -49,15 +57,15 @@ export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }:
           {priceText}
           <img src={SEGNA_ICON_PATH} alt="" className="h-4 w-4 shrink-0" aria-hidden />
         </span>
-        {hasSize ? (
-          <>
-            <span aria-hidden className="text-zinc-400">
-              {" "}
-              •{" "}
-            </span>
-            <span className="font-semibold text-zinc-700">{formatItemSizeLabel(sizeLabel)}</span>
-          </>
-        ) : null}
+        <>
+          <span aria-hidden className="text-zinc-400">
+            {" "}
+            •{" "}
+          </span>
+          <span className="font-semibold text-zinc-700">
+            {hasSize ? formatItemSizeLabel(sizeLabel) : "Taille unique"}
+          </span>
+        </>
       </p>
     </div>
   );

@@ -91,6 +91,16 @@ function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<string, unk
     .map(([, value]) => value as Record<string, unknown>);
 }
 
+/** Même convention que `fetchItemDetailDataForOwner` / `PhotoPositionEditor` (cadrage BO). */
+function getImageRatioFromUrl(url: string) {
+  return new Promise<number>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.width > 0 && img.height > 0 ? img.width / img.height : 1);
+    img.onerror = () => resolve(1);
+    img.src = url;
+  });
+}
+
 function FeedProfileVisualization({
   profileUserId,
   displayName,
@@ -213,11 +223,12 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
           const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
           const zoom = typeof positionRaw?.zoom === "number" ? positionRaw.zoom : 1;
+          const imageRatio = await getImageRatioFromUrl(signedUrl);
           const resolvedSlot = {
             dataUrl: signedUrl,
             offset: { x: offsetX, y: offsetY },
             zoom,
-            imageRatio: 1,
+            imageRatio,
           };
           setItemSlotsById((previous) => {
             const nextSlots = previous[card.id] ? [...previous[card.id]] : [...emptySlots];

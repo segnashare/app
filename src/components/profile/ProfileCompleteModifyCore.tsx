@@ -1,10 +1,13 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, TouchEvent } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
+const montserratExtraBoldItalic = segnaMontserrat;
 
 import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye";
 import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
@@ -13,22 +16,11 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fileToDataUrl, readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
 
-const montserratItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "500",
-  style: "italic",
-});
 
-const montserratExtraBoldItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "700",
-  style: "italic",
-});
+
+
+
 
 type AnswerSlotProps = {
   prompt: string;
@@ -392,7 +384,7 @@ function AnswerSlot({
       <button
         type="button"
         onClick={onOpenPrompt}
-        className="absolute right-[7px] top-[7px] inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#5E3023] text-white"
+        className="absolute right-[7px] top-[7px] inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-zinc-900 text-white"
         aria-label="Choisir un prompt"
       >
         <Plus size={16} strokeWidth={3} />
@@ -1481,8 +1473,8 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
               onBlur={() => setHoveredLookIndex((current) => (current === index ? null : current))}
               className={cn(
                 "group relative aspect-square overflow-visible rounded-2xl border-2 border-dashed transition",
-                "border-[#5E3023]/55 bg-[#f7f3ef]",
-                dragOverLookIndex === index ? "border-[#5E3023] bg-[#f3ece5]" : "",
+                "border-zinc-400/55 bg-zinc-50",
+                dragOverLookIndex === index ? "border-zinc-700 bg-zinc-100" : "",
                 slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
                 draggingLookIndex === index ? "opacity-30" : "",
               )}
@@ -1507,7 +1499,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
                   <div className="flex h-full w-full items-center justify-center">
                     <div className="relative inline-flex items-center justify-center">
                       <ImageIcon size={32} className="text-zinc-400" />
-                      <span className="absolute -bottom-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#5E3023] text-white">
+                      <span className="absolute -bottom-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-zinc-900 text-white">
                         <Plus size={14} strokeWidth={3} />
                       </span>
                     </div>
@@ -1542,7 +1534,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
           ))}
         </div>
         <p className={cn(montserrat.className, "text-[14px] italic text-zinc-400")}>Fais glisser pour réorganiser</p>
-        <p className={cn(montserrat.className, "text-[14px] font-semibold leading-none text-[#5E3023]")}>Ajoute 1 à 3 photos</p>
+        <p className={cn(montserrat.className, "text-[14px] font-semibold leading-none text-zinc-600")}>Ajoute 1 à 3 photos</p>
       </section>
 
       <section className="space-y-3">

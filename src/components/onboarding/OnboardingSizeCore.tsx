@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, WheelEvent as ReactWheelEvent } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -25,10 +26,7 @@ type WheelPickerProps = {
   onChange: (value: string) => void;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
 
 const TOP_OPTIONS = ["XXS", "XS", "S", "M", "L", "XL", "XXL"];
 const BOTTOM_OPTIONS = ["32", "34", "36", "38", "40", "42", "44", "46", "48"];

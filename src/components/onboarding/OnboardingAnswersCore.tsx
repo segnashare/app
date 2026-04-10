@@ -1,10 +1,13 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const montserratItalic = segnaMontserrat;
+const montserratExtraBoldItalic = segnaMontserrat;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -15,20 +18,9 @@ type OnboardingAnswersCoreProps = {
   onCanContinueChange?: (value: boolean) => void;
 };
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
-const montserratItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "500",
-  style: "italic",
-});
-const montserratExtraBoldItalic = Montserrat({
-  subsets: ["latin"],
-  weight: "700",
-  style: "italic",
-});
+
+
+
 
 type AnswerFieldProps = {
   prompt: string;

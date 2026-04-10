@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ShieldCheck, Settings, Sparkles, CircleHelp, CircleAlert, Shield, Flag, Ban, PhoneCall } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CmsFrameItem } from "@/components/cms/CmsSectionBlocks";
+import { CmsFrameItem, CmsLinkCardCtaToneProvider } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
 import { CommunityBadgesGrid } from "@/components/community/CommunityBadgesGrid";
 import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySummary";
@@ -653,13 +653,29 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
       return (
         <div className="space-y-5">
           {initialPlusTabCmsFrames.length > 0 ? (
-            <div className="-mx-1 flex gap-3 overflow-x-auto overflow-y-hidden pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {initialPlusTabCmsFrames.map((row) => (
-                <CmsFrameItem key={row.id} row={row} />
-              ))}
-            </div>
+            <CmsLinkCardCtaToneProvider tone="neutral">
+              <div
+                className="-mx-5 snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-pl-5 scroll-pr-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
+                  {/* Spacer + snap-padding : sans ça, snap-mandatory aligne la 1ʳᵉ carte au bord et « mange » le padding gauche du flex. */}
+                  <div className="w-5 shrink-0 snap-normal" aria-hidden />
+                  {initialPlusTabCmsFrames.map((row) => (
+                    <div
+                      key={row.id}
+                      className="w-[min(90vw,420px)] max-w-[420px] shrink-0 snap-start"
+                    >
+                      <CmsFrameItem
+                        row={row}
+                        layoutMode={row.frame_type === "profile_plus_hero" ? "stack" : "hub"}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CmsLinkCardCtaToneProvider>
           ) : null}
-          <MarketplaceSection membershipTier={membershipTier} />
+          <MarketplaceSection />
         </div>
       );
     }
@@ -791,7 +807,7 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
                 <p className="text-sm font-medium text-zinc-600">{gamificationData.totalXp} XP</p>
               </div>
               <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200">
-                <div className="h-full rounded-full bg-[#5E3023] transition-all" style={{ width: `${gamificationData.progressPercent}%` }} />
+                <div className="h-full rounded-full bg-zinc-900 transition-all" style={{ width: `${gamificationData.progressPercent}%` }} />
               </div>
               <p className="text-sm text-zinc-600">
                 {gamificationData.nextRank
@@ -827,7 +843,7 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
             <Link
               href={`/profile/settings?tab=${activeTab}`}
               aria-label="Reglages"
-              className="inline-flex h-full aspect-square items-center justify-center text-black transition hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5E3023]"
+              className="inline-flex h-full aspect-square items-center justify-center text-black transition hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
             >
               <Settings className="h-full w-full" strokeWidth={2.1} />
             </Link>
@@ -882,7 +898,7 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
                   type="button"
                   onClick={() => setTab(tab.id)}
                   className={cn(
-                    "min-h-[48px] border-b-2 px-2 text-[18px] font-semibold leading-none whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5E3023]",
+                    "min-h-[48px] border-b-2 px-2 text-[18px] font-semibold leading-none whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900",
                     isActive ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-400",
                   )}
                 >

@@ -1,4 +1,5 @@
 import type { CmsFramePayload, CmsFrameRow, CmsFrameType, CmsPlanCode } from "@/lib/cms/cms-types";
+import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
 import { resolveCmsPayloadStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
 import { createSignedUrlForStoragePath, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -19,6 +20,7 @@ const FRAME_TYPES: CmsFrameType[] = [
   "shop_category_ref",
   "shop_brand_ref",
   "shop_link_card",
+  "profile_plus_hero",
 ];
 const PLAN_CODES: CmsPlanCode[] = ["guest", "segna_plus", "segna_x"];
 
@@ -72,34 +74,42 @@ export async function fetchCmsSectionFramesResolved(
     ) => Promise<{ data: unknown; error: { message?: string } | null }>;
   };
 
-  const { data, error } = await rpc.rpc("get_cms_section_frames", { p_section_key: sectionKey });
-  if (error) {
-    const msg = error.message ?? "";
-    const rpcMissing =
-      msg.includes("Could not find the function") ||
-      msg.includes("schema cache") ||
-      /PGRST202|42883/i.test(msg);
-    if (rpcMissing) {
-      if (process.env.NODE_ENV === "development") {
-        console.info(
-          `[CMS] RPC get_cms_section_frames absente — appliquer la migration segna-app/supabase/migrations/20260502140000_cms_app_sections_frames.sql (section: ${sectionKey}).`,
-        );
+  try {
+    const { data, error } = await rpc.rpc("get_cms_section_frames", { p_section_key: sectionKey });
+    if (error) {
+      const msg = error.message ?? "";
+      const rpcMissing =
+        msg.includes("Could not find the function") ||
+        msg.includes("schema cache") ||
+        /PGRST202|42883/i.test(msg);
+      if (rpcMissing) {
+        if (process.env.NODE_ENV === "development") {
+          console.info(
+            `[CMS] RPC get_cms_section_frames absente — appliquer la migration segna-app/supabase/migrations/20260502140000_cms_app_sections_frames.sql (section: ${sectionKey}).`,
+          );
+        }
+      } else if (isSupabaseTransportFailure(msg)) {
+        warnCmsSupabaseUnreachable(`get_cms_section_frames "${sectionKey}"`, msg);
+      } else {
+        console.error("get_cms_section_frames", sectionKey, msg);
       }
-    } else {
-      console.error("get_cms_section_frames", sectionKey, msg);
+      return [];
     }
+
+    const rows = parseRows(data);
+    const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
+
+    const resolved: CmsFrameRow[] = [];
+    for (const row of rows) {
+      resolved.push({
+        ...row,
+        payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
+      });
+    }
+    return resolved;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    warnCmsSupabaseUnreachable(`get_cms_section_frames "${sectionKey}"`, msg);
     return [];
   }
-
-  const rows = parseRows(data);
-  const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
-
-  const resolved: CmsFrameRow[] = [];
-  for (const row of rows) {
-    resolved.push({
-      ...row,
-      payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
-    });
-  }
-  return resolved;
 }

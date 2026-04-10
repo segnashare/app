@@ -4,45 +4,30 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Image as ImageIcon, Info, Plus, Trash2, X } from "lucide-react";
+import { Info, X } from "lucide-react";
 
+import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
+import { SegnaConsumptionCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
+import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
-import {
-  CART_LINE_STATUS_CLASSNAMES,
-  type CartLineStatus,
-} from "@/components/exchange/ExchangeCartSection";
-import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
-import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
-import { CmsFrameItem } from "@/components/cms/CmsSectionBlocks";
+import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
+import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
+import { CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS, CmsHorizontalScrollRow } from "@/components/cms/CmsSectionBlocks";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
+import { walletCreditKindForMembership, walletCreditKindLabel } from "@/lib/wallet/credit-kind";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 
-export type CartLineRowData = {
-  id: string;
-  itemId: string;
-  itemName: string;
-  brand: string | null;
-  description: string | null;
-  pricePoints: number;
-  status: CartLineStatus;
-  photoUrl: string | null;
-  photoPosition: {
-    offset?: { x?: number; y?: number };
-    zoom?: number;
-    aspect?: string;
-  } | null;
-  /** Autres paniers actifs avec la même pièce (cart_items.status = in_cart). */
-  otherShoppersInCart?: number;
-  /** items.status = reserved par un autre membre (pas ta ligne réservée). */
-  reservedByOther?: boolean;
-  /** `carts.locked_until` du panier concurrent (ISO), pour compteur fin de réservation. */
-  reservedUntilAt?: string | null;
-};
+export type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 
 type OfferCardData = {
   id: string;
@@ -54,17 +39,23 @@ type OfferCardData = {
 
 type CartScreenProps = {
   initialLines: CartLineRowData[];
-  /** Panier actif côté serveur (réservation RPC). */
+  /** Panier actif côté serveur (après `reserve_cart_atomic` → `checkout_pending`). */
   activeCartId: string | null;
   cartStatus: string | null;
   membershipLabel: "Guest" | "Membre +" | "Membre X";
   availablePoints: number;
+  balanceConsumptionPoints: number;
+  balanceExchangePoints: number;
   hasReachedLendingCap: boolean;
   insuranceEuros: number;
-  showSubscriptionUpsell: boolean;
-  subscriptionUpsellHref: string;
-  /** CMS — partie Panier du bloc promo (« Des offres pour vous ») */
-  initialCmsCartOffers?: CmsFrameRow[];
+  /** Ordre des blocs (RPC CMS + sections à frames). */
+  panierSectionOrder?: string[];
+  /** Frames + affichage publié par `section_key` (hors `cart_system_*`). */
+  cmsSectionsByKey?: Record<string, { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay }>;
+  /** Pièces catalogue pour rendu riche des frames `shop_item_ref` (même carte que la boutique). */
+  cmsShopHubCatalogItems?: ShopCatalogItem[];
+  /** Échantillon catalogue pour le bloc AUTO « Susceptibles de vous plaire » sur le panier (`shop_system_for_you`). */
+  cartShopSystemForYouItems?: ShopCatalogItem[];
 };
 
 const OFFERS: OfferCardData[] = [
@@ -92,7 +83,7 @@ const OFFERS: OfferCardData[] = [
   {
     id: "pret",
     title: "Augmente ta capacité",
-    subtitle: "Prête une pièce — gagne des mods",
+    subtitle: "Prête une pièce — gagne des crédits d'échange",
     href: "/exchange",
     accent: "from-emerald-50 to-teal-50",
   },
@@ -102,70 +93,31 @@ function euros(value: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value);
 }
 
-function cartLineStatusLabelFr(status: CartLineStatus): string {
-  if (status === "disponible") return "Disponible";
-  if (status === "reserve") return "Réservé";
-  if (status === "en_attente_wallet") return "Non réservé";
-  return "À vérifier";
-}
-
-function parseCompetitionExpiryMs(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const withT = /^\d{4}-\d{2}-\d{2}[ T]\d/.test(trimmed) ? trimmed.replace(" ", "T") : trimmed;
-  const ms = Date.parse(withT);
-  return Number.isNaN(ms) ? null : ms;
-}
-
-/** Compteur jusqu’à fin de réservation concurrente (locked_until / hold). */
-function CompetitionReservationCountdown({ expiresAt }: { expiresAt: string | null | undefined }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  const iso = expiresAt?.trim() ?? "";
-  const timerWrap =
-    "inline-flex min-w-[4.25rem] items-center justify-center rounded-lg bg-zinc-900/72 px-3 py-1.5 text-[17px] font-semibold tabular-nums tracking-wide text-white backdrop-blur-sm";
-  if (!iso) {
-    return <span className={timerWrap}>--:--</span>;
-  }
-  const end = parseCompetitionExpiryMs(iso);
-  if (end == null) {
-    return <span className={timerWrap}>--:--</span>;
-  }
-  const ms = Math.max(0, end - nowMs);
-  const totalSec = Math.floor(ms / 1000);
-  const mm = Math.floor(totalSec / 60);
-  const ss = totalSec % 60;
-  return (
-    <span className={timerWrap}>
-      {mm}:{ss.toString().padStart(2, "0")}
-    </span>
-  );
-}
-
 export function CartScreen({
   initialLines,
   activeCartId,
   cartStatus,
   membershipLabel,
   availablePoints,
+  balanceConsumptionPoints,
+  balanceExchangePoints,
   hasReachedLendingCap,
   insuranceEuros,
-  showSubscriptionUpsell,
-  subscriptionUpsellHref,
-  initialCmsCartOffers = [],
+  panierSectionOrder = ["cart_system_items", "cart_offers", "cart_system_exchange"],
+  cmsSectionsByKey = {},
+  cmsShopHubCatalogItems = [],
+  cartShopSystemForYouItems = [],
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
-  const balanceUnitLabel = membershipLabel === "Guest" ? "pods" : "mods";
+  const walletCreditKind = walletCreditKindForMembership(membershipLabel);
+  const creditKindLabel = walletCreditKindLabel(walletCreditKind);
   const isGuest = membershipLabel === "Guest";
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [insuranceOn, setInsuranceOn] = useState(false);
-  const [exchangeCreditsInfoOpen, setExchangeCreditsInfoOpen] = useState(false);
+  const [exchangeCreditsModalOpen, setExchangeCreditsModalOpen] = useState(false);
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
@@ -222,8 +174,6 @@ export function CartScreen({
   const activeCartCostPointsForUi = lines.length === 0 ? null : cartTotalPoints;
   /** Panier total > capacité d’emprunt (wallet). */
   const cartExceedsWallet = activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
-  /** Lignes dont le prix seul dépasse la capacité (article « à surplus »). */
-  const isSurplusLine = (line: CartLineRowData) => line.pricePoints > availablePoints;
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalPoints - availablePoints) : 0;
   const exchangeCreditsEuroCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
   /** Protection (si cochée) + crédits d’échange si besoin. */
@@ -233,8 +183,36 @@ export function CartScreen({
   }, [cashFees, cartExceedsWallet, exchangeCreditsEuroCents]);
 
   useEffect(() => {
-    if (!cartExceedsWallet) setExchangeCreditsInfoOpen(false);
+    if (!cartExceedsWallet) setExchangeCreditsModalOpen(false);
   }, [cartExceedsWallet]);
+
+  useEffect(() => {
+    if (!exchangeCreditsModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExchangeCreditsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [exchangeCreditsModalOpen]);
+
+  const goToPayment = () => {
+    if (hasReservedElsewhere) {
+      setReserveError("Une pièce n’est plus disponible — retire-la du panier.");
+      return;
+    }
+    if (!activeCartId) {
+      setReserveError("Panier introuvable.");
+      return;
+    }
+    setReserveError(null);
+    /** Invité : pas de réservation d’inventaire — paiement sur panier encore `active`. */
+    if (isGuest) {
+      router.push("/cart/payment");
+      router.refresh();
+      return;
+    }
+    void goReserveThenPayment();
+  };
 
   const goReserveThenPayment = async () => {
     if (!activeCartId) {
@@ -251,13 +229,13 @@ export function CartScreen({
       });
       if (error) {
         const raw = (error.message ?? "").toUpperCase();
-        const msg = raw.includes("INSUFFICIENT_WALLET_CAPACITY")
-          ? "Aucune pièce ne tient dans ta capacité d’emprunt pour l’instant."
-          : raw.includes("ITEM_RESERVED_BY_ANOTHER_MEMBER")
-            ? "Une pièce a été réservée par un autre membre — retire-la du panier ou réessaie plus tard."
-            : raw.includes("ITEM LOCKS") || raw.includes("LOCKS")
-              ? "Verrouillage d’inventaire expiré ou manquant — réessaie depuis le shop."
-              : (error.message ?? "Réservation impossible.");
+        const msg = raw.includes("GUEST_RESERVATION_NOT_ALLOWED")
+            ? "La réservation d’inventaire est réservée aux abonnés — connecte-toi avec un compte Membre."
+            : raw.includes("ITEM_RESERVED_BY_ANOTHER_MEMBER")
+              ? "Une pièce a été réservée par un autre membre — retire-la du panier ou réessaie plus tard."
+              : raw.includes("ITEM LOCKS") || raw.includes("LOCKS")
+                ? "Verrouillage d’inventaire expiré ou manquant — réessaie depuis le shop."
+                : (error.message ?? "Réservation impossible.");
         setReserveError(msg);
         return;
       }
@@ -343,13 +321,11 @@ export function CartScreen({
   /** Réserve uniquement la hauteur réelle du dock fixe (évite une zone grise scrollable inutile). */
   const scrollBottomPadding = walletPanelOpen
     ? "calc(16px + env(safe-area-inset-bottom, 0px))"
-    : showSubscriptionUpsell
-      ? "calc(158px + env(safe-area-inset-bottom, 0px))"
-      : "calc(88px + env(safe-area-inset-bottom, 0px))";
+    : "calc(88px + env(safe-area-inset-bottom, 0px))";
 
   return (
     <div className="flex w-full flex-col bg-zinc-100">
-      <header className="fixed left-1/2 top-0 z-40 w-full max-w-[430px] -translate-x-1/2 border-b border-zinc-100 bg-white">
+      <header className="fixed left-1/2 top-0 z-40 w-full max-w-[430px] -translate-x-1/2 bg-white">
         <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
           <div className="flex items-center justify-between gap-2">
             <button
@@ -363,6 +339,8 @@ export function CartScreen({
             <ExchangeWalletPill
               membershipLabel={membershipLabel}
               availablePoints={availablePoints}
+              balanceConsumptionPoints={balanceConsumptionPoints}
+              balanceExchangePoints={balanceExchangePoints}
               activeCartCostPoints={activeCartCostPointsForUi}
               hasReachedLendingCap={hasReachedLendingCap}
               cartExceedsWallet={cartExceedsWallet}
@@ -370,7 +348,7 @@ export function CartScreen({
               className="min-w-0 max-w-[min(100%,14.5rem)] shrink"
             />
           </div>
-          <h1 className="mt-5 text-[28px] font-bold leading-[1.1] tracking-tight text-zinc-900">Panier</h1>
+          <h1 className={cn("mt-5", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Panier</h1>
           <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">{panierSubtitle}</p>
         </div>
       </header>
@@ -383,261 +361,170 @@ export function CartScreen({
 
       <div className="flex flex-col pt-0">
         {/* Entre sections : gutter zinc 4.5px. En bas : réserve dock en blanc (pas de bande zinc comme avec padding-bottom transparent). */}
-        <div className="flex flex-col space-y-[4.5px]">
-        {/* Même logique qu’Exchange : lignes séparées par un trait fin (divide-y 1px) ; blocs séparés par le fond zinc-100 entre sections. */}
-        <section className="bg-white px-5 py-4">
-          {orderedLines.length === 0 ? (
-            <div className="pb-2 pt-1">
-              <p className="text-center text-sm font-medium text-zinc-600">Panier vide — ajoute des pièces depuis le shop.</p>
-            </div>
-          ) : null}
-
-          {orderedLines.length > 0 ? (
-            <>
-              {lineRemoveError ? (
-                <p className="mb-2 text-center text-[13px] font-medium leading-snug text-red-600">{lineRemoveError}</p>
-              ) : null}
-              <div className="-mx-5 divide-y-[1px] divide-zinc-200">
-              {orderedLines.map((line) => {
-                const surplus = isSurplusLine(line);
-                const otherMembersHint = formatOtherMembersDiscreteLine(line.otherShoppersInCart ?? 0);
-                const showCompetitionBlock = line.reservedByOther && !isGuest;
-                return (
-                <div key={line.id} className="relative">
-                  {showCompetitionBlock ? (
-                    <>
-                      <div
-                        className="pointer-events-auto absolute inset-0 z-[15] bg-zinc-900/38 backdrop-blur-md backdrop-saturate-125"
-                        aria-hidden
-                      />
-                      <div className="pointer-events-none absolute inset-0 z-[16] flex flex-col items-center justify-center gap-1.5 px-6 text-center">
-                        <CompetitionReservationCountdown expiresAt={line.reservedUntilAt ?? null} />
-                        <p className="max-w-[16rem] text-[11px] font-medium leading-snug text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
-                          (Réservée par un membre Membre&nbsp;X)
-                        </p>
-                      </div>
-                    </>
-                  ) : null}
-                  <article className="relative grid w-full grid-cols-[100px_minmax(0,50%)_auto] items-center gap-1 px-5 py-3">
-                    <Link
-                      href={`/items/${line.itemId}?from=cart`}
-                      aria-label={`Voir ${line.itemName}`}
-                      className={cn("absolute inset-0 z-0", showCompetitionBlock && "pointer-events-none")}
-                    />
-
-                    <div className="pointer-events-none relative z-10 flex items-center">
-                      {line.photoUrl ? (
-                        <RemoteCoverThumb
-                          photoUrl={line.photoUrl}
-                          photoPosition={line.photoPosition}
-                          frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
-                        />
-                      ) : (
-                        <div className="flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400">
-                          <ImageIcon className="h-7 w-7" aria-hidden />
-                        </div>
-                      )}
+        <CartCmsShopHubProvider catalogItems={cmsShopHubCatalogItems} onCartMutation={() => router.refresh()}>
+          <div className="flex flex-col space-y-[4.5px]">
+          {panierSectionOrder.map((slotKey) => {
+            if (slotKey === "cart_system_items") {
+              return (
+                <section key={slotKey} className="bg-white px-5 py-4">
+                  {orderedLines.length === 0 ? (
+                    <div className="pb-2 pt-1">
+                      <p className="text-center text-sm font-medium text-zinc-600">
+                        Panier vide — ajoute des pièces depuis le shop.
+                      </p>
                     </div>
+                  ) : null}
 
-                    <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[18px] font-semibold italic leading-[1.15] text-zinc-900 break-words">{line.itemName}</p>
-                        {line.brand ? (
-                          <span className="font-semibold text-[16px] not-italic text-zinc-900"> ({line.brand})</span>
-                        ) : null}
-                        {line.description ? (
-                          <p
-                            className="mt-1 min-w-0 text-[13px] leading-[1.3] text-zinc-500 line-clamp-1"
-                            title={line.description}
-                          >
-                            {line.description}
-                          </p>
-                        ) : null}
-                        <p
-                          className={cn(
-                            "mt-1 text-[15px] font-semibold tabular-nums tracking-tight",
-                            surplus ? "text-red-600" : "text-zinc-900",
-                          )}
-                        >
-                          {Math.floor(line.pricePoints).toLocaleString("fr-FR")} {balanceUnitLabel}
-                        </p>
-                        {!isGuest && otherMembersHint ? (
-                          <p className="mt-0.5 text-[12px] italic leading-snug text-zinc-500">{otherMembersHint}</p>
-                        ) : null}
-                        {line.status !== "disponible" && !line.reservedByOther ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            <span
-                              className={cn(
-                                "inline-flex rounded-md px-2 py-1 text-[11px] font-semibold",
-                                CART_LINE_STATUS_CLASSNAMES[line.status],
-                              )}
-                            >
-                              {cartLineStatusLabelFr(line.status)}
+                  <CartPanierLineRows
+                    lines={orderedLines}
+                    membershipLabel={membershipLabel}
+                    availablePoints={availablePoints}
+                    removingLineId={removingLineId}
+                    lineRemoveError={lineRemoveError}
+                    onRemoveLine={(id) => void removeLine(id)}
+                  />
+                </section>
+              );
+            }
+
+            if (slotKey === "cart_system_exchange") {
+              return (
+                <section key={slotKey} className="bg-white px-5 py-4">
+                  <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Échange</h2>
+
+                  <div className="mt-4">
+                    <div className="space-y-3">
+                      {cartExceedsWallet ? (
+                        <div className="relative space-y-2" role="status" aria-live="polite">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-1">
+                              <span className="text-[15px] font-semibold text-red-600">Crédits</span>
+                              <button
+                                type="button"
+                                aria-haspopup="dialog"
+                                aria-expanded={exchangeCreditsModalOpen}
+                                aria-controls="cart-exchange-credits-modal"
+                                id="cart-exchange-credits-modal-trigger"
+                                aria-label="Informations sur les crédits manquants"
+                                onClick={() => setExchangeCreditsModalOpen(true)}
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-600 transition hover:bg-red-50"
+                              >
+                                <Info className="h-4 w-4" strokeWidth={2.2} />
+                              </button>
+                            </div>
+                            <span className="text-[15px] font-semibold tabular-nums text-red-600">
+                              {euros(exchangeCreditsEuroCents / 100)}
                             </span>
                           </div>
-                        ) : null}
+                        </div>
+                      ) : null}
+
+                      <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
+                        <span
+                          className={cn(
+                            "min-w-0 text-[15px] text-zinc-900",
+                            insuranceOn ? "font-semibold" : "font-medium",
+                          )}
+                        >
+                          Protection commande
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span
+                            className={cn(
+                              "text-[15px] tabular-nums text-zinc-900",
+                              insuranceOn ? "font-semibold" : "font-medium",
+                            )}
+                          >
+                            {euros(insuranceEuros)}
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={insuranceOn}
+                            onChange={(e) => setInsuranceOn(e.target.checked)}
+                            className="h-4 w-4 cursor-pointer rounded border-zinc-300 accent-zinc-950 text-zinc-950"
+                          />
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="mt-6 w-full border-t border-zinc-200 pt-4">
+                      <div className="flex w-full items-baseline justify-between gap-3">
+                        <span className="text-[17px] font-extrabold leading-tight text-zinc-950">Sous-total</span>
+                        <span className="text-[17px] font-extrabold tabular-nums leading-tight text-zinc-950">
+                          {euros(subtotalCashFees)}
+                        </span>
                       </div>
                     </div>
-
-                    <div className="relative z-30 flex items-center justify-end gap-1 pr-0">
-                      <button
-                        type="button"
-                        disabled={removingLineId === line.id}
-                        className={cn(
-                          "inline-flex h-9 w-9 items-center justify-center rounded-md disabled:opacity-50",
-                          showCompetitionBlock
-                            ? "bg-zinc-800/80 text-white ring-1 ring-zinc-900/20 cart-competition-trash-vibrate"
-                            : surplus
-                              ? "bg-red-50 text-red-600 cart-surplus-trash-vibrate"
-                              : "bg-zinc-100 text-zinc-700",
-                        )}
-                        aria-label="Retirer du panier"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          void removeLine(line.id);
-                        }}
-                      >
-                        <Trash2 className="h-5 w-5" strokeWidth={2.2} />
-                      </button>
-                    </div>
-                  </article>
-                </div>
+                  </div>
+                </section>
               );
-              })}
-              </div>
-            </>
-          ) : null}
+            }
 
-          <div className="flex justify-end pt-4">
-            <Link
-              href="/shop"
-              className="inline-flex h-10 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-4 text-[14px] font-bold text-zinc-900"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2.5} />
-              <span>Ajouter des articles</span>
-            </Link>
-          </div>
-        </section>
+            if (slotKey.startsWith("cart_system_")) {
+              return null;
+            }
 
-        <section className="bg-white px-5 py-4">
-          <h2 className="text-[28px] font-bold leading-[1.1] tracking-tight text-zinc-900">Des offres pour vous</h2>
-          <div className="-mx-5 mt-3 flex gap-3 overflow-x-auto overflow-y-hidden pb-1 touch-pan-x px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {initialCmsCartOffers.length > 0
-              ? initialCmsCartOffers.map((row) => <CmsFrameItem key={row.id} row={row} />)
-              : OFFERS.map((offer) => (
-                  <Link
-                    key={offer.id}
-                    href={offer.href}
+            if (slotKey === "shop_system_for_you") {
+              return (
+                <CartShopSystemForYouSection key={slotKey} catalogItems={cartShopSystemForYouItems} />
+              );
+            }
+
+            const cms = cmsSectionsByKey[slotKey] ?? {
+              frames: [] as CmsFrameRow[],
+              display: { hide_section_title: false, title: null } satisfies CmsSectionPublishedDisplay,
+            };
+            const defaultTitle = slotKey === "cart_offers" ? "Des offres pour vous" : "À la une";
+            const useStaticOfferFallback = slotKey === "cart_offers" && cms.frames.length === 0;
+
+            return (
+              <section key={slotKey} className="bg-white px-5 py-4">
+                {!cms.display.hide_section_title ? (
+                  <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+                    {cms.display.title?.trim() || defaultTitle}
+                  </h2>
+                ) : null}
+                {cms.frames.length > 0 ? (
+                  <CmsHorizontalScrollRow
+                    rows={cms.frames}
+                    className={cms.display.hide_section_title ? "!mt-0" : undefined}
+                    hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+                  />
+                ) : (
+                  <div
                     className={cn(
-                      "w-[min(240px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl border border-zinc-200/80 bg-gradient-to-br p-4 shadow-sm",
-                      offer.accent,
+                      "-mx-5 flex gap-3 overflow-x-auto overflow-y-hidden pb-1 touch-pan-x px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
+                      cms.display.hide_section_title ? "mt-0" : "mt-3",
+                      !useStaticOfferFallback ? "min-h-[2.5rem] items-center" : "",
                     )}
                   >
-                    <p className="text-[15px] font-semibold leading-snug text-zinc-900">{offer.title}</p>
-                    <p className="mt-1 text-[13px] leading-snug text-zinc-600">{offer.subtitle}</p>
-                    <span className="mt-3 inline-flex text-xs font-semibold text-[#5E3023]">Découvrir →</span>
-                  </Link>
-                ))}
-          </div>
-        </section>
-
-        <section className="bg-white px-5 py-4">
-          <h2 className="text-[28px] font-bold leading-[1.1] tracking-tight text-zinc-900">Échange</h2>
-
-          <div className="mt-4">
-            <div className="space-y-3">
-            {cartExceedsWallet ? (
-              <div className="relative space-y-2" role="status" aria-live="polite">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-1">
-                    <span className="text-[15px] font-semibold text-red-600">Crédits</span>
-                    <button
-                      type="button"
-                      aria-expanded={exchangeCreditsInfoOpen}
-                      aria-controls="cart-exchange-credits-info"
-                      id="cart-exchange-credits-info-trigger"
-                      aria-label="Informations sur les crédits manquants"
-                      onClick={() => setExchangeCreditsInfoOpen((open) => !open)}
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-600 transition hover:bg-red-50"
-                    >
-                      <Info className="h-4 w-4" strokeWidth={2.2} />
-                    </button>
+                    {useStaticOfferFallback ? (
+                      OFFERS.map((offer) => (
+                        <Link
+                          key={offer.id}
+                          href={offer.href}
+                          className={cn(
+                            "w-[min(240px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl border border-zinc-200/80 bg-gradient-to-br p-4 shadow-sm",
+                            offer.accent,
+                          )}
+                        >
+                          <p className="text-[15px] font-semibold leading-snug text-zinc-900">{offer.title}</p>
+                          <p className="mt-1 text-[13px] leading-snug text-zinc-600">{offer.subtitle}</p>
+                          <span className="mt-3 inline-flex text-xs font-semibold text-zinc-950">Découvrir →</span>
+                        </Link>
+                      ))
+                    ) : (
+                      <p className="w-full px-1 text-center text-[14px] font-medium leading-snug text-zinc-500">
+                        Aucune carte publiée pour cette section — enregistrez et publiez des frames dans le back-office.
+                      </p>
+                    )}
                   </div>
-                  <span className="text-[15px] font-semibold tabular-nums text-red-600">
-                    {euros(exchangeCreditsEuroCents / 100)}
-                  </span>
-                </div>
-                {exchangeCreditsInfoOpen ? (
-                  <div
-                    id="cart-exchange-credits-info"
-                    role="tooltip"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[13px] font-medium leading-snug text-zinc-950 shadow-sm"
-                  >
-                    <p>
-                      Il manque{" "}
-                      <span className="tabular-nums">{missingExchangeMods.toLocaleString("fr-FR")}</span>{" "}
-                      {balanceUnitLabel} pour ce panier. Tarif : 1 {balanceUnitLabel} ={" "}
-                      {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      € — montant déjà inclus dans le sous-total.
-                    </p>
-                    <p className="mt-2">
-                      Tu peux acheter ces crédits au paiement, ou{" "}
-                      <Link
-                        href="/items/new"
-                        className="text-zinc-950 underline underline-offset-2"
-                      >
-                        ajouter des pièces à l&apos;emprunt
-                      </Link>{" "}
-                      pour augmenter ton plafond.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
-              <span
-                className={cn(
-                  "min-w-0 text-[15px] text-zinc-900",
-                  insuranceOn ? "font-semibold" : "font-medium",
                 )}
-              >
-                Protection commande
-              </span>
-              <div className="flex shrink-0 items-center gap-2">
-                <span
-                  className={cn(
-                    "text-[15px] tabular-nums text-zinc-900",
-                    insuranceOn ? "font-semibold" : "font-medium",
-                  )}
-                >
-                  {euros(insuranceEuros)}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={insuranceOn}
-                  onChange={(e) => setInsuranceOn(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer rounded border-[#C4A896] accent-[#5E3023] text-[#5E3023]"
-                />
-              </div>
-            </label>
-            </div>
-
-            <div className="mt-6 w-full border-t border-zinc-200 pt-4">
-              <div className="flex w-full items-baseline justify-between gap-3">
-                <span className="text-[17px] font-extrabold leading-tight text-[#5E3023]">Sous-total</span>
-                <span className="text-[17px] font-extrabold tabular-nums leading-tight text-[#5E3023]">
-                  {euros(subtotalCashFees)}
-                </span>
-              </div>
-            </div>
+              </section>
+            );
+          })}
           </div>
-        </section>
-        </div>
+        </CartCmsShopHubProvider>
 
         <div className="shrink-0 bg-white" style={{ height: scrollBottomPadding }} aria-hidden />
       </div>
@@ -645,22 +532,6 @@ export function CartScreen({
       {walletPanelOpen ? null : (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center">
           <div className="pointer-events-auto w-full max-w-[430px] border-t border-zinc-200 bg-white shadow-[0_-12px_32px_rgba(0,0,0,0.08)] pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
-            {showSubscriptionUpsell ? (
-              <Link
-                href={subscriptionUpsellHref}
-                className="flex w-full items-start gap-3 border-b border-zinc-200 bg-white px-4 py-3.5 text-left transition active:bg-zinc-50"
-              >
-                <span
-                  className="mt-0.5 h-[18px] w-[18px] shrink-0 rounded-[3px] border border-zinc-900 bg-white"
-                  aria-hidden
-                />
-                <p className="min-w-0 text-[14px] leading-[1.4] text-zinc-900">
-                  <span className="font-semibold text-amber-800">Économise sur les frais</span>
-                  {" avec Segna+ — livraisons préférentielles et plafonds de prêt plus hauts."}
-                </p>
-              </Link>
-            ) : null}
-
             <div className="px-4 pt-3">
             {orderedLines.length === 0 ? (
               <button
@@ -670,15 +541,15 @@ export function CartScreen({
               >
                 Réserver le panier
               </button>
-            ) : cartStatus === "reserved" ? (
-              hasReservedElsewhere && !isGuest ? (
+            ) : cartStatus === "checkout_pending" ? (
+              hasReservedElsewhere ? (
                 <p className="text-center text-[13px] font-medium leading-snug text-red-600">
                   Une pièce a été réservée par ailleurs — retire-la avant le paiement.
                 </p>
               ) : (
                 <Link
                   href="/cart/payment"
-                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-gradient-to-b from-[#5E3023] to-[#895737] text-[15px] font-bold text-white shadow-sm"
+                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800"
                 >
                   Passer au paiement
                 </Link>
@@ -687,17 +558,11 @@ export function CartScreen({
               <div className="w-full space-y-2">
                 <button
                   type="button"
-                  disabled={reserveBusy || !activeCartId || (!isGuest && hasReservedElsewhere)}
-                  onClick={() => void goReserveThenPayment()}
-                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-gradient-to-b from-[#5E3023] to-[#895737] text-[15px] font-bold text-white shadow-sm disabled:opacity-60"
+                  disabled={reserveBusy || !activeCartId || hasReservedElsewhere}
+                  onClick={() => goToPayment()}
+                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800 disabled:opacity-60"
                 >
-                  {reserveBusy
-                    ? isGuest
-                      ? "Redirection…"
-                      : "Réservation…"
-                    : isGuest
-                      ? "Passer au paiement"
-                      : "Réserver le panier"}
+                  {reserveBusy ? "Réservation…" : isGuest ? "Passer au paiement" : "Réserver le panier"}
                 </button>
                 {reserveError ? (
                   <p className="text-center text-[13px] font-medium leading-snug text-red-600">{reserveError}</p>
@@ -708,6 +573,77 @@ export function CartScreen({
           </div>
         </div>
       )}
+
+      {exchangeCreditsModalOpen && cartExceedsWallet ? (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40"
+          onClick={() => setExchangeCreditsModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            id="cart-exchange-credits-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cart-exchange-credits-modal-title"
+            className={SEGNA_DIALOG_SHEET_CLASS}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
+            <h2 id="cart-exchange-credits-modal-title" className={segnaDialogTitleClass()}>
+              Crédits
+            </h2>
+            <div className="mt-5 space-y-4">
+              <p className={segnaDialogBodyClass()}>
+                Il manque{" "}
+                <span className="tabular-nums">{missingExchangeMods.toLocaleString("fr-FR")}</span>{" "}
+                {walletCreditKind === "consumption" ? (
+                  <SegnaConsumptionCreditPhrase />
+                ) : (
+                  <span>{creditKindLabel}</span>
+                )}{" "}
+                pour ce panier.{" "}
+                {walletCreditKind === "consumption" ? (
+                  <>
+                    Tarif : une unité représente{" "}
+                    {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    € — montant déjà inclus dans le sous-total.
+                  </>
+                ) : (
+                  <>
+                    Tarif : 1 unité de {creditKindLabel} ={" "}
+                    {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    € — montant déjà inclus dans le sous-total.
+                  </>
+                )}
+              </p>
+              <p className={segnaDialogBodyClass()}>
+                Tu peux acheter ces crédits au paiement, ou{" "}
+                <Link
+                  href="/items/new"
+                  className="font-semibold text-zinc-900 underline underline-offset-2"
+                  onClick={() => setExchangeCreditsModalOpen(false)}
+                >
+                  ajouter des pièces à l&apos;emprunt
+                </Link>{" "}
+                pour augmenter ton plafond.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExchangeCreditsModalOpen(false)}
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

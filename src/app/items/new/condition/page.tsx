@@ -1,9 +1,10 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
 import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
@@ -13,7 +14,7 @@ import { fileToDataUrl } from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
 
 const OPTIONS = ["Neuf avec étiquette", "Excellent état", "Très bon état", "Bon état"];
-const montserrat = Montserrat({ subsets: ["latin"], weight: "600" });
+
 const DEFECT_PHOTOS_STORAGE_PREFIX = "segna:new-item:condition-defect-photos:";
 const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
 
@@ -108,13 +109,13 @@ export default function NewItemConditionPage() {
   return (
     <main className="min-h-[100dvh] bg-white">
       <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023]")} onClick={goBack}>
+        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
           Annuler
         </button>
         <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>État</h1>
         <button
           type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-[#5E3023] disabled:opacity-40")}
+          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
           disabled={!selected}
           onClick={() => goBackWithValue(selected)}
         >
@@ -139,7 +140,7 @@ export default function NewItemConditionPage() {
               <span
                 className={cn(
                   "ml-4 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center border",
-                  selected === option ? "border-[#5E3023] bg-[#5E3023] text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
+                  selected === option ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-zinc-200 text-transparent",
                 )}
                 aria-hidden
               >
@@ -156,7 +157,7 @@ export default function NewItemConditionPage() {
               onAddClick={() => detailsTextareaRef.current?.focus()}
               textareaRef={detailsTextareaRef}
               placeholder="Plus de détails sur l'état, défauts, usure..."
-              containerClassName="border-[#5E3023]/55"
+              containerClassName="border-zinc-300"
             />
           </div>
 
@@ -198,8 +199,8 @@ export default function NewItemConditionPage() {
                 await appendFiles(Array.from(files));
               }}
               className={cn(
-                "rounded-xl border-2 border-dashed bg-[#f7f3ef] p-3 transition",
-                isDragActive ? "border-[#5E3023] bg-[#f3ece5]" : "border-[#5E3023]/55",
+                "rounded-xl border-2 border-dashed bg-zinc-50 p-3 transition",
+                isDragActive ? "border-zinc-900 bg-zinc-100" : "border-zinc-300",
               )}
             >
               <div className="grid grid-cols-3 gap-2">
@@ -235,7 +236,7 @@ export default function NewItemConditionPage() {
                       event.preventDefault();
                       fileInputRef.current?.click();
                     }}
-                    className="aspect-square rounded-lg border-2 border-dashed border-[#5E3023]/55 bg-[#f7f3ef] transition hover:border-[#5E3023] hover:bg-[#f3ece5]"
+                    className="aspect-square rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 transition hover:border-zinc-900 hover:bg-zinc-100"
                     aria-label="Ajouter une photo"
                   >
                     <Plus size={28} strokeWidth={2} className="mx-auto text-zinc-500" />

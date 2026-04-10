@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
 
 import {
   INTAKE_META_COMPLEMENT_MESSAGE,
@@ -15,22 +16,68 @@ import {
 import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  SEGNA_DIALOG_CARD_CLASS,
+  SegnaDialogDismissButton,
+  segnaDialogBodyClass,
+  segnaDialogMontserrat,
+  segnaDialogTitleClass,
+  SegnaDialogTitleRow,
+} from "@/components/ui/SegnaAppDialog";
 import { cn } from "@/lib/utils/cn";
 
-const montserrat = Montserrat({ subsets: ["latin"], weight: ["600", "500"] });
-const playfair = Playfair_Display({ subsets: ["latin"], weight: ["700"] });
-
-const EYE_ART_SRC = "/ressources/Oeil/Oeil%20cils+fond.svg";
-
-export function needsItemIntakeUi(listingStage: string | null | undefined, fulfillmentStage: string | null | undefined) {
-  return Boolean(
-    listingStage &&
-      (["evaluation", "validation_pending", "evaluated", "refused"].includes(listingStage) ||
-        (listingStage === "validated" && fulfillmentStage != null && fulfillmentStage !== "verified")),
-  );
-}
+export { needsItemIntakeUi } from "@/lib/items/item-intake-ui";
 
 const EVALUATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function AwaitingSubscriptionGuestPanel({
+  itemId: _itemId,
+  offerPricePoints,
+  placement: _placement,
+  onStackDismiss,
+}: {
+  itemId: string;
+  offerPricePoints: number | null;
+  placement: "item" | "evaluation";
+  onStackDismiss?: () => void;
+}) {
+  void _itemId;
+  void _placement;
+
+  const pts =
+    offerPricePoints != null && Number.isFinite(offerPricePoints) ? Math.round(offerPricePoints) : null;
+  const creditsPhrase =
+    pts != null
+      ? pts === 1
+        ? "Après réception et vérification par Segna, tu pourras recevoir jusqu’à 1 point sur ton wallet (selon les règles du prêt)."
+        : `Après réception et vérification par Segna, tu pourras recevoir jusqu’à ${pts} points sur ton wallet (selon les règles du prêt).`
+      : "Après réception et vérification par Segna, des crédits peuvent être versés sur ton wallet selon les règles du prêt.";
+
+  return (
+    <IntakePanelLayout
+      title="En attente d&apos;abonnement"
+      titleId="intake-title-awaiting-subscription"
+      titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
+      footer={
+        <Link
+          href="/package"
+          className={cn(
+            montserrat.className,
+            "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
+          )}
+        >
+          Souscrire pour expédier
+        </Link>
+      }
+    >
+      <p className="font-medium text-zinc-800">
+        Ta pièce est prête à rejoindre le catalogue Segna. Abonne-toi en prêteur pour l&apos;échanger avec des milliers
+        de pièces et débloquer l&apos;envoi.
+      </p>
+      <p className="mt-2">{creditsPhrase}</p>
+    </IntakePanelLayout>
+  );
+}
 
 function formatCountdownHms(remainingMs: number): string {
   if (remainingMs <= 0) return "00:00:00";
@@ -59,7 +106,7 @@ function EvaluationCountdown({ startedAtMs }: { startedAtMs: number }) {
       <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Sous 24 h</span>
       <span
         role="timer"
-        className="font-mono text-[17px] font-semibold tabular-nums text-[#5E3023] sm:text-[18px]"
+        className="font-mono text-[17px] font-semibold tabular-nums text-zinc-900 sm:text-[18px]"
       >
         {label}
       </span>
@@ -68,7 +115,6 @@ function EvaluationCountdown({ startedAtMs }: { startedAtMs: number }) {
 }
 
 type IntakePanelLayoutProps = {
-  kicker: string;
   title: string;
   titleId: string;
   titleRight?: ReactNode;
@@ -76,49 +122,32 @@ type IntakePanelLayoutProps = {
   footer: ReactNode;
 };
 
-function IntakePanelLayout({ kicker, title, titleId, titleRight, children, footer }: IntakePanelLayoutProps) {
+function IntakePanelLayout({ title, titleId, titleRight, children, footer }: IntakePanelLayoutProps) {
   return (
     <div
       className="mx-auto w-full max-w-[460px] px-4 py-4 sm:px-5"
       role="region"
       aria-labelledby={titleId}
     >
-      <div className="flex gap-3 sm:gap-4">
-        <div className="relative hidden w-[72px] shrink-0 sm:flex sm:items-start sm:justify-center">
-          <div
-            className="pointer-events-none absolute inset-0 rounded-xl opacity-40"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(-42deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 7px)",
-            }}
-            aria-hidden
-          />
-          <img src={EYE_ART_SRC} alt="" className="relative z-[1] mt-1 h-14 w-auto object-contain" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(montserrat.className, "text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500")}
-          >
-            {kicker}
-          </p>
-          <div className="mt-1 flex flex-row items-start justify-between gap-3">
-            <h2
-              id={titleId}
-              className={cn(
-                playfair.className,
-                "min-w-0 flex-1 text-left text-[19px] leading-snug text-zinc-900 sm:text-[20px]",
-              )}
-            >
-              {title}
-            </h2>
-            {titleRight ? <div className="shrink-0 pt-0.5">{titleRight}</div> : null}
-          </div>
-          <div className={cn(montserrat.className, "mt-2 text-left text-[14px] leading-relaxed text-zinc-600 sm:text-[15px]")}>
-            {children}
-          </div>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">{footer}</div>
-        </div>
+      <SegnaDialogTitleRow id={titleId} title={title} right={titleRight} />
+      <div className={cn(segnaDialogBodyClass(), "mt-2 text-left")}>{children}</div>
+      <div className={cn(segnaDialogMontserrat.className, "mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3")}>
+        {footer}
       </div>
+    </div>
+  );
+}
+
+function mergeIntakeTitleRight(onDismiss: (() => void) | undefined, existing: ReactNode | undefined): ReactNode | undefined {
+  const close =
+    onDismiss != null ? (
+      <SegnaDialogDismissButton key="stack-dismiss" variant="inline" onClick={onDismiss} />
+    ) : null;
+  if (!close && !existing) return undefined;
+  return (
+    <div className="flex shrink-0 items-start gap-2">
+      {existing}
+      {close}
     </div>
   );
 }
@@ -134,6 +163,10 @@ export type ItemIntakePanelProps = {
   onPipelineUpdated: () => void;
   /** Sur la page analyse : pas de lien « Voir l'analyse », offre + refus/accept ici. */
   placement: "item" | "evaluation";
+  /** Pile Échange : après « Compris » / « Fermer » pour passer à la carte suivante. */
+  onExchangeStackAdvance?: () => void;
+  /** Pile Échange : croix en-tête — masque la carte (session) sans action métier. */
+  onStackDismiss?: () => void;
 };
 
 export function ItemIntakePanel({
@@ -145,6 +178,8 @@ export function ItemIntakePanel({
   offerPricePoints,
   onPipelineUpdated,
   placement,
+  onExchangeStackAdvance,
+  onStackDismiss,
 }: ItemIntakePanelProps) {
   const router = useRouter();
   const [userMinimized, setUserMinimized] = useState(false);
@@ -167,7 +202,14 @@ export function ItemIntakePanel({
     listingStage === "validated" &&
     fulfillmentStage != null &&
     fulfillmentStage !== "verified" &&
-    fulfillmentStage !== "refused";
+    fulfillmentStage !== "refused" &&
+    fulfillmentStage !== "pre_subscribe_eligible" &&
+    fulfillmentStage !== "awaiting_subscription";
+
+  /** Étapes hors flux « expédition » mais avec panneau dédié (pile Échange / fiche). */
+  const awaitingLenderPlanUi =
+    listingStage === "validated" &&
+    (fulfillmentStage === "awaiting_subscription" || fulfillmentStage === "pre_subscribe_eligible");
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;
@@ -178,7 +220,8 @@ export function ItemIntakePanel({
     listingStage === "evaluation" ||
     listingStage === "validation_pending" ||
     listingStage === "evaluated" ||
-    listingStage === "refused";
+    listingStage === "refused" ||
+    awaitingLenderPlanUi;
 
   const visible = pipelineVisible && (!canMinimize || !userMinimized);
 
@@ -248,17 +291,22 @@ export function ItemIntakePanel({
     const evalStartMs = resolveEvaluationCountdownStartMs(intakeMetadata, intakeUpdatedAt ?? null);
     return (
       <IntakePanelLayout
-        kicker="Suivi annonce"
         title="Soumis pour analyse"
         titleId="intake-title-evaluation"
-        titleRight={evalStartMs != null ? <EvaluationCountdown startedAtMs={evalStartMs} /> : null}
+        titleRight={mergeIntakeTitleRight(
+          onStackDismiss,
+          evalStartMs != null ? <EvaluationCountdown startedAtMs={evalStartMs} /> : undefined,
+        )}
         footer={
           <button
             type="button"
-            onClick={() => setUserMinimized(true)}
+            onClick={() => {
+              onExchangeStackAdvance?.();
+              setUserMinimized(true);
+            }}
             className={cn(
               montserrat.className,
-              "h-11 w-full rounded-full bg-[#5E3023] text-[14px] font-semibold text-white sm:w-auto sm:min-w-[140px]",
+              "h-11 w-full rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[140px]",
             )}
           >
             Compris
@@ -276,8 +324,7 @@ export function ItemIntakePanel({
   if (listingStage === "validation_pending") {
     const pts = offerPricePoints != null && Number.isFinite(offerPricePoints) ? Math.round(offerPricePoints) : null;
 
-    const floatingCardClass =
-      "rounded-[18px] bg-[#F3E8DF] px-3.5 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.04]";
+    const panelShell = "mx-auto w-full max-w-[460px] space-y-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm";
 
     if (placement === "item") {
       const phrase =
@@ -287,16 +334,23 @@ export function ItemIntakePanel({
       return (
         <div
           role="region"
-          aria-label="Offre Segna"
-          className={cn(montserrat.className, "flex items-center gap-3", floatingCardClass)}
+          aria-labelledby="intake-title-validation-pending-item"
+          className={cn(montserrat.className, panelShell, "relative")}
         >
+          {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
+          <div className={onStackDismiss ? "pr-10" : undefined}>
+            <SegnaDialogTitleRow id="intake-title-validation-pending-item" title="Proposition Segna" />
+            <p className={segnaDialogBodyClass()}>{phrase}</p>
+          </div>
           <Link
             href={`/items/${itemId}/evaluation`}
-            className="shrink-0 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#5E3023] shadow-sm ring-1 ring-black/[0.06]"
+            className={cn(
+              montserrat.className,
+              "inline-flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white",
+            )}
           >
             Voir l&apos;analyse
           </Link>
-          <p className="min-w-0 flex-1 text-[13px] leading-snug text-zinc-800">{phrase}</p>
         </div>
       );
     }
@@ -306,50 +360,61 @@ export function ItemIntakePanel({
         <div
           role="region"
           aria-labelledby="intake-title-validation-pending-eval"
-          className={cn(montserrat.className, floatingCardClass, "flex flex-col gap-2")}
+          className={cn(montserrat.className, panelShell, "relative")}
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setActionError(null);
-                  setRefuseConfirmOpen(true);
-                }}
-                disabled={isAccepting || isRefusing}
-                className="rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-zinc-800 shadow-sm ring-1 ring-black/[0.06] disabled:opacity-50"
-              >
-                Refuser
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleAcceptOffer()}
-                disabled={isAccepting || isRefusing}
-                className="rounded-full bg-[#5E3023] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
-              >
-                {isAccepting ? "…" : "Accepter"}
-              </button>
-            </div>
-            <p id="intake-title-validation-pending-eval" className="min-w-0 flex-1 text-[13px] leading-snug text-zinc-800">
-              {pts != null
-                ? `${pts} points proposés — accepte ou refuse l’entrée au catalogue.`
-                : "Une entrée au catalogue t’est proposée — accepte ou refuse."}
-            </p>
-          </div>
+          {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
+          <div className={onStackDismiss ? "pr-10" : undefined}>
+            <SegnaDialogTitleRow
+              id="intake-title-validation-pending-eval"
+              title="Entrée au catalogue"
+            />
+          <p className={segnaDialogBodyClass()}>
+            {pts != null
+              ? `${pts} points proposés — accepte ou refuse l’entrée au catalogue.`
+              : "Une entrée au catalogue t’est proposée — accepte ou refuse."}
+          </p>
           {actionError ? <p className="text-[12px] text-[#E44D3E]">{actionError}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActionError(null);
+                setRefuseConfirmOpen(true);
+              }}
+              disabled={isAccepting || isRefusing}
+              className="rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              Refuser
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAcceptOffer()}
+              disabled={isAccepting || isRefusing}
+              className="rounded-full bg-zinc-900 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+            >
+              {isAccepting ? "…" : "Accepter"}
+            </button>
+          </div>
+          </div>
         </div>
         {refuseConfirmOpen ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" role="presentation">
             <div
-              className="w-full max-w-[340px] rounded-2xl bg-white p-5 shadow-xl"
+              className={cn(SEGNA_DIALOG_CARD_CLASS, "relative max-w-[340px]")}
               role="dialog"
               aria-modal="true"
               aria-labelledby="refuse-offer-title"
             >
-              <h3 id="refuse-offer-title" className={cn(montserrat.className, "text-lg font-semibold text-zinc-900")}>
+              <SegnaDialogDismissButton
+                onClick={() => {
+                  setRefuseConfirmOpen(false);
+                  setActionError(null);
+                }}
+              />
+              <h3 id="refuse-offer-title" className={cn(segnaDialogTitleClass(), "pr-10")}>
                 Refuser cette offre ?
               </h3>
-              <p className={cn(montserrat.className, "mt-2 text-sm text-zinc-600")}>
+              <p className={cn(segnaDialogBodyClass(), "mt-2")}>
                 Ta fiche sera retirée de la file d&apos;entrée. Tu pourras créer une nouvelle annonce plus tard.
               </p>
               {actionError ? <p className="mt-2 text-sm text-[#E44D3E]">{actionError}</p> : null}
@@ -387,23 +452,26 @@ export function ItemIntakePanel({
   if (listingStage === "evaluated") {
     return (
       <IntakePanelLayout
-        kicker="Complément demandé"
         title="Des précisions sont nécessaires"
         titleId="intake-title-evaluated"
+        titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
         footer={
           <>
             <Link
               href={`/items/new?itemId=${encodeURIComponent(itemId)}&from=item`}
               className={cn(
                 montserrat.className,
-                "flex h-11 w-full items-center justify-center rounded-full bg-[#5E3023] text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
+                "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
               )}
             >
               Compléter ma fiche
             </Link>
             <button
               type="button"
-              onClick={() => setUserMinimized(true)}
+              onClick={() => {
+                onExchangeStackAdvance?.();
+                setUserMinimized(true);
+              }}
               className={cn(
                 montserrat.className,
                 "h-10 text-[14px] font-semibold text-zinc-500 underline-offset-2 hover:underline sm:px-3",
@@ -422,16 +490,16 @@ export function ItemIntakePanel({
   if (listingStage === "refused") {
     return (
       <IntakePanelLayout
-        kicker="Annonce non retenue"
         title="Cette pièce ne correspond pas"
         titleId="intake-title-refused"
+        titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
         footer={
           <button
             type="button"
             onClick={() => router.push("/exchange")}
             className={cn(
               montserrat.className,
-              "h-11 w-full rounded-full bg-[#5E3023] text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
+              "h-11 w-full rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
             )}
           >
             Retour à l&apos;échange
@@ -439,6 +507,56 @@ export function ItemIntakePanel({
         }
       >
         <p>{refusalText}</p>
+      </IntakePanelLayout>
+    );
+  }
+
+  if (listingStage === "validated" && fulfillmentStage === "awaiting_subscription") {
+    return (
+      <AwaitingSubscriptionGuestPanel
+        itemId={itemId}
+        offerPricePoints={offerPricePoints}
+        placement={placement}
+        onStackDismiss={onStackDismiss}
+      />
+    );
+  }
+
+  if (listingStage === "validated" && fulfillmentStage === "pre_subscribe_eligible") {
+    return (
+      <IntakePanelLayout
+        title="Pièce éligible (abonnement prêteur)"
+        titleId="intake-title-pre-subscribe"
+        titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
+        footer={
+          <>
+            <Link
+              href="/package"
+              className={cn(
+                montserrat.className,
+                "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
+              )}
+            >
+              Voir les formules
+            </Link>
+            <button
+              type="button"
+              onClick={() => router.push("/exchange")}
+              className={cn(
+                montserrat.className,
+                "h-10 text-[14px] font-semibold text-zinc-500 underline-offset-2 hover:underline sm:px-3",
+              )}
+            >
+              Retour à l&apos;échange
+            </button>
+          </>
+        }
+      >
+        <p>
+          Ton annonce a été validée et évaluée. Tu n&apos;as pas encore d&apos;expédition à lancer : une fois ton
+          abonnement prêteur souscrit, tu pourras envoyer ta pièce à Segna depuis l&apos;onglet « Prêts » (bordereau
+          d&apos;envoi).
+        </p>
       </IntakePanelLayout>
     );
   }
@@ -451,32 +569,30 @@ export function ItemIntakePanel({
         aria-labelledby="intake-logistics-refused-title"
         className={cn(
           montserrat.className,
-          "mx-auto flex w-full max-w-[460px] flex-col gap-3 rounded-[18px] border border-rose-200/90 bg-rose-50/80 px-3.5 py-3.5 shadow-[0_6px_24px_rgba(0,0,0,0.06)] ring-1 ring-rose-900/[0.06]",
+          "relative mx-auto flex w-full max-w-[460px] flex-col gap-3 rounded-2xl border border-rose-200/80 bg-rose-50/50 px-4 py-4 shadow-sm",
         )}
       >
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-800/90">Contrôle physique</p>
-          <h2 id="intake-logistics-refused-title" className={cn(playfair.className, "mt-1 text-[18px] leading-snug text-zinc-900")}>
-            Pièce non conforme — refus logistique
-          </h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-zinc-700">
-            La pièce ne correspond pas à l&apos;annonce ou aux critères après réception. Un retour peut être mis en
-            place (frais à ta charge sauf indication contraire). Consulte la page dédiée pour le motif et les prochaines
-            étapes.
+        {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
+        <div className={onStackDismiss ? "pr-10" : undefined}>
+          <SegnaDialogTitleRow id="intake-logistics-refused-title" title="Pièce non conforme — refus logistique" />
+        <p className={segnaDialogBodyClass()}>
+          La pièce ne correspond pas à l&apos;annonce ou aux critères après réception. Un retour peut être mis en
+          place (frais à ta charge sauf indication contraire). Consulte la page dédiée pour le motif et les prochaines
+          étapes.
+        </p>
+        {note ? (
+          <p className={segnaDialogBodyClass()}>
+            <span className="font-semibold text-zinc-900">Motif : </span>
+            {note}
           </p>
-          {note ? (
-            <p className="mt-2 rounded-lg border border-rose-200/80 bg-white/90 px-3 py-2 text-[13px] text-zinc-800">
-              <span className="font-semibold text-rose-900">Motif : </span>
-              {note}
-            </p>
-          ) : null}
-        </div>
+        ) : null}
         <Link
           href={`/items/${itemId}/refus-logistique`}
-          className="flex h-11 items-center justify-center rounded-full bg-[#5E3023] px-5 text-[13px] font-semibold text-white shadow-sm"
+          className="flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-[13px] font-semibold text-white shadow-sm"
         >
           Page refus &amp; suite à donner
         </Link>
+        </div>
       </div>
     );
   }
@@ -485,21 +601,25 @@ export function ItemIntakePanel({
     return (
       <div
         role="region"
-        aria-label="Suivi expédition"
+        aria-labelledby="intake-shipping-title"
         className={cn(
           montserrat.className,
-          "mx-auto flex w-full max-w-[460px] items-center gap-3 rounded-[18px] bg-[#F3E8DF] px-3.5 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.04]",
+          "relative mx-auto w-full max-w-[460px] space-y-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm",
         )}
       >
+        {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
+        <div className={onStackDismiss ? "space-y-3 pr-10" : "space-y-3"}>
+          <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" />
+        <p className={segnaDialogBodyClass()}>
+          Retrouve le bordereau et le suivi sur la page dédiée.
+        </p>
         <Link
           href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, intakeMetadata)}`}
-          className="shrink-0 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#5E3023] shadow-sm ring-1 ring-black/[0.06]"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
         >
           Bordereau d&apos;envoi
         </Link>
-        <p className="min-w-0 flex-1 text-[13px] leading-snug text-zinc-800">
-          Prépare ton envoi et retrouve le suivi sur la page dédiée.
-        </p>
+        </div>
       </div>
     );
   }

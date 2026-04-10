@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
+import { promotePendingLenderIntakesAfterStripeSubscription } from "@/lib/stripe/promote-pending-lender-intakes";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -86,6 +87,8 @@ async function upsertSubscriptionAndEntitlements(
     p_user_id: userId,
     p_plan_code: entitlementPlan,
   });
+
+  await promotePendingLenderIntakesAfterStripeSubscription(admin, userId, subscription, planCode);
 }
 
 export async function GET(request: Request) {

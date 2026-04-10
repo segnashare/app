@@ -1,8 +1,10 @@
 "use client";
 
-import { Montserrat, Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const montserrat = segnaMontserrat;
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -21,14 +23,8 @@ type OnboardingBirthCoreProps = {
   initialBirthDate?: string;
 };
 
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "800",
-});
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: "600",
-});
+
+
 
 function clampDigits(value: string, maxLength: number) {
   return value.replace(/\D/g, "").slice(0, maxLength);
@@ -270,7 +266,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
               <div className="w-px bg-zinc-200" aria-hidden />
               <button
                 type="button"
-                className="h-full flex-1 text-[clamp(16px,3.6vw,24px)] font-semibold text-[#5E3023]"
+                className="h-full flex-1 text-[clamp(16px,3.6vw,24px)] font-semibold text-zinc-900"
                 onClick={() => void onConfirmAge()}
                 disabled={isSubmitting}
               >

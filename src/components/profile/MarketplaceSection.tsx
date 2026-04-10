@@ -1,56 +1,35 @@
 "use client";
 
-import Link from "next/link";
-import { Playfair_Display } from "next/font/google";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+const playfairDisplay = segnaPlayfairDisplay;
 
 import { CardBase } from "@/components/layout/CardBase";
 
 export type MarketplaceMembershipTier = "guest" | "segna_plus" | "segna_x";
 
-type MarketplaceSectionProps = {
-  membershipTier: MarketplaceMembershipTier;
-};
-
-const playfairDisplay = Playfair_Display({
-  subsets: ["latin"],
-  weight: "700",
-});
-
-export function MarketplaceSection({ membershipTier }: MarketplaceSectionProps) {
+export function MarketplaceSection() {
   const [marketplaceModalOpen, setMarketplaceModalOpen] = useState(false);
   const [processingPack, setProcessingPack] = useState<number | null>(null);
 
-  const visibilityLabel = membershipTier === "guest" ? "Pods" : "Mods";
+  const visibilityLabel = "Obtenir plus";
   const visibilityDescription =
-    membershipTier === "guest"
-      ? "Active ce service pour augmenter tes interactions."
-      : "Achète des mods pour booster ta visibilité premium.";
-  const modalTitle = membershipTier === "guest" ? "Pods" : "Mods";
+    "Recharge ton solde de crédits pour la location et l’échange (packs Stripe).";
+  const modalTitle = "Crédits";
   const modalDescription =
-    membershipTier === "guest"
-      ? "Les pods sont des crédits de visibilité pour augmenter tes interactions."
-      : "Les mods sont un produit premium distinct des pods, réservé aux membres abonnés.";
-  const unitLabel = membershipTier === "guest" ? "Pod" : "Mod";
-  const unitLabelPlural = membershipTier === "guest" ? "Pods" : "Mods";
-  const packOptions =
-    membershipTier === "guest"
-      ? [ 
-          { quantity: 10, priceLabel: "12,99€" },
-          { quantity: 20, priceLabel: "19,99€" },
-          { quantity: 50, priceLabel: "29,99€" },
-          { quantity: 100, priceLabel: "49,99€" },
-        ]
-      : [
-          { quantity: 10, priceLabel: "19,99€" },
-          { quantity: 20, priceLabel: "29,99€" },
-          { quantity: 50, priceLabel: "49,99€" },
-        ];
+    "Les crédits s’ajoutent à ton solde. Les packs et tarifs correspondent à ton offre Stripe (200, 500 ou 1000 crédits).";
+  const unitLabel = "crédit";
+  const unitLabelPlural = "crédits";
+  /** Libellés alignés sur les produits Stripe (à ajuster si tu changes les prix). */
+  const packOptions = [
+    { quantity: 200, priceLabel: "9,99€" },
+    { quantity: 500, priceLabel: "19,99€" },
+    { quantity: 1000, priceLabel: "49,99€" },
+  ] as const;
 
   const handlePackCheckout = async (quantity: number) => {
     if (processingPack !== null) return;
-    const creditKind = membershipTier === "guest" ? "pods" : "mods";
     setProcessingPack(quantity);
     try {
       const response = await fetch("/api/stripe/credits/checkout", {
@@ -59,7 +38,6 @@ export function MarketplaceSection({ membershipTier }: MarketplaceSectionProps) 
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          creditKind,
           pack: quantity,
         }),
       });
@@ -78,36 +56,6 @@ export function MarketplaceSection({ membershipTier }: MarketplaceSectionProps) 
   return (
     <>
       <div className="space-y-4">
-        {membershipTier !== "segna_x" ? (
-          <section className="space-y-3">
-            <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:-mx-5 md:px-5">
-              <CardBase className="h-[220px] w-[380px] flex-shrink-0 bg-zinc-900 text-white">
-                <p className="text-sm text-zinc-300">SegnaX</p>
-                <p className="mt-2 text-2xl font-semibold leading-tight">Fais-toi remarquer plus vite</p>
-                <Link
-                  href="/package?plan=minus"
-                  className="mt-4 inline-flex h-11 min-w-[180px] items-center justify-center rounded-full bg-white px-4 text-sm font-semibold text-zinc-900"
-                >
-                  Passer premium
-                </Link>
-              </CardBase>
-
-              {membershipTier === "guest" ? (
-                <CardBase className="h-[220px] w-[400px] flex-shrink-0 overflow-hidden">
-                  <p className="text-sm text-zinc-500">Segna+</p>
-                  <p className="mt-2 text-xl font-semibold leading-tight text-zinc-900 break-words">Débloque les échanges avec l&apos;abonnement Segna+.</p>
-                  <Link
-                    href="/package?plan=plus"
-                    className="mt-4 inline-flex h-11 min-w-[180px] items-center justify-center rounded-full border border-zinc-300 px-4 text-sm font-semibold text-zinc-900"
-                  >
-                    Voir Segna+
-                  </Link>
-                </CardBase>
-              ) : null}
-            </div>
-          </section>
-        ) : null}
-
         <section className="space-y-3">
           <button type="button" onClick={() => setMarketplaceModalOpen(true)} className="block w-full text-left">
             <CardBase className="flex items-center justify-between">
