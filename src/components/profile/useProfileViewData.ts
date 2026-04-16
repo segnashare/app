@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { parseUserProfilePhotoPath } from "@/lib/profile/parse-profile-photo-path";
+import { formatReseauxSummaryOrNull } from "@/lib/profile/profile-completion-score";
+import { readSocialHandlesFromProfileData } from "@/lib/profile/social-handles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type {
@@ -63,7 +65,12 @@ function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null
         night: true,
         city: null,
         profession: cache.infoItems?.find((i) => i.id === "work")?.value ?? null,
+        socialSectionVisible: true,
         instagramHandle: null,
+        tiktokHandle: null,
+        pinterestHandle: null,
+        threadsHandle: null,
+        reseauxSummary: null,
         displayName: displayName ?? null,
       };
   return { ...base, city: cityFromDb ?? base.city };
@@ -158,10 +165,37 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       // ignore
     }
     const viewData = cacheToProfileViewData(cache, displayName ?? null, cityFromDb);
-    setData({
+    let merged = {
       ...viewData,
       brands: brandsFromDb.length > 0 ? brandsFromDb : viewData.brands,
-    });
+    };
+    try {
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      if (authUser?.id) {
+        const { data: pr } = await supabase.from("user_profiles").select("profile_data").eq("user_id", authUser.id).maybeSingle();
+        const profileData = ((pr as { profile_data?: Record<string, unknown> } | null)?.profile_data ?? {}) as Record<string, unknown>;
+        const social = readSocialHandlesFromProfileData(profileData);
+        const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
+        const socialSectionVisible = infoVisibilityRaw.reseaux !== false;
+        merged = {
+          ...merged,
+          infoCard: {
+            ...merged.infoCard,
+            socialSectionVisible,
+            instagramHandle: social.instagram || null,
+            tiktokHandle: social.tiktok || null,
+            pinterestHandle: social.pinterest || null,
+            threadsHandle: social.threads || null,
+            reseauxSummary: formatReseauxSummaryOrNull(profileData),
+          },
+        };
+      }
+    } catch {
+      // cache-only fallback
+    }
+    setData(merged);
     setIsLoading(false);
     return true;
   }, [displayName]);
@@ -334,7 +368,9 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
     const ageStr = toDisplay(profileRow.age ?? profileData.age);
     const workStr = toDisplay(profileData.work);
-    const instagramHandle = (profileData.instagram_username ?? profileRow.instagram_username) as string | null;
+    const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
+    const socialSectionVisible = infoVisibilityRaw.reseaux !== false;
+    const social = readSocialHandlesFromProfileData(profileData);
     const displayName = (profileRow.display_name ?? profileData.display_name) as string | null;
 
     let levelIcon = "🌱";
@@ -361,7 +397,12 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       night: true,
       city: null,
       profession: workStr || null,
-      instagramHandle: instagramHandle?.trim() || null,
+      socialSectionVisible,
+      instagramHandle: social.instagram || null,
+      tiktokHandle: social.tiktok || null,
+      pinterestHandle: social.pinterest || null,
+      threadsHandle: social.threads || null,
+      reseauxSummary: formatReseauxSummaryOrNull(profileData),
       displayName: displayName?.trim() || null,
     };
 
@@ -379,7 +420,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       brands,
       insights: answers,
       lentPieces: [],
-      instagramUsername: instagramHandle ?? displayName,
+      instagramUsername: social.instagram || null,
       locationLabel: null,
       statsValue: null,
     });

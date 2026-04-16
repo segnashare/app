@@ -1,7 +1,14 @@
 -- `balance_exchange_points` : NULL par défaut pour les utilisateurs sans abonnement actif (Stripe active/trialing).
 -- Les abonnés gardent un bigint (0 ou plus). Arithmétique et contraintes utilisent coalesce(..., 0) là où nécessaire.
 
--- 1) Données existantes : invités avec solde échange à 0 → NULL
+-- 1) Schéma : autoriser NULL avant le backfill (UPDATE vers NULL sinon NOT NULL bloque)
+alter table public.user_wallets
+  alter column balance_exchange_points drop default;
+
+alter table public.user_wallets
+  alter column balance_exchange_points drop not null;
+
+-- 2) Données existantes : invités avec solde échange à 0 → NULL
 update public.user_wallets uw
 set balance_exchange_points = null
 where coalesce(uw.balance_exchange_points, 0) = 0
@@ -12,12 +19,6 @@ where coalesce(uw.balance_exchange_points, 0) = 0
       and s.provider = 'stripe'
       and lower(coalesce(s.status, '')) in ('active', 'trialing')
   );
-
-alter table public.user_wallets
-  alter column balance_exchange_points drop default;
-
-alter table public.user_wallets
-  alter column balance_exchange_points drop not null;
 
 alter table public.user_wallets
   alter column balance_exchange_points set default null;

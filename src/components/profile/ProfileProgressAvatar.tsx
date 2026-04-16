@@ -36,7 +36,7 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
             <stop offset="100%" stopColor="#18181b" />
           </linearGradient>
         </defs>
-        <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="6" className="text-zinc-200" fill="none" />
+        <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="8" className="text-zinc-200" fill="none" />
         <circle
           cx="80"
           cy="80"

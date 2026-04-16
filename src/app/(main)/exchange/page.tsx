@@ -1,5 +1,6 @@
 import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
 import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
+import { ExchangeMergeShippingBanner } from "@/components/exchange/ExchangeMergeShippingBanner";
 import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
@@ -16,6 +17,10 @@ import {
   getMemberOutboundShipmentPhaseCopy,
   getOutboundShipmentDeliverySubtitle,
 } from "@/lib/cart/member-outbound-shipment-copy";
+import {
+  getMemberReturnShipmentPhaseCopy,
+  getReturnShipmentSubtitle,
+} from "@/lib/cart/member-return-shipment-copy";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
@@ -234,7 +239,7 @@ export default async function ExchangePage() {
       .select("id,status,created_at,updated_at")
       .eq("user_id", userId)
       .is("deleted_at", null)
-      .eq("status", "archived")
+      .in("status", ["archived", "canceled"])
       .order("updated_at", { ascending: false })
       .limit(50),
     supabase
@@ -508,7 +513,7 @@ export default async function ExchangePage() {
 
   const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
 
-  const [thumbUrlsByCartId, outboundShipRes] = await Promise.all([
+  const [thumbUrlsByCartId, outboundShipRes, returnShipRes] = await Promise.all([
     fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds),
     orderCardCartIds.length > 0
       ? supabase
@@ -516,6 +521,14 @@ export default async function ExchangePage() {
           .select("cart_id,status,updated_at")
           .in("cart_id", orderCardCartIds)
           .eq("context", "cart_outbound")
+          .is("deleted_at", null)
+      : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
+    orderCardCartIds.length > 0
+      ? supabase
+          .from("shipments")
+          .select("cart_id,status,updated_at")
+          .in("cart_id", orderCardCartIds)
+          .eq("context", "cart_return")
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
   ]);
@@ -531,11 +544,46 @@ export default async function ExchangePage() {
     }
   }
 
+  const returnShipmentByCartId = new Map<string, { status: string; updated_at: string }>();
+  if (returnShipRes.error == null && Array.isArray(returnShipRes.data)) {
+    for (const row of returnShipRes.data as { cart_id: string; status: string; updated_at: string }[]) {
+      const cartId = row.cart_id;
+      const prev = returnShipmentByCartId.get(cartId);
+      if (!prev || new Date(row.updated_at) > new Date(prev.updated_at)) {
+        returnShipmentByCartId.set(cartId, { status: row.status, updated_at: row.updated_at });
+      }
+    }
+  }
+
   function buildExchangeOrderCard(
     order: CartOrderListRow,
     thumbs: string[],
     opts: { historyFallback: boolean },
   ) {
+    if ((order.status ?? "").toLowerCase() === "canceled") {
+      return {
+        id: order.id,
+        orderNumberCompact: formatOrderNumberCompact(order.id),
+        statusLabel: "Commande annulée",
+        deliveryLabel: null as string | null,
+        itemThumbUrls: thumbs,
+      };
+    }
+    const ret = returnShipmentByCartId.get(order.id);
+    if (ret) {
+      const phase = getMemberReturnShipmentPhaseCopy(ret.status);
+      const deliveryLabel = getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
+      return {
+        id: order.id,
+        orderNumberCompact: formatOrderNumberCompact(order.id),
+        statusLabel: phase.title,
+        deliveryLabel,
+        itemThumbUrls: thumbs,
+        detailHref: `/exchange/retour/${order.id}` as const,
+        ...(phase.pulse ? { showPulse: true as const } : {}),
+      };
+    }
+
     const ship = outboundShipmentByCartId.get(order.id);
     if (!ship) {
       return {
@@ -558,6 +606,7 @@ export default async function ExchangePage() {
       itemThumbUrls: thumbs,
       ...(detailHref ? { detailHref } : {}),
       ...(phase.pulse ? { showPulse: true as const } : {}),
+      ...(st === "delivered" ? { statusPillTone: "success" as const } : {}),
     };
   }
 
@@ -615,6 +664,10 @@ export default async function ExchangePage() {
   const showOutboundCallout =
     outboundShipmentSummary != null && outboundShipmentSummary.status.toLowerCase() !== "closed";
 
+  const showMergeShippingBanner =
+    mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
+  const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
+
   return (
     <>
       <ExchangeLendsDetailPrefetch itemIds={lends.map((l) => l.id)} />
@@ -627,6 +680,17 @@ export default async function ExchangePage() {
           activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
         />
+        {showMergeShippingBanner ? (
+          <div className="px-5 pb-2">
+            <div className="mx-auto w-full max-w-[460px]">
+              <ExchangeMergeShippingBanner
+                key={[...mergedShippingCandidateIds].sort().join(",")}
+                candidateIds={mergedShippingCandidateIds}
+                mergeHref={mergeShippingHref}
+              />
+            </div>
+          </div>
+        ) : null}
         <ExchangeHeaderAlertStack
           intakeItems={exchangeIntakeBannerItems}
           outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}

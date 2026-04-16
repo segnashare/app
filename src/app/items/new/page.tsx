@@ -554,7 +554,7 @@ export default function NewItemPage() {
           .from("item_condition_history")
           .select("condition_score,defect_notes")
           .eq("item_id", requestedItemId)
-          .eq("status", "draft")
+          .eq("source", "owner_announced")
           .maybeSingle();
         if (isUnmounted) return;
         if (condRow) {
@@ -715,7 +715,7 @@ export default function NewItemPage() {
             .from("item_condition_history")
             .select("condition_score,defect_notes")
             .eq("item_id", existingDraftId)
-            .eq("status", "draft")
+            .eq("source", "owner_announced")
             .maybeSingle();
           if (condRow) {
             const c = condRow as { condition_score?: string; defect_notes?: string | null };

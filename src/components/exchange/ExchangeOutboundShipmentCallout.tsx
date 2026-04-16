@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { OutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
+import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -63,8 +64,13 @@ export function ExchangeOutboundShipmentCallout({
   const delivered = st === "delivered";
   const trackingUrl =
     summary.trackingNumber != null ? buildMondialRelayTrackingUrl(summary.trackingNumber) : null;
-  const ctaHref = delivered ? `/exchange/emprunt/${summary.cartId}` : `/commande/${summary.cartId}`;
-  const ctaLabel = delivered ? "Voir mon emprunt" : "Voir ma commande";
+  const returnActive = isActiveMemberReturnPhase(summary.returnShipmentStatus);
+  const ctaHref = delivered
+    ? returnActive
+      ? `/exchange/retour/${summary.cartId}`
+      : `/exchange/emprunt/${summary.cartId}`
+    : `/commande/${summary.cartId}`;
+  const ctaLabel = delivered ? (returnActive ? "Voir mon retour" : "Voir mon emprunt") : "Voir ma commande";
 
   const card = (
     <div

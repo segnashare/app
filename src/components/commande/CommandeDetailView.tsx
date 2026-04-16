@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { X } from "lucide-react";
 
+import { CommandeCancelOrderButton } from "@/components/commande/CommandeCancelOrderButton";
 import { CommandeExpeditionSummarySection } from "@/components/commande/CommandeExpeditionSummarySection";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import type { MemberCartOrderDetail, MemberCartOrderShipment } from "@/lib/cart/fetch-member-cart-order-detail";
@@ -17,6 +18,7 @@ function formatEuros(n: number): string {
 }
 
 function commandeStatusTitle(d: MemberCartOrderDetail): string {
+  if (d.cartStatus === "canceled") return "Commande annulée";
   if (d.shipment?.status) {
     return getMemberOutboundShipmentPhaseCopy(d.shipment.status).title;
   }
@@ -26,7 +28,7 @@ function commandeStatusTitle(d: MemberCartOrderDetail): string {
 function readyAnchorIso(s: MemberCartOrderShipment): string | null {
   if (s.readyAt?.trim()) return s.readyAt.trim();
   if (s.status === "ready") return s.updatedAt;
-  const post = ["dropped_in", "dropped_out", "in_transit_in", "in_transit", "in_transit_out"];
+  const post = ["dropped_in", "dropped_out", "in_transit_in", "in_transit_out"];
   if (post.includes(s.status)) return s.updatedAt;
   return null;
 }
@@ -46,6 +48,7 @@ function formatLivraisonPrevuePlus2Jours(anchorIso: string): string {
 
 /** Sous-titre sous le statut : date prévue = passage ready + 2 jours (référence Europe/Paris pour l’affichage). */
 function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
+  if (d.cartStatus === "canceled") return null;
   if (!d.shipment) {
     return "La livraison prévue sera indiquée dès que ton colis est prêt à l’expédition.";
   }
@@ -74,6 +77,14 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
       ? buildMondialRelayTrackingUrl(detail.shipment.trackingNumber)
       : null;
 
+  const euro = detail.paymentBreakdown?.euroDetail ?? null;
+  const showFraisFactures =
+    euro != null &&
+    (euro.totalPaidEuros > 0.005 ||
+      euro.complementCreditsEuros > 0.005 ||
+      euro.serviceFeeEuros > 0.005 ||
+      euro.shippingFeeEuros > 0.005);
+
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white">
@@ -97,112 +108,136 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
         </div>
       </header>
 
+      {detail.cartStatus === "canceled" ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-[14px] leading-snug text-amber-950">
+          Cette commande a été annulée. Les crédits prélevés ont été recrédités sur ton wallet et les pièces sont de
+          nouveau disponibles à l&apos;achat.
+        </div>
+      ) : null}
+
       <CommandeExpeditionSummarySection
         previsionLine={previsionLine}
         trackingNumber={detail.shipment?.trackingNumber ?? null}
         trackingUrl={mondialTrackingUrl}
       />
 
-      <div className="flex flex-1 flex-col px-5 pb-4 pt-4">
-        {/* Articles + total points + répartition emprunt / complément */}
-        <section className="border-t border-zinc-200 pb-4 pt-2">
+      <div className="flex min-h-0 flex-1 flex-col px-5 pb-4 pt-3">
+        {/* Pas de border-t ici : le bloc expédition a déjà border-b (évite double trait). */}
+        <section className="pb-4 pt-2">
           <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
             {statusTitle}
           </h2>
           {detail.lines.length === 0 ? (
             <p className="text-sm text-zinc-500">Aucun article sur cette commande.</p>
           ) : (
-            <CommandeOrderLineRows lines={detail.lines} creditKind={creditKind} />
+            <CommandeOrderLineRows lines={detail.lines} creditKind={creditKind} pointsUnitDisplay="icon" />
           )}
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+          <div className="mt-4 flex items-center justify-between gap-3 pt-2">
             <span className="text-[16px] font-bold text-zinc-900">Total échangé</span>
             <SegnaPointsUnitDisplay
               points={detail.totalPoints}
               creditKind={creditKind}
+              unitDisplay="icon"
               numberClassName="text-[17px] font-bold text-zinc-900"
             />
           </div>
-          {detail.paymentBreakdown?.creditSplit ? (
-            <div className="mt-4 space-y-2.5 border-t border-zinc-100 pt-4 text-[15px] leading-snug">
+          {detail.paymentBreakdown?.creditSplit &&
+          detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
+            <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Solde d&apos;emprunt</span>
+                <span className="min-w-0 pr-2">Complément d&apos;échange</span>
                 <span className="shrink-0 font-medium text-zinc-900">
                   <SegnaPointsUnitDisplay
-                    points={detail.paymentBreakdown.creditSplit.pointsFromLendingBalance}
+                    points={detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement}
                     creditKind={creditKind}
+                    unitDisplay="icon"
                     numberClassName="font-medium text-zinc-900"
                   />
                 </span>
               </div>
-              {detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
-                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                  <span className="min-w-0 pr-2">Complément d&apos;échange</span>
-                  <span className="shrink-0 font-medium text-zinc-900">
-                    <SegnaPointsUnitDisplay
-                      points={detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement}
-                      creditKind={creditKind}
-                      numberClassName="font-medium text-zinc-900"
-                    />
-                  </span>
+            </div>
+          ) : null}
+          {detail.pointsPaidSplit &&
+          (detail.pointsPaidSplit.exchangePoints > 0 || detail.pointsPaidSplit.consumptionPoints > 0) ? (
+            <div className="mt-3 space-y-2 text-[14px] leading-snug text-zinc-600">
+              {detail.pointsPaidSplit.exchangePoints > 0 ? (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 pr-2">Crédits d&apos;échange</span>
+                  <SegnaPointsUnitDisplay
+                    points={detail.pointsPaidSplit.exchangePoints}
+                    creditKind="exchange"
+                    unitDisplay="icon"
+                    numberClassName="font-medium text-zinc-900"
+                  />
+                </div>
+              ) : null}
+              {detail.pointsPaidSplit.consumptionPoints > 0 ? (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 pr-2">Crédits de consommation</span>
+                  <SegnaPointsUnitDisplay
+                    points={detail.pointsPaidSplit.consumptionPoints}
+                    creditKind="consumption"
+                    unitDisplay="icon"
+                    numberClassName="font-medium text-zinc-900"
+                  />
                 </div>
               ) : null}
             </div>
           ) : null}
         </section>
 
-        {/* 2. Frais facturés (€ carte / livraison / service) */}
-        <section className="border-b border-zinc-200 py-4">
-          <h2 className={cn("mb-4 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
-            Frais facturés
-          </h2>
-          {detail.paymentBreakdown?.euroDetail ? (
+        {detail.cartStatus !== "canceled" ? (
+          <CommandeCancelOrderButton
+            cartId={detail.cartId}
+            cancellation={detail.orderCancellation}
+            wrapClassName="mt-7 flex flex-col items-center gap-2 pb-2 pt-2"
+          />
+        ) : null}
+
+        {/* Frais facturés (€) — uniquement s’il existe un montant € facturé (pas de bloc vide / explainer). */}
+        {showFraisFactures && euro ? (
+          <section className="border-b border-zinc-200 py-4">
+            <h2 className={cn("mb-4 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+              Frais facturés
+            </h2>
             <div className="space-y-2.5 text-[15px] leading-snug">
-              {detail.paymentBreakdown.euroDetail.complementCreditsEuros > 0 ? (
+              {euro.complementCreditsEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                   <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                    {formatEuros(detail.paymentBreakdown.euroDetail.complementCreditsEuros)}
+                    {formatEuros(euro.complementCreditsEuros)}
                   </span>
                 </div>
               ) : null}
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Frais de service (TTC)</span>
                 <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                  {formatEuros(detail.paymentBreakdown.euroDetail.serviceFeeEuros)}
+                  {formatEuros(euro.serviceFeeEuros)}
                 </span>
               </div>
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
                 <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                  {formatEuros(detail.paymentBreakdown.euroDetail.shippingFeeEuros)}
+                  {formatEuros(euro.shippingFeeEuros)}
                 </span>
               </div>
-              {detail.paymentBreakdown.euroDetail.feesVatEuros != null &&
-              detail.paymentBreakdown.euroDetail.feesVatEuros > 0 ? (
+              {euro.feesVatEuros != null && euro.feesVatEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                   <span className="min-w-0 pr-2">dont TVA</span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                    {formatEuros(detail.paymentBreakdown.euroDetail.feesVatEuros)}
+                    {formatEuros(euro.feesVatEuros)}
                   </span>
                 </div>
               ) : null}
               <div className="mt-4 flex items-baseline justify-between gap-3 border-t border-zinc-200 pt-4">
                 <span className="text-[17px] font-bold text-zinc-900">Sous-total facturé</span>
                 <span className="text-[18px] font-bold tabular-nums text-zinc-900">
-                  {formatEuros(detail.paymentBreakdown.euroDetail.totalPaidEuros)}
+                  {formatEuros(euro.totalPaidEuros)}
                 </span>
               </div>
             </div>
-          ) : detail.paymentBreakdown ? (
-            <p className="text-[13px] leading-relaxed text-zinc-500">
-              Le détail en euros (frais et total carte) n&apos;est pas disponible pour cette commande.
-            </p>
-          ) : (
-            <p className="text-[13px] leading-relaxed text-zinc-500">
-              Aucun détail de paiement carte n&apos;est disponible pour cette commande.
-            </p>
-          )}
-        </section>
+          </section>
+        ) : null}
       </div>
     </main>
   );

@@ -283,7 +283,8 @@ export async function POST(request: Request) {
     itemTitle: title,
     sender,
     recipient: segnaRecipient,
-    parcelCount: Math.min(9, Math.max(1, sortedItems.length)),
+    /** Un colis physique ; une seule ligne `Parcel` dans le XML Connect. */
+    parcelCount: 1,
     contentValueEur: parcel.valueEur > 0 ? parcel.valueEur : null,
     weightGr: Math.min(9000, Math.max(400, parcel.weightG)),
     lengthCm: parcel.lengthCm,

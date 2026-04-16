@@ -19,12 +19,19 @@ type CommandeOrderLineRowsProps = {
   creditKind: WalletCreditKind;
   /** Suffixe URL fiche article, ex. `?from=commande` ou chaîne vide. */
   itemHrefSuffix?: string;
+  /** `icon` : montant + picto Segna (détail commande / emprunt / paiement). */
+  pointsUnitDisplay?: "label" | "icon";
 };
 
 /**
  * Même grille que le panier (vignette + texte), sans corbeille : le coût en points à droite.
  */
-export function CommandeOrderLineRows({ lines, creditKind, itemHrefSuffix = "?from=commande" }: CommandeOrderLineRowsProps) {
+export function CommandeOrderLineRows({
+  lines,
+  creditKind,
+  itemHrefSuffix = "?from=commande",
+  pointsUnitDisplay = "label",
+}: CommandeOrderLineRowsProps) {
   if (lines.length === 0) return null;
 
   return (
@@ -78,6 +85,7 @@ export function CommandeOrderLineRows({ lines, creditKind, itemHrefSuffix = "?fr
               <SegnaPointsUnitDisplay
                 points={line.pricePoints}
                 creditKind={creditKind}
+                unitDisplay={pointsUnitDisplay}
                 numberClassName="text-[15px] font-semibold text-zinc-900"
               />
             </p>

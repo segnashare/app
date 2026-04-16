@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ProfileCompleteHeader, type ProfileCompleteMode } from "@/components/profile/ProfileCompleteHeader";
 import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteModifyCore";
@@ -20,6 +20,10 @@ export function ProfileCompleteFlow({ backTab, displayName, completionScore }: P
   const [showInsightsValidationError, setShowInsightsValidationError] = useState(false);
   const [previewScore, setPreviewScore] = useState<number | null>(null);
   const displayedScore = previewScore ?? completionScore;
+
+  useEffect(() => {
+    if (mode === "view") setPreviewScore(null);
+  }, [mode]);
 
   const handleDone = () => {
     if (mode === "edit" && !insightsAreComplete) {

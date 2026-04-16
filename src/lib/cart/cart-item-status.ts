@@ -10,7 +10,6 @@ export const CART_ITEM_STATUSES = [
   "verification_pending",
   "verified",
   "rejected",
-  "needs_cleaning",
 ] as const;
 
 export type CartItemStatus = (typeof CART_ITEM_STATUSES)[number];

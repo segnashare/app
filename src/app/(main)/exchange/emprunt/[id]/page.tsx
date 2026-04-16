@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { EmpruntDetailView } from "@/components/emprunt/EmpruntDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -45,6 +46,10 @@ export default async function EmpruntPage({ params }: PageProps) {
 
   if (!isDeliveredToMember(detail)) {
     redirect(`/commande/${cartId}`);
+  }
+
+  if (isActiveMemberReturnPhase(detail.returnShipment?.status)) {
+    redirect(`/exchange/retour/${cartId}`);
   }
 
   return <EmpruntDetailView detail={detail} />;

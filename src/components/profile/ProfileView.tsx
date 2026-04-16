@@ -53,7 +53,14 @@ export type ProfileViewInfoCardData = {
   night?: boolean;
   city: string | null;
   profession: string | null;
+  /** Afficher le bloc liens (respecte `info_visibility.reseaux`). */
+  socialSectionVisible?: boolean;
   instagramHandle: string | null;
+  tiktokHandle?: string | null;
+  pinterestHandle?: string | null;
+  threadsHandle?: string | null;
+  /** Résumé texte des réseaux remplis (ligne « infos »). */
+  reseauxSummary?: string | null;
   displayName: string | null;
 };
 

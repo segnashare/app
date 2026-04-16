@@ -15,6 +15,10 @@ import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { fetchActiveCartLinesForUser, fetchActiveCartSummaryForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
+import {
+  confirmCartPaidWalletOnly,
+  debitCartWalletOnly,
+} from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { computeExchangeRoundTripShippingCents } from "@/lib/shipping/exchange-shipping-pricing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -177,11 +181,43 @@ export async function POST(request: Request) {
     const fees = computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents);
     const totalCents = creditsCents + fees.feesTtcCents;
 
+    const config = getStripeConfig();
+
+    if (totalCents === 0) {
+      const creditsKind = walletCreditKindForMembership(membershipLabel);
+      const relayMeta =
+        relaySelection != null ? `${relaySelection.code}`.slice(0, 120) : "";
+      const deliveryLine1Meta =
+        deliveryChannel === "home" && deliveryAddress != null
+          ? deliveryAddress.label.trim().slice(0, 450)
+          : "";
+
+      try {
+        await debitCartWalletOnly(admin, userId, cartSummary.cartId, creditsKind);
+        await confirmCartPaidWalletOnly(
+          admin,
+          userId,
+          cartSummary.cartId,
+          deliveryChannel,
+          relayMeta,
+          deliveryLine1Meta,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "wallet_checkout_failed";
+        console.error("[stripe/cart/checkout] wallet-only cart completion failed", msg);
+        return NextResponse.json(
+          { message: "Impossible de finaliser la commande. Réessaie ou contacte le support." },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({ url: `${config.returnUrlBase}/exchange?cart=success` });
+    }
+
     if (totalCents < 50) {
       return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
     }
 
-    const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
 
     const { data: billingCustomerRow } = await admin

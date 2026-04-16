@@ -15,12 +15,14 @@ export type ExchangeOrderCard = {
   orderNumberCompact: string;
   /** État lisible (phase logistique, confirmée, archivée…). */
   statusLabel: string;
+  /** Pastille verte (ex. « Livré » aller). */
+  statusPillTone?: "success";
   /** Sous-texte livraison (en transit / livré) ; absent tant que l’expédition n’y est pas. */
   deliveryLabel: string | null;
   /** Première photo de chaque article du panier (ordre des lignes). */
   itemThumbUrls: string[];
   showPulse?: boolean;
-  /** Après livraison aller : page emprunt au lieu de commande. */
+  /** Cible du tap : commande, emprunt (livré sans retour actif), ou suivi retour. */
   detailHref?: string;
 };
 
@@ -31,14 +33,24 @@ type ExchangeInteractionsSectionProps = {
 
 type ExchangeTab = "history" | "ongoing";
 
-function OrderStatusPill({ label, active }: { label: string; active: boolean }) {
+function OrderStatusPill({
+  label,
+  active,
+  tone,
+}: {
+  label: string;
+  active: boolean;
+  tone?: "success";
+}) {
   return (
     <span
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold leading-tight",
         active
           ? "border-amber-300/90 bg-amber-50 text-amber-950"
-          : "border-zinc-200 bg-zinc-100 text-zinc-800",
+          : tone === "success"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-zinc-200 bg-zinc-100 text-zinc-800",
       )}
     >
       {active ? (
@@ -71,7 +83,11 @@ function OrderCards({ orders }: { orders: ExchangeOrderCard[] }) {
               />
             </Link>
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <OrderStatusPill label={order.statusLabel} active={Boolean(order.showPulse)} />
+              <OrderStatusPill
+                label={order.statusLabel}
+                active={Boolean(order.showPulse)}
+                tone={order.statusPillTone}
+              />
               {order.deliveryLabel ? (
                 <p className="min-w-0 text-[13px] font-medium leading-snug text-zinc-500">{order.deliveryLabel}</p>
               ) : null}

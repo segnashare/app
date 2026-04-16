@@ -73,7 +73,7 @@ export function EmpruntBorrowSummarySection({
         <Link href={`/commande/${cartId}/prolonger`} className={btnSecondary}>
           Prolonger
         </Link>
-        <Link href={`/commande/${cartId}/retour`} className={btnPrimary}>
+        <Link href={`/exchange/retour/${cartId}`} className={btnPrimary}>
           Retourner
         </Link>
       </div>

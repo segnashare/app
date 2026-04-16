@@ -14,6 +14,8 @@ import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fileToDataUrl, readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
+import { computeProfileCompletionPreviewPercent } from "@/lib/profile/profile-completion-score";
+import { formatReseauxSummary } from "@/lib/profile/social-handles";
 import { cn } from "@/lib/utils/cn";
 
 
@@ -51,27 +53,6 @@ type ProfileRowItem = {
   visibilityMode?: "locked" | "profileData" | "preference";
   visibilitySection?: VisibilitySectionId;
   visibilityKey?: string;
-};
-
-type InstagramMediaPreview = {
-  id: string;
-  caption?: string;
-  media_type?: string;
-  media_url?: string;
-  thumbnail_url?: string;
-  permalink?: string;
-  timestamp?: string;
-};
-
-type InstagramStatusResponse = {
-  connected: boolean;
-  username?: string | null;
-  accountType?: string | null;
-  mediaCount?: number | null;
-  tokenExpiresAt?: string | null;
-  syncedAt?: string | null;
-  media?: InstagramMediaPreview[];
-  warning?: string;
 };
 
 const LOOK_STAGE_RATIO = 1;
@@ -443,11 +424,9 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
   const [infoItems, setInfoItems] = useState<ProfileRowItem[]>([]);
   const [styleItems, setStyleItems] = useState<ProfileRowItem[]>([]);
   const [preferenceItems, setPreferenceItems] = useState<ProfileRowItem[]>([]);
+  /** Dernier `profile_data` chargé : pour que le % prévisualisé utilise la même règle « réseaux » que `user_profiles.score`. */
+  const [completionPreviewProfileData, setCompletionPreviewProfileData] = useState<Record<string, unknown> | null>(null);
   const [infoVisibilityMap, setInfoVisibilityMap] = useState<Record<string, boolean>>({});
-  const [instagramStatus, setInstagramStatus] = useState<InstagramStatusResponse>({ connected: false });
-  const [isInstagramLoading, setIsInstagramLoading] = useState(true);
-  const [isDisconnectingInstagram, setIsDisconnectingInstagram] = useState(false);
-  const [instagramNotice, setInstagramNotice] = useState<string | null>(null);
   const [supportsHover, setSupportsHover] = useState(true);
   const [hoveredLookIndex, setHoveredLookIndex] = useState<number | null>(null);
   const [draggingLookIndex, setDraggingLookIndex] = useState<number | null>(null);
@@ -528,6 +507,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
 
     const profileRow = (row ?? {}) as Record<string, unknown>;
     const profileData = (profileRow.profile_data ?? {}) as Record<string, unknown>;
+    setCompletionPreviewProfileData(profileData);
     const profileId = typeof profileRow.id === "string" ? profileRow.id : null;
     const profilePath = parsePhotoPath(profileRow);
     const profileTransform = parsePhotoTransform(profileRow);
@@ -675,6 +655,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       location: typeof infoVisibilityRaw.location === "boolean" ? infoVisibilityRaw.location : true,
       work: typeof infoVisibilityRaw.work === "boolean" ? infoVisibilityRaw.work : true,
       sizes: typeof infoVisibilityRaw.sizes === "boolean" ? infoVisibilityRaw.sizes : true,
+      reseaux: typeof infoVisibilityRaw.reseaux === "boolean" ? infoVisibilityRaw.reseaux : true,
     };
     setInfoVisibilityMap(nextInfoVisibilityMap);
 
@@ -717,6 +698,14 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
         visibility: nextInfoVisibilityMap.sizes ? "visible" : "hidden",
         visibilityMode: "profileData",
         visibilityKey: "sizes",
+      },
+      {
+        id: "reseaux",
+        label: "Réseaux sociaux",
+        value: formatReseauxSummary(profileData),
+        visibility: nextInfoVisibilityMap.reseaux ? "visible" : "hidden",
+        visibilityMode: "profileData",
+        visibilityKey: "reseaux",
       },
     ]);
 
@@ -785,70 +774,6 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     if (!cacheBootstrapDone) return;
     void hydrateFromDatabase({ silent: hasCachedBootstrap });
   }, [cacheBootstrapDone, hasCachedBootstrap, hydrateFromDatabase]);
-
-  const loadInstagramStatus = useCallback(async () => {
-    setIsInstagramLoading(true);
-    try {
-      const response = await fetch("/api/social/instagram/status", {
-        method: "GET",
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setInstagramStatus({ connected: false });
-        return;
-      }
-      const payload = (await response.json()) as InstagramStatusResponse;
-      setInstagramStatus({
-        connected: payload.connected === true,
-        username: payload.username ?? null,
-        accountType: payload.accountType ?? null,
-        mediaCount: typeof payload.mediaCount === "number" ? payload.mediaCount : null,
-        tokenExpiresAt: payload.tokenExpiresAt ?? null,
-        syncedAt: payload.syncedAt ?? null,
-        media: Array.isArray(payload.media) ? payload.media : [],
-        warning: payload.warning,
-      });
-    } catch {
-      setInstagramStatus({ connected: false });
-    } finally {
-      setIsInstagramLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadInstagramStatus();
-  }, [loadInstagramStatus]);
-
-  useEffect(() => {
-    const instagramParam = searchParams.get("instagram");
-    if (!instagramParam) return;
-
-    if (instagramParam === "connected") {
-      setInstagramNotice("Instagram connecte avec succes.");
-      void loadInstagramStatus();
-      return;
-    }
-    if (instagramParam === "oauth_state_error") {
-      setInstagramNotice("Echec de connexion Instagram (session OAuth invalide). Reessaye.");
-      return;
-    }
-    if (instagramParam === "save_error") {
-      setInstagramNotice("Connexion Instagram validee, mais la sauvegarde a echoue. Reessaye.");
-      return;
-    }
-    if (instagramParam === "oauth_error") {
-      setInstagramNotice("Instagram a retourne une erreur pendant la connexion.");
-      return;
-    }
-    if (instagramParam === "error") {
-      const reason = searchParams.get("reason");
-      if (reason === "config") {
-        setInstagramNotice("Configuration Instagram manquante: ajoute INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET et le redirect URI.");
-      } else {
-        setInstagramNotice("Impossible de demarrer la connexion Instagram.");
-      }
-    }
-  }, [loadInstagramStatus, searchParams]);
 
   useEffect(() => {
     const p0 = searchParams.get("p0");
@@ -1233,6 +1158,30 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
   }, [insightsAreComplete, onInsightsValidityChange]);
 
   useEffect(() => {
+    if (!onScorePreviewChange || isHydrating) return;
+    const pct = computeProfileCompletionPreviewPercent({
+      profilePhoto,
+      looksSlots,
+      answersForSave,
+      infoItems: infoItems.map((i) => ({ id: i.id, value: i.value })),
+      styleItems: styleItems.map((i) => ({ id: i.id, value: i.value })),
+      preferenceItems: preferenceItems.map((i) => ({ id: i.id, value: i.value })),
+      reseauxProfileData: completionPreviewProfileData,
+    });
+    onScorePreviewChange(pct);
+  }, [
+    onScorePreviewChange,
+    isHydrating,
+    profilePhoto,
+    looksSlots,
+    answersForSave,
+    infoItems,
+    styleItems,
+    preferenceItems,
+    completionPreviewProfileData,
+  ]);
+
+  useEffect(() => {
     if (isHydrating) return;
     const serialized = JSON.stringify(answersForSave);
     if (serialized === lastSavedAnswersRef.current) return;
@@ -1259,33 +1208,6 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     return () => window.clearTimeout(timeout);
   }, [answersForSave, isHydrating, supabase]);
 
-  const handleConnectInstagram = () => {
-    const returnPath = `${pathname}${searchParams.get("tab") ? `?tab=${encodeURIComponent(searchParams.get("tab") as string)}` : ""}`;
-    window.location.href = `/api/social/instagram/connect?returnPath=${encodeURIComponent(returnPath)}`;
-  };
-
-  const handleDisconnectInstagram = async () => {
-    setIsDisconnectingInstagram(true);
-    setErrorMessage(null);
-    try {
-      const response = await fetch("/api/social/instagram/disconnect", {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const payload = (await response
-          .json()
-          .catch(() => ({ message: "Impossible de deconnecter Instagram." }))) as { message?: string };
-        setErrorMessage(payload.message || "Impossible de deconnecter Instagram.");
-      } else {
-        setInstagramStatus({ connected: false, media: [] });
-      }
-    } catch {
-      setErrorMessage("Impossible de deconnecter Instagram.");
-    } finally {
-      setIsDisconnectingInstagram(false);
-    }
-  };
-
   const openPromptPicker = (slot: 0 | 1 | 2) => {
     const insightSlots: ModifyInsightSlot[] = [
       { prompt: prompt0, response: response0 },
@@ -1295,7 +1217,8 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     const targetSlot = resolveInsightPickerSlot(slot, insightSlots);
     const params = new URLSearchParams();
     params.set("slot", String(targetSlot));
-    params.set("returnPath", `${pathname}${searchParams.get("tab") ? `?tab=${encodeURIComponent(searchParams.get("tab") as string)}` : ""}`);
+    const tabParam = searchParams.get("tab") ?? (pathname === "/profile/complete" ? "me" : null);
+    params.set("returnPath", tabParam ? `${pathname}?tab=${encodeURIComponent(tabParam)}` : pathname);
     if (prompt0.trim()) params.set("p0", prompt0.trim());
     if (prompt1.trim()) params.set("p1", prompt1.trim());
     if (prompt2.trim()) params.set("p2", prompt2.trim());
@@ -1354,6 +1277,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
 
   const currentReturnPath = `${pathname}${searchParams.get("tab") ? `?tab=${encodeURIComponent(searchParams.get("tab") as string)}` : ""}`;
   const getEditPath = (field: string) => `/profile/edit?field=${encodeURIComponent(field)}&returnPath=${encodeURIComponent(currentReturnPath)}`;
+  const getReseauxPath = () => `/profile/reseaux?returnPath=${encodeURIComponent(currentReturnPath)}`;
 
   const renderProfileRows = (items: ProfileRowItem[]) => (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
@@ -1365,7 +1289,11 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
             index < items.length - 1 ? "border-b border-zinc-200" : "",
           )}
         >
-          <button type="button" onClick={() => router.push(getEditPath(item.id))} className="min-w-0 flex-1 text-left">
+          <button
+            type="button"
+            onClick={() => router.push(item.id === "reseaux" ? getReseauxPath() : getEditPath(item.id))}
+            className="min-w-0 flex-1 text-left"
+          >
             <p className="text-[18px] font-semibold leading-none text-zinc-900">{item.label}</p>
             <p className="mt-1 truncate text-[14px] leading-none text-zinc-400">{item.value}</p>
           </button>
@@ -1592,93 +1520,6 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       <section className="space-y-2">
         <p className="text-[18px] font-semibold text-zinc-400">Mes préférences</p>
         {renderProfileRows(preferenceItems)}
-      </section>
-
-      <section className="space-y-3">
-        <p className="text-[18px] font-semibold text-zinc-400">Instagram</p>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          {instagramNotice ? <p className="mb-3 text-xs text-[#E44D3E]">{instagramNotice}</p> : null}
-          {isInstagramLoading ? (
-            <p className="text-sm text-zinc-500">Chargement du statut Instagram...</p>
-          ) : instagramStatus.connected ? (
-            <div className="space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-base font-semibold text-zinc-900">
-                    Compte connecte{instagramStatus.username ? ` @${instagramStatus.username}` : ""}
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {typeof instagramStatus.mediaCount === "number" ? `${instagramStatus.mediaCount} posts au total` : "Instagram connecte"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDisconnectInstagram()}
-                  disabled={isDisconnectingInstagram}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-zinc-300 px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isDisconnectingInstagram ? "Deconnexion..." : "Deconnecter"}
-                </button>
-              </div>
-
-              {Array.isArray(instagramStatus.media) && instagramStatus.media.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {instagramStatus.media.map((post) => {
-                    const previewUrl = post.thumbnail_url || post.media_url || "";
-                    if (!previewUrl) {
-                      return (
-                        <div key={post.id} className="flex aspect-square items-center justify-center rounded-lg bg-zinc-100 text-[10px] text-zinc-500">
-                          Aucun visuel
-                        </div>
-                      );
-                    }
-                    const postCard = (
-                      <ImageCoverWithSkeleton
-                        src={previewUrl}
-                        alt={post.caption?.trim() ? post.caption.slice(0, 80) : "Apercu post Instagram"}
-                        className="h-full w-full"
-                        imgClassName="rounded-lg"
-                        loading="lazy"
-                      />
-                    );
-                    if (post.permalink) {
-                      return (
-                        <a
-                          key={post.id}
-                          href={post.permalink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block aspect-square overflow-hidden rounded-lg"
-                        >
-                          {postCard}
-                        </a>
-                      );
-                    }
-                    return (
-                      <div key={post.id} className="aspect-square overflow-hidden rounded-lg">
-                        {postCard}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-500">Aucun post recent recupere pour le moment.</p>
-              )}
-              {instagramStatus.warning ? <p className="text-xs text-[#E44D3E]">{instagramStatus.warning}</p> : null}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-zinc-600">Connecte ton Instagram pour afficher tes derniers posts en previsualisation sur ton profil.</p>
-              <button
-                type="button"
-                onClick={handleConnectInstagram}
-                className="inline-flex h-10 items-center justify-center rounded-full bg-zinc-900 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              >
-                Connecter Instagram
-              </button>
-            </div>
-          )}
-      </div>
       </section>
 
       {isHydrating ? <p className={cn(montserrat.className, "text-[13px] text-zinc-500")}>Chargement du profil...</p> : null}

@@ -75,7 +75,7 @@ type CartPaymentScreenProps = {
   walletCreditKind: WalletCreditKind;
   /**
    * € à régler pour les crédits d’échange au-delà du solde wallet.
-   * Aligné sur la section « Échange » du panier : le solde d’emprunt couvre la partie correspondante.
+   * Aligné sur la section « Échange » du panier : les crédits wallet couvrent la partie correspondante.
    */
   exchangeCreditsChargeEuros: number;
   /** Solde wallet au moment du chargement — pour l’explication « couvert par le solde ». */
@@ -169,8 +169,8 @@ export function CartPaymentScreen({
   const walletAppliedModsFormattedFr = walletAppliedModsFloor.toLocaleString("fr-FR");
   const walletCoverBalanceAriaLabel =
     walletCreditKind === "consumption"
-      ? `${walletAppliedModsFormattedFr} ${walletAppliedModsFloor === 1 ? "point" : "points"} Segna de consommation couverts par ton solde d’emprunt`
-      : `${walletAppliedModsFormattedFr} ${creditKindLabel} couverts par ton solde d’emprunt`;
+      ? `${walletAppliedModsFormattedFr} ${walletAppliedModsFloor === 1 ? "point" : "points"} Segna de consommation pris sur ton solde`
+      : `${walletAppliedModsFormattedFr} ${creditKindLabel} pris sur ton solde`;
   const exchangeShipping = useMemo(
     () =>
       computeExchangeRoundTripShippingCents(itemCount, deliveryChannel === "relay" ? "relay" : "home"),
@@ -639,40 +639,31 @@ export function CartPaymentScreen({
               lines={initialLines}
               creditKind={walletCreditKind}
               itemHrefSuffix=""
+              pointsUnitDisplay="icon"
             />
           )}
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+          <div className="mt-4 flex items-center justify-between gap-3 pt-2">
             <span className="text-[16px] font-bold text-zinc-900">Total échangé</span>
             <SegnaPointsUnitDisplay
               points={cartTotalMods}
               creditKind={walletCreditKind}
+              unitDisplay="icon"
               numberClassName="text-[17px] font-bold text-zinc-900"
             />
           </div>
-          {walletAppliedMods > 0 ? (
-            <div className="mt-4 space-y-2.5 border-t border-zinc-100 pt-4 text-[15px] leading-snug">
+          {complementMods > 0 ? (
+            <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Solde d&apos;emprunt</span>
+                <span className="min-w-0 pr-2">Complément d&apos;échange</span>
                 <span className="shrink-0 font-medium text-zinc-900">
                   <SegnaPointsUnitDisplay
-                    points={walletAppliedMods}
+                    points={complementMods}
                     creditKind={walletCreditKind}
+                    unitDisplay="icon"
                     numberClassName="font-medium text-zinc-900"
                   />
                 </span>
               </div>
-              {complementMods > 0 ? (
-                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                  <span className="min-w-0 pr-2">Complément d&apos;échange</span>
-                  <span className="shrink-0 font-medium text-zinc-900">
-                    <SegnaPointsUnitDisplay
-                      points={complementMods}
-                      creditKind={walletCreditKind}
-                      numberClassName="font-medium text-zinc-900"
-                    />
-                  </span>
-                </div>
-              ) : null}
             </div>
           ) : null}
         </section>
@@ -693,7 +684,7 @@ export function CartPaymentScreen({
               ) : (
                 <span>{creditKindLabel}</span>
               )}{" "}
-              couverts par ton solde d’emprunt
+              pris sur ton solde
               {exchangeCreditsChargeEuros > 0
                 ? ` — complément ${euros(exchangeCreditsChargeEuros)} à régler en €.`
                 : " — aucun complément € sur les articles."}

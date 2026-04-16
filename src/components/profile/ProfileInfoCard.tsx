@@ -1,9 +1,20 @@
 "use client";
 
-import { Briefcase, Cigarette, Dumbbell, Moon, Wine } from "lucide-react";
+import type { ReactNode } from "react";
+import { Briefcase, Cigarette, Dumbbell, Moon, Share2, Wine } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
+import {
+  instagramWebProfileUrl,
+  normalizeInstagramHandleInput,
+  normalizePinterestHandleInput,
+  normalizeThreadsHandleInput,
+  normalizeTiktokHandleInput,
+  pinterestWebProfileUrl,
+  threadsWebProfileUrl,
+  tiktokWebProfileUrl,
+} from "@/lib/profile/social-handles";
 import { cn } from "@/lib/utils/cn";
 
 
@@ -22,7 +33,13 @@ export type ProfileInfoCardData = {
   night?: boolean;
   city: string | null;
   profession: string | null;
+  socialSectionVisible?: boolean;
   instagramHandle: string | null;
+  tiktokHandle?: string | null;
+  pinterestHandle?: string | null;
+  threadsHandle?: string | null;
+  /** Résumé « IG @… · TikTok @… » pour la zone infos (sous la profession). */
+  reseauxSummary?: string | null;
   displayName: string | null;
 };
 
@@ -147,25 +164,99 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
         </div>
       </div>
 
-      {/* Ligne 2 : icône travail + profession */}
-      {data.profession ? (
-        <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
-          <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
-          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.profession}</span>
+      {/* Ligne 2 : profession + résumé réseaux (infos) */}
+      {data.profession || data.reseauxSummary ? (
+        <div className="space-y-3 border-t border-zinc-100 py-4">
+          {data.profession ? (
+            <div className="flex items-center gap-4">
+              <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
+              <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.profession}</span>
+            </div>
+          ) : null}
+          {data.reseauxSummary ? (
+            <div className="flex items-start gap-4">
+              <Share2 className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
+              <span className={cn(montserrat.className, "min-w-0 flex-1 font-semibold leading-snug text-zinc-900")}>{data.reseauxSummary}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {/* Ligne 3 : bande Instagram (icône + @handle ou @display_name) */}
-      <div className="flex items-center gap-4 border-t border-zinc-100 pt-4 pb-2">
-        <img src={INSTAGRAM_ICON_PATH} alt="" className="h-6 w-6 shrink-0" aria-hidden />
-        <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>
-          {data.instagramHandle?.trim()
-            ? (data.instagramHandle.startsWith("@") ? data.instagramHandle : `@${data.instagramHandle}`)
-            : data.displayName?.trim()
-              ? `@${data.displayName.trim()}`
-              : "@"}
-        </span>
-      </div>
+      {/* Réseaux sociaux (liens publics) */}
+      {data.socialSectionVisible !== false
+        ? (() => {
+            const ig = normalizeInstagramHandleInput(data.instagramHandle ?? "");
+            const tk = normalizeTiktokHandleInput(data.tiktokHandle ?? "");
+            const pin = normalizePinterestHandleInput(data.pinterestHandle ?? "");
+            const th = normalizeThreadsHandleInput(data.threadsHandle ?? "");
+            const rows: Array<{ key: string; icon: ReactNode; label: string; href: string }> = [];
+            if (ig) {
+              rows.push({
+                key: "ig",
+                icon: <img src={INSTAGRAM_ICON_PATH} alt="" className="h-6 w-6 shrink-0" aria-hidden />,
+                label: `@${ig}`,
+                href: instagramWebProfileUrl(ig),
+              });
+            }
+            if (tk) {
+              rows.push({
+                key: "tk",
+                icon: (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-[10px] font-bold text-white" aria-hidden>
+                    TT
+                  </span>
+                ),
+                label: `@${tk}`,
+                href: tiktokWebProfileUrl(tk),
+              });
+            }
+            if (pin) {
+              rows.push({
+                key: "pin",
+                icon: (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#E60023] text-[10px] font-bold text-white" aria-hidden>
+                    P
+                  </span>
+                ),
+                label: `@${pin}`,
+                href: pinterestWebProfileUrl(pin),
+              });
+            }
+            if (th) {
+              rows.push({
+                key: "th",
+                icon: (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-[10px] font-bold text-white" aria-hidden>
+                    @
+                  </span>
+                ),
+                label: `@${th}`,
+                href: threadsWebProfileUrl(th),
+              });
+            }
+            if (rows.length === 0) return null;
+            return (
+              <div className="divide-y divide-zinc-100 border-t border-zinc-100">
+                {rows.map((row) => (
+                  <div key={row.key} className="flex items-center gap-4 py-3 first:pt-4 last:pb-2">
+                    {row.icon}
+                    <a
+                      href={row.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        montserrat.className,
+                        "min-w-0 truncate font-semibold text-zinc-900 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-600",
+                      )}
+                    >
+                      {row.label}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+        : null}
     </div>
   );
 }

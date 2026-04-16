@@ -10,6 +10,11 @@ type SegnaPointsUnitDisplayProps = {
   creditKind: WalletCreditKind;
   className?: string;
   numberClassName?: string;
+  /**
+   * `label` : consommation → icône Segna ; échange → libellé « crédits d'échange ».
+   * `icon` : toujours chiffre + `icons/segna.svg` (détail commande / total).
+   */
+  unitDisplay?: "label" | "icon";
 };
 
 /**
@@ -20,22 +25,33 @@ export function SegnaPointsUnitDisplay({
   creditKind,
   className,
   numberClassName,
+  unitDisplay = "label",
 }: SegnaPointsUnitDisplayProps) {
   const n = Math.floor(points);
   const formatted = n.toLocaleString("fr-FR");
   const unitLabel = walletCreditKindLabel(creditKind);
   const showConsumptionIcon = creditKind === "consumption";
   const consumptionAriaLabel = `${formatted} ${n === 1 ? "point" : "points"} Segna de consommation`;
+  const exchangeAriaLabel = `${formatted} ${n === 1 ? "crédit" : "crédits"} d'échange`;
+  const iconMode = unitDisplay === "icon";
 
   return (
     <span
       className={cn("inline-flex flex-wrap items-center justify-start gap-x-1.5 gap-y-0.5", className)}
-      aria-label={showConsumptionIcon ? consumptionAriaLabel : `${formatted} ${unitLabel}`}
+      aria-label={
+        iconMode
+          ? creditKind === "consumption"
+            ? consumptionAriaLabel
+            : exchangeAriaLabel
+          : showConsumptionIcon
+            ? consumptionAriaLabel
+            : `${formatted} ${unitLabel}`
+      }
     >
       <span className={cn("tabular-nums", numberClassName)} aria-hidden>
         {formatted}
       </span>
-      {showConsumptionIcon ? (
+      {iconMode || showConsumptionIcon ? (
         <img
           src={SEGNA_CONSUMPTION_ICON_SRC}
           alt=""

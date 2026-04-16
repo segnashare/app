@@ -7,7 +7,6 @@ import {
 } from "@/components/cms/CmsSectionBlocks";
 import { ExchangeLendsEmptyCmsBlock } from "@/components/exchange/ExchangeLendsEmptyCmsBlock";
 import { ExchangeLendItemRow } from "@/components/exchange/ExchangeLendItemRow";
-import { ExchangeMergeShippingBanner } from "@/components/exchange/ExchangeMergeShippingBanner";
 import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -86,7 +85,6 @@ export function ExchangeLendsSection({
 
   const showMergePopup =
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
-  const mergeHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
 
   const lendsSectionTitle = membershipLabel === "Guest" ? "Propositions de Prêts" : "Mes Prêts";
 
@@ -168,14 +166,6 @@ export function ExchangeLendsSection({
               </div>
             ))}
           </div>
-        ) : null}
-
-        {showMergePopup ? (
-          <ExchangeMergeShippingBanner
-            key={[...mergedShippingCandidateIds].sort().join(",")}
-            candidateIds={mergedShippingCandidateIds}
-            mergeHref={mergeHref}
-          />
         ) : null}
 
         {lendsAfterShipping.length > 0 ? (

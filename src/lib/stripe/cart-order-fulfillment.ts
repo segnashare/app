@@ -2,6 +2,9 @@ import type Stripe from "stripe";
 
 import { upsertCartOrderStripeInvoiceFromSession } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 
+/** Même valeur en metadata expédition que pour un paiement 100 % wallet (pas de session Checkout). */
+export const CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID = "wallet_only";
+
 type AdminClient = {
   rpc: (
     fn: string,
@@ -55,6 +58,57 @@ export async function debitCartExchangeWalletFromStripeSession(
   }
 
   return { ok: true };
+}
+
+/**
+ * Panier entièrement couvert par le wallet + frais nuls (aucune session Stripe).
+ * Débit idempotent par `cart_id` (ne pas réutiliser la clé Stripe).
+ */
+export async function debitCartWalletOnly(
+  admin: AdminClient,
+  userId: string,
+  cartId: string,
+  creditsKind: string | null,
+): Promise<void> {
+  const { error } = await admin.rpc("wallet_debit_cart_order_stripe", {
+    p_user_id: userId,
+    p_cart_id: cartId,
+    p_checkout_session_id: "",
+    p_idempotency_key: `wallet_only:cart_order_debit:${cartId}`,
+    p_metadata: {
+      exchange_credits_kind: creditsKind,
+      checkout_mode: "wallet_only",
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Confirmation panier sans Stripe (même RPC que post-Checkout, métadonnées traçables).
+ */
+export async function confirmCartPaidWalletOnly(
+  admin: AdminClientWithTable,
+  userId: string,
+  cartId: string,
+  deliveryChannel: "relay" | "home",
+  relayPointId: string,
+  deliveryLine1: string,
+): Promise<void> {
+  const { error } = await admin.rpc("confirm_cart_paid_from_stripe", {
+    p_cart_id: cartId,
+    p_user_id: userId,
+    p_checkout_session_id: CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID,
+    p_delivery_channel: deliveryChannel,
+    p_relay_point_id: relayPointId.trim() ? relayPointId.trim() : null,
+    p_delivery_line1: deliveryLine1.trim() ? deliveryLine1.trim() : null,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 /**

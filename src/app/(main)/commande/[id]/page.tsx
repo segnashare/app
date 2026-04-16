@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CommandeDetailView } from "@/components/commande/CommandeDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -40,6 +41,9 @@ export default async function CommandeDetailPage({ params }: PageProps) {
 
   const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
   if (shipSt === "delivered") {
+    if (isActiveMemberReturnPhase(detail.returnShipment?.status)) {
+      redirect(`/exchange/retour/${cartId}`);
+    }
     redirect(`/exchange/emprunt/${cartId}`);
   }
 

@@ -87,6 +87,19 @@ export type MemberCartOrderPaymentBreakdown = {
   } | null;
 };
 
+/** Répartition du débit panier (wallet) — pour affichage / annulation. */
+export type MemberCartOrderPointsPaidSplit = {
+  exchangePoints: number;
+  consumptionPoints: number;
+  totalPoints: number;
+};
+
+export type MemberCartOrderCancellation = {
+  /** Bouton « Annuler » : expédition aller `pending` et aucun encaissement Stripe enregistré. */
+  canRequest: boolean;
+  disabledReason: "canceled" | "archived" | "stripe_paid" | "shipment_started" | null;
+};
+
 export type MemberCartOrderDetail = {
   cartId: string;
   orderNumberCompact: string;
@@ -101,6 +114,9 @@ export type MemberCartOrderDetail = {
   timeline: OrderTimelineEntry[];
   /** null si ni wallet context ni facture € en base / Stripe. */
   paymentBreakdown: MemberCartOrderPaymentBreakdown | null;
+  /** null si débit panier introuvable (ancienne commande / données manquantes). */
+  pointsPaidSplit: MemberCartOrderPointsPaidSplit | null;
+  orderCancellation: MemberCartOrderCancellation;
 };
 
 function formatOrderNumberCompact(cartId: string): string {
@@ -134,11 +150,12 @@ export async function fetchMemberCartOrderDetail(
       }
     | null;
 
-  if (!cart || (cart.status !== "confirmed" && cart.status !== "archived")) {
+  if (!cart || !["confirmed", "archived", "canceled"].includes(cart.status)) {
     return null;
   }
 
-  const [linesRes, historyRes, shipmentRes, returnShipRes, checkoutCtxRes, stripeInvoiceRes] = await Promise.all([
+  const [linesRes, historyRes, shipmentRes, returnShipRes, checkoutCtxRes, stripeInvoiceRes, cartDebitRes] =
+    await Promise.all([
     supabase
       .from("cart_items")
       .select(
@@ -173,6 +190,17 @@ export async function fetchMemberCartOrderDetail(
       .maybeSingle(),
     supabase.rpc("get_member_cart_order_checkout_context", { p_cart_id: cartId }),
     supabase.rpc("get_member_cart_order_stripe_invoice", { p_cart_id: cartId }),
+    supabase
+      .from("wallet_transactions")
+      .select("amount_points, credit_bucket, metadata")
+      .eq("user_id", userId)
+      .eq("kind", "debit")
+      .eq("direction", "debit")
+      .filter("metadata->>source", "eq", "cart_order_stripe")
+      .filter("metadata->>cart_id", "eq", cartId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   type ItemJoin = {
@@ -317,6 +345,55 @@ export async function fetchMemberCartOrderDetail(
       ? { creditSplit, euroDetail }
       : null;
 
+  const paidEuros = paymentBreakdown?.euroDetail?.totalPaidEuros ?? 0;
+  const stripePaidRecorded = paidEuros > 0.005;
+
+  const debitRow = (cartDebitRes.error ? null : cartDebitRes.data) as {
+    amount_points: number;
+    credit_bucket: string | null;
+    metadata: Record<string, unknown> | null;
+  } | null;
+
+  let pointsPaidSplit: MemberCartOrderPointsPaidSplit | null = null;
+  if (debitRow) {
+    const amt = Math.max(0, Math.floor(Number(debitRow.amount_points ?? 0)));
+    const splitRaw = debitRow.metadata?.debit_split;
+    if (splitRaw && typeof splitRaw === "object" && !Array.isArray(splitRaw)) {
+      const s = splitRaw as Record<string, unknown>;
+      const ex = Math.max(0, Math.floor(Number(s.exchange_points ?? 0)));
+      const co = Math.max(0, Math.floor(Number(s.consumption_points ?? 0)));
+      if (ex + co > 0) {
+        pointsPaidSplit = { exchangePoints: ex, consumptionPoints: co, totalPoints: amt };
+      }
+    }
+    if (!pointsPaidSplit) {
+      const b = (debitRow.credit_bucket ?? "").trim().toLowerCase();
+      if (b === "exchange") {
+        pointsPaidSplit = { exchangePoints: amt, consumptionPoints: 0, totalPoints: amt };
+      } else if (b === "consumption") {
+        pointsPaidSplit = { exchangePoints: 0, consumptionPoints: amt, totalPoints: amt };
+      } else if (b === "mixed") {
+        pointsPaidSplit = null;
+      } else if (amt > 0) {
+        pointsPaidSplit = { exchangePoints: amt, consumptionPoints: 0, totalPoints: amt };
+      }
+    }
+  }
+
+  const shipLc = shipment?.status?.toLowerCase() ?? "";
+  let cancellationReason: MemberCartOrderCancellation["disabledReason"] = null;
+  if (cart.status === "canceled") cancellationReason = "canceled";
+  else if (cart.status === "archived") cancellationReason = "archived";
+  else if (stripePaidRecorded) cancellationReason = "stripe_paid";
+  else if (cart.status === "confirmed" && shipment && shipLc !== "pending") {
+    cancellationReason = "shipment_started";
+  }
+
+  const orderCancellation: MemberCartOrderCancellation = {
+    canRequest: cart.status === "confirmed" && shipLc === "pending" && !stripePaidRecorded,
+    disabledReason: cancellationReason,
+  };
+
   return {
     cartId: cart.id,
     orderNumberCompact: formatOrderNumberCompact(cart.id),
@@ -329,5 +406,7 @@ export async function fetchMemberCartOrderDetail(
     returnShipment,
     timeline,
     paymentBreakdown,
+    pointsPaidSplit,
+    orderCancellation,
   };
 }

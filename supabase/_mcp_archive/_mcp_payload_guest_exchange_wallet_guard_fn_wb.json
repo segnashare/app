@@ -1,0 +1,1 @@
+{"name": "guest_exchange_wallet_guard_fn_wb", "query": "revoke all on function public.wallet_credit_purchase(\n  uuid, bigint, text, text, text, text, text, jsonb\n) from public;\ngrant execute on function public.wallet_credit_purchase(\n  uuid, bigint, text, text, text, text, text, jsonb\n) to authenticated;\n"}

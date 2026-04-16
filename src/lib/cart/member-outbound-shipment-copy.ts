@@ -29,7 +29,6 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
         detail: "Tu as déposé le colis retour au point relais — engagement de délai respecté.",
       };
     case "in_transit_in":
-    case "in_transit":
       return {
         title: "En route vers toi",
         detail: "Ton colis est en transit. Suis-le avec le numéro de suivi et confirme la réception à réception.",
@@ -57,7 +56,7 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
 /** Colis considéré « en transit » pour l’UI (ligne livraison sous la carte). */
 export function isOutboundShipmentInTransit(status: string): boolean {
   const s = status.toLowerCase();
-  return s === "in_transit_in" || s === "in_transit_out" || s === "in_transit";
+  return s === "in_transit_in" || s === "in_transit_out";
 }
 
 /**

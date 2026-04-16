@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
-import { CommandeRetourShippingClient } from "@/components/commande/CommandeRetourShippingClient";
+import { RetourDetailView } from "@/components/retour/RetourDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -43,11 +43,5 @@ export default async function CommandeRetourPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  return (
-    <CommandeRetourShippingClient
-      cartId={cartId}
-      orderNumberCompact={detail.orderNumberCompact}
-      initialReturn={detail.returnShipment}
-    />
-  );
+  return <RetourDetailView detail={detail} />;
 }

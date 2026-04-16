@@ -3,10 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { cn } from "@/lib/utils/cn";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { revokeSessionLog } from "@/lib/supabase/userSessions";
 
-export function SettingsSignOutButton() {
+type SettingsSignOutButtonProps = {
+  /** `row` : ligne pleine largeur, texte rouge centré (bas de page paramètres). `text` : lien discret. `card` : bouton encadré. */
+  variant?: "card" | "text" | "row";
+};
+
+export function SettingsSignOutButton({ variant = "card" }: SettingsSignOutButtonProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -39,6 +45,36 @@ export function SettingsSignOutButton() {
     }
   };
 
+  if (variant === "row") {
+    return (
+      <button
+        type="button"
+        onClick={handleSignOut}
+        disabled={isSigningOut}
+        className={cn(
+          "flex min-h-[52px] w-full items-center justify-center px-5 py-4 text-center text-[16px] font-semibold text-red-600 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50",
+        )}
+      >
+        {isSigningOut ? "Déconnexion…" : "Déconnexion"}
+      </button>
+    );
+  }
+
+  if (variant === "text") {
+    return (
+      <button
+        type="button"
+        onClick={handleSignOut}
+        disabled={isSigningOut}
+        className={cn(
+          "text-[17px] font-semibold text-red-600 underline-offset-2 transition hover:underline disabled:cursor-not-allowed disabled:opacity-50",
+        )}
+      >
+        {isSigningOut ? "Déconnexion…" : "Déconnexion"}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -46,7 +82,7 @@ export function SettingsSignOutButton() {
       disabled={isSigningOut}
       className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-red-200 bg-red-50 px-4 text-base font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {isSigningOut ? "Deconnexion..." : "Se deconnecter"}
+      {isSigningOut ? "Déconnexion…" : "Se déconnecter"}
     </button>
   );
 }

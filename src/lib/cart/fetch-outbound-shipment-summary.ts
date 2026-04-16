@@ -3,6 +3,8 @@ export type OutboundShipmentSummary = {
   shipmentId: string;
   status: string;
   trackingNumber: string | null;
+  /** Dernière expédition retour panier, si elle existe (pour CTA Échange livré → emprunt vs retour). */
+  returnShipmentStatus: string | null;
 };
 
 /**
@@ -29,7 +31,18 @@ export async function fetchLatestConfirmedCartOutboundShipmentSummary(
   const cartId = cartRow?.id;
   if (!cartId) return null;
 
-  const rpcRes = await supabase.rpc("get_cart_outbound_shipment_summary", { p_cart_id: cartId });
+  const [rpcRes, returnRes] = await Promise.all([
+    supabase.rpc("get_cart_outbound_shipment_summary", { p_cart_id: cartId }),
+    supabase
+      .from("shipments")
+      .select("status")
+      .eq("cart_id", cartId)
+      .eq("context", "cart_return")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
   if (rpcRes.error) return null;
 
   const row = rpcRes.data as Record<string, unknown> | null;
@@ -43,10 +56,15 @@ export async function fetchLatestConfirmedCartOutboundShipmentSummary(
   const trackingNumber =
     tn == null ? null : typeof tn === "string" && tn.trim() !== "" ? tn.trim() : null;
 
+  const retRow = returnRes.error ? null : (returnRes.data as { status?: string } | null);
+  const returnShipmentStatus =
+    retRow && typeof retRow.status === "string" && retRow.status.trim() ? retRow.status.trim() : null;
+
   return {
     cartId,
     shipmentId,
     status,
     trackingNumber,
+    returnShipmentStatus,
   };
 }
