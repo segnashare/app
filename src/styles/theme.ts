@@ -1,6 +1,15 @@
 // V0 minimal: uniquement les className réellement utilisés.
 export const themeClassNames = {
+  /** Titre / accroche du bloc haut : écran d’accueil `/auth`. */
+  auth: {
+    introHeroBlurb:
+      "text-center text-balance text-[clamp(16px,4.2vw,18px)] font-semibold leading-snug tracking-[-0.02em] text-zinc-900",
+    pillCtaTextSize: "text-[18px] md:text-[19px]",
+  },
   onboarding: {
+    /** Bloc titre des intros CMS `/onboarding/1` … `/3` (plus grand que l’accroche `/auth`). */
+    introHeroBlurb:
+      "text-center text-balance text-[clamp(19px,5.2vw,24px)] font-semibold leading-snug tracking-[-0.02em] text-zinc-900 sm:text-[clamp(20px,5vw,26px)]",
     textes: {
       titreOnboardingPrincipal: "font-extrabold leading-[0.96] tracking-[-0.03em] text-zinc-950",
       titreOnboardingPrincipalTailleFluide: "text-[clamp(2.5rem,8vw,3rem)]",

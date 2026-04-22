@@ -12,7 +12,7 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   return <MainShell>{children}</MainShell>;

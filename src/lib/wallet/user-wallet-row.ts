@@ -2,7 +2,7 @@
 export type UserWalletPointsRow = {
   balance_points: number | null;
   balance_consumption_points: number | null;
-  /** `null` = pas d’abonnement actif (pas de compte échange matérialisé) ; sinon bigint ≥ 0. */
+  /** bigint ≥ 0 ; `null` uniquement sur anciennes lignes avant matérialisation du solde échange. */
   balance_exchange_points: number | null;
 };
 

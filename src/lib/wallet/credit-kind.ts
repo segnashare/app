@@ -7,25 +7,20 @@ export function walletCreditKindLabel(kind: WalletCreditKind): string {
   return kind === "consumption" ? "crédits de consommation" : "crédits d'échange";
 }
 
-/** Invité → consommation ; abonné actif → échange. */
-export function walletCreditKindForMembership(label: MembershipLabel): WalletCreditKind {
-  return label === "Guest" ? "consumption" : "exchange";
+/**
+ * Bucket Stripe / wallet pour les mods (panier, compléments, packs « Obtenir plus »).
+ * L’échange n’est plus réservé aux seuls abonnés Membre + / X : tout membre utilise le même kind côté facturation wallet.
+ */
+export function walletCreditKindForMembership(_label: MembershipLabel): WalletCreditKind {
+  return "exchange";
 }
 
-/**
- * Dérivé du couple plan Stripe + statut (route achat pack « Obtenir plus »).
- * Sans abonnement actif → consommation.
- */
+/** Packs crédits profil : crédits d’échange (le couple plan/statut ne les exclut plus). */
 export function walletCreditKindForBillingSubscription(
-  planCode: string | null | undefined,
-  subscriptionStatus: string | null | undefined,
+  _planCode: string | null | undefined,
+  _subscriptionStatus: string | null | undefined,
 ): WalletCreditKind {
-  const plan = (planCode ?? "").toLowerCase();
-  const status = (subscriptionStatus ?? "").toLowerCase();
-  const active = status === "active" || status === "trialing";
-  if (!active) return "consumption";
-  if (plan === "segna_x" || plan === "segna_plus") return "exchange";
-  return "consumption";
+  return "exchange";
 }
 
 /**

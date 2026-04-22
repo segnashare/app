@@ -1,0 +1,64 @@
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.slot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  animation: authCollageFloat 5.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.slotInner {
+  width: 100%;
+  height: 100%;
+  background-color: #e4e4e7;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #f4f4f5 0%, #e4e4e7 100%);
+}
+
+@keyframes authCollageFloat {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) translateY(0);
+  }
+  50% {
+    transform: translate(-50%, -50%) translateY(-10px);
+  }
+}
+
+/* Tailles (largeur de référence ; hauteur selon aspect) */
+.sizeSmall {
+  width: clamp(52px, 14vw, 76px);
+}
+.sizeMedium {
+  width: clamp(72px, 19vw, 104px);
+}
+.sizeLarge {
+  width: clamp(96px, 26vw, 132px);
+}
+
+.aspectSquare {
+  aspect-ratio: 1 / 1;
+}
+
+.aspectPortrait {
+  aspect-ratio: 3 / 4;
+}
+
+.aspectLandscape {
+  aspect-ratio: 4 / 3;
+}

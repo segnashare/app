@@ -55,24 +55,24 @@ function AwaitingSubscriptionGuestPanel({
 
   return (
     <IntakePanelLayout
-      title="En attente d&apos;abonnement"
+      title="Expédition à lancer"
       titleId="intake-title-awaiting-subscription"
       titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
       footer={
         <Link
-          href="/package"
+          href="/exchange"
           className={cn(
             montserrat.className,
             "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
           )}
         >
-          Souscrire pour expédier
+          Voir l&apos;échange — Prêts
         </Link>
       }
     >
       <p className="font-medium text-zinc-800">
-        Ta pièce est prête à rejoindre le catalogue Segna. Abonne-toi en prêteur pour l&apos;échanger avec des milliers
-        de pièces et débloquer l&apos;envoi.
+        Ta pièce est validée : tu peux lancer l&apos;envoi vers Segna depuis l&apos;onglet « Prêts » sans abonnement
+        obligatoire. Un abonnement prêteur reste utile pour les plafonds et avantages du plan.
       </p>
       <p className="mt-2">{creditsPhrase}</p>
     </IntakePanelLayout>
@@ -525,7 +525,7 @@ export function ItemIntakePanel({
   if (listingStage === "validated" && fulfillmentStage === "pre_subscribe_eligible") {
     return (
       <IntakePanelLayout
-        title="Pièce éligible (abonnement prêteur)"
+        title="Pièce éligible (proposition)"
         titleId="intake-title-pre-subscribe"
         titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
         footer={
@@ -553,9 +553,8 @@ export function ItemIntakePanel({
         }
       >
         <p>
-          Ton annonce a été validée et évaluée. Tu n&apos;as pas encore d&apos;expédition à lancer : une fois ton
-          abonnement prêteur souscrit, tu pourras envoyer ta pièce à Segna depuis l&apos;onglet « Prêts » (bordereau
-          d&apos;envoi).
+          Ton annonce a été validée et évaluée. Pour ce parcours « proposition », suis les étapes dans « Prêts » ou
+          contacte le support si tu bloques sur l&apos;expédition.
         </p>
       </IntakePanelLayout>
     );

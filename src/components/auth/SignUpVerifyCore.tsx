@@ -7,18 +7,34 @@ import { useEffect, useMemo, useState } from "react";
 import { OtpInput } from "@/components/auth/OtpInput";
 import { otpSchema } from "@/features/auth/lib/schemas";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+import { cn } from "@/lib/utils/cn";
+
+const montserrat = segnaMontserrat;
+
+export type SignUpVerifyFooterState = {
+  field: string | null;
+  submit: string | null;
+  status: string | null;
+};
 
 type SignUpVerifyCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  onSubmittingChange?: (submitting: boolean) => void;
+  onFooterStateChange?: (state: SignUpVerifyFooterState) => void;
 };
 
 const RESEND_SECONDS = 30;
 const RATE_LIMIT_BACKOFF_SECONDS = 60;
 const OTP_LENGTH = 8;
-const SEGNA_BROWN = "#5E3023";
 
-export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCoreProps) {
+export function SignUpVerifyCore({
+  formId,
+  onCanContinueChange,
+  onSubmittingChange,
+  onFooterStateChange,
+}: SignUpVerifyCoreProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createSupabaseBrowserClient();
@@ -36,6 +52,15 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onFooterStateChange?.({
+      field: fieldError,
+      submit: errorMessage,
+      status: statusMessage,
+    });
+  }, [fieldError, errorMessage, statusMessage, onFooterStateChange]);
 
   useEffect(() => {
     const ensureSessionIsHealthy = async () => {
@@ -108,23 +133,28 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
     return () => window.clearInterval(id);
   }, [email, resendLockedUntil]);
 
-  const isCodeValid = otpSchema.safeParse({ code }).success;
-  useEffect(() => {
-    onCanContinueChange?.(isCodeValid && !isSubmitting);
-  }, [isCodeValid, isSubmitting, onCanContinueChange]);
+  const codeOk = otpSchema.safeParse({ code }).success;
 
-  const onVerify = async () => {
+  useEffect(() => {
+    onCanContinueChange?.(codeOk);
+  }, [codeOk, onCanContinueChange]);
+
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
+    if (fieldError && otpSchema.safeParse({ code }).success) {
+      setFieldError(null);
+    }
+  }, [code, fieldError]);
+
+  const runVerifyOtp = async () => {
     setErrorMessage(null);
     setStatusMessage(null);
 
-    const parsed = otpSchema.safeParse({ code });
-    if (!parsed.success) {
-      setErrorMessage(parsed.error.issues[0]?.message ?? "Code invalide");
-      return;
-    }
-
     if (!email) {
-      setErrorMessage("Email manquant. Recommence l'inscription.");
+      setErrorMessage("E-mail manquant. Recommencez l'inscription.");
       return;
     }
 
@@ -138,7 +168,7 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
       });
       error = result.error;
     } catch {
-      error = { message: "Une erreur est survenue pendant la verification." };
+      error = { message: "Une erreur est survenue pendant la vérification." };
     } finally {
       setIsSubmitting(false);
     }
@@ -156,9 +186,25 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
     router.replace("/auth/sign-up/password");
   };
 
+  const onFormSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    const parsed = otpSchema.safeParse({ code });
+    if (!parsed.success) {
+      setFieldError(parsed.error.issues[0]?.message ?? "Code invalide.");
+      return;
+    }
+
+    setFieldError(null);
+    void runVerifyOtp();
+  };
+
   const onResend = async () => {
     if (remainingSeconds > 0 || !email) return;
     setIsResending(true);
+    setFieldError(null);
     setErrorMessage(null);
     setStatusMessage(null);
 
@@ -182,7 +228,7 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
         setResendLockedUntil(nextLockUntil);
         setRemainingSeconds(RATE_LIMIT_BACKOFF_SECONDS);
         window.localStorage.setItem(`segna:auth:verify:resend-until:${email}`, String(nextLockUntil));
-        setErrorMessage("Tu as demandé trop de codes. Réessaie dans 1 minute.");
+        setErrorMessage("Vous avez demandé trop de codes. Réessayez dans 1 minute.");
         return;
       }
 
@@ -198,52 +244,49 @@ export function SignUpVerifyCore({ formId, onCanContinueChange }: SignUpVerifyCo
   };
 
   return (
-    <div className="mt-6 w-full">
-      <div className="space-y-2">
-        <p className="text-[16px] text-zinc-400">Code envoyé à :</p>
-        <div className="flex items-end gap-2 text-[16px] font-bold leading-[1.35] text-zinc-400">
-          <p className="max-w-[290px] break-all">{email || "email@example.com"}</p>
-          <span aria-hidden className="text-[16px] leading-none text-zinc-400">
+    <div className={cn(montserrat.className, "flex w-full flex-col items-center")}>
+      <form id={formId} onSubmit={onFormSubmit} noValidate className="mt-1.5 flex w-full flex-col items-center gap-2 md:mt-2 md:gap-2.5">
+        <div className="w-full max-w-[min(100%,380px)] rounded-xl bg-[#f5f5f5] px-4 py-4">
+          <OtpInput
+            value={code}
+            onChange={setCode}
+            length={OTP_LENGTH}
+            className="w-full min-w-0 justify-center gap-[clamp(6px,1.5vw,12px)]"
+            itemClassName="min-w-0 flex-1"
+            inputClassName={cn(
+              montserrat.className,
+              "h-[clamp(42px,9.5vw,50px)] w-full min-w-0 max-w-[2.75rem] border-0 border-b-[1.5px] border-zinc-400 bg-transparent text-center text-[clamp(1.35rem,5.4vw,1.85rem)] font-bold leading-none text-black caret-transparent outline-none focus:border-zinc-900",
+            )}
+          />
+        </div>
+
+        <p className="flex w-full max-w-[min(100%,380px)] min-w-0 flex-wrap items-baseline justify-center gap-x-1 gap-y-0.5 text-center text-[13px] font-semibold leading-tight text-[#999999] sm:text-[14px]">
+          <span className="shrink-0">Code envoyé à :</span>
+          <span className="max-w-[min(100%,220px)] truncate font-bold text-black sm:max-w-[280px]" title={email || undefined}>
+            {email || "—"}
+          </span>
+          <span aria-hidden className="shrink-0">
             ·
           </span>
-          <Link href="/auth/sign-up/email" className="text-[16px] font-bold leading-none" style={{ color: SEGNA_BROWN }}>
+          <Link
+            href="/auth/sign-up/email"
+            className="shrink-0 font-semibold text-black underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700"
+          >
             Modifier
           </Link>
-        </div>
-      </div>
+        </p>
 
-      <form
-        id={formId}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void onVerify();
-        }}
-        className="mt-10 space-y-8"
-      >
-        <OtpInput
-          value={code}
-          onChange={setCode}
-          length={OTP_LENGTH}
-          className="w-full min-w-0 !justify-between gap-[clamp(4px,1.2vw,10px)]"
-          itemClassName="min-w-0 flex-1"
-          inputClassName="h-[clamp(50px,8vw,62px)] w-full min-w-0 text-[clamp(26px,5.4vw,38px)] font-bold playfair-display"
-        />
-
-        {errorMessage ? <p className="text-[clamp(12px,4.2vw,18px)] text-[#E44D3E]">{errorMessage}</p> : null}
-        {statusMessage ? <p className="text-sm text-emerald-700">{statusMessage}</p> : null}
-
-        <p className="text-[clamp(12px,4.2vw,18px)]" style={{ color: SEGNA_BROWN }}>
+        <p className="w-full max-w-[min(100%,380px)] text-center text-[14px] font-semibold text-[#999999]">
           {remainingSeconds > 0 ? (
             <>Renvoyer le code dans {remainingSeconds}s.</>
           ) : (
             <button
               type="button"
-              className="text-[clamp(12px,4.2vw,16px)] underline"
-              style={{ color: SEGNA_BROWN }}
+              className="font-semibold text-black underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700"
               onClick={onResend}
               disabled={isResending}
             >
-              {isResending ? "Renvoi..." : "Renvoyer le code"}
+              {isResending ? "Envoi…" : "Renvoyer le code"}
             </button>
           )}
         </p>

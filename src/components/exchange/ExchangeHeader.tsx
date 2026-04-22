@@ -38,7 +38,7 @@ export function ExchangeHeader({
     if (membershipLabel === "Membre +") {
       return "Tu es sur le plan Membre +. Tu peux louer et preter avec des limites intermediaires.";
     }
-    return "Tu es en mode Guest. Passe sur un abonnement pour activer les echanges et debloquer plus de credits.";
+    return "Tu es en mode Guest : tu peux emprunter et utiliser les crédits d'échange comme les membres abonnés. Un abonnement Membre + ou X reste utile pour les plafonds, livraisons incluses et avantages du plan.";
   }, [membershipLabel]);
   const membershipOffersHref = membershipLabel === "Membre +" ? "/package?plan=minus" : "/package";
 

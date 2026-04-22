@@ -17,7 +17,7 @@ export default function OnboardingPrivacyPage() {
   return (
     <OnboardingScreenShell
       currentStep="/onboarding/privacy"
-      nextStep="/onboarding/3"
+      nextStep="/onboarding/end"
       layoutCarreSvg={<img src="/ressources/cyber.svg" alt="" className={themeClassNames.onboarding.shell.svgRemplitCadre} />}
       layoutBarreLongue={<img src="/ressources/barres/barre_signup.png" alt="" className={themeClassNames.onboarding.shell.svgRemplitCadre} />}
       h1Principal={

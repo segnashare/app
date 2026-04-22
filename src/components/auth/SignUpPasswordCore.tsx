@@ -4,27 +4,39 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+
+const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
-import { passwordSchema } from "@/features/auth/lib/schemas";
+import { signUpPasswordSchema } from "@/features/auth/lib/schemas";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
+export type SignUpPasswordFooterState = {
+  field: string | null;
+  submit: string | null;
+};
+
 type PasswordFormValues = {
   password: string;
-  confirmPassword: string;
 };
 
 type SignUpPasswordCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  onSubmittingChange?: (submitting: boolean) => void;
+  onFooterStateChange?: (state: SignUpPasswordFooterState) => void;
 };
 
-
-
-export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswordCoreProps) {
+export function SignUpPasswordCore({
+  formId,
+  onCanContinueChange,
+  onSubmittingChange,
+  onFooterStateChange,
+}: SignUpPasswordCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -33,121 +45,130 @@ export function SignUpPasswordCore({ formId, onCanContinueChange }: SignUpPasswo
       args?: Record<string, unknown>,
     ) => Promise<{ data?: unknown; error?: { message?: string } | null } | undefined>)(fn, args);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [passwordPlainVisible, setPasswordPlainVisible] = useState(false);
 
   const {
     register,
     handleSubmit,
-    setError,
-    formState: { errors, isSubmitting, isValid },
+    watch,
+    formState: { errors, isSubmitting, isSubmitted },
   } = useForm<PasswordFormValues>({
-    resolver: zodResolver(passwordSchema),
-    mode: "onChange",
+    resolver: zodResolver(signUpPasswordSchema),
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    defaultValues: { password: "" },
   });
+
+  const passwordValue = watch("password");
+  const passwordOk = signUpPasswordSchema.safeParse({ password: passwordValue ?? "" }).success;
 
   useEffect(() => {
-    onCanContinueChange?.(isValid && !isSubmitting);
-  }, [isValid, isSubmitting, onCanContinueChange]);
+    onCanContinueChange?.(passwordOk && !isSubmitting);
+  }, [passwordOk, isSubmitting, onCanContinueChange]);
 
-  const onSubmit = handleSubmit(async ({ password, confirmPassword }) => {
-    setErrorMessage(null);
-    if (password !== confirmPassword) {
-      setError("confirmPassword", { type: "manual", message: "Les mots de passe ne correspondent pas" });
-      return;
-    }
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+  useEffect(() => {
+    onFooterStateChange?.({
+      field: isSubmitted ? (errors.password?.message ?? null) : null,
+      submit: errorMessage,
+    });
+  }, [errors.password?.message, isSubmitted, errorMessage, onFooterStateChange]);
 
-    if (userError || !user) {
-      setErrorMessage("Session invalide. Recommence l'inscription.");
-      return;
-    }
+  const onSubmit = handleSubmit(
+    async ({ password }) => {
+      setErrorMessage(null);
 
-    const { error: passwordError } = await supabase.auth.updateUser({ password });
-    if (passwordError) {
-      const normalized = (passwordError.message ?? "").toLowerCase();
-      if (normalized.includes("new password should be different from the old password")) {
-        setErrorMessage("Le nouveau mot de passe doit être différent de l'ancien.");
-      } else {
-        setErrorMessage(passwordError.message);
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setErrorMessage("Session invalide. Recommence l'inscription.");
+        return;
       }
-      return;
-    }
 
-    const requestId = crypto.randomUUID();
+      const { error: passwordError } = await supabase.auth.updateUser({ password });
+      if (passwordError) {
+        const normalized = (passwordError.message ?? "").toLowerCase();
+        if (normalized.includes("new password should be different from the old password")) {
+          setErrorMessage("Le nouveau mot de passe doit être différent de l'ancien.");
+        } else {
+          setErrorMessage(passwordError.message);
+        }
+        return;
+      }
 
-    const bootstrapResult = await rpcUntyped("bootstrap_user_after_signup", {
-      p_first_name: null,
-      p_last_name: null,
-      p_locale: null,
-      p_timezone: null,
-      p_request_id: requestId,
-    });
-    if (bootstrapResult?.error) {
-      setErrorMessage(bootstrapResult.error.message ?? "Impossible d'initialiser ton compte.");
-      return;
-    }
+      const requestId = crypto.randomUUID();
 
-    const progressResult = await rpcUntyped("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/welcome",
-      p_progress_json: { checkpoint: "/onboarding/welcome" },
-      p_request_id: requestId,
-    });
-    if (progressResult?.error) {
-      setErrorMessage(progressResult.error.message ?? "Impossible d'enregistrer ta progression.");
-      return;
-    }
+      const bootstrapResult = await rpcUntyped("bootstrap_user_after_signup", {
+        p_first_name: null,
+        p_last_name: null,
+        p_locale: null,
+        p_timezone: null,
+        p_request_id: requestId,
+      });
+      if (bootstrapResult?.error) {
+        setErrorMessage(bootstrapResult.error.message ?? "Impossible d'initialiser ton compte.");
+        return;
+      }
 
-    router.replace("/onboarding");
-  });
+      const progressResult = await rpcUntyped("upsert_onboarding_progress", {
+        p_current_step: "/onboarding/1",
+        p_progress_json: { checkpoint: "/onboarding/1" },
+        p_request_id: requestId,
+      });
+      if (progressResult?.error) {
+        setErrorMessage(progressResult.error.message ?? "Impossible d'enregistrer ta progression.");
+        return;
+      }
 
-  const hasPasswordError = Boolean(errors.password);
-  const hasConfirmError = Boolean(errors.confirmPassword);
+      router.replace("/onboarding/1");
+    },
+    () => {
+      setErrorMessage(null);
+    },
+  );
+
+  const hasPasswordError = Boolean(isSubmitted && errors.password);
 
   return (
-    <div className="mt-8 w-full">
-      <p className="max-w-[370px] text-[clamp(12px,5.6vw,22px)] leading-[1.3] text-zinc-800">Encore une étape, puis on passe à l&apos;onboarding.</p>
-
-      <form id={formId} className="mt-10 space-y-8" onSubmit={onSubmit} noValidate>
-        <div>
+    <div className={cn(montserrat.className, "flex w-full flex-col items-center")}>
+      <form id={formId} onSubmit={onSubmit} noValidate className="mt-1.5 flex w-full flex-col items-center gap-2 md:mt-2 md:gap-2.5">
+        <div className="relative w-full max-w-[min(100%,380px)] rounded-xl bg-[#f5f5f5] px-5 py-4">
           <Input
             id="password"
-            type="password"
+            type={passwordPlainVisible ? "text" : "password"}
             autoComplete="new-password"
             placeholder="Mot de passe"
             className={cn(
               playfairDisplay.className,
-              "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px)] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
-              hasPasswordError
-                ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
-                : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",
+              "h-auto w-full rounded-none border-0 bg-transparent py-1 pr-11 text-left text-[clamp(1.125rem,5vw,1.5rem)] font-extrabold not-italic leading-tight tracking-tight text-black outline-none ring-0 focus:ring-0 sm:pr-12",
+              "caret-zinc-900 [caret-width:2px]",
+              "placeholder:font-segna-montserrat placeholder:font-semibold placeholder:not-italic placeholder:text-[#999999]",
+              hasPasswordError ? "placeholder:text-[#df4e43]" : null,
             )}
             {...register("password")}
           />
-          {hasPasswordError ? <p className="mt-3 text-[20px] font-medium text-[#E44D3E]">{errors.password?.message}</p> : null}
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-md text-zinc-900 transition-opacity hover:opacity-80"
+            onClick={() => setPasswordPlainVisible((v) => !v)}
+            aria-label={passwordPlainVisible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+            aria-pressed={passwordPlainVisible}
+          >
+            <img
+              src={passwordPlainVisible ? "/ressources/icons/mask.svg" : "/ressources/icons/visible.svg"}
+              alt=""
+              width={30}
+              height={24}
+              className="pointer-events-none max-h-[22px] w-auto object-contain opacity-70"
+            />
+          </button>
         </div>
-
-        <div>
-          <Input
-            id="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            placeholder="Confirme le mot de passe"
-            className={cn(
-              playfairDisplay.className,
-              "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px)] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
-              hasConfirmError
-                ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
-                : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",
-            )}
-            {...register("confirmPassword")}
-          />
-          {hasConfirmError ? <p className="mt-3 text-[20px] font-medium text-[#E44D3E]">{errors.confirmPassword?.message}</p> : null}
-        </div>
-
-        {errorMessage ? <p className="text-[20px] font-medium text-[#E44D3E]">{errorMessage}</p> : null}
       </form>
     </div>
   );

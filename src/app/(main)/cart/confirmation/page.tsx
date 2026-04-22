@@ -11,7 +11,7 @@ export default async function CartConfirmationPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   return (

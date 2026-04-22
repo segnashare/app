@@ -18,13 +18,14 @@ type BirthFormValues = {
 type OnboardingBirthCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
-  ageVisibleOnProfile?: boolean;
+  onSubmittingChange?: (value: boolean) => void;
+  /** Remonte le message d’erreur pour affichage sous le CTA (layout centré). */
+  onFooterErrorChange?: (message: string | null) => void;
+  /** Classes du conteneur racine (ex. marges selon le shell). */
+  formClassName?: string;
   redirectPath?: string;
   initialBirthDate?: string;
 };
-
-
-
 
 function clampDigits(value: string, maxLength: number) {
   return value.replace(/\D/g, "").slice(0, maxLength);
@@ -66,7 +67,15 @@ function getAgeFromBirthDate(birthDate: Date) {
   return age;
 }
 
-export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnProfile = true, redirectPath, initialBirthDate }: OnboardingBirthCoreProps) {
+export function OnboardingBirthCore({
+  formId,
+  onCanContinueChange,
+  onSubmittingChange,
+  onFooterErrorChange,
+  formClassName,
+  redirectPath,
+  initialBirthDate,
+}: OnboardingBirthCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -90,6 +99,14 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
   useEffect(() => {
     onCanContinueChange?.(isDateValid && !isSubmitting);
   }, [isDateValid, isSubmitting, onCanContinueChange]);
+
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
+    onFooterErrorChange?.(errorMessage);
+  }, [errorMessage, onFooterErrorChange]);
 
   useEffect(() => {
     if (!initialBirthDate || !/^\d{4}-\d{2}-\d{2}$/.test(initialBirthDate)) return;
@@ -132,7 +149,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
         profile_data: {
           birth_date: isoDate,
           age: {
-            visibility: ageVisibleOnProfile,
+            visibility: true,
           },
         },
       },
@@ -145,7 +162,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/1",
+      p_current_step: "/onboarding/size",
       p_progress_json: { checkpoint: "/onboarding/birth" },
       p_request_id: crypto.randomUUID(),
     });
@@ -156,7 +173,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/1");
+    router.push(redirectPath ?? "/onboarding/size");
   };
 
   const birthDateForModal = isDateValid ? toBirthDate(day, month, year) : null;
@@ -166,30 +183,39 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
     : "";
 
   return (
-    <div className="mt-8 w-full">
-      <form id={formId} onSubmit={onSubmit} noValidate className="flex w-full flex-col gap-6">
-        <div className="flex w-full min-w-0 items-end justify-center gap-[clamp(1px,0.45vw,3px)]">
-          {digits.map((digit, index) => (
-            <div key={`birth-slot-${index}`} className={cn("w-[clamp(26px,7.2vw,38px)] min-w-0 shrink-0", (index === 2 || index === 4) && "ml-[clamp(12px,4vw,28px)]")}>
-              <input
-                id={`birth-slot-${index + 1}`}
-                type="text"
-                inputMode="numeric"
-                autoComplete={index === 0 ? "bday-day" : "off"}
-                placeholder={placeholders[index]}
-                maxLength={1}
-                value={digit}
+    <div className={cn(formClassName ?? "mt-8 w-full")}>
+      <form id={formId} onSubmit={onSubmit} noValidate className="flex w-full flex-col items-center gap-5">
+        <div className="mx-auto w-fit max-w-full rounded-xl bg-[#f5f5f5] px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-6">
+          <div className="flex min-w-0 items-end justify-center gap-[clamp(1px,0.45vw,3px)] md:gap-1.5">
+            {digits.map((digit, index) => (
+              <div
+                key={`birth-slot-${index}`}
                 className={cn(
-                  playfairDisplay.className,
-                  "mx-auto h-auto w-[70%] min-w-0 rounded-none border-0 border-b bg-transparent px-0 pb-3 pt-0 text-center text-[clamp(28px,4.8vw,44px)] font-extrabold leading-none outline-none placeholder:text-zinc-900/55 focus:border-b-2",
-                  errorMessage
-                    ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43]/70 focus:border-[#d56a61]"
-                    : "border-zinc-900 text-zinc-900 focus:border-zinc-900",
+                  "min-w-0 shrink-0 w-[clamp(24px,6.8vw,36px)] md:w-[clamp(36px,4.8vw,47px)]",
+                  (index === 2 || index === 4) && "ml-[clamp(10px,3.5vw,24px)] md:ml-[clamp(12px,2.2vw,26px)]",
                 )}
+              >
+                <input
+                  id={`birth-slot-${index + 1}`}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete={index === 0 ? "bday-day" : "off"}
+                  placeholder={placeholders[index]}
+                  maxLength={1}
+                  value={digit}
+                  className={cn(
+                    playfairDisplay.className,
+                    "mx-auto h-auto w-[78%] min-w-0 rounded-none border-0 border-b-[1.5px] border-zinc-400 bg-transparent px-0 pb-2 pt-0 text-center text-[clamp(22px,4.2vw,38px)] font-extrabold leading-none outline-none focus:border-zinc-900 md:w-full md:text-[clamp(26px,3.2vw,40px)]",
+                    "placeholder:font-segna-montserrat placeholder:font-semibold placeholder:not-italic placeholder:text-[#999999]",
+                    errorMessage
+                      ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43]/80 focus:border-[#d56a61]"
+                      : "text-zinc-900",
+                  )}
                 ref={(element) => {
                   inputRefs.current[index] = element;
                 }}
                 onChange={(event) => {
+                  setErrorMessage(null);
                   const nextDigit = clampDigits(event.target.value, 1);
                   setDigits((previous) => {
                     const next = [...previous];
@@ -212,6 +238,7 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
                   const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
                   if (!pasted) return;
 
+                  setErrorMessage(null);
                   event.preventDefault();
                   const next = ["", "", "", "", "", "", "", ""];
                   for (let i = 0; i < pasted.length; i += 1) {
@@ -220,20 +247,12 @@ export function OnboardingBirthCore({ formId, onCanContinueChange, ageVisibleOnP
                   setDigits(next);
                   inputRefs.current[Math.min(pasted.length, 8) - 1]?.focus();
                 }}
-              />
-            </div>
-          ))}
+                />
+              </div>
+            ))}
+          </div>
         </div>
-        <p
-          className={cn(
-            montserrat.className,
-            "max-w-[430px] text-[clamp(14px,2.6vw,18px)] font-medium leading-[1.2] tracking-[0.01em] text-[#000000]",
-          )}
-        >
-          Cela nous permet de calculer l&apos;âge qui s&apos;affiche sur ton profil.
-        </p>
 
-        {errorMessage ? <p className="text-[clamp(12px,4.2vw,18px)] text-[#E44D3E]">{errorMessage}</p> : null}
       </form>
 
       {showAgeModal && birthDateForModal && ageForModal !== null ? (

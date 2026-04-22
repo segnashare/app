@@ -45,7 +45,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   const userId = user.id as string;
@@ -61,9 +61,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
       : undefined;
 
   const cartSummary = await fetchActiveCartSummaryForUser(supabase, userId);
-  const canPay =
-    cartSummary.status === "checkout_pending" ||
-    (isGuest && cartSummary.status === "active");
+  const canPay = cartSummary.status === "checkout_pending";
   if (!canPay) {
     redirect("/cart");
   }
@@ -106,7 +104,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         walletCreditKind={walletCreditKindForMembership(membershipLabel)}
         exchangeCreditsChargeEuros={exchangeCreditsChargeEuros}
         availableWalletMods={availableWalletMods}
-        hideReservationTimer={isGuest}
+        hideReservationTimer={false}
         waiveIncludedRoundTripShipping={waiveIncludedRoundTripShipping}
         remainingIncludedOrdersThisMonth={remainingIncludedOrdersThisMonth}
         includedOrdersLimitThisMonth={includedOrdersLimitThisMonth}

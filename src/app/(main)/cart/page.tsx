@@ -39,7 +39,7 @@ export default async function CartPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   const userId = user.id as string;

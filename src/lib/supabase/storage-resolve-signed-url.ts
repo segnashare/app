@@ -14,8 +14,7 @@ export function normalizeStorageObjectPath(raw: string): string {
 }
 
 /**
- * Buckets à essayer **dans l’ordre**, en un seul appel quand le suffixe du chemin est reconnu.
- * Sinon repli legacy : items d’abord puis focus (évite deux POST en parallèle dont un 400).
+ * Buckets à essayer **dans l’ordre** de préférence (premier `createSignedUrl` qui réussit gagne).
  */
 export function orderedBucketsForStoragePath(normalizedPath: string): readonly string[] {
   const pl = normalizedPath.toLowerCase();
@@ -58,8 +57,16 @@ export async function createSignedUrlForStoragePath(
   if (!objectPath) return null;
   const explicit = normalizeExplicitBucket(options?.explicitBucket ?? null);
   const buckets = explicit ? ([explicit] as const) : orderedBucketsForStoragePath(objectPath);
-  for (const bucketId of buckets) {
-    const { data, error } = await supabase.storage.from(bucketId).createSignedUrl(objectPath, expiresIn);
+  if (buckets.length === 1) {
+    const { data, error } = await supabase.storage.from(buckets[0]).createSignedUrl(objectPath, expiresIn);
+    if (!error && data?.signedUrl) return data.signedUrl;
+    return null;
+  }
+  const results = await Promise.all(
+    buckets.map((bucketId) => supabase.storage.from(bucketId).createSignedUrl(objectPath, expiresIn)),
+  );
+  for (let i = 0; i < buckets.length; i++) {
+    const { data, error } = results[i];
     if (!error && data?.signedUrl) return data.signedUrl;
   }
   return null;

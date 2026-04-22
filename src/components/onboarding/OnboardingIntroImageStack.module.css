@@ -1,0 +1,52 @@
+/**
+ * Mêmes ratios que AuthLandingCollage ; largeurs = 1,5 × les slots auth
+ * (auth : 52–76 / 72–104 / 96–132 px en clamp).
+ */
+.sizeSmall {
+  width: clamp(78px, 21vw, 114px);
+}
+.sizeMedium {
+  width: clamp(108px, 28.5vw, 156px);
+}
+.sizeLarge {
+  width: clamp(144px, 39vw, 198px);
+}
+
+/**
+ * Intro onboarding en `flex-row` (md+) : plafonds plus hauts pour remplir l’espace
+ * entre les marges, sans toucher aux tailles mobile / aux autres écrans hors ce wrapper.
+ */
+@media (min-width: 768px) {
+  .stackRowDesktop .sizeSmall {
+    width: clamp(92px, 14vw, 152px);
+  }
+  .stackRowDesktop .sizeMedium {
+    width: clamp(116px, 17.5vw, 196px);
+  }
+  .stackRowDesktop .sizeLarge {
+    width: clamp(140px, 21vw, 240px);
+  }
+}
+
+/** Grille intro `/onboarding/2` : cadres un peu plus petits pour libérer la hauteur (CTA visible). */
+.introGridFrame .sizeSmall {
+  width: clamp(70px, 19vw, 102px);
+}
+.introGridFrame .sizeMedium {
+  width: clamp(94px, 25vw, 138px);
+}
+.introGridFrame .sizeLarge {
+  width: clamp(124px, 33vw, 172px);
+}
+
+.aspectSquare {
+  aspect-ratio: 1 / 1;
+}
+
+.aspectPortrait {
+  aspect-ratio: 3 / 4;
+}
+
+.aspectLandscape {
+  aspect-ratio: 4 / 3;
+}

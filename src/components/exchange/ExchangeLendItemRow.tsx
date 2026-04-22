@@ -74,8 +74,8 @@ function getStatusLabel(
 
   // Pipeline validée + contrôle OK : si la pièce est déjà `available` en DB, c’est le statut catalogue (bleu), pas l’étape « Vérifiée ».
   if (intakeListingStage === "validated") {
-    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "Éligible (abonnement)";
-    if (intakeFulfillmentStage === "awaiting_subscription") return "Abonnement requis";
+    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "Éligible (validation)";
+    if (intakeFulfillmentStage === "awaiting_subscription") return "En attente d'expédition";
     if (intakeFulfillmentStage === "shipping") return "Expédition";
     if (intakeFulfillmentStage === "in_verification") return "Vérification";
     if (intakeFulfillmentStage === "verified") {
@@ -92,8 +92,8 @@ function getStatusLabel(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
-      if (fs === "pre_subscribe_eligible") return "Éligible (abonnement)";
-      if (fs === "awaiting_subscription") return "Abonnement requis";
+      if (fs === "pre_subscribe_eligible") return "Éligible (validation)";
+      if (fs === "awaiting_subscription") return "En attente d'expédition";
       if (fs === "shipping") return "Expédition";
       if (fs === "in_verification") return "Vérification";
       if (fs === "verified") {

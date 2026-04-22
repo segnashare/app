@@ -77,14 +77,14 @@ export function OtpInput({
               refs.current[Math.min(pasted.length, length) - 1]?.focus();
             }}
             className={cn(
-              "h-[74px] w-[70px] border-0 border-b-2 border-zinc-900 bg-transparent text-center text-[56px] font-medium leading-none text-zinc-900 caret-transparent outline-none focus:border-zinc-900",
+              "h-[74px] w-[70px] border-0 border-b-[1.5px] border-zinc-900 bg-transparent text-center text-[56px] font-medium leading-none text-zinc-900 caret-transparent outline-none focus:border-zinc-900",
               inputClassName,
             )}
           />
           {activeIndex === index && !char ? (
             <span
               aria-hidden
-              className="absolute left-1/2 top-1/2 h-[52px] w-[2px] -translate-x-1/2 -translate-y-[58%] bg-zinc-900/70"
+              className="pointer-events-none absolute left-1/2 top-1/2 h-[46%] max-h-[2.25rem] w-[1.5px] -translate-x-1/2 -translate-y-1/2 bg-zinc-900/70"
               style={{ animation: "segnaCaretBlink 1s step-end infinite" }}
             />
           ) : null}

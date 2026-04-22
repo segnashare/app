@@ -63,10 +63,10 @@ export function ExchangeWalletPill({
         title: "Mode Guest",
         description:
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Obtenir des crédits de consommation",
+        primaryCtaLabel: "Obtenir des crédits d'échange",
         primaryCtaHref: "/profile?tab=obtenirplus",
-        secondaryCtaLabel: "Passe à l'échange",
-        secondaryCtaHref: "/package?plan=plus",
+        secondaryCtaLabel: "Voir les offres Membre",
+        secondaryCtaHref: "/package",
       };
     }
 

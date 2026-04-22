@@ -20,7 +20,7 @@ export default async function ItemFulfillmentPage({ params }: Props) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   const { data: row } = await supabase

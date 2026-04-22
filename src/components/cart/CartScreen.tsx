@@ -112,7 +112,6 @@ export function CartScreen({
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
   const creditKindLabel = walletCreditKindLabel(walletCreditKind);
-  const isGuest = membershipLabel === "Guest";
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
@@ -205,12 +204,6 @@ export function CartScreen({
       return;
     }
     setReserveError(null);
-    /** Invité : pas de réservation d’inventaire — paiement sur panier encore `active`. */
-    if (isGuest) {
-      router.push("/cart/payment");
-      router.refresh();
-      return;
-    }
     void goReserveThenPayment();
   };
 
@@ -230,7 +223,7 @@ export function CartScreen({
       if (error) {
         const raw = (error.message ?? "").toUpperCase();
         const msg = raw.includes("GUEST_RESERVATION_NOT_ALLOWED")
-            ? "La réservation d’inventaire est réservée aux abonnés — connecte-toi avec un compte Membre."
+            ? "La réservation du panier n’est pas disponible pour ce compte — réessaie ou contacte le support."
             : raw.includes("ITEM_RESERVED_BY_ANOTHER_MEMBER")
               ? "Une pièce a été réservée par un autre membre — retire-la du panier ou réessaie plus tard."
               : raw.includes("ITEM LOCKS") || raw.includes("LOCKS")
@@ -254,7 +247,7 @@ export function CartScreen({
       }
       if (payload?.ok) {
         const isNewReservation = !payload.already_reserved && !payload.idempotent;
-        if (isNewReservation && !isGuest) {
+        if (isNewReservation) {
           setCartReservationTimerStart();
         }
         router.push("/cart/payment");
@@ -562,7 +555,7 @@ export function CartScreen({
                   onClick={() => goToPayment()}
                   className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800 disabled:opacity-60"
                 >
-                  {reserveBusy ? "Réservation…" : isGuest ? "Passer au paiement" : "Réserver le panier"}
+                  {reserveBusy ? "Réservation…" : "Réserver le panier"}
                 </button>
                 {reserveError ? (
                   <p className="text-center text-[13px] font-medium leading-snug text-red-600">{reserveError}</p>

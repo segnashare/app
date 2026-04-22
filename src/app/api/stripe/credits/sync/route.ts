@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.redirect(new URL("/auth/sign-in", url.origin));
+      return NextResponse.redirect(new URL("/auth/login", url.origin));
     }
 
     const { secretKey } = getStripeConfig();

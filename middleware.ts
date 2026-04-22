@@ -6,7 +6,7 @@ const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const PUBLIC_PREFIXES = [
   "/",
-  "/auth/sign-in",
+  "/auth/login",
   "/auth/forgot-password",
   "/auth/reset-password",
   "/auth/sign-up/email",
@@ -26,42 +26,25 @@ const PROTECTED_PREFIXES = [
   "/membre",
 ];
 const ONBOARDING_PATHS = [
-  "/onboarding/welcome",
+  "/onboarding/1",
   "/onboarding/phone",
   "/onboarding/phone/verify",
   "/onboarding/name",
-  "/onboarding/birth",
-  "/onboarding/notifications",
-  "/onboarding/1",
-  "/onboarding/location",
-  "/onboarding/profile",
-  "/onboarding/style",
-  "/onboarding/brands",
-  "/onboarding/size",
-  "/onboarding/work",
   "/onboarding/2",
-  "/onboarding/motivation",
-  "/onboarding/experience",
-  "/onboarding/share",
-  "/onboarding/budget",
-  "/onboarding/dressing",
-  "/onboarding/ethic",
-  "/onboarding/privacy",
+  "/onboarding/birth",
+  "/onboarding/size",
   "/onboarding/3",
-  "/onboarding/looks",
-  "/onboarding/answers",
-  "/onboarding/subscription",
-  "/onboarding/package",
+  "/onboarding/privacy",
   "/onboarding/end",
 ] as const;
 
 type OnboardingPath = (typeof ONBOARDING_PATHS)[number];
 
 const ONBOARDING_ALIASES: Record<string, OnboardingPath> = {
-  "/onboarding": "/onboarding/welcome",
-  "welcome": "/onboarding/welcome",
+  "/onboarding": "/onboarding/1",
   "/onboarding/confidentiality": "/onboarding/privacy",
   "/onboarding/confidentialite": "/onboarding/privacy",
+  "/onboarding/interests": "/onboarding/privacy",
 };
 
 function normalizeOnboardingPath(pathname: string): OnboardingPath | null {
@@ -82,13 +65,7 @@ function getOnboardingPathFromIndex(index: number) {
   return ONBOARDING_PATHS[clamped];
 }
 
-function isAllowedOnboardingJump(requestedPath: string, reachedPath: string) {
-  if (requestedPath === "/onboarding/package" && reachedPath === "/onboarding/subscription") {
-    return true;
-  }
-  if (requestedPath === "/onboarding/end" && (reachedPath === "/onboarding/subscription" || reachedPath === "/onboarding/package")) {
-    return true;
-  }
+function isAllowedOnboardingJump(_requestedPath: string, _reachedPath: string) {
   return false;
 }
 
@@ -113,7 +90,7 @@ function isProtectedRoute(pathname: string) {
 /** Lets returning members open sign-in even with an active session (switch account / re-auth). */
 function isExplicitMemberSignIn(request: NextRequest) {
   return (
-    request.nextUrl.pathname === "/auth/sign-in" && request.nextUrl.searchParams.get("from") === "member"
+    request.nextUrl.pathname === "/auth/login" && request.nextUrl.searchParams.get("from") === "member"
   );
 }
 
@@ -149,7 +126,7 @@ export async function middleware(request: NextRequest) {
   if (session?.user && Number.isFinite(lastSeen) && now - lastSeen > SESSION_IDLE_TIMEOUT_MS) {
     await supabase.auth.signOut();
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/sign-in";
+    url.pathname = "/auth/login";
     url.searchParams.set("expired", "1");
 
     const redirectResponse = NextResponse.redirect(url);
@@ -190,7 +167,7 @@ export async function middleware(request: NextRequest) {
 
   if (isProtectedRoute(pathname) && !session) {
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/sign-in";
+    url.pathname = "/auth/login";
     return NextResponse.redirect(url);
   }
 

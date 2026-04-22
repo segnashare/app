@@ -18,7 +18,7 @@ export default async function ItemRetourPage({ params }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/sign-in");
+  if (!user) redirect("/auth/login");
 
   const { data: row } = await supabase
     .from("items")

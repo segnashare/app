@@ -28,6 +28,34 @@ alter table public.user_profiles
   alter column answers set default '[]'::jsonb,
   alter column answers set not null;
 
+-- Catalogues référencés par user_profile_brands / user_profile_sizes (FK). Sur l’historique prod ces
+-- tables existaient déjà ; sur une base neuve il faut les créer ici pour que la chaîne de migrations tienne.
+create table if not exists public.item_brands (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  label text not null,
+  slug text not null unique
+);
+
+create table if not exists public.item_sizes (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  label text,
+  code text not null unique
+);
+
+drop trigger if exists trg_item_brands_updated_at on public.item_brands;
+create trigger trg_item_brands_updated_at
+before update on public.item_brands
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_item_sizes_updated_at on public.item_sizes;
+create trigger trg_item_sizes_updated_at
+before update on public.item_sizes
+for each row execute function public.set_updated_at();
+
 create table if not exists public.user_profile_brands (
   id uuid primary key default gen_random_uuid(),
   user_profile_id uuid not null references public.user_profiles(id) on delete cascade,

@@ -1,3 +1,15 @@
+-- Table absente des migrations antérieures (existante sur l’historique prod).
+create table if not exists public.user_sessions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  session_token text not null,
+  ip_address inet,
+  user_agent text,
+  expires_at timestamptz,
+  unique (session_token)
+);
+
 create index if not exists user_sessions_user_id_idx
   on public.user_sessions (user_id);
 

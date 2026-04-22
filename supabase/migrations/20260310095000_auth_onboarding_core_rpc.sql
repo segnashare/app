@@ -661,6 +661,13 @@ as $$
   select public.complete_onboarding('{}'::jsonb, '{}'::jsonb, null);
 $$;
 
+-- 20260306174000_user_data_visibility defined these with return type public.user_data. This migration
+-- switches them to jsonb + user_preferences. PostgreSQL rejects CREATE OR REPLACE when the return type
+-- changes (SQLSTATE 42P13), so drop first (dependents before upsert_user_data_section).
+drop function if exists public.set_user_data_visibility(text, boolean);
+drop function if exists public.get_or_create_user_data();
+drop function if exists public.upsert_user_data_section(text, jsonb, boolean);
+
 create or replace function public.upsert_user_data_section(
   p_section text,
   p_value jsonb default null,

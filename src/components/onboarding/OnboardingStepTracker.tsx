@@ -10,43 +10,24 @@ type OnboardingStepTrackerProps = {
 };
 
 const ONBOARDING_PATHS = [
-  "/onboarding/welcome",
+  "/onboarding/1",
   "/onboarding/phone",
   "/onboarding/phone/verify",
   "/onboarding/name",
-  "/onboarding/birth",
-  "/onboarding/1",
-  "/onboarding/location",
-  "/onboarding/profile",
-  "/onboarding/style",
-  "/onboarding/brands",
-  "/onboarding/size",
-  "/onboarding/work",
   "/onboarding/2",
-  "/onboarding/motivation",
-  "/onboarding/experience",
-  "/onboarding/share",
-  "/onboarding/budget",
-  "/onboarding/dressing",
-  "/onboarding/ethic",
-  "/onboarding/privacy",
+  "/onboarding/birth",
+  "/onboarding/size",
   "/onboarding/3",
-  "/onboarding/looks",
-  "/onboarding/answers",
-  "/onboarding/subscription",
-  "/onboarding/package",
+  "/onboarding/privacy",
   "/onboarding/end",
 ] as const;
 
 const ONBOARDING_PATH_SET = new Set<string>(ONBOARDING_PATHS);
-const FALLBACK_STEP = "/onboarding/welcome";
+const FALLBACK_STEP = "/onboarding/1";
 
 function canStayOnStep(currentStep: string, persistedStep: string) {
   if (persistedStep === currentStep) return true;
-  if (currentStep === "/onboarding/package" && persistedStep === "/onboarding/subscription") return true;
-  if (currentStep === "/onboarding/end" && (persistedStep === "/onboarding/subscription" || persistedStep === "/onboarding/package")) {
-    return true;
-  }
+  if (currentStep === "/onboarding/end" && persistedStep === "/onboarding/privacy") return true;
   return false;
 }
 
@@ -63,7 +44,7 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        router.replace("/auth");
+        router.replace("/auth/login");
         return;
       }
 
@@ -78,8 +59,9 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
         return;
       }
 
-      let persistedStep =
-        typeof row?.current_step === "string" && ONBOARDING_PATH_SET.has(row.current_step) ? row.current_step : FALLBACK_STEP;
+      const rawStep = typeof row?.current_step === "string" ? row.current_step : "";
+      const normalizedStep = rawStep === "/onboarding/interests" ? "/onboarding/privacy" : rawStep;
+      let persistedStep = ONBOARDING_PATH_SET.has(normalizedStep) ? normalizedStep : FALLBACK_STEP;
 
       if (!row) {
         await supabase.rpc("upsert_onboarding_progress", {

@@ -10,7 +10,7 @@ import { OnboardingBrandsCore } from "@/components/onboarding/OnboardingBrandsCo
 import { OnboardingBudgetCore } from "@/components/onboarding/OnboardingBudgetCore";
 import { OnboardingDressingCore } from "@/components/onboarding/OnboardingDressingCore";
 import { OnboardingEthicCore } from "@/components/onboarding/OnboardingEthicCore";
-import { OnboardingExperienceCore } from "@/components/onboarding/OnboardingExperienceCore";
+import { OnboardingInterestsCore } from "@/components/onboarding/OnboardingInterestsCore";
 import { OnboardingLocationCore } from "@/components/onboarding/OnboardingLocationCore";
 import { OnboardingMotivationCore } from "@/components/onboarding/OnboardingMotivationCore";
 import { OnboardingNameCore } from "@/components/onboarding/OnboardingNameCore";
@@ -97,9 +97,9 @@ export function ProfileFieldEditClient() {
     locationCity?: string;
     locationRelativeCity?: string;
     locationTimezone?: string;
-    topSize?: string;
-    bottomSize?: string;
-    shoesSize?: string;
+    topSizes?: string[];
+    bottomSizes?: string[];
+    shoesSizes?: string[];
     selectedBrandIds?: string[];
   }>({});
 
@@ -142,12 +142,17 @@ export function ProfileFieldEditClient() {
           .filter((entry): entry is { id: string; code: string | null } => typeof entry.id === "string")
           .map((entry) => [entry.id, entry.code ?? ""]),
       );
-      const parseSize = (category: "top" | "bottom" | "shoes") => {
-        const row = sizesRows.find((entry) => entry.category === category);
-        const sizeId = typeof row?.size_id === "string" ? row.size_id : "";
-        const code = sizeId ? sizeCodeById.get(sizeId) ?? "" : "";
-        if (!code) return undefined;
-        return code.includes(":") ? code.split(":")[1] || undefined : code;
+      const parseSizes = (category: "top" | "bottom" | "shoes") => {
+        const codes = sizesRows
+          .filter((entry) => entry.category === category)
+          .map((entry) => {
+            const sizeId = typeof entry.size_id === "string" ? entry.size_id : "";
+            const code = sizeId ? sizeCodeById.get(sizeId) ?? "" : "";
+            if (!code) return "";
+            return code.includes(":") ? code.split(":")[1] || "" : code;
+          })
+          .filter((c) => c.length > 0);
+        return Array.from(new Set(codes));
       };
 
       if (!mounted) return;
@@ -162,9 +167,9 @@ export function ProfileFieldEditClient() {
         locationCity: typeof profile.city === "string" ? profile.city : undefined,
         locationRelativeCity: typeof location.relative_city === "string" ? location.relative_city : undefined,
         locationTimezone: typeof location.timezone === "string" ? location.timezone : "Europe/Paris",
-        topSize: parseSize("top"),
-        bottomSize: parseSize("bottom"),
-        shoesSize: parseSize("shoes"),
+        topSizes: parseSizes("top"),
+        bottomSizes: parseSizes("bottom"),
+        shoesSizes: parseSizes("shoes"),
         selectedBrandIds: ((brandsResponse.data ?? []) as Array<{ brand_id?: string | null }>)
           .map((entry) => entry.brand_id ?? "")
           .filter((entry) => entry.length > 0),
@@ -205,22 +210,40 @@ export function ProfileFieldEditClient() {
       return (
         <OnboardingSizeCore
           {...sharedProps}
-          initialTopSize={initialValues.topSize}
-          initialBottomSize={initialValues.bottomSize}
-          initialShoesSize={initialValues.shoesSize}
+          initialTopSizes={initialValues.topSizes}
+          initialBottomSizes={initialValues.bottomSizes}
+          initialShoesSizes={initialValues.shoesSizes}
         />
       );
     if (config.kind === "brands")
       return <OnboardingBrandsCore {...sharedProps} initialSelectedBrandIds={initialValues.selectedBrandIds} showRankSection />;
     if (config.kind === "style") return <OnboardingStyleCore {...sharedProps} />;
     if (config.kind === "motivation") return <OnboardingMotivationCore {...sharedProps} />;
-    if (config.kind === "experience") return <OnboardingExperienceCore {...sharedProps} />;
+    if (config.kind === "experience") return <OnboardingInterestsCore {...sharedProps} />;
     if (config.kind === "share") return <OnboardingShareCore {...sharedProps} />;
     if (config.kind === "budget") return <OnboardingBudgetCore {...sharedProps} />;
     if (config.kind === "dressing") return <OnboardingDressingCore {...sharedProps} />;
     if (config.kind === "ethic") return <OnboardingEthicCore {...sharedProps} />;
     return null;
-  }, [config.kind, formId, initialValues.birthDate, initialValues.bottomSize, initialValues.firstName, initialValues.lastName, initialValues.locationCity, initialValues.locationLabel, initialValues.locationLat, initialValues.locationLon, initialValues.locationRelativeCity, initialValues.locationTimezone, initialValues.selectedBrandIds, initialValues.shoesSize, initialValues.topSize, initialValues.work, returnPath]);
+  }, [
+    config.kind,
+    formId,
+    initialValues.birthDate,
+    initialValues.bottomSizes,
+    initialValues.firstName,
+    initialValues.lastName,
+    initialValues.locationCity,
+    initialValues.locationLabel,
+    initialValues.locationLat,
+    initialValues.locationLon,
+    initialValues.locationRelativeCity,
+    initialValues.locationTimezone,
+    initialValues.selectedBrandIds,
+    initialValues.shoesSizes,
+    initialValues.topSizes,
+    initialValues.work,
+    returnPath,
+  ]);
 
   return (
     <main className="min-h-[100dvh] bg-white">

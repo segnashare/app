@@ -3,8 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
-const montserrat = segnaMontserrat;
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
@@ -21,6 +20,9 @@ type NameFormValues = {
 type OnboardingNameCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  onSubmittingChange?: (value: boolean) => void;
+  /** Classes du `<form>` (ex. marges selon le shell). */
+  formClassName?: string;
   redirectPath?: string;
   initialFirstName?: string;
   initialLastName?: string;
@@ -29,7 +31,15 @@ type OnboardingNameCoreProps = {
 
 
 
-export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, initialFirstName, initialLastName }: OnboardingNameCoreProps) {
+export function OnboardingNameCore({
+  formId,
+  onCanContinueChange,
+  onSubmittingChange,
+  formClassName,
+  redirectPath,
+  initialFirstName,
+  initialLastName,
+}: OnboardingNameCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const rpcUntyped = async (fn: string, args?: Record<string, unknown>) =>
@@ -62,6 +72,10 @@ export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, 
   }, [canContinue, onCanContinueChange]);
 
   useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
     if (typeof initialFirstName === "string") {
       setValue("firstName", initialFirstName);
     }
@@ -89,7 +103,7 @@ export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, 
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/birth",
+      p_current_step: "/onboarding/2",
       p_progress_json: {
         checkpoint: "/onboarding/name",
       },
@@ -101,56 +115,44 @@ export function OnboardingNameCore({ formId, onCanContinueChange, redirectPath, 
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/birth");
+    router.push(redirectPath ?? "/onboarding/2");
   });
 
+  const framedInputClass = (hasError: boolean) =>
+    cn(
+      playfairDisplay.className,
+      "h-auto w-full rounded-none border-0 bg-transparent py-1 pr-0 text-left text-[clamp(1.125rem,5vw,1.5rem)] font-extrabold leading-tight tracking-tight text-black outline-none ring-0 focus:ring-0",
+      "caret-zinc-900 [caret-width:2px]",
+      "placeholder:font-segna-montserrat placeholder:font-semibold placeholder:not-italic placeholder:text-[#999999]",
+      hasError ? "placeholder:text-[#df4e43]" : null,
+    );
+
   return (
-    <form id={formId} onSubmit={onSubmit} noValidate className="mt-10 space-y-8">
-      <div>
+    <form id={formId} onSubmit={onSubmit} noValidate className={cn(formClassName ?? "mt-10 flex w-full flex-col items-center gap-3 md:gap-4")}>
+      <div className="w-full max-w-[min(100%,380px)] rounded-xl bg-[#f5f5f5] px-5 py-4">
         <Input
           id="firstName"
           type="text"
           autoComplete="given-name"
           placeholder="Prénom"
-          className={cn(
-            playfairDisplay.className,
-            "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px)] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
-            hasFirstNameError
-              ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
-              : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",
-          )}
+          dir="ltr"
+          className={framedInputClass(hasFirstNameError)}
           {...register("firstName", {
             validate: (value) => value.trim().length >= 2 || "Merci d'indiquer ton prenom.",
           })}
         />
       </div>
 
-      <div>
+      <div className="w-full max-w-[min(100%,380px)] rounded-xl bg-[#f5f5f5] px-5 py-4">
         <Input
           id="lastName"
           type="text"
           autoComplete="family-name"
           placeholder="Nom"
-          className={cn(
-            playfairDisplay.className,
-            "h-auto rounded-none border-0 border-b bg-transparent px-0 pb-4 pt-0 text-[clamp(16px,5.6vw,30px)] font-extrabold italic leading-none outline-none placeholder:italic focus:border-b-2",
-            hasLastNameError
-              ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
-              : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",
-          )}
+          dir="ltr"
+          className={framedInputClass(hasLastNameError)}
           {...register("lastName")}
         />
-        <p
-          className={cn(
-            montserrat.className,
-            themeClassNames.onboarding.textes.helperMuted,
-            themeClassNames.onboarding.textes.helperTailleFluide,
-            themeClassNames.onboarding.shell.largeurMaxDeuxTiersViewport,
-            "mt-3",
-          )}
-        >
-          Le nom de famille est facultatif et ne sera communique qu&apos;a tes matchs.
-        </p>
       </div>
 
       {hasFirstNameError ? <p className={themeClassNames.onboarding.textes.erreurFormulaire}>Merci d&apos;indiquer ton prenom.</p> : null}

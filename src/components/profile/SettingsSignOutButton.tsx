@@ -39,7 +39,7 @@ export function SettingsSignOutButton({ variant = "card" }: SettingsSignOutButto
         }
       }
 
-      router.replace("/auth/sign-in");
+      router.replace("/auth/login");
     } finally {
       setIsSigningOut(false);
     }

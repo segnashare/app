@@ -4,7 +4,7 @@ import Stripe from "stripe";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
+import { type WalletCreditKind, walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
 /** Packs catalogue « Obtenir plus » — alignés sur les prix Stripe (STRIPE_PRICE_CREDITS_*). */
 export const CREDIT_PACK_AMOUNTS = [200, 500, 1000] as const;
@@ -38,7 +38,7 @@ function envKeyForCreditPack(pack: CreditPackAmount): string {
 
 /**
  * Achat pack de crédits (profil « Obtenir plus »).
- * Body : `{ "pack": 200 | 500 | 1000 }` — consommation vs échange dérivé de l’abonnement côté serveur.
+ * Body : `{ "pack": 200 | 500 | 1000 }` — crédits d’échange (plus liés au seul abonnement).
  */
 export async function POST(request: Request) {
   try {
@@ -60,19 +60,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
-    const { data: subscriptionRow } = await admin
-      .from("user_subscriptions")
-      .select("plan_code,status")
-      .eq("user_id", user.id)
-      .eq("provider", "stripe")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const creditsKind = walletCreditKindForBillingSubscription(
-      subscriptionRow?.plan_code ?? null,
-      subscriptionRow?.status ?? null,
-    );
+    const creditsKind: WalletCreditKind = walletCreditKindForBillingSubscription(null, null);
 
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);

@@ -17,7 +17,11 @@ export type CmsFrameType =
   | "shop_brand_ref"
   | "shop_link_card"
   /** Hero plein largeur (profil — Obtenir plus) : label + titre + sous-titre + CTA sur image. */
-  | "profile_plus_hero";
+  | "profile_plus_hero"
+  /** Image collage écran d’accueil /auth (BO : page Auth). */
+  | "auth_collage_image"
+  /** Pile visuelle onboarding (BO : page Onboarding) — même payload collage, rendu vertical sans flottement. */
+  | "onboarding_stack_image";
 
 /** Config publiée d’une section hub catalogue (titre, flèche, lien « voir plus »). */
 export type CmsCatalogSectionConfig = {
@@ -92,6 +96,18 @@ export type CmsFramePayload = {
   category_id?: string;
   /** Référence marque */
   brand_id?: string;
+  /** Collage écran /auth (`auth_collage_image`) */
+  collage_image?: CmsImageRef | null;
+  collage_aspect?: string;
+  collage_size?: string;
+  collage_top_pct?: number;
+  collage_left_pct?: number;
+  collage_float_delay_ms?: number;
+  /**
+   * Onboarding 3 (carrousel horizontal) : couleur de fond plein écran quand cette image est au centre.
+   * Hex `#RRGGBB` ou `RRGGBB` ; si absent → blanc.
+   */
+  slide_background_hex?: string;
 };
 
 export type CmsFrameRow = {

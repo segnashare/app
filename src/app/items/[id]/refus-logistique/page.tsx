@@ -21,7 +21,7 @@ export default async function ItemLogisticsRefusalPage({ params }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   const { data: row, error } = await supabase

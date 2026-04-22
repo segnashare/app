@@ -115,8 +115,7 @@ export async function POST(request: Request) {
     const isGuest = membershipLabel === "Guest";
 
     const cartSummary = await fetchActiveCartSummaryForUser(supabase, userId);
-    const canPay =
-      cartSummary.status === "checkout_pending" || (isGuest && cartSummary.status === "active");
+    const canPay = cartSummary.status === "checkout_pending";
     if (!canPay || !cartSummary.cartId) {
       return NextResponse.json({ message: "Panier non éligible au paiement." }, { status: 400 });
     }
@@ -255,10 +254,7 @@ export async function POST(request: Request) {
           currency: "eur",
           unit_amount: creditsCents,
           product_data: {
-            name:
-              creditsKind === "consumption"
-                ? "Complément crédits de consommation (échange)"
-                : "Complément crédits d'échange",
+            name: "Complément crédits d'échange",
             description: `${missingExchangeMods} unité(s) au-delà du solde`,
           },
         },

@@ -16,11 +16,11 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    redirect(isMemberIntent ? "/auth/sign-in?from=member" : "/auth/sign-up/email");
+    redirect(isMemberIntent ? "/auth/login?from=member" : "/auth/sign-up/email");
   }
 
   if (isMemberIntent) {
-    redirect("/auth/sign-in?from=member");
+    redirect("/auth/login?from=member");
   }
 
   const { data } = await supabase
@@ -37,5 +37,5 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
     redirect(data.current_step);
   }
 
-  redirect("/onboarding");
+  redirect("/onboarding/1");
 }

@@ -1,52 +1,100 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
-const montserrat = segnaMontserrat;
 
 import { Input } from "@/components/ui/Input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
+
+const montserrat = segnaMontserrat;
 
 type PhoneFormValues = {
   phoneLocal: string;
 };
 
+export type OnboardingPhoneAuthErrorState = {
+  field: string | null;
+  submit: string | null;
+};
+
 type OnboardingPhoneCoreProps = {
   formId: string;
   onCanContinueChange?: (value: boolean) => void;
+  onAuthErrorStateChange?: (state: OnboardingPhoneAuthErrorState) => void;
+  onSubmittingChange?: (value: boolean) => void;
 };
-
-
 
 function normalizeFrenchLocalNumber(value: string) {
   const digits = value.replace(/\D/g, "");
   return digits.startsWith("0") ? digits.slice(1) : digits;
 }
 
-export function OnboardingPhoneCore({ formId, onCanContinueChange }: OnboardingPhoneCoreProps) {
+/** Même taille / graisse que le champ (Montserrat, valeur + placeholder). */
+const MEASURE_PHONE =
+  "inline-block whitespace-pre font-segna-montserrat font-semibold not-italic leading-none text-[clamp(1.05rem,4.2vw,1.35rem)]";
+
+function measureTextWidth(text: string, measureClasses: string): number {
+  const span = document.createElement("span");
+  span.className = measureClasses;
+  span.textContent = text;
+  span.setAttribute("aria-hidden", "true");
+  Object.assign(span.style, {
+    position: "absolute",
+    left: "-9999px",
+    top: "0",
+    visibility: "hidden",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(span);
+  const w = span.getBoundingClientRect().width;
+  span.remove();
+  return w;
+}
+
+export function OnboardingPhoneCore({
+  formId,
+  onCanContinueChange,
+  onAuthErrorStateChange,
+  onSubmittingChange,
+}: OnboardingPhoneCoreProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     register,
     handleSubmit,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isSubmitted },
   } = useForm<PhoneFormValues>({
-    mode: "onChange",
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    defaultValues: { phoneLocal: "" },
   });
 
-  const nationalNumber = normalizeFrenchLocalNumber(watch("phoneLocal", ""));
-  const hasPhoneError = Boolean(errors.phoneLocal);
+  const phoneLocalValue = watch("phoneLocal");
+  const nationalNumber = normalizeFrenchLocalNumber(phoneLocalValue ?? "");
+  const hasPhoneError = Boolean(isSubmitted && errors.phoneLocal);
   const canContinue = nationalNumber.length === 9 && !isSubmitting;
 
   useEffect(() => {
     onCanContinueChange?.(canContinue);
   }, [canContinue, onCanContinueChange]);
+
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
+    onAuthErrorStateChange?.({
+      field: isSubmitted ? (errors.phoneLocal?.message ?? null) : null,
+      submit: errorMessage,
+    });
+  }, [errors.phoneLocal?.message, errorMessage, isSubmitted, onAuthErrorStateChange]);
 
   const onSubmit = handleSubmit(async ({ phoneLocal }) => {
     setErrorMessage(null);
@@ -76,42 +124,72 @@ export function OnboardingPhoneCore({ formId, onCanContinueChange }: OnboardingP
       return;
     }
 
-    router.push(`/onboarding/phone/verify?phone=${encodeURIComponent(phoneLocal.trim())}`);
+    router.push(
+      `/onboarding/phone/verify?phone=${encodeURIComponent(phoneLocal.trim())}&sentAt=${Date.now()}`,
+    );
   });
 
+  const { ref: rhfPhoneRef, onChange: registerPhoneOnChange, ...phoneLocalField } = register("phoneLocal", {
+    validate: (value) => normalizeFrenchLocalNumber(value).length === 9 || "Merci d'indiquer un numéro valide.",
+  });
+
+  const syncPhoneTextCenterPadding = useCallback(() => {
+    const node = inputRef.current;
+    if (!node) return;
+    node.style.paddingLeft = "0px";
+    const inner = node.offsetWidth;
+    const raw = node.value;
+    const display = raw.length > 0 ? raw : "Numéro de téléphone";
+    const w = measureTextWidth(display, MEASURE_PHONE);
+    const pad = Math.max(0, (inner - w) / 2);
+    node.style.paddingLeft = `${pad}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    syncPhoneTextCenterPadding();
+    const node = inputRef.current;
+    if (!node) return;
+    const ro = new ResizeObserver(() => {
+      syncPhoneTextCenterPadding();
+    });
+    ro.observe(node);
+    return () => {
+      ro.disconnect();
+    };
+  }, [phoneLocalValue, syncPhoneTextCenterPadding]);
+
   return (
-    <div className="mt-8 w-full">
-      <form id={formId} onSubmit={onSubmit} noValidate>
-        <div className="flex items-end gap-4">
-          <div className="w-[28%] min-w-[92px] border-b border-zinc-900 pb-2">
-            <p className={cn(montserrat.className, "text-[clamp(28px,4vw,38px)] font-semibold leading-none text-zinc-900")}>🇫🇷 +33</p>
-          </div>
+    <div className={cn(montserrat.className, "flex w-full flex-col items-center")}>
+      <form id={formId} className="w-full max-w-[min(100%,380px)]" onSubmit={onSubmit} noValidate>
+        <div className="w-full rounded-xl bg-[#f5f5f5] px-5 py-4">
           <Input
             id="phoneLocal"
             type="tel"
-            placeholder=""
-            autoComplete="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="tel-national"
+            placeholder="Numéro de téléphone"
             maxLength={10}
+            dir="ltr"
             className={cn(
-              montserrat.className,
-              "h-auto w-[11ch] max-w-[11ch] rounded-none border-0 border-b bg-transparent px-0 pb-2 pt-0 text-[clamp(28px,4vw,36px)] font-semibold leading-none outline-none focus:border-b-2",
-              hasPhoneError
-                ? "border-[#d56a61] text-[#df4e43] placeholder:text-[#df4e43] focus:border-[#d56a61]"
-                : "border-zinc-900 text-zinc-900 placeholder:text-zinc-900 focus:border-zinc-900",
+              "h-auto w-full rounded-none border-0 bg-transparent py-1 pr-0 text-left text-[clamp(1.05rem,4.2vw,1.35rem)] font-semibold leading-none text-zinc-900 shadow-none outline-none ring-0 focus-visible:ring-0",
+              "caret-zinc-900 [caret-width:2px]",
+              "placeholder:font-semibold placeholder:text-[#999999]",
+              hasPhoneError ? "text-[#df4e43] placeholder:text-[#df4e43]" : "",
             )}
-            {...register("phoneLocal", {
-              validate: (value) => normalizeFrenchLocalNumber(value).length === 9 || "Merci d'indiquer un numéro valide.",
-            })}
+            {...phoneLocalField}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, "");
+              e.target.value = digits;
+              registerPhoneOnChange(e);
+              queueMicrotask(syncPhoneTextCenterPadding);
+            }}
+            ref={(el: HTMLInputElement | null) => {
+              inputRef.current = el;
+              rhfPhoneRef(el);
+            }}
           />
         </div>
-
-        {hasPhoneError ? <p className="ml-[calc(30%+1.5rem)] mt-3 text-[20px] font-medium text-[#E44D3E]">Merci d&apos;indiquer un numéro valide.</p> : null}
-
-        <p className={cn(montserrat.className, "mt-6 max-w-[430px] text-[clamp(14px,2.6vw,18px)] font-medium leading-[normal] tracking-[0] text-[#AAAAAA]")}>
-          Segna t&apos;enverra un SMS avec un code de vérification. Des frais de messagerie ou de consommation de données peuvent
-          s&apos;appliquer.
-        </p>
-        {errorMessage ? <p className="mt-3 text-[20px] font-medium text-[#E44D3E]">{errorMessage}</p> : null}
       </form>
     </div>
   );

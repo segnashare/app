@@ -629,9 +629,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
         .filter((entry): entry is { id: string; code: string | null; label: string | null } => typeof entry.id === "string")
         .map((entry) => [entry.id, { code: entry.code ?? "", label: entry.label ?? "" }]),
     );
-    const getSizeFor = (category: "top" | "bottom" | "shoes") => {
-      const rowForCategory = sizesRows.find((entry) => entry.category === category);
-      const sizeId = typeof rowForCategory?.size_id === "string" ? rowForCategory.size_id : "";
+    const displayForSizeId = (sizeId: string) => {
       const sizeRef = sizeId ? sizeById.get(sizeId) : undefined;
       const sizeLabel = sizeRef?.label?.trim();
       if (sizeLabel && sizeLabel.length > 0) return sizeLabel;
@@ -639,10 +637,23 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       if (!code) return "";
       return code.includes(":") ? code.split(":")[1] || code : code;
     };
-    const topSize = getSizeFor("top");
-    const bottomSize = getSizeFor("bottom");
-    const shoesSize = getSizeFor("shoes");
-    const sizesValue = [topSize ? `Haut ${topSize}` : "", bottomSize ? `Bas ${bottomSize}` : "", shoesSize ? `Chaussures ${shoesSize}` : ""]
+    const getPartsFor = (category: "top" | "bottom" | "shoes") => {
+      return sizesRows
+        .filter((entry) => entry.category === category)
+        .map((entry) => {
+          const sizeId = typeof entry.size_id === "string" ? entry.size_id : "";
+          return sizeId ? displayForSizeId(sizeId) : "";
+        })
+        .filter((part) => part.length > 0);
+    };
+    const topParts = getPartsFor("top");
+    const bottomParts = getPartsFor("bottom");
+    const shoesParts = getPartsFor("shoes");
+    const sizesValue = [
+      topParts.length ? `Haut ${topParts.join(", ")}` : "",
+      bottomParts.length ? `Bas ${bottomParts.join(", ")}` : "",
+      shoesParts.length ? `Chaussures ${shoesParts.join(", ")}` : "",
+    ]
       .filter((entry) => entry.length > 0)
       .join(" · ");
     const usersRow = (usersResponse.data ?? {}) as Record<string, unknown>;
