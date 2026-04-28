@@ -10,8 +10,6 @@ import {
   segnaDialogTitleClass,
   SEGNA_DIALOG_SHEET_CLASS,
 } from "@/components/ui/SegnaAppDialog";
-import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
-import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
 export type WalletPanelStateContent = {
@@ -29,8 +27,6 @@ type WalletPanelProps = {
   availablePoints: number;
   balanceConsumptionPoints: number;
   balanceExchangePoints: number;
-  membershipLabel: "Guest" | "Membre +" | "Membre X";
-  walletCreditKind: WalletCreditKind;
   walletStateContent: WalletPanelStateContent;
 };
 
@@ -43,8 +39,6 @@ export function WalletPanel({
   availablePoints,
   balanceConsumptionPoints,
   balanceExchangePoints,
-  membershipLabel,
-  walletCreditKind,
   walletStateContent,
 }: WalletPanelProps) {
   const [mounted, setMounted] = useState(false);
@@ -62,8 +56,6 @@ export function WalletPanel({
   }, [open, onClose]);
 
   if (!open) return null;
-
-  const showDualBalances = membershipLabel !== "Guest";
 
   const overlay = (
     <div
@@ -86,36 +78,24 @@ export function WalletPanel({
         </h2>
 
         <div className="mt-5 space-y-4">
-          {showDualBalances ? (
-            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-[14px] font-semibold text-zinc-900">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="min-w-0 shrink text-zinc-600">Crédits d&apos;échange</span>
-                <span className="shrink-0 tabular-nums">
-                  {balanceExchangePoints} <span className="font-medium text-zinc-500">pts</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between gap-2 border-t border-zinc-200/80 pt-2">
-                <span className="min-w-0 shrink text-zinc-600">Consommation</span>
-                <span className="shrink-0 tabular-nums">
-                  {balanceConsumptionPoints} <span className="font-medium text-zinc-500">pts</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between gap-2 border-t border-zinc-300 pt-2 text-[13px] text-zinc-500">
-                <span>Total utilisable</span>
-                <span className="tabular-nums font-semibold text-zinc-800">{availablePoints} pts</span>
-              </div>
+          <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-[14px] font-semibold text-zinc-900">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="min-w-0 shrink text-zinc-600">Crédits d&apos;échange</span>
+              <span className="shrink-0 tabular-nums">
+                {balanceExchangePoints} <span className="font-medium text-zinc-500">pts</span>
+              </span>
             </div>
-          ) : (
-            <div className="flex items-baseline justify-between gap-2 text-[15px] font-semibold text-zinc-900">
-              <span className="min-w-0 shrink text-zinc-600">Disponible</span>
-              <SegnaPointsUnitDisplay
-                points={availablePoints}
-                creditKind={walletCreditKind}
-                className="shrink-0"
-                numberClassName="font-semibold tabular-nums text-zinc-900"
-              />
+            <div className="flex items-baseline justify-between gap-2 border-t border-zinc-200/80 pt-2">
+              <span className="min-w-0 shrink text-zinc-600">Consommation</span>
+              <span className="shrink-0 tabular-nums">
+                {balanceConsumptionPoints} <span className="font-medium text-zinc-500">pts</span>
+              </span>
             </div>
-          )}
+            <div className="flex items-baseline justify-between gap-2 border-t border-zinc-300 pt-2 text-[13px] text-zinc-500">
+              <span>Total utilisable</span>
+              <span className="tabular-nums font-semibold text-zinc-800">{availablePoints} pts</span>
+            </div>
+          </div>
 
           <p className={segnaDialogBodyClass()}>{walletStateContent.description}</p>
 

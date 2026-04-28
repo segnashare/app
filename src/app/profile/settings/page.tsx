@@ -1,8 +1,10 @@
 import { SubflowShell } from "@/components/layout/SubflowShell";
 import { ProfileAccountSettings } from "@/components/profile/ProfileAccountSettings";
 import { getSegnaSupportContact } from "@/lib/config/support-contact";
+import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import { resolveMembershipLabel, type MembershipLabel } from "@/lib/user/resolve-membership-label";
 
 type ProfileSettingsPageProps = {
   searchParams: Promise<{ tab?: string }>;
@@ -10,7 +12,8 @@ type ProfileSettingsPageProps = {
 
 export default async function ProfileSettingsPage({ searchParams }: ProfileSettingsPageProps) {
   const { tab } = await searchParams;
-  const safeTab = tab && ["plus", "security", "me"].includes(tab) ? tab : "plus";
+  const safeTab: "plus" | "me" =
+    tab === "me" || tab === "security" ? "me" : tab === "plus" ? "plus" : "plus";
 
   const supabase = (await createSupabaseServerClient()) as any;
   const {
@@ -18,16 +21,30 @@ export default async function ProfileSettingsPage({ searchParams }: ProfileSetti
   } = await supabase.auth.getUser();
 
   let isSubscriber = false;
+  let membershipLabel: MembershipLabel = "Guest";
+  let kycVerified = false;
   if (user?.id) {
-    const label = await resolveMembershipLabel(supabase, user.id);
-    isSubscriber = label === "Membre +" || label === "Membre X";
+    const admin = createSupabaseAdminClient() as any;
+    try {
+      kycVerified = await fetchUserKycVerified(admin, user.id);
+    } catch {
+      kycVerified = false;
+    }
+    membershipLabel = await resolveMembershipLabel(supabase, user.id);
+    isSubscriber = membershipLabel === "Membre +" || membershipLabel === "Membre X";
   }
 
   const { email: supportEmail } = getSegnaSupportContact();
 
   return (
     <SubflowShell>
-      <ProfileAccountSettings backTab={safeTab as "plus" | "security" | "me"} isSubscriber={isSubscriber} supportEmail={supportEmail} />
+      <ProfileAccountSettings
+        backTab={safeTab}
+        isSubscriber={isSubscriber}
+        membershipLabel={membershipLabel}
+        kycVerified={kycVerified}
+        supportEmail={supportEmail}
+      />
     </SubflowShell>
   );
 }

@@ -12,6 +12,7 @@ import { ExchangeLendsSection, type LendItem } from "@/components/exchange/Excha
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
+import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
 import {
   getMemberOutboundShipmentPhaseCopy,
@@ -44,6 +45,8 @@ import {
   needsItemIntakeUi,
   normalizeItemIntakeEmbed,
 } from "@/lib/items/item-intake-ui";
+import { refreshStripeSubscriptionForUser } from "@/lib/stripe/subscription-state";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
@@ -189,6 +192,13 @@ export default async function ExchangePage() {
   }
 
   const userId = user.id as string;
+  try {
+    const admin = createSupabaseAdminClient() as any;
+    await refreshStripeSubscriptionForUser(admin, userId);
+  } catch {
+    /* Stripe indisponible ou clé absente : état DB inchangé (webhooks en prod). */
+  }
+
   const [membershipStateRes, subscriptionRowRes, rolesRes, walletRes, activeCartRes, lendsRes, ongoingRes, historyRes, intakeBannersRes] =
     await Promise.all([
     supabase.rpc("get_current_membership_state"),
@@ -264,17 +274,39 @@ export default async function ExchangePage() {
           subscription_status: subRow.status ?? null,
         })
       : ("Guest" as const);
-  /** Même ordre que le profil : table Stripe d’abord (source de vérité), puis RPC (plafonds / mois), puis rôles. */
+  /** Même ordre que le profil : table Stripe d’abord, puis RPC ; rôles seulement sans ligne `user_subscriptions`. */
   const membershipLabel =
     membershipLabelFromSubscriptionTable !== "Guest"
       ? membershipLabelFromSubscriptionTable
       : membershipLabelFromRpc !== "Guest"
         ? membershipLabelFromRpc
-        : toMembershipLabel(roles);
+        : subscriptionRowRes.error == null && subRow != null
+          ? "Guest"
+          : toMembershipLabel(roles);
   const includedLendsLimitFromRpc = parseIncludedLendsLimitRpc(membershipStateRes.data);
   const includedLendsLimit = resolveIncludedLendsLimit(membershipLabel, includedLendsLimitFromRpc);
 
-  const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
+  const subStatus = (subRow?.status ?? "").toLowerCase();
+  const subPlan = (subRow?.plan_code ?? "").toLowerCase();
+  const stripeSubscriptionGrantsWallet =
+    (subPlan === "segna_x" || subPlan === "segna_plus") && (subStatus === "active" || subStatus === "trialing");
+
+  let walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
+  /** Ré-applique le crédit mensuel consommation (idempotent) si la migration / webhook n’a pas encore tourné. */
+  if (stripeSubscriptionGrantsWallet) {
+    await supabase.rpc("billing_upsert_monthly_entitlement", {
+      p_user_id: userId,
+      p_plan_code: subPlan,
+    });
+    const { data: walletAfter } = await supabase
+      .from("user_wallets")
+      .select("balance_points, balance_consumption_points, balance_exchange_points")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    walletPoints = parseUserWalletPointsRow(walletAfter as Record<string, unknown>);
+  }
+
   const availablePoints = walletPoints.total;
 
   const activeCart = activeCartRes.data as { id: string; status: string } | null;
@@ -426,7 +458,7 @@ export default async function ExchangePage() {
     .filter((l) => {
       const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
       const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
-      return ls === "validated" && (fs === "shipping" || fs === "");
+      return ls === "validated" && (fs === "shipping" || fs === "awaiting_subscription" || fs === "");
     })
     .map((l) => l.id);
 
@@ -664,6 +696,15 @@ export default async function ExchangePage() {
   const showOutboundCallout =
     outboundShipmentSummary != null && outboundShipmentSummary.status.toLowerCase() !== "closed";
 
+  const uberRelayFallbackFromShipment =
+    outboundShipmentSummary != null &&
+    outboundShipmentSummary.uberOutboundFailed &&
+    checkoutMetaIndicatesUberDirect(
+      outboundShipmentSummary.checkoutDeliveryChannel,
+      outboundShipmentSummary.checkoutHomeSpeed,
+    );
+  const uberRelayFallback = uberRelayFallbackFromShipment;
+
   const showMergeShippingBanner =
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
   const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
@@ -694,6 +735,7 @@ export default async function ExchangePage() {
         <ExchangeHeaderAlertStack
           intakeItems={exchangeIntakeBannerItems}
           outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}
+          uberRelayFallback={uberRelayFallback}
         />
       </div>
 
@@ -703,8 +745,8 @@ export default async function ExchangePage() {
             switch (sectionKey) {
               case "commerce_promo_ad":
                 if (memberSubscriber) return null;
-                /* Invité avec au moins une proposition : même parcours visuel que l’abonné (liste Prêts, pas bannière seule). */
-                if (lends.length > 0) return null;
+                /* Invités : pas de rail promo « premium » (le prêt catalogue ne dépend plus d’un abonnement). */
+                if (membershipLabel === "Guest") return null;
                 return (
                   <ExchangeCommercePromo
                     key={sectionKey}

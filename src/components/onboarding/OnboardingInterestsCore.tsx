@@ -70,9 +70,9 @@ export function OnboardingInterestsCore({ formId, onCanContinueChange, redirectP
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/privacy",
+      p_current_step: "/onboarding/3",
       p_progress_json: {
-        checkpoint: "/onboarding/privacy",
+        checkpoint: "/onboarding/3",
       },
       p_request_id: crypto.randomUUID(),
     });
@@ -83,7 +83,7 @@ export function OnboardingInterestsCore({ formId, onCanContinueChange, redirectP
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/privacy");
+    router.push(redirectPath ?? "/onboarding/3");
   };
 
   return (

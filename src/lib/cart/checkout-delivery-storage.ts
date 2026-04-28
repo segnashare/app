@@ -3,6 +3,14 @@
 export const CHECKOUT_DELIVERY_ADDRESS_KEY = "segna:checkout-delivery-address";
 export const CHECKOUT_DELIVERY_INSTRUCTIONS_KEY = "segna:checkout-delivery-instructions";
 export const CHECKOUT_RELAY_SELECTION_KEY = "segna:checkout-relay-selection";
+export const CHECKOUT_DELIVERY_CHANNEL_KEY = "segna:checkout-delivery-channel";
+export const CHECKOUT_HOME_SPEED_KEY = "segna:checkout-home-speed";
+
+/** Onglet checkout « Point relais » / « Domicile » — persistant pour navigation / remontage. */
+export type CheckoutDeliveryChannel = "relay" | "home";
+
+/** Sous-mode domicile : barème standard vs Uber Direct — persistant avec l’onglet. */
+export type CheckoutHomeDeliverySpeed = "standard" | "uber_direct";
 
 export type CheckoutDeliveryAddress = {
   label: string;
@@ -72,6 +80,38 @@ export function writeCheckoutRelaySelection(value: CheckoutRelaySelection | null
     return;
   }
   window.sessionStorage.setItem(CHECKOUT_RELAY_SELECTION_KEY, JSON.stringify(value));
+}
+
+export function readCheckoutDeliveryChannel(): CheckoutDeliveryChannel | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(CHECKOUT_DELIVERY_CHANNEL_KEY);
+    if (raw === "relay" || raw === "home") return raw;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCheckoutDeliveryChannel(value: CheckoutDeliveryChannel) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(CHECKOUT_DELIVERY_CHANNEL_KEY, value);
+}
+
+export function readCheckoutHomeSpeed(): CheckoutHomeDeliverySpeed | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(CHECKOUT_HOME_SPEED_KEY);
+    if (raw === "standard" || raw === "uber_direct") return raw;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCheckoutHomeSpeed(value: CheckoutHomeDeliverySpeed) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(CHECKOUT_HOME_SPEED_KEY, value);
 }
 
 /** Champs suffisants pour détecter Paris (client ou corps JSON API checkout). */

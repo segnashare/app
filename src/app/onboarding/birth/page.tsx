@@ -34,7 +34,7 @@ export default function OnboardingBirthPage() {
       persistProgressOnNext={false}
       centeredAuthLayout
       appViewportFillHeightWideAtMd
-      centeredAuthMaxWidthClassName="md:max-w-[min(100%,640px)]"
+      centeredAuthMaxWidthClassName="md:max-w-[min(100%,780px)]"
       appViewportOuterClassName={AUTH_BG}
       appViewportClassName={AUTH_BG}
       centeredAuthSectionGapClassName="gap-y-20 md:gap-y-10"

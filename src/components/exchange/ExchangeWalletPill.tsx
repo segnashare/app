@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { WalletPanel, type WalletPanelStateContent } from "@/components/exchange/WalletPanel";
-import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeWalletPillProps = {
@@ -43,9 +42,6 @@ export function ExchangeWalletPill({
   }, [walletModalOpen, onWalletPanelOpenChange]);
 
   const hasActiveCart = activeCartCostPoints !== null;
-  const walletCreditKind = walletCreditKindForMembership(
-    membershipLabel as "Guest" | "Membre +" | "Membre X",
-  );
   const walletPillLabel = hasActiveCart
     ? `${activeCartCostPoints} / ${availablePoints}`
     : `${availablePoints}`;
@@ -65,8 +61,8 @@ export function ExchangeWalletPill({
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
         primaryCtaLabel: "Obtenir des crédits d'échange",
         primaryCtaHref: "/profile?tab=obtenirplus",
-        secondaryCtaLabel: "Voir les offres Membre",
-        secondaryCtaHref: "/package",
+        secondaryCtaLabel: "Devenir membre SegnaX",
+        secondaryCtaHref: "/package?plan=x",
       };
     }
 
@@ -75,8 +71,8 @@ export function ExchangeWalletPill({
         title: "Plafond Segna+ atteint",
         description:
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Passer à SegnaX",
-        primaryCtaHref: "/package?plan=minus",
+        primaryCtaLabel: "Voir les offres Segna+",
+        primaryCtaHref: "/package",
         secondaryCtaLabel: "Obtenir des crédits d'échange",
         secondaryCtaHref: "/profile?tab=obtenirplus",
       };
@@ -132,8 +128,6 @@ export function ExchangeWalletPill({
         availablePoints={availablePoints}
         balanceConsumptionPoints={balanceConsumptionPoints}
         balanceExchangePoints={balanceExchangePoints}
-        membershipLabel={membershipLabel as "Guest" | "Membre +" | "Membre X"}
-        walletCreditKind={walletCreditKind}
         walletStateContent={walletStateContent}
       />
     </>

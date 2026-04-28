@@ -5,7 +5,7 @@
 export const EXCHANGE_CART_EMPTY_CMS_SECTION_KEY = "exchange_cart_empty";
 
 /**
- * Section CMS intégrée au bloc « Prêts » quand le membre n’a aucun prêt affiché.
+ * Section CMS intégrée au bloc « Prêts » quand aucun prêt n’est affiché.
  * Exclue de `get_cms_echange_section_order` (même logique que `exchange_cart_empty`).
  */
 export const EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY = "exchange_lends_empty";
@@ -19,8 +19,8 @@ export const DEFAULT_ECHANGE_SECTION_ORDER = [
 ] as const;
 
 /**
- * Invité avec au moins une proposition : le rail CMS modulable dont le titre affiché est « Prêts »
- * (souvent ajouté au BO en complément de la promo) fait doublon avec « Mes Prêts » / « Propositions de Prêts ».
+ * Invité avec au moins un prêt : le rail CMS modulable dont le titre affiché est « Prêts »
+ * (souvent ajouté au BO en complément de la promo) fait doublon avec « Prêts ».
  */
 export function isExchangeGuestRedundantPretsModularSection(
   sectionKey: string,

@@ -3,9 +3,17 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 import { CommandeCancelOrderButton } from "@/components/commande/CommandeCancelOrderButton";
-import { CommandeExpeditionSummarySection } from "@/components/commande/CommandeExpeditionSummarySection";
+import {
+  CommandeExpeditionSummarySection,
+  type CommandeUberPhases,
+} from "@/components/commande/CommandeExpeditionSummarySection";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import type { MemberCartOrderDetail, MemberCartOrderShipment } from "@/lib/cart/fetch-member-cart-order-detail";
+import {
+  checkoutPaymentIndicatesUberDirect,
+  isUberCartOutboundShipment,
+} from "@/lib/cart/cart-outbound-delivery-kind";
+import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
@@ -49,12 +57,18 @@ function formatLivraisonPrevuePlus2Jours(anchorIso: string): string {
 /** Sous-titre sous le statut : date prévue = passage ready + 2 jours (référence Europe/Paris pour l’affichage). */
 function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
   if (d.cartStatus === "canceled") return null;
+  const isUberOutbound =
+    isUberCartOutboundShipment(d.shipment) ||
+    checkoutPaymentIndicatesUberDirect(d.paymentBreakdown?.euroDetail);
   if (!d.shipment) {
     return "La livraison prévue sera indiquée dès que ton colis est prêt à l’expédition.";
   }
   const st = d.shipment.status.toLowerCase();
   if (st === "delivered" || st === "closed") return null;
   if (st === "pending") {
+    if (isUberOutbound) {
+      return null;
+    }
     return "La livraison prévue sera indiquée dès que ton colis est prêt à l’expédition.";
   }
   const anchor = readyAnchorIso(d.shipment);
@@ -62,6 +76,40 @@ function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
   const dateLabel = formatLivraisonPrevuePlus2Jours(anchor);
   if (!dateLabel) return null;
   return `Livraison prévue le ${dateLabel}`;
+}
+
+function formatQuarterHourRangeFr(anchorMs: number, minutesAfterAnchor: number): string {
+  const ms = anchorMs + minutesAfterAnchor * 60_000;
+  const quarter = 15 * 60_000;
+  const startMs = Math.ceil(ms / quarter) * quarter;
+  const endMs = startMs + 30 * 60_000;
+  const fmt = (t: number) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return `${fmt(startMs)}-${fmt(endMs)}`;
+}
+
+function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPhases | null {
+  const isUber =
+    isUberCartOutboundShipment(detail.shipment) ||
+    checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail);
+  if (!isUber || !detail.shipment) return null;
+
+  const st = detail.shipment.status.toLowerCase();
+  const prep = `Colis en préparation (${SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES} min env. après la commande).`;
+  if (st === "pending") {
+    return { preparationLine: prep, deliveryWindowLine: null };
+  }
+  const ub = detail.shipment.uberBooking;
+  if (ub?.durationMin != null && Number.isFinite(ub.durationMin) && ub.durationMin >= 0) {
+    const createdAtMs = Date.parse(detail.createdAtIso);
+    if (!Number.isNaN(createdAtMs)) {
+      const range = formatQuarterHourRangeFr(createdAtMs, SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES + ub.durationMin);
+      return {
+        preparationLine: prep,
+        deliveryWindowLine: `Livraison estimée : ${range}`,
+      };
+    }
+  }
+  return { preparationLine: prep, deliveryWindowLine: null };
 }
 
 export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }) {
@@ -72,10 +120,15 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
   const creditKind = detail.walletCreditKind;
   const statusTitle = commandeStatusTitle(detail);
   const previsionLine = livraisonPrevueLine(detail);
+  const isUberOutbound =
+    isUberCartOutboundShipment(detail.shipment) ||
+    checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail);
   const mondialTrackingUrl =
-    detail.shipment?.trackingNumber != null
+    !isUberOutbound && detail.shipment?.trackingNumber != null
       ? buildMondialRelayTrackingUrl(detail.shipment.trackingNumber)
       : null;
+  const uberTrackingHref = isUberOutbound ? (detail.shipment?.memberTrackingUrl ?? null) : null;
+  const uberPhases = isUberOutbound ? buildCommandeUberPhases(detail) : null;
 
   const euro = detail.paymentBreakdown?.euroDetail ?? null;
   const showFraisFactures =
@@ -116,9 +169,12 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
       ) : null}
 
       <CommandeExpeditionSummarySection
+        variant={isUberOutbound ? "uber" : "mondial"}
+        cartId={detail.cartId}
         previsionLine={previsionLine}
-        trackingNumber={detail.shipment?.trackingNumber ?? null}
-        trackingUrl={mondialTrackingUrl}
+        trackingRef={detail.shipment?.trackingNumber ?? null}
+        trackingHref={isUberOutbound ? uberTrackingHref : mondialTrackingUrl}
+        uberPhases={uberPhases}
       />
 
       <div className="flex min-h-0 flex-1 flex-col px-5 pb-4 pt-3">

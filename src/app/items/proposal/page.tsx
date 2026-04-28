@@ -26,13 +26,10 @@ export default function ItemProposalInfoPage() {
             et te communique une proposition de prix comme pour les membres.
           </p>
           <p>
-            Si l&apos;annonce est acceptée,{" "}
-            <span className="font-semibold text-zinc-800">aucune expédition n&apos;est déclenchée</span> tant que tu
-            n&apos;as pas souscrit : tu sais ainsi que ta pièce est éligible avant de t&apos;engager.
-          </p>
-          <p>
-            Une fois abonnée·e, tu pourras lancer l&apos;envoi vers Segna depuis l&apos;onglet « Prêts » (bordereau
-            d&apos;envoi), comme pour les autres pièces validées.
+            Si l&apos;annonce est acceptée, tu peux lancer l&apos;envoi vers Segna depuis l&apos;onglet « Prêts »
+            (bordereau d&apos;envoi){" "}
+            <span className="font-semibold text-zinc-800">sans souscrire à une formule</span> : l&apos;abonnement reste
+            optionnel pour les plafonds et avantages du plan.
           </p>
         </div>
         <div className="mt-8 flex flex-col gap-3">

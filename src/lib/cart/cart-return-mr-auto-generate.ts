@@ -11,11 +11,16 @@ import {
 import { getMondialRelayConnectEnv, getMondialRelaySoapEnv } from "@/lib/mondial-relay/config";
 import { performMrConnectRelayWithProductFallback } from "@/lib/mondial-relay/mr-perform-connect";
 import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
-import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
+import {
+  getSegnaRecipientFromEnv,
+  getSegnaReturnDeliveryRelayCodesFromEnv,
+  getSegnaReturnRelayProductFromEnv,
+} from "@/lib/mondial-relay/segna-recipient-env";
 import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
 import { MR_AUTO_GENERATE_ENV_HINT } from "@/lib/items/member-mr-auto-generate";
+import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -111,8 +116,9 @@ export async function runCartReturnMrAutoGenerate(
       developer_hint: MR_AUTO_GENERATE_ENV_HINT,
     };
   }
-  const soap = getMondialRelaySoapEnv();
-  if (!soap) {
+  const hubDeliveryRelays = getSegnaReturnDeliveryRelayCodesFromEnv();
+  const soap = hubDeliveryRelays.length === 0 ? getMondialRelaySoapEnv() : null;
+  if (hubDeliveryRelays.length === 0 && !soap) {
     return {
       ok: false,
       error:
@@ -223,12 +229,40 @@ export async function runCartReturnMrAutoGenerate(
     .limit(1);
   const firstLab = existingLabels?.[0] as { label_url?: string } | undefined;
   if (firstLab?.label_url?.trim()) {
+    const labelUrl = firstLab.label_url.trim();
     const { data: shipRow } = await admin.from("shipments").select("tracking_number").eq("id", returnShipId).maybeSingle();
     const tn = (shipRow as { tracking_number?: string } | null)?.tracking_number ?? null;
+
+    // Préparation BO : étiquette + suivi sans passage en `ready` (envoi laissé `pending`).
+    // La file « expédition retour » du back-office ne liste que `ready` et suivants.
+    if (returnStatus === "pending") {
+      const { error: providerErr } = await admin.rpc("set_shipment_provider", {
+        p_shipment_id: returnShipId,
+        p_provider_code: "mondial_relay",
+      });
+      if (providerErr) {
+        return { ok: false, error: `Transporteur : ${providerErr.message}`, status: 500 };
+      }
+      const nowIso = new Date().toISOString();
+      const tr = await transitionShipmentStatus(admin, {
+        shipmentId: returnShipId,
+        ifCurrentStatus: "pending",
+        toStatus: "ready",
+        actorUserId: userId,
+        reason: "Étiquette retour déjà présente — alignement statut membre",
+        source: "member_app_cart_return_mr_auto_reuse",
+        context: { cart_id: cartId },
+        occurredAt: nowIso,
+      });
+      if (!tr.ok) {
+        return { ok: false, error: tr.error, status: tr.error === "STATUS_MISMATCH" ? 409 : 500 };
+      }
+    }
+
     return {
       ok: true,
       shipment_id: returnShipId,
-      label_url: firstLab.label_url.trim(),
+      label_url: labelUrl,
       numero_suivi: typeof tn === "string" && tn.trim() ? tn.trim() : null,
       reused: true,
     };
@@ -283,9 +317,126 @@ export async function runCartReturnMrAutoGenerate(
   const postcode = addr.sender_postcode.trim();
   const soapWeight = Math.min(9000, Math.max(400, parcel.weightG));
 
+  async function persistReturnAfterMondialSuccess(result: {
+    sendingNumber: string;
+    etiquetteLink: string;
+  }): Promise<CartReturnMrAutoResult> {
+    const { error: providerErr } = await admin.rpc("set_shipment_provider", {
+      p_shipment_id: returnShipId,
+      p_provider_code: "mondial_relay",
+    });
+    if (providerErr) {
+      return { ok: false, error: `Transporteur : ${providerErr.message}`, status: 500 };
+    }
+
+    const nowIso = new Date().toISOString();
+    if (returnStatus === "ready") {
+      const { error: upShipErr } = await admin
+        .from("shipments")
+        .update({
+          tracking_number: result.sendingNumber,
+          updated_at: nowIso,
+        })
+        .eq("id", returnShipId)
+        .eq("status", "ready");
+      if (upShipErr) {
+        return {
+          ok: false,
+          error: `MR ok mais mise à jour envoi : ${upShipErr.message}`,
+          status: 500,
+        };
+      }
+    } else {
+      const tr = await transitionShipmentStatus(admin, {
+        shipmentId: returnShipId,
+        ifCurrentStatus: "pending",
+        toStatus: "ready",
+        actorUserId: userId,
+        reason: "Étiquette retour Mondial Relay générée (auto)",
+        source: "member_app_cart_return_mr_auto_generate",
+        context: { cart_id: cartId },
+        occurredAt: nowIso,
+        trackingNumber: result.sendingNumber,
+      });
+      if (!tr.ok) {
+        return {
+          ok: false,
+          error: `MR ok mais mise à jour envoi : ${tr.error}`,
+          status: tr.error === "STATUS_MISMATCH" ? 409 : 500,
+        };
+      }
+    }
+
+    const { error: labErr } = await admin.from("shipment_labels").insert({
+      shipment_id: returnShipId,
+      label_url: result.etiquetteLink,
+      label_format: "pdf",
+      label_status: "created",
+    });
+
+    if (labErr) {
+      return {
+        ok: false,
+        error: `Étiquette créée mais enregistrement impossible : ${labErr.message}`,
+        status: 500,
+      };
+    }
+
+    return {
+      ok: true,
+      shipment_id: returnShipId,
+      label_url: result.etiquetteLink,
+      numero_suivi: result.sendingNumber,
+    };
+  }
+
+  if (hubDeliveryRelays.length > 0) {
+    const collectionMode: "REL" | "CCC" =
+      (process.env.MONDR_SEGNA_RETURN_COLLECTION_MODE ?? "CCC").trim().toUpperCase() === "REL" ? "REL" : "CCC";
+    const primaryProduct = getSegnaReturnRelayProductFromEnv();
+
+    const hubAttempts: { code: string; error: string }[] = [];
+    for (let hi = 0; hi < hubDeliveryRelays.length; hi++) {
+      const hubCode = hubDeliveryRelays[hi]!;
+      if (hi > 0) {
+        await sleep(DELAY_MS_BETWEEN_RELAY_ATTEMPTS);
+      }
+      const orderNoSuffix = hi === 0 ? orderSuffixBase : `${orderSuffixBase}-h${hi}`;
+
+      const result = await performMrConnectRelayWithProductFallback(config, {
+        itemId: primaryItemId,
+        itemTitle: title,
+        sender,
+        recipient: segnaRecipient,
+        parcelCount: 1,
+        contentValueEur: parcel.valueEur > 0 ? parcel.valueEur : null,
+        weightGr: soapWeight,
+        lengthCm: parcel.lengthCm,
+        widthCm: parcel.widthCm,
+        depthCm: parcel.depthCm,
+        parcelContent: parcel.contentLabel,
+        deliveryInstructions: `Retour membre → hub PR ${hubCode} — panier ${cartId}`,
+        deliveryHome: false,
+        relayLocation: hubCode,
+        collectionMode,
+        relayDeliveryMode: primaryProduct,
+        orderNoSuffix,
+      });
+
+      if (!result.ok) {
+        hubAttempts.push({ code: hubCode, error: result.message.slice(0, 200) });
+        continue;
+      }
+      return persistReturnAfterMondialSuccess(result);
+    }
+
+    const shortHubErr = `Aucun des ${hubDeliveryRelays.length} PR hub n’a accepté l’étiquette retour (${hubAttempts.length} essais).`;
+    return { ok: false, error: shortHubErr.slice(0, 280), status: 502 };
+  }
+
   let points: Awaited<ReturnType<typeof searchRelayPointsSoap>>["points"];
   try {
-    const res = await searchRelayPointsSoap(soap, {
+    const res = await searchRelayPointsSoap(soap!, {
       country,
       postalCode: postcode,
       weightGrams: soapWeight,
@@ -294,7 +445,7 @@ export async function runCartReturnMrAutoGenerate(
     points = res.points;
     const hub = getSegnaRecipientFromEnv();
     if (hub && points.length > 0) {
-      const { kept } = await filterRelayHitsByPlanTri(soap, points, {
+      const { kept } = await filterRelayHitsByPlanTri(soap!, points, {
         modeLiv: "24R",
         destPostcode: hub.PostCode,
         destCountry: hub.CountryCode,
@@ -374,53 +525,7 @@ export async function runCartReturnMrAutoGenerate(
       continue;
     }
 
-    const { error: providerErr } = await admin.rpc("set_shipment_provider", {
-      p_shipment_id: returnShipId,
-      p_provider_code: "mondial_relay",
-    });
-    if (providerErr) {
-      return { ok: false, error: `Transporteur : ${providerErr.message}`, status: 500 };
-    }
-
-    const nowIso = new Date().toISOString();
-    const { error: upShipErr } = await admin
-      .from("shipments")
-      .update({
-        tracking_number: result.sendingNumber,
-        status: "ready",
-        updated_at: nowIso,
-      })
-      .eq("id", returnShipId);
-
-    if (upShipErr) {
-      return {
-        ok: false,
-        error: `MR ok mais mise à jour envoi : ${upShipErr.message}`,
-        status: 500,
-      };
-    }
-
-    const { error: labErr } = await admin.from("shipment_labels").insert({
-      shipment_id: returnShipId,
-      label_url: result.etiquetteLink,
-      label_format: "pdf",
-      label_status: "created",
-    });
-
-    if (labErr) {
-      return {
-        ok: false,
-        error: `Étiquette créée mais enregistrement impossible : ${labErr.message}`,
-        status: 500,
-      };
-    }
-
-    return {
-      ok: true,
-      shipment_id: returnShipId,
-      label_url: result.etiquetteLink,
-      numero_suivi: result.sendingNumber,
-    };
+    return persistReturnAfterMondialSuccess(result);
   }
 
   const shortErr = `Aucun relais du CP n’a permis de créer l’étiquette (${attempts.length} essais).`;

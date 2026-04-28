@@ -2,14 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { EmpruntBorrowRemainingCountdown } from "@/components/emprunt/EmpruntBorrowRemainingCountdown";
+import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 type EmpruntBorrowSummarySectionProps = {
   cartId: string;
-  /** Heure de livraison aller (`shipments.updated_at`) pour le décompte 7 j. */
+  /** Heure de livraison aller (`shipments.updated_at`) pour le décompte d’emprunt. */
   deliveredAtIso: string | null;
   returnCommitmentMet?: boolean;
+  membershipLabel: SegnaBorrowMembershipLabel;
 };
 
 const BODY_GRAY = "text-[#545454]";
@@ -30,6 +32,7 @@ export function EmpruntBorrowSummarySection({
   cartId,
   deliveredAtIso,
   returnCommitmentMet,
+  membershipLabel,
 }: EmpruntBorrowSummarySectionProps) {
   return (
     <section
@@ -59,10 +62,13 @@ export function EmpruntBorrowSummarySection({
           <EmpruntBorrowRemainingCountdown
             deliveredAtIso={deliveredAtIso}
             returnCommitmentMet={returnCommitmentMet}
+            membershipLabel={membershipLabel}
           />
         ) : (
           <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
-            Emprunt de 7 jours à partir de la livraison.
+            {membershipLabel === "Guest"
+              ? "Emprunt de 10 jours à partir de la livraison."
+              : `Emprunt d'un mois à partir de la livraison.`}
           </p>
         )}
         <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>

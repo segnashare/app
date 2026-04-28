@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -11,8 +12,14 @@ function isPlanCode(value: unknown): value is PlanCode {
   return value === "segna_plus" || value === "segna_x";
 }
 
-function toPackageMode(planCode: PlanCode): "plus" | "minus" {
-  return planCode === "segna_x" ? "minus" : "plus";
+/** Période d’essai Stripe (jours) : seulement `segna_x`, plage 1–45 pour limiter les abus. */
+function normalizeSubscriptionTrialPeriodDays(planCode: PlanCode, raw: unknown): number | undefined {
+  if (planCode !== "segna_x" || raw == null) return undefined;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(String(raw).trim(), 10) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  const days = Math.floor(n);
+  if (days < 1 || days > 45) return undefined;
+  return days;
 }
 
 function getFallbackPriceId(planCode: PlanCode): string | null {
@@ -23,11 +30,16 @@ function getFallbackPriceId(planCode: PlanCode): string | null {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => null)) as { planCode?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as {
+      planCode?: unknown;
+      cancelReturnPath?: unknown;
+      trialPeriodDays?: unknown;
+    } | null;
     const planCode = body?.planCode;
     if (!isPlanCode(planCode)) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
+    const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
 
     const supabase = (await createSupabaseServerClient()) as any;
     const admin = createSupabaseAdminClient() as any;
@@ -38,6 +50,16 @@ export async function POST(request: Request) {
 
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
+    }
+
+    if (!(await fetchUserKycVerified(admin, user.id))) {
+      return NextResponse.json(
+        {
+          message: "La vérification d’identité (KYC) est obligatoire avant de souscrire à un abonnement.",
+          code: "kyc_required",
+        },
+        { status: 403 },
+      );
     }
 
     const { data: activePriceRow, error: activePriceError } = await admin
@@ -103,7 +125,11 @@ export async function POST(request: Request) {
     }
 
     const successUrl = `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`;
-    const cancelUrl = `${config.returnUrlBase}/package?plan=${toPackageMode(planCode)}&checkout=cancelled`;
+    const cancelRaw = typeof body?.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
+    const cancelUrl =
+      cancelRaw.startsWith("/package") && !cancelRaw.includes("..")
+        ? `${config.returnUrlBase}${cancelRaw}`
+        : `${config.returnUrlBase}/package?checkout=cancelled`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -126,7 +152,9 @@ export async function POST(request: Request) {
         metadata: {
           user_id: user.id,
           plan_code: planCode,
+          ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
         },
+        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
       },
     });
 

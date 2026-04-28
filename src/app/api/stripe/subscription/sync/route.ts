@@ -2,93 +2,12 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
-import { promotePendingLenderIntakesAfterStripeSubscription } from "@/lib/stripe/promote-pending-lender-intakes";
+import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-type PlanCode = "guest" | "segna_plus" | "segna_x";
-
-function isPlanCode(value: string | null | undefined): value is PlanCode {
+function isPlanCode(value: string | null | undefined): value is "guest" | "segna_plus" | "segna_x" {
   return value === "guest" || value === "segna_plus" || value === "segna_x";
-}
-
-function unixToIso(value: number | null | undefined): string | null {
-  if (!value || value <= 0) return null;
-  return new Date(value * 1000).toISOString();
-}
-
-async function getMappedPlanCodeFromSubscription(admin: any, subscription: Stripe.Subscription): Promise<PlanCode> {
-  const stripePriceId = subscription.items.data[0]?.price?.id ?? null;
-
-  if (stripePriceId) {
-    const { data: mappedRow } = await admin
-      .from("billing_plan_prices")
-      .select("plan_code")
-      .eq("stripe_price_id", stripePriceId)
-      .maybeSingle();
-
-    if (isPlanCode(mappedRow?.plan_code)) {
-      return mappedRow.plan_code;
-    }
-  }
-
-  const metadataPlan = subscription.metadata?.plan_code;
-  if (isPlanCode(metadataPlan)) return metadataPlan;
-  return "guest";
-}
-
-async function upsertBillingCustomer(admin: any, userId: string, stripeCustomerId: string, metadata?: Record<string, unknown>) {
-  await admin.from("billing_customers").upsert(
-    {
-      user_id: userId,
-      provider: "stripe",
-      provider_customer_id: stripeCustomerId,
-      metadata: metadata ?? {},
-    },
-    { onConflict: "user_id" },
-  );
-}
-
-async function upsertSubscriptionAndEntitlements(
-  admin: any,
-  userId: string,
-  stripeCustomerId: string | null,
-  subscription: Stripe.Subscription,
-) {
-  const planCode = await getMappedPlanCodeFromSubscription(admin, subscription);
-  const entitlementPlan: PlanCode = subscription.status === "active" || subscription.status === "trialing" ? planCode : "guest";
-
-  // Basil API: current_period_start/end moved from Subscription to SubscriptionItem
-  const firstItem = subscription.items.data[0];
-  const currentPeriodStart = firstItem?.current_period_start ?? null;
-  const currentPeriodEnd = firstItem?.current_period_end ?? null;
-
-  await admin.from("user_subscriptions").upsert(
-    {
-      user_id: userId,
-      provider: "stripe",
-      provider_customer_id: stripeCustomerId,
-      provider_subscription_id: subscription.id,
-      plan_code: planCode,
-      status: subscription.status,
-      current_period_start: unixToIso(currentPeriodStart),
-      current_period_end: unixToIso(currentPeriodEnd),
-      cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
-      canceled_at: unixToIso(subscription.canceled_at),
-      trial_start: unixToIso(subscription.trial_start),
-      trial_end: unixToIso(subscription.trial_end),
-      metadata: subscription.metadata ?? {},
-      raw_payload: subscription as unknown as Record<string, unknown>,
-    },
-    { onConflict: "user_id,provider" },
-  );
-
-  await admin.rpc("billing_upsert_monthly_entitlement", {
-    p_user_id: userId,
-    p_plan_code: entitlementPlan,
-  });
-
-  await promotePendingLenderIntakesAfterStripeSubscription(admin, userId, subscription, planCode);
 }
 
 export async function GET(request: Request) {

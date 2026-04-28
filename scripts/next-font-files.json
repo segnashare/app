@@ -32,7 +32,6 @@
   "src/app/modify/ModifyPageClient.tsx",
   "src/components/shipping/ShippingBordereauExperience.tsx",
   "src/components/profile/InsightCard.tsx",
-  "src/components/profile/MarketplaceSection.tsx",
   "src/components/item/ItemDescriptionCard.tsx",
   "src/app/profile/insights/prompts/page.tsx",
   "src/app/onboarding/end/page.tsx",

@@ -10,6 +10,7 @@ const playfair = segnaPlayfairDisplay;
 
 import { ItemIntakePanel } from "@/components/item/ItemIntakePanel";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { readIntakeAiEvaluationSummary } from "@/lib/items/intake-metadata";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -200,6 +201,8 @@ export default function ItemEvaluationAnalysisPage() {
 
   const ls = intake?.listing_stage;
   const canRenderPanel = ls && intake;
+  const evaluationSummary = readIntakeAiEvaluationSummary(intake?.metadata);
+  const fmtPoints = (value: number | undefined) => (value == null ? null : `${Math.round(value)} pts`);
 
   return (
     <main className="min-h-[100dvh] bg-white">
@@ -273,10 +276,47 @@ export default function ItemEvaluationAnalysisPage() {
         >
           Évaluation Segna
         </p>
-        <p className={cn(montserrat.className, "mt-4 text-[15px] leading-relaxed text-zinc-600")}>
-          Cette page affichera bientôt le compte rendu détaillé de l&apos;analyse (IA, critères, commentaires
-          opérationnels).
-        </p>
+        {evaluationSummary ? (
+          <div className={cn(montserrat.className, "mt-4 space-y-4 text-[15px] leading-relaxed text-zinc-700")}>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Synthèse IA</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-[14px] text-zinc-700 sm:grid-cols-2">
+                <p>
+                  <span className="font-semibold text-zinc-900">Offre Segna: </span>
+                  {fmtPoints(evaluationSummary.segna_offer) ?? "Non renseignée"}
+                </p>
+                <p>
+                  <span className="font-semibold text-zinc-900">Positionnement: </span>
+                  {evaluationSummary.positioning ?? "Non renseigné"}
+                </p>
+                <p>
+                  <span className="font-semibold text-zinc-900">Fourchette basse: </span>
+                  {fmtPoints(evaluationSummary.suggested_range?.low) ?? "N/A"}
+                </p>
+                <p>
+                  <span className="font-semibold text-zinc-900">Médiane: </span>
+                  {fmtPoints(evaluationSummary.suggested_range?.median) ?? "N/A"}
+                </p>
+                <p>
+                  <span className="font-semibold text-zinc-900">Fourchette haute: </span>
+                  {fmtPoints(evaluationSummary.suggested_range?.high) ?? "N/A"}
+                </p>
+              </div>
+            </div>
+            {evaluationSummary.rationale ? (
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Rationale IA</p>
+                <p className="mt-2 whitespace-pre-line text-[14px] leading-relaxed text-zinc-700">
+                  {evaluationSummary.rationale}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className={cn(montserrat.className, "mt-4 text-[15px] leading-relaxed text-zinc-600")}>
+            Aucune synthèse IA reçue pour le moment.
+          </p>
+        )}
       </div>
     </main>
   );

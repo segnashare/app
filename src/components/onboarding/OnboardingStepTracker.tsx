@@ -18,16 +18,19 @@ const ONBOARDING_PATHS = [
   "/onboarding/birth",
   "/onboarding/size",
   "/onboarding/3",
-  "/onboarding/privacy",
   "/onboarding/end",
 ] as const;
+
+const LEGACY_PERSISTED_STEP: Record<string, (typeof ONBOARDING_PATHS)[number]> = {
+  "/onboarding/privacy": "/onboarding/3",
+  "/onboarding/interests": "/onboarding/3",
+};
 
 const ONBOARDING_PATH_SET = new Set<string>(ONBOARDING_PATHS);
 const FALLBACK_STEP = "/onboarding/1";
 
 function canStayOnStep(currentStep: string, persistedStep: string) {
   if (persistedStep === currentStep) return true;
-  if (currentStep === "/onboarding/end" && persistedStep === "/onboarding/privacy") return true;
   return false;
 }
 
@@ -60,7 +63,7 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
       }
 
       const rawStep = typeof row?.current_step === "string" ? row.current_step : "";
-      const normalizedStep = rawStep === "/onboarding/interests" ? "/onboarding/privacy" : rawStep;
+      const normalizedStep = LEGACY_PERSISTED_STEP[rawStep] ?? rawStep;
       let persistedStep = ONBOARDING_PATH_SET.has(normalizedStep) ? normalizedStep : FALLBACK_STEP;
 
       if (!row) {

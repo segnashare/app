@@ -34,20 +34,26 @@ const ONBOARDING_PATHS = [
   "/onboarding/birth",
   "/onboarding/size",
   "/onboarding/3",
-  "/onboarding/privacy",
   "/onboarding/end",
 ] as const;
+
+/** Ancien `current_step` ou URL : ramène au canonique utilisé pour l’index du parcours. */
+const LEGACY_ONBOARDING_STEP: Record<string, (typeof ONBOARDING_PATHS)[number]> = {
+  "/onboarding/privacy": "/onboarding/3",
+};
 
 type OnboardingPath = (typeof ONBOARDING_PATHS)[number];
 
 const ONBOARDING_ALIASES: Record<string, OnboardingPath> = {
   "/onboarding": "/onboarding/1",
-  "/onboarding/confidentiality": "/onboarding/privacy",
-  "/onboarding/confidentialite": "/onboarding/privacy",
-  "/onboarding/interests": "/onboarding/privacy",
+  "/onboarding/confidentiality": "/onboarding/3",
+  "/onboarding/confidentialite": "/onboarding/3",
+  "/onboarding/interests": "/onboarding/3",
 };
 
 function normalizeOnboardingPath(pathname: string): OnboardingPath | null {
+  const legacy = LEGACY_ONBOARDING_STEP[pathname];
+  if (legacy) return legacy;
   if ((ONBOARDING_PATHS as readonly string[]).includes(pathname)) {
     return pathname as OnboardingPath;
   }

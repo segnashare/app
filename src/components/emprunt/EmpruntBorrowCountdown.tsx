@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from "react";
 
+import { computeBorrowDeadlineMs, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+
 const MS_PER_DAY = 86_400_000;
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_MINUTE = 60_000;
-/** Durée d’emprunt : 7×24 h à partir du passage en livré (`updated_at`). */
-export const EMPRUNT_PERIOD_DAYS = 7;
 /** À partir de ce délai restant : message « Plus que … avant retour (jj/mm) ». */
 const URGENT_LAST_DAYS_MS = 3 * MS_PER_DAY;
 
 type EmpruntBorrowCountdownProps = {
   deliveredAtIso: string;
   orderNumberCompact: string;
+  membershipLabel: SegnaBorrowMembershipLabel;
   /** Colis retour déposé au relais (`dropped_out` ou statut ultérieur) : plus de rappel « retard ». */
   returnCommitmentMet?: boolean;
 };
@@ -54,19 +55,24 @@ function formatPlusQueDuration(remaining: number): string {
   return `${m} min`;
 }
 
+function elapsedBorrowIntro(membershipLabel: SegnaBorrowMembershipLabel): string {
+  if (membershipLabel === "Guest") {
+    return "Les 10 jours après livraison sont écoulés";
+  }
+  return `La période d'emprunt d'un mois après livraison est écoulée`;
+}
+
 /**
- * Date limite de retour (fin des 7 j. après livraison) ; sous 3 j. restants : rappel urgent avec (jj/mm).
+ * Date limite de retour (10 j. pour non-abonnés, +1 mois calendaire pour abonnés depuis livré) ; sous 3 j. restants : urgent.
  */
 export function EmpruntBorrowCountdown({
   deliveredAtIso,
   orderNumberCompact,
+  membershipLabel,
   returnCommitmentMet,
 }: EmpruntBorrowCountdownProps) {
   const deliveredMs = Date.parse(deliveredAtIso);
-  const deadlineMs =
-    Number.isFinite(deliveredMs) && deliveredMs > 0
-      ? deliveredMs + EMPRUNT_PERIOD_DAYS * MS_PER_DAY
-      : NaN;
+  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
 
   const [now, setNow] = useState(() => Date.now());
 
@@ -104,8 +110,8 @@ export function EmpruntBorrowCountdown({
     <p className={`mt-4 ${lineClass}`} aria-live={urgent ? "polite" : undefined}>
       {remaining <= 0 ? (
         <>
-          Les {EMPRUNT_PERIOD_DAYS} jours après livraison sont écoulés — date limite de retour : {longDate} ({ddmm}) ·
-          Commande {orderNumberCompact}. Pense à organiser ton retour depuis la section ci-dessous lorsque le flux sera
+          {elapsedBorrowIntro(membershipLabel)} — date limite de retour : {longDate} ({ddmm}) · Commande{" "}
+          {orderNumberCompact}. Pense à organiser ton retour depuis la section ci-dessous lorsque le flux sera
           disponible.
         </>
       ) : remaining <= URGENT_LAST_DAYS_MS ? (

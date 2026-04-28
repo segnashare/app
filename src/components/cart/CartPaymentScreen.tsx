@@ -1,39 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, User, Zap } from "lucide-react";
+import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, Truck, User } from "lucide-react";
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
-  isParisDeliveryArea,
   readCheckoutDeliveryAddress,
+  readCheckoutDeliveryChannel,
   readCheckoutDeliveryInstructions,
+  readCheckoutHomeSpeed,
   readCheckoutRelaySelection,
+  writeCheckoutDeliveryChannel,
   writeCheckoutDeliveryInstructions,
+  writeCheckoutHomeSpeed,
   writeCheckoutRelaySelection,
   type CheckoutDeliveryAddress,
   type CheckoutRelaySelection,
 } from "@/lib/cart/checkout-delivery-storage";
 import { CART_CHECKOUT_VAT_LABEL, computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
-import {
-  CART_PRIORITY_PARIS_SURCHARGE_CENTS,
-  CART_PRIORITY_PARIS_SURCHARGE_EUROS,
-  cartPaymentServiceFeeHtCents,
-} from "@/lib/cart/cart-payment-fees";
+import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
 import { includedOrdersUsedThisMonth } from "@/lib/billing/membership-included-orders";
+import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
-import { walletCreditKindLabel } from "@/lib/wallet/credit-kind";
 import {
   centsToEuros,
   computeExchangeRoundTripShippingCents,
 } from "@/lib/shipping/exchange-shipping-pricing";
-import { SegnaConsumptionCreditPhrase, SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { UberDirectQuotePanel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
@@ -45,7 +46,7 @@ function euros(value: number): string {
 }
 
 type DeliveryChannel = "relay" | "home";
-type HomeDeliverySpeed = "standard" | "priority";
+type HomeDeliverySpeed = "standard" | "uber_direct";
 
 function formatMmSs(ms: number): string {
   if (ms <= 0) return "0:00";
@@ -78,7 +79,7 @@ type CartPaymentScreenProps = {
    * Aligné sur la section « Échange » du panier : les crédits wallet couvrent la partie correspondante.
    */
   exchangeCreditsChargeEuros: number;
-  /** Solde wallet au moment du chargement — pour l’explication « couvert par le solde ». */
+  /** Solde wallet au moment du chargement (complément d’échange vs couverture). */
   availableWalletMods: number;
   /** Invité : pas de compteur explicite en tête (réservation serveur inchangée). */
   hideReservationTimer?: boolean;
@@ -109,12 +110,13 @@ export function CartPaymentScreen({
   includedShippingForfaitLine,
   postStripeSyncError = null,
 }: CartPaymentScreenProps) {
-  const creditKindLabel = walletCreditKindLabel(walletCreditKind);
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
   const [homeSpeed, setHomeSpeed] = useState<HomeDeliverySpeed>("standard");
+  const checkoutUiPrefsRestoredRef = useRef(false);
   const [relayPostal, setRelayPostal] = useState("");
   const [relayPoints, setRelayPoints] = useState<CheckoutRelaySelection[]>([]);
+  const relayListScrollRef = useRef<HTMLUListElement>(null);
   const [relayLoading, setRelayLoading] = useState(false);
   const [relaySearchError, setRelaySearchError] = useState<string | null>(null);
   const [selectedRelay, setSelectedRelay] = useState<CheckoutRelaySelection | null>(null);
@@ -127,6 +129,12 @@ export function CartPaymentScreen({
   const [remainingMs, setRemainingMs] = useState(TIMER_MS);
   const [stripeCheckoutBusy, setStripeCheckoutBusy] = useState(false);
   const [stripeCheckoutError, setStripeCheckoutError] = useState<string | null>(null);
+  const [uberQuote, setUberQuote] = useState<Record<string, unknown> | null>(null);
+  const [uberQuoteFetch, setUberQuoteFetch] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [uberQuoteError, setUberQuoteError] = useState<string | null>(null);
+  const [uberQuoteErrorCode, setUberQuoteErrorCode] = useState<string | null>(null);
+  const [uberQuoteErrorDetail, setUberQuoteErrorDetail] = useState<string | null>(null);
+  const uberQuoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshCheckoutLocalState = useCallback(() => {
     setDeliveryAddress(readCheckoutDeliveryAddress());
@@ -140,6 +148,33 @@ export function CartPaymentScreen({
   }, [refreshCheckoutLocalState]);
 
   useEffect(() => {
+    if (checkoutUiPrefsRestoredRef.current) return;
+    checkoutUiPrefsRestoredRef.current = true;
+    const ch = readCheckoutDeliveryChannel();
+    const sp = readCheckoutHomeSpeed();
+    if (ch === "relay" || ch === "home") setDeliveryChannel(ch);
+    if (sp === "standard" || sp === "uber_direct") setHomeSpeed(sp);
+  }, []);
+
+  const persistDeliveryChannel = useCallback((ch: DeliveryChannel) => {
+    setDeliveryChannel(ch);
+    writeCheckoutDeliveryChannel(ch);
+  }, []);
+
+  const persistHomeSpeed = useCallback((sp: HomeDeliverySpeed) => {
+    setHomeSpeed(sp);
+    writeCheckoutHomeSpeed(sp);
+  }, []);
+
+  const deliveryAddressKey = useMemo(() => {
+    if (!deliveryAddress) return "";
+    return `${deliveryAddress.lat},${deliveryAddress.lon},${deliveryAddress.label}`;
+  }, [deliveryAddress]);
+
+  const deliveryAddressKeyRef = useRef(deliveryAddressKey);
+  deliveryAddressKeyRef.current = deliveryAddressKey;
+
+  useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") refreshCheckoutLocalState();
     };
@@ -151,13 +186,122 @@ export function CartPaymentScreen({
     };
   }, [refreshCheckoutLocalState]);
 
-  const isParis = useMemo(() => isParisDeliveryArea(deliveryAddress), [deliveryAddress]);
-
+  /** Devis Uber : dès qu’une adresse existe (tous onglets), pour affichage instantané en « Uber Direct ». */
   useEffect(() => {
-    if (deliveryChannel === "home" && !isParis && homeSpeed === "priority") {
-      setHomeSpeed("standard");
+    if (uberQuoteDebounceRef.current != null) {
+      clearTimeout(uberQuoteDebounceRef.current);
+      uberQuoteDebounceRef.current = null;
     }
-  }, [deliveryChannel, isParis, homeSpeed]);
+
+    if (!deliveryAddressKey) {
+      setUberQuote(null);
+      setUberQuoteError(null);
+      setUberQuoteErrorCode(null);
+      setUberQuoteErrorDetail(null);
+      setUberQuoteFetch("idle");
+      return;
+    }
+
+    setUberQuoteFetch("loading");
+    setUberQuoteError(null);
+    setUberQuoteErrorCode(null);
+    setUberQuoteErrorDetail(null);
+
+    const keyWhenScheduled = deliveryAddressKeyRef.current;
+
+    uberQuoteDebounceRef.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const addr = readCheckoutDeliveryAddress();
+          if (addr == null || deliveryAddressKeyRef.current !== keyWhenScheduled) return;
+
+          const res = await fetch("/api/uber-direct/quote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deliveryAddress: addr }),
+          });
+          const j = (await res.json()) as {
+            ok?: boolean;
+            quote?: Record<string, unknown>;
+            message?: string;
+            detail?: string;
+            code?: string;
+          };
+          if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
+
+          if (!res.ok || !j.ok) {
+            setUberQuote(null);
+            setUberQuoteFetch("error");
+            setUberQuoteError(
+              typeof j.message === "string" && j.message.trim()
+                ? j.message.trim()
+                : `Erreur ${res.status}`,
+            );
+            setUberQuoteErrorCode(typeof j.code === "string" && j.code.trim() ? j.code.trim() : null);
+            setUberQuoteErrorDetail(
+              process.env.NODE_ENV === "development" && typeof j.detail === "string" && j.detail.trim()
+                ? j.detail.trim()
+                : null,
+            );
+            return;
+          }
+          if (j.quote && typeof j.quote === "object") {
+            setUberQuote(j.quote);
+            setUberQuoteFetch("ok");
+            setUberQuoteErrorCode(null);
+            setUberQuoteErrorDetail(null);
+          } else {
+            setUberQuote(null);
+            setUberQuoteFetch("error");
+            setUberQuoteError("Réponse Uber inattendue.");
+            setUberQuoteErrorCode(null);
+            setUberQuoteErrorDetail(null);
+          }
+        } catch {
+          if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
+          setUberQuote(null);
+          setUberQuoteFetch("error");
+          setUberQuoteError("Connexion impossible pour le devis Uber.");
+          setUberQuoteErrorCode(null);
+          setUberQuoteErrorDetail(null);
+        }
+      })();
+    }, 450);
+
+    return () => {
+      if (uberQuoteDebounceRef.current != null) {
+        clearTimeout(uberQuoteDebounceRef.current);
+        uberQuoteDebounceRef.current = null;
+      }
+    };
+  }, [deliveryAddressKey]);
+
+  const uberQuotePanelPhase: UberDirectQuotePhase = useMemo(() => {
+    if (deliveryChannel !== "home") return "invite";
+    if (homeSpeed !== "uber_direct") return "invite";
+    if (deliveryAddress == null) return "need_address";
+    if (uberQuoteFetch === "loading") return "loading";
+    if (uberQuoteFetch === "error") return "error";
+    if (uberQuoteFetch === "ok" && uberQuote) return "ok";
+    return "loading";
+  }, [deliveryAddress, deliveryChannel, homeSpeed, uberQuote, uberQuoteFetch]);
+
+  /** Horloge de référence fixée quand le devis change, pour un libellé d’heure stable. */
+  const uberArrivalKey =
+    deliveryChannel === "home" &&
+    homeSpeed === "uber_direct" &&
+    uberQuoteFetch === "ok" &&
+    uberQuote
+      ? `${String(uberQuote.id ?? "")}|${String(uberQuote.duration ?? "")}`
+      : "";
+  const uberArrivalBaseTimeMs = useMemo(() => Date.now(), [uberArrivalKey]);
+  const uberArrivalLine = useMemo(
+    () =>
+      uberArrivalKey
+        ? buildUberMemberArrivalLineFr(uberQuote, uberArrivalBaseTimeMs)
+        : null,
+    [uberArrivalKey, uberArrivalBaseTimeMs, uberQuote],
+  );
 
   const itemCount = initialLines.length;
   const cartTotalMods = useMemo(
@@ -165,38 +309,36 @@ export function CartPaymentScreen({
     [initialLines],
   );
   const walletAppliedMods = Math.min(cartTotalMods, Math.max(0, availableWalletMods));
-  const walletAppliedModsFloor = Math.floor(walletAppliedMods);
-  const walletAppliedModsFormattedFr = walletAppliedModsFloor.toLocaleString("fr-FR");
-  const walletCoverBalanceAriaLabel =
-    walletCreditKind === "consumption"
-      ? `${walletAppliedModsFormattedFr} ${walletAppliedModsFloor === 1 ? "point" : "points"} Segna de consommation pris sur ton solde`
-      : `${walletAppliedModsFormattedFr} ${creditKindLabel} pris sur ton solde`;
   const exchangeShipping = useMemo(
     () =>
       computeExchangeRoundTripShippingCents(itemCount, deliveryChannel === "relay" ? "relay" : "home"),
     [itemCount, deliveryChannel],
   );
-  /** Tarif barème (affichage détail) ; la facturation peut être à 0 si forfait abonnement. */
-  const referenceRoundTripEuros = centsToEuros(exchangeShipping.subtotalCents);
-  const billedRoundTripSubtotalCents = waiveIncludedRoundTripShipping ? 0 : exchangeShipping.subtotalCents;
-  const billedRoundTripEuros = centsToEuros(billedRoundTripSubtotalCents);
+  /** Aller domicile en Uber : centimes issus du devis API (aligné facturation Stripe). */
+  const uberOutboundCentsFromQuote = useMemo(() => {
+    if (deliveryChannel !== "home") return null;
+    if (uberQuoteFetch !== "ok" || !uberQuote) return null;
+    return uberQuoteFeeCentsFromRaw(uberQuote);
+  }, [deliveryChannel, uberQuoteFetch, uberQuote]);
+
+  const uberBillingReady =
+    deliveryChannel !== "home" || homeSpeed !== "uber_direct" || uberOutboundCentsFromQuote != null;
+
+  /** Sous-total livraison HT (facturation) ; 0 si forfait abonnement. */
+  const billedRoundTripSubtotalCents = waiveIncludedRoundTripShipping
+    ? 0
+    : deliveryChannel === "home" && homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
+      ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+      : exchangeShipping.subtotalCents;
 
   const includedShippingQuotaLabel =
     waiveIncludedRoundTripShipping && includedOrdersLimitThisMonth > 0
       ? `${includedOrdersUsedThisMonth(remainingIncludedOrdersThisMonth, includedOrdersLimitThisMonth)}/${includedOrdersLimitThisMonth}`
       : null;
 
-  const prioritySurchargeEuro =
-    deliveryChannel === "home" && isParis && homeSpeed === "priority" ? CART_PRIORITY_PARIS_SURCHARGE_EUROS : 0;
-  const deliveryEuroHt = billedRoundTripEuros + prioritySurchargeEuro;
   const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
-  const serviceEuroHt = centsToEuros(serviceHtCents);
 
-  const shippingHtCents = useMemo(() => {
-    const priorityCents =
-      deliveryChannel === "home" && isParis && homeSpeed === "priority" ? CART_PRIORITY_PARIS_SURCHARGE_CENTS : 0;
-    return billedRoundTripSubtotalCents + priorityCents;
-  }, [deliveryChannel, billedRoundTripSubtotalCents, homeSpeed, isParis]);
+  const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
 
   const feesPricing = useMemo(
     () => computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents),
@@ -208,6 +350,20 @@ export function CartPaymentScreen({
   const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
   const serviceTtcEuros = centsToEuros(feesPricing.serviceTtcCents);
   const shippingTtcEuros = centsToEuros(feesPricing.shippingTtcCents);
+  const standardOptionShippingTtcEuros = centsToEuros(
+    computeCartFeesHtVatTtc(waiveIncludedRoundTripShipping ? 0 : exchangeShipping.subtotalCents, serviceHtCents)
+      .shippingTtcCents,
+  );
+  const expressOptionShippingTtcEuros = centsToEuros(
+    computeCartFeesHtVatTtc(
+      waiveIncludedRoundTripShipping
+        ? 0
+        : uberOutboundCentsFromQuote != null
+          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+          : exchangeShipping.subtotalCents,
+      serviceHtCents,
+    ).shippingTtcCents,
+  );
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
   const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
 
@@ -228,6 +384,12 @@ export function CartPaymentScreen({
       setStripeCheckoutError("Tu dois confirmer avoir lu les conditions générales de location pour continuer.");
       return;
     }
+    if (deliveryChannel === "home" && homeSpeed === "uber_direct" && uberOutboundCentsFromQuote == null) {
+      setStripeCheckoutError(
+        "Attends l’affichage du tarif Uber (ou corrige l’adresse) avant de payer.",
+      );
+      return;
+    }
     setStripeCheckoutBusy(true);
     try {
       const res = await fetch("/api/stripe/cart/checkout", {
@@ -238,6 +400,7 @@ export function CartPaymentScreen({
           homeSpeed,
           relaySelection: deliveryChannel === "relay" ? selectedRelay : undefined,
           deliveryAddress: deliveryChannel === "home" ? deliveryAddress : undefined,
+          deliveryInstructions: deliveryChannel === "home" ? instructionsSaved.trim() : undefined,
           acceptRentalTerms: true,
         }),
       });
@@ -256,7 +419,16 @@ export function CartPaymentScreen({
     } finally {
       setStripeCheckoutBusy(false);
     }
-  }, [deliveryAddress, deliveryChannel, deliveryReady, homeSpeed, rentalTermsAccepted, selectedRelay]);
+  }, [
+    deliveryAddress,
+    deliveryChannel,
+    deliveryReady,
+    homeSpeed,
+    instructionsSaved,
+    rentalTermsAccepted,
+    selectedRelay,
+    uberOutboundCentsFromQuote,
+  ]);
 
   const searchRelayPoints = useCallback(async () => {
     const pc = relayPostal.replace(/\D/g, "").slice(0, 5);
@@ -310,6 +482,14 @@ export function CartPaymentScreen({
   const onSelectRelay = useCallback((r: CheckoutRelaySelection) => {
     setSelectedRelay(r);
     writeCheckoutRelaySelection(r);
+    setRelayPoints((prev) => {
+      if (prev.length === 0) return prev;
+      const others = prev.filter((x) => x.code !== r.code);
+      return [r, ...others];
+    });
+    window.setTimeout(() => {
+      relayListScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
   }, []);
 
   useEffect(() => {
@@ -346,7 +526,7 @@ export function CartPaymentScreen({
   }, [hideReservationTimer]);
 
   const onBack = useCallback(() => {
-    router.back();
+    exitCartFlow(router);
   }, [router]);
 
   /** Moins d’une minute restante : chiffres rouges (y compris 0:00). */
@@ -413,7 +593,7 @@ export function CartPaymentScreen({
           <div className="flex rounded-full bg-zinc-100 p-1 ring-1 ring-zinc-200/80">
             <button
               type="button"
-              onClick={() => setDeliveryChannel("relay")}
+              onClick={() => persistDeliveryChannel("relay")}
               className={cn(
                 "min-h-[40px] flex-1 rounded-full px-2 py-2 text-center text-[14px] font-semibold transition",
                 deliveryChannel === "relay" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600",
@@ -423,7 +603,7 @@ export function CartPaymentScreen({
             </button>
             <button
               type="button"
-              onClick={() => setDeliveryChannel("home")}
+              onClick={() => persistDeliveryChannel("home")}
               className={cn(
                 "min-h-[40px] flex-1 rounded-full px-2 py-2 text-center text-[14px] font-semibold transition",
                 deliveryChannel === "home" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600",
@@ -445,12 +625,9 @@ export function CartPaymentScreen({
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold text-zinc-900">Mondial Relay</p>
-                    <p className="text-[13px] leading-snug text-zinc-500">
-                      Aller-retour en relais · 3–5 j ouvrés · selon disponibilités
-                      {waiveIncludedRoundTripShipping && includedShippingForfaitLine ? (
-                        <span className="mt-0.5 block text-[13px] font-medium text-blue-700">{includedShippingForfaitLine}</span>
-                      ) : null}
-                    </p>
+                    {waiveIncludedRoundTripShipping && includedShippingForfaitLine ? (
+                      <p className="mt-0.5 text-[12px] font-medium text-blue-700">{includedShippingForfaitLine}</p>
+                    ) : null}
                   </div>
                 </div>
                 <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">
@@ -462,8 +639,8 @@ export function CartPaymentScreen({
                     )
                   ) : (
                     <>
-                      {euros(billedRoundTripEuros)}
-                      <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
+                      {euros(shippingTtcEuros)}
+                      <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
                     </>
                   )}
                 </span>
@@ -492,37 +669,32 @@ export function CartPaymentScreen({
               </label>
               {relaySearchError ? <p className="mt-2 text-[13px] text-red-600">{relaySearchError}</p> : null}
               {relayPoints.length > 0 ? (
-                <ul className="mt-3 max-h-[240px] space-y-2 overflow-y-auto pr-0.5">
-                  {relayPoints.map((r) => (
-                    <li key={r.code}>
-                      <button
-                        type="button"
-                        onClick={() => onSelectRelay(r)}
-                        className={cn(
-                          "w-full rounded-xl border px-3 py-3 text-left transition",
-                          selectedRelay?.code === r.code ? "border-zinc-900 bg-zinc-50" : "border-zinc-200",
-                        )}
-                      >
-                        <p className="text-[15px] font-semibold text-zinc-900">{r.label}</p>
-                        <p className="text-[13px] text-zinc-600">
-                          {[r.postalCode, r.city].filter(Boolean).join(" · ")}
-                        </p>
-                      </button>
-                    </li>
-                  ))}
+                <ul
+                  ref={relayListScrollRef}
+                  className="mt-3 max-h-[240px] space-y-2 overflow-y-auto pr-0.5"
+                >
+                  {relayPoints.map((r) => {
+                    const isSelected = selectedRelay?.code === r.code;
+                    return (
+                      <li key={r.code}>
+                        <button
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onSelectRelay(r)}
+                          className={cn(
+                            "w-full rounded-xl border-2 bg-white px-3 py-3 text-left transition",
+                            isSelected ? "border-zinc-950" : "border-zinc-200",
+                          )}
+                        >
+                          <p className="text-[15px] font-semibold text-zinc-900">{r.label}</p>
+                          <p className="text-[13px] text-zinc-600">
+                            {[r.postalCode, r.city].filter(Boolean).join(" · ")}
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
-              ) : null}
-              {selectedRelay ? (
-                <div className="mt-4 flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/90 px-3 py-3">
-                  <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">Point relais choisi</p>
-                    <p className="text-[15px] font-semibold text-zinc-900">{selectedRelay.label}</p>
-                    <p className="text-[13px] text-zinc-600">
-                      {[selectedRelay.postalCode, selectedRelay.city].filter(Boolean).join(" · ")}
-                    </p>
-                  </div>
-                </div>
               ) : null}
             </section>
           </>
@@ -563,66 +735,84 @@ export function CartPaymentScreen({
               <h2 className={cn("min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
                 Options de livraison
               </h2>
-              <p className="mt-2 text-[13px] text-zinc-500">Créneaux indicatifs — confirmation après paiement.</p>
               <div className="mt-3 grid gap-2">
-                {isParis ? (
+                <div
+                  className={cn(
+                    "rounded-xl border transition",
+                    homeSpeed === "uber_direct" ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200",
+                  )}
+                >
                   <button
                     type="button"
-                    onClick={() => setHomeSpeed("priority")}
-                    className={cn(
-                      "relative flex w-full items-start gap-3 overflow-hidden rounded-xl border px-3 pb-8 pt-3 text-left transition",
-                      homeSpeed === "priority" ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200",
-                    )}
+                    onClick={() => persistHomeSpeed("uber_direct")}
+                    className="flex w-full items-start gap-3 px-3 py-3 text-left"
                   >
-                    <Zap className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
-                    <div className="min-w-0 flex-1 pr-2">
+                    <Truck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-[15px] font-semibold text-zinc-900">Priorité</p>
+                        <p className="text-[15px] font-semibold leading-tight text-zinc-900">
+                          Aller express - Retour relais
+                        </p>
                         <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                          +{euros(CART_PRIORITY_PARIS_SURCHARGE_EUROS)}
-                          <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
+                          {waiveIncludedRoundTripShipping ? (
+                            includedShippingQuotaLabel ? (
+                              <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                            ) : (
+                              <span className="text-emerald-700">Offert</span>
+                            )
+                          ) : (
+                            <>
+                              {euros(expressOptionShippingTtcEuros)}
+                              <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
+                            </>
+                          )}
                         </span>
                       </div>
-                      <p className="text-[13px] text-zinc-500">25 min – 45 min · Paris</p>
-                    </div>
-                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 bg-zinc-900/88 px-2 py-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-white">
-                        Service prioritaire réservé aux livraisons à Paris
-                      </p>
+                      {uberArrivalLine ? (
+                        <p className="mt-0.5 text-[13px] text-zinc-500">{uberArrivalLine}</p>
+                      ) : null}
                     </div>
                   </button>
-                ) : null}
+                  {homeSpeed === "uber_direct" && uberQuotePanelPhase !== "ok" ? (
+                    <div className="px-3 pb-3 pl-[44px]">
+                      <UberDirectQuotePanel
+                        phase={uberQuotePanelPhase}
+                        errorMessage={uberQuoteError}
+                        errorCode={uberQuoteErrorCode}
+                        errorDetail={uberQuoteErrorDetail}
+                      />
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setHomeSpeed("standard")}
+                  onClick={() => persistHomeSpeed("standard")}
                   className={cn(
                     "flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition",
                     homeSpeed === "standard" ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200",
                   )}
                 >
                   <Home className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-[15px] font-semibold text-zinc-900">Standard</p>
-                      <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                        {waiveIncludedRoundTripShipping ? (
-                          includedShippingQuotaLabel ? (
-                            <span className="tabular-nums">{includedShippingQuotaLabel}</span>
-                          ) : (
-                            <span className="text-emerald-700">Offert</span>
-                          )
-                        ) : (
-                          <>
-                            {euros(billedRoundTripEuros)}
-                            <span className="ml-1 text-[11px] font-semibold text-zinc-500">HT</span>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <p className="text-[13px] text-zinc-500">
-                      Aller domicile + retour relais · 45 min – 1 h 30 · selon disponibilités
+                  <div className="min-w-0 flex-1 pr-1">
+                    <p className="text-[15px] font-semibold leading-tight text-zinc-900">
+                      Aller - Retour Standard
                     </p>
+                    <p className="mt-0.5 text-[13px] text-zinc-500">(2-3 jours ouvrés)</p>
                   </div>
+                  <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
+                    {waiveIncludedRoundTripShipping ? (
+                      includedShippingQuotaLabel ? (
+                        <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                      ) : (
+                        <span className="text-emerald-700">Offert</span>
+                      )
+                    ) : (
+                      <>
+                        {euros(standardOptionShippingTtcEuros)}
+                        <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
+                      </>
+                    )}
+                  </span>
                 </button>
               </div>
             </section>
@@ -670,26 +860,23 @@ export function CartPaymentScreen({
 
         {/* Frais — aligné page commande */}
         <section className="px-5 py-4">
-          <h2 className={cn("mb-4 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
-            Frais facturés
-          </h2>
-          {walletAppliedMods > 0 ? (
-            <p
-              className="mb-4 text-[12px] leading-snug text-zinc-500"
-              aria-label={walletCoverBalanceAriaLabel}
+          <h2
+            className={cn(
+              "mb-4 flex min-w-0 items-center gap-2",
+              segnaPlayfairDisplay.className,
+              SEGNA_SECTION_TITLE_CLASSNAME,
+            )}
+          >
+            <span className="min-w-0">Frais facturés</span>
+            <button
+              type="button"
+              onClick={() => setFeesModalOpen(true)}
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold text-zinc-500"
+              aria-label="Détail des frais"
             >
-              <span className="tabular-nums">{walletAppliedModsFormattedFr}</span>{" "}
-              {walletCreditKind === "consumption" ? (
-                <SegnaConsumptionCreditPhrase textClassName="text-zinc-500" />
-              ) : (
-                <span>{creditKindLabel}</span>
-              )}{" "}
-              pris sur ton solde
-              {exchangeCreditsChargeEuros > 0
-                ? ` — complément ${euros(exchangeCreditsChargeEuros)} à régler en €.`
-                : " — aucun complément € sur les articles."}
-            </p>
-          ) : null}
+              i
+            </button>
+          </h2>
           <div className="space-y-2.5 text-[15px] leading-snug">
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
               <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
@@ -707,17 +894,7 @@ export function CartPaymentScreen({
               <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
             </div>
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-              <span className="inline-flex min-w-0 items-center gap-1 pr-2">
-                Frais de livraison (TTC)
-                <button
-                  type="button"
-                  onClick={() => setFeesModalOpen(true)}
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold text-zinc-500"
-                  aria-label="Détail des frais"
-                >
-                  i
-                </button>
-              </span>
+              <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
               <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
             </div>
             {feesVatEuros > 0 ? (
@@ -780,7 +957,7 @@ export function CartPaymentScreen({
           ) : null}
           <button
             type="button"
-            disabled={stripeCheckoutBusy || !deliveryReady || !rentalTermsAccepted}
+            disabled={stripeCheckoutBusy || !deliveryReady || !rentalTermsAccepted || !uberBillingReady}
             onClick={() => void startStripeCheckout()}
             className="flex h-[52px] w-full items-center justify-center rounded-xl bg-zinc-950 text-[16px] font-bold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-50"
           >
@@ -798,24 +975,30 @@ export function CartPaymentScreen({
             <div className="mt-6 space-y-4">
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[15px] font-semibold text-zinc-900">Service (HT)</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceEuroHt)}</span>
+                  <span className="text-[15px] font-semibold text-zinc-900">Frais de service (TTC)</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
                 </div>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  Frais fixes pour le traitement et le suivi de ta commande.
+                  Frais fixes pour le traitement et le suivi de ta commande (TVA 20 % incluse).
                 </p>
               </div>
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[15px] font-semibold text-zinc-900">Livraison (HT)</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(deliveryEuroHt)}</span>
+                  <span className="min-w-0 flex-1 pr-2 text-[15px] font-semibold leading-snug text-zinc-900">
+                    {deliveryChannel === "home" && homeSpeed === "uber_direct"
+                      ? "Aller express - Retour relais (TTC)"
+                      : "Livraison (TTC)"}
+                  </span>
+                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
                 </div>
-                    <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  {deliveryChannel === "home"
-                    ? isParis && homeSpeed === "priority"
-                      ? `Aller domicile + retour relais (${waiveIncludedRoundTripShipping ? "offert" : `${euros(referenceRoundTripEuros)} HT`}) + priorité Paris (${euros(CART_PRIORITY_PARIS_SURCHARGE_EUROS)} HT).`
-                      : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais.`
-                    : `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € HT par article au-delà de 3.`}
+                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+                  {deliveryChannel === "relay"
+                    ? `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € par article au-delà de 3 (base HT, TVA comprise dans le montant TTC).`
+                    : deliveryChannel === "home"
+                      ? homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
+                        ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
+                        : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
+                      : null}
                   {waiveIncludedRoundTripShipping ? (
                     <span className="mt-1 block text-emerald-800/90">
                       Le trajet aller-retour du barème est pris en charge par ton abonnement
@@ -826,38 +1009,13 @@ export function CartPaymentScreen({
                     </span>
                   ) : null}
                 </p>
-                <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 text-[12px] text-zinc-600">
-                  <div className="flex justify-between gap-2">
-                    <span>Aller (HT)</span>
-                    <span className="tabular-nums text-right">
-                      {waiveIncludedRoundTripShipping ? (
-                        <span className="text-emerald-700">Offert</span>
-                      ) : (
-                        euros(centsToEuros(exchangeShipping.outboundCents))
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span>Retour relais (HT)</span>
-                    <span className="tabular-nums text-right">
-                      {waiveIncludedRoundTripShipping ? (
-                        <span className="text-emerald-700">Offert</span>
-                      ) : (
-                        euros(centsToEuros(exchangeShipping.returnRelayCents))
-                      )}
-                    </span>
-                  </div>
-                  {prioritySurchargeEuro > 0 ? (
-                    <div className="flex justify-between gap-2">
-                      <span>Priorité Paris (HT)</span>
-                      <span className="tabular-nums">{euros(prioritySurchargeEuro)}</span>
-                    </div>
-                  ) : null}
-                </div>
+                <p className="mt-2 border-t border-zinc-100 pt-2 text-[11px] leading-snug text-zinc-500">
+                  Le détail par ligne (dont frais de livraison) est repris dans la section « Frais facturés » au-dessus.
+                </p>
               </div>
               <div className="flex items-baseline justify-between border-t border-zinc-200 pt-3">
-                <span className="text-[15px] font-semibold text-zinc-900">Total frais HT</span>
-                <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(feesHtEuros)}</span>
+                <span className="text-[12px] font-medium text-zinc-500">Base HT (réf. facturation)</span>
+                <span className="text-[12px] font-medium tabular-nums text-zinc-600">{euros(feesHtEuros)}</span>
               </div>
               <div className="flex items-baseline justify-between border-t border-zinc-100 pt-2">
                 <span className="text-[15px] font-bold text-zinc-900">{CART_CHECKOUT_VAT_LABEL}</span>

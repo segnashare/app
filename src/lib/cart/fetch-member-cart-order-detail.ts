@@ -29,6 +29,17 @@ export type MemberCartOrderLine = {
   photoPosition: CartLineRowData["photoPosition"];
 };
 
+/** Snapshot du devis Uber au moment de la création de la course (métadonnées `shipment_destinations` domicile). */
+export type MemberCartOrderUberBooking = {
+  feeCents: number | null;
+  dropoffEta: string | null;
+  pickupEta: string | null;
+  durationMin: number | null;
+  pickupDurationMin: number | null;
+  quoteExpiresAt: string | null;
+  recordedAt: string | null;
+};
+
 export type MemberCartOrderShipment = {
   status: string;
   createdAt: string;
@@ -36,6 +47,11 @@ export type MemberCartOrderShipment = {
   /** Renseigné au passage pending → ready (back-office). */
   readyAt: string | null;
   trackingNumber: string | null;
+  /** `shipment_providers.code` (ex. uber_direct, mondial_relay). */
+  outboundProviderCode: string | null;
+  /** Lien suivi membre (ex. Uber `tracking_url`). */
+  memberTrackingUrl: string | null;
+  uberBooking: MemberCartOrderUberBooking | null;
 };
 
 /** Expédition retour panier (`context = cart_return`) — étiquette membre → Segna. */
@@ -123,6 +139,53 @@ function formatOrderNumberCompact(cartId: string): string {
   return cartId.replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
+function parseUberBookingFromDestinationMetadata(metadata: unknown): MemberCartOrderUberBooking | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const m = metadata as Record<string, unknown>;
+  const feeRaw = m.uber_booking_fee_cents;
+  let feeCents: number | null = null;
+  if (typeof feeRaw === "number" && Number.isFinite(feeRaw)) {
+    feeCents = Math.round(feeRaw);
+  } else if (typeof feeRaw === "string" && feeRaw.trim() !== "") {
+    const n = Number(feeRaw);
+    if (Number.isFinite(n)) feeCents = Math.round(n);
+  }
+  const dropoffEta = typeof m.uber_booking_dropoff_eta === "string" ? m.uber_booking_dropoff_eta : null;
+  const pickupEta = typeof m.uber_booking_pickup_eta === "string" ? m.uber_booking_pickup_eta : null;
+  const recordedAt = typeof m.uber_booking_recorded_at === "string" ? m.uber_booking_recorded_at : null;
+  const quoteExpiresAt = typeof m.uber_booking_quote_expires === "string" ? m.uber_booking_quote_expires : null;
+  const durRaw = m.uber_booking_duration_min;
+  const pudRaw = m.uber_booking_pickup_duration_min;
+  const durationMin =
+    typeof durRaw === "number"
+      ? durRaw
+      : typeof durRaw === "string" && durRaw.trim() !== ""
+        ? Number(durRaw)
+        : null;
+  const pickupDurationMin =
+    typeof pudRaw === "number"
+      ? pudRaw
+      : typeof pudRaw === "string" && String(pudRaw).trim() !== ""
+        ? Number(pudRaw)
+        : null;
+
+  const hasAny =
+    (feeCents != null && feeCents >= 0) ||
+    (dropoffEta != null && dropoffEta.trim() !== "") ||
+    (recordedAt != null && recordedAt.trim() !== "");
+  if (!hasAny) return null;
+
+  return {
+    feeCents: feeCents != null && feeCents >= 0 ? feeCents : null,
+    dropoffEta: dropoffEta?.trim() || null,
+    pickupEta: pickupEta?.trim() || null,
+    durationMin: durationMin != null && Number.isFinite(durationMin) ? durationMin : null,
+    pickupDurationMin: pickupDurationMin != null && Number.isFinite(pickupDurationMin) ? pickupDurationMin : null,
+    quoteExpiresAt: quoteExpiresAt?.trim() || null,
+    recordedAt: recordedAt?.trim() || null,
+  };
+}
+
 /**
  * Détail commande membre (panier confirmé / archivé) pour la page `commande/[id]`.
  */
@@ -171,8 +234,7 @@ export async function fetchMemberCartOrderDetail(
       .order("created_at", { ascending: true }),
     supabase
       .from("shipments")
-      /* `*` évite une erreur PostgREST si `ready_at` n’est pas encore migré (sinon tout le shipment disparaît côté UI). */
-      .select("*")
+      .select("*, shipment_providers ( code ), shipment_destinations ( destination_type, metadata )")
       .eq("cart_id", cartId)
       .eq("context", "cart_outbound")
       .is("deleted_at", null)
@@ -198,9 +260,7 @@ export async function fetchMemberCartOrderDetail(
       .eq("direction", "debit")
       .filter("metadata->>source", "eq", "cart_order_stripe")
       .filter("metadata->>cart_id", "eq", cartId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order("created_at", { ascending: true }),
   ]);
 
   type ItemJoin = {
@@ -268,12 +328,35 @@ export async function fetchMemberCartOrderDetail(
     if (!shipRow || typeof shipRow.status !== "string") return null;
     const ra = shipRow.ready_at;
     const tn = shipRow.tracking_number;
+    const mtu = shipRow.member_tracking_url;
+    const provEmb = shipRow.shipment_providers;
+    const provObj = Array.isArray(provEmb) ? provEmb[0] : provEmb;
+    const provCode =
+      provObj && typeof provObj === "object" && typeof (provObj as { code?: unknown }).code === "string"
+        ? (provObj as { code: string }).code.trim().toLowerCase()
+        : null;
+    const destEmb = shipRow.shipment_destinations;
+    const destList = Array.isArray(destEmb) ? destEmb : destEmb ? [destEmb] : [];
+    const homeRow = destList.find(
+      (d) =>
+        d &&
+        typeof d === "object" &&
+        String((d as { destination_type?: string }).destination_type ?? "")
+          .trim()
+          .toLowerCase() === "home",
+    );
+    const uberBooking = homeRow
+      ? parseUberBookingFromDestinationMetadata((homeRow as { metadata?: unknown }).metadata)
+      : null;
     return {
       status: shipRow.status,
       createdAt: String(shipRow.created_at ?? ""),
       updatedAt: String(shipRow.updated_at ?? ""),
       readyAt: typeof ra === "string" && ra.trim() ? ra.trim() : null,
       trackingNumber: typeof tn === "string" && tn.trim() ? tn.trim() : null,
+      outboundProviderCode: provCode,
+      memberTrackingUrl: typeof mtu === "string" && mtu.trim() ? mtu.trim() : null,
+      uberBooking,
     };
   })();
 
@@ -348,35 +431,36 @@ export async function fetchMemberCartOrderDetail(
   const paidEuros = paymentBreakdown?.euroDetail?.totalPaidEuros ?? 0;
   const stripePaidRecorded = paidEuros > 0.005;
 
-  const debitRow = (cartDebitRes.error ? null : cartDebitRes.data) as {
+  const debitRows = (cartDebitRes.error ? [] : (cartDebitRes.data ?? [])) as {
     amount_points: number;
     credit_bucket: string | null;
     metadata: Record<string, unknown> | null;
-  } | null;
+  }[];
 
   let pointsPaidSplit: MemberCartOrderPointsPaidSplit | null = null;
-  if (debitRow) {
-    const amt = Math.max(0, Math.floor(Number(debitRow.amount_points ?? 0)));
-    const splitRaw = debitRow.metadata?.debit_split;
-    if (splitRaw && typeof splitRaw === "object" && !Array.isArray(splitRaw)) {
-      const s = splitRaw as Record<string, unknown>;
-      const ex = Math.max(0, Math.floor(Number(s.exchange_points ?? 0)));
-      const co = Math.max(0, Math.floor(Number(s.consumption_points ?? 0)));
-      if (ex + co > 0) {
-        pointsPaidSplit = { exchangePoints: ex, consumptionPoints: co, totalPoints: amt };
+  if (debitRows.length > 0) {
+    let exchangePoints = 0;
+    let consumptionPoints = 0;
+    for (const debitRow of debitRows) {
+      const amt = Math.max(0, Math.floor(Number(debitRow.amount_points ?? 0)));
+      const splitRaw = debitRow.metadata?.debit_split;
+      if (splitRaw && typeof splitRaw === "object" && !Array.isArray(splitRaw)) {
+        const s = splitRaw as Record<string, unknown>;
+        exchangePoints += Math.max(0, Math.floor(Number(s.exchange_points ?? 0)));
+        consumptionPoints += Math.max(0, Math.floor(Number(s.consumption_points ?? 0)));
+      } else {
+        const b = (debitRow.credit_bucket ?? "").trim().toLowerCase();
+        if (b === "consumption") consumptionPoints += amt;
+        else exchangePoints += amt;
       }
     }
-    if (!pointsPaidSplit) {
-      const b = (debitRow.credit_bucket ?? "").trim().toLowerCase();
-      if (b === "exchange") {
-        pointsPaidSplit = { exchangePoints: amt, consumptionPoints: 0, totalPoints: amt };
-      } else if (b === "consumption") {
-        pointsPaidSplit = { exchangePoints: 0, consumptionPoints: amt, totalPoints: amt };
-      } else if (b === "mixed") {
-        pointsPaidSplit = null;
-      } else if (amt > 0) {
-        pointsPaidSplit = { exchangePoints: amt, consumptionPoints: 0, totalPoints: amt };
-      }
+    const totalDebitPoints = exchangePoints + consumptionPoints;
+    if (totalDebitPoints > 0) {
+      pointsPaidSplit = {
+        exchangePoints,
+        consumptionPoints,
+        totalPoints: totalDebitPoints,
+      };
     }
   }
 

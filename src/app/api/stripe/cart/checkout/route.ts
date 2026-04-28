@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import {
-  isParisDeliveryAreaFields,
-  type CheckoutDeliveryAddress,
-  type CheckoutRelaySelection,
-} from "@/lib/cart/checkout-delivery-storage";
+import type { CheckoutDeliveryAddress, CheckoutRelaySelection } from "@/lib/cart/checkout-delivery-storage";
 import { computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
-import {
-  CART_PRIORITY_PARIS_SURCHARGE_CENTS,
-  cartPaymentServiceFeeHtCents,
-} from "@/lib/cart/cart-payment-fees";
+import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { fetchActiveCartLinesForUser, fetchActiveCartSummaryForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -20,6 +13,10 @@ import {
   debitCartWalletOnly,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeConfig } from "@/lib/social/stripe";
+import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
+import { readUberDirectConfig } from "@/lib/uber-direct/config";
+import { fetchUberDeliveryQuoteRaw } from "@/lib/uber-direct/deliveries-api";
+import { uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { computeExchangeRoundTripShippingCents } from "@/lib/shipping/exchange-shipping-pricing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -28,14 +25,20 @@ import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 
 type DeliveryChannel = "relay" | "home";
-type HomeSpeed = "standard" | "priority";
+type HomeSpeed = "standard" | "uber_direct" | "priority";
 
 function isDeliveryChannel(v: unknown): v is DeliveryChannel {
   return v === "relay" || v === "home";
 }
 
 function isHomeSpeed(v: unknown): v is HomeSpeed {
-  return v === "standard" || v === "priority";
+  return v === "standard" || v === "uber_direct" || v === "priority";
+}
+
+/** `priority` = ancien libellé client, traité comme Uber Direct. */
+function normalizeHomeSpeedForBilling(v: HomeSpeed): "standard" | "uber_direct" {
+  if (v === "uber_direct" || v === "priority") return "uber_direct";
+  return "standard";
 }
 
 function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
@@ -53,6 +56,11 @@ function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
     relativeCity: typeof o.relativeCity === "string" ? o.relativeCity : null,
     timezone: typeof o.timezone === "string" ? o.timezone : "Europe/Paris",
   };
+}
+
+function parseDeliveryInstructions(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.trim().slice(0, 450);
 }
 
 function parseRelaySelection(raw: unknown): CheckoutRelaySelection | null {
@@ -81,6 +89,9 @@ export async function POST(request: Request) {
     if (!isDeliveryChannel(deliveryChannel) || !isHomeSpeed(homeSpeedRaw)) {
       return NextResponse.json({ message: "Options de livraison invalides." }, { status: 400 });
     }
+
+    const homeSpeedBilling = normalizeHomeSpeedForBilling(homeSpeedRaw);
+    const deliveryInstructions = parseDeliveryInstructions(body.deliveryInstructions);
 
     const relaySelection = parseRelaySelection(body.relaySelection);
     const deliveryAddress = parseDeliveryAddress(body.deliveryAddress);
@@ -157,25 +168,59 @@ export async function POST(request: Request) {
     const creditsCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
 
     const outboundMode = deliveryChannel === "relay" ? "relay" : "home";
-    const shipping = computeExchangeRoundTripShippingCents(itemCount, outboundMode);
+    const gridShipping = computeExchangeRoundTripShippingCents(itemCount, outboundMode);
     const { data: membershipState } = await supabase.rpc("get_current_membership_state");
     const remainingIncludedOrders = parseRemainingIncludedOrdersThisMonth(membershipState);
     /** Livraisons incluses : plafonds `billing_plan_entitlement_limits.included_orders_limit` vs `orders_used`. */
     const waiveRoundTripShippingHt = !isGuest && remainingIncludedOrders > 0;
-    const isParis =
-      deliveryChannel === "home" &&
-      isParisDeliveryAreaFields({
-        label: deliveryAddress?.label,
-        city: deliveryAddress?.city,
-        relativeCity: deliveryAddress?.relativeCity,
-      });
-    const priorityCents =
-      deliveryChannel === "home" && isParis && homeSpeedRaw === "priority"
-        ? CART_PRIORITY_PARIS_SURCHARGE_CENTS
-        : 0;
+    /** Plus de surtaxe Segna pour Uber : aller facturé = devis API `delivery_quotes` + retour barème relais. */
+    const priorityCents = 0;
 
-    const roundTripShippingHtCents = waiveRoundTripShippingHt ? 0 : shipping.subtotalCents;
-    const shippingHtCents = roundTripShippingHtCents + priorityCents;
+    let billedRoundTripHtCents = waiveRoundTripShippingHt ? 0 : gridShipping.subtotalCents;
+    if (
+      !waiveRoundTripShippingHt &&
+      deliveryChannel === "home" &&
+      homeSpeedBilling === "uber_direct"
+    ) {
+      if (!deliveryAddress) {
+        return NextResponse.json(
+          { message: "Adresse de livraison requise pour Uber Direct." },
+          { status: 400 },
+        );
+      }
+      const uberConfig = readUberDirectConfig();
+      if (!uberConfig) {
+        return NextResponse.json(
+          { message: "Uber Direct n’est pas configuré sur ce serveur — impossible de lancer le paiement." },
+          { status: 503 },
+        );
+      }
+      const dropoffAddressJson = buildFranceUberAddressJson(
+        deliveryAddress.label,
+        deliveryAddress.city ?? deliveryAddress.relativeCity,
+      );
+      let quote: Record<string, unknown>;
+      try {
+        quote = await fetchUberDeliveryQuoteRaw({ config: uberConfig, dropoffAddressJson });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "uber_quote_failed";
+        console.error("[stripe/cart/checkout] uber quote for billing failed", msg);
+        return NextResponse.json(
+          { message: "Impossible d’obtenir le tarif Uber pour cette adresse. Vérifie l’adresse ou réessaie." },
+          { status: 502 },
+        );
+      }
+      const uberFeeCents = uberQuoteFeeCentsFromRaw(quote);
+      if (uberFeeCents == null) {
+        return NextResponse.json(
+          { message: "Réponse Uber inattendue (tarif). Réessaie dans un instant." },
+          { status: 502 },
+        );
+      }
+      billedRoundTripHtCents = uberFeeCents + gridShipping.returnRelayCents;
+    }
+
+    const shippingHtCents = billedRoundTripHtCents + priorityCents;
     const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
     const fees = computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents);
     const totalCents = creditsCents + fees.feesTtcCents;
@@ -193,14 +238,7 @@ export async function POST(request: Request) {
 
       try {
         await debitCartWalletOnly(admin, userId, cartSummary.cartId, creditsKind);
-        await confirmCartPaidWalletOnly(
-          admin,
-          userId,
-          cartSummary.cartId,
-          deliveryChannel,
-          relayMeta,
-          deliveryLine1Meta,
-        );
+        await confirmCartPaidWalletOnly(admin, userId, cartSummary.cartId, deliveryChannel, relayMeta, deliveryLine1Meta);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "wallet_checkout_failed";
         console.error("[stripe/cart/checkout] wallet-only cart completion failed", msg);
@@ -274,7 +312,9 @@ export async function POST(request: Request) {
                 ? relaySelection
                   ? `Point relais — ${relaySelection.label}`
                   : "Point relais"
-                : "Livraison à domicile",
+                : homeSpeedBilling === "uber_direct"
+                  ? "Livraison à domicile (Uber Direct + retour relais)"
+                  : "Livraison à domicile",
           },
         },
       });
@@ -318,7 +358,17 @@ export async function POST(request: Request) {
         cart_id: cartSummary.cartId,
         item_count: String(itemCount),
         delivery_channel: deliveryChannel,
-        home_speed: homeSpeedRaw,
+        home_speed: homeSpeedBilling === "uber_direct" ? "uber_direct" : "standard",
+        delivery_lat:
+          deliveryChannel === "home" && deliveryAddress != null ? String(deliveryAddress.lat) : "",
+        delivery_lon:
+          deliveryChannel === "home" && deliveryAddress != null ? String(deliveryAddress.lon) : "",
+        delivery_city:
+          deliveryChannel === "home" && deliveryAddress != null
+            ? (deliveryAddress.city ?? deliveryAddress.relativeCity ?? "").trim().slice(0, 120)
+            : "",
+        delivery_instructions:
+          deliveryChannel === "home" && deliveryInstructions ? deliveryInstructions.slice(0, 450) : "",
         missing_exchange_mods: String(missingExchangeMods),
         exchange_credits_kind: creditsKind,
         credits_line_cents: String(creditsCents),
@@ -329,7 +379,7 @@ export async function POST(request: Request) {
         shipping_ttc_cents: String(fees.shippingTtcCents),
         shipping_round_trip_waived: waiveRoundTripShippingHt ? "true" : "false",
         remaining_included_orders_at_checkout: String(remainingIncludedOrders),
-        round_trip_shipping_ht_cents_if_billed: String(shipping.subtotalCents),
+        round_trip_shipping_ht_cents_if_billed: String(billedRoundTripHtCents),
         priority_cents: String(priorityCents),
         service_ht_cents: String(serviceHtCents),
         service_ttc_cents: String(fees.serviceTtcCents),

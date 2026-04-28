@@ -10,6 +10,21 @@ import { parseShippingIdsFromSearch, shippingIdsAreWellFormed } from "./shipping
 
 type GateState = "checking" | "ok" | "reject";
 
+/**
+ * Même logique que la carte « Préparer ton envoi » (`ItemIntakePanel`) : bordereau / suivi tant que la pièce
+ * n’est pas vérifiée catalogue, refusée ou en parcours « proposition avant abonnement ».
+ */
+function intakeAllowsShippingBordereauPage(listingStage: string, fulfillmentStage: string | null | undefined): boolean {
+  const ls = String(listingStage ?? "").trim().toLowerCase();
+  if (ls !== "validated") return false;
+  if (fulfillmentStage == null || String(fulfillmentStage).trim() === "") {
+    return true;
+  }
+  const fs = String(fulfillmentStage).trim().toLowerCase();
+  if (fs === "verified" || fs === "refused" || fs === "pre_subscribe_eligible") return false;
+  return fs === "shipping" || fs === "awaiting_subscription" || fs === "in_verification";
+}
+
 export function ShippingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -55,12 +70,9 @@ export function ShippingPageContent() {
     for (const row of found) {
       const emb = Array.isArray(row.item_intake) ? row.item_intake[0] : row.item_intake;
       const ls = emb && typeof emb === "object" ? String((emb as { listing_stage?: string }).listing_stage ?? "") : "";
-      const fs =
-        emb && typeof emb === "object" && (emb as { fulfillment_stage?: string | null }).fulfillment_stage != null
-          ? String((emb as { fulfillment_stage?: string | null }).fulfillment_stage)
-          : "";
-      const ok = ls === "validated" && (fs === "shipping" || fs === "");
-      if (!ok) {
+      const fsRaw =
+        emb && typeof emb === "object" ? (emb as { fulfillment_stage?: string | null }).fulfillment_stage : null;
+      if (!intakeAllowsShippingBordereauPage(ls, fsRaw)) {
         setGate("reject");
         return;
       }

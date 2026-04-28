@@ -10,6 +10,10 @@ export type CartCheckoutPaymentDetail = {
   feesVatEuros?: number;
   /** Frais TTC additionnels agrégés (metadata checkout). */
   feesTtcEuros?: number;
+  /** Metadata Stripe `delivery_channel` (affichage aller Uber vs relais). */
+  checkoutDeliveryChannel?: string | null;
+  /** Metadata Stripe `home_speed` (uber_direct, standard, …). */
+  checkoutHomeSpeed?: string | null;
 };
 
 function metaCents(metadata: Stripe.Metadata | null, key: string): number {
@@ -44,6 +48,8 @@ export async function fetchCartCheckoutPaymentDetail(
     const amountTotalCents = typeof session.amount_total === "number" ? session.amount_total : 0;
     const feesVatCents = metaCents(md, "fees_vat_cents");
     const feesTtcCents = metaCents(md, "fees_ttc_cents");
+    const deliveryCh = typeof md?.delivery_channel === "string" ? md.delivery_channel.trim().toLowerCase() : "";
+    const homeSp = typeof md?.home_speed === "string" ? md.home_speed.trim().toLowerCase() : "";
 
     return {
       complementCreditsEuros: creditsCents / 100,
@@ -52,6 +58,8 @@ export async function fetchCartCheckoutPaymentDetail(
       totalPaidEuros: amountTotalCents / 100,
       ...(feesVatCents > 0 ? { feesVatEuros: feesVatCents / 100 } : {}),
       ...(feesTtcCents > 0 ? { feesTtcEuros: feesTtcCents / 100 } : {}),
+      ...(deliveryCh ? { checkoutDeliveryChannel: deliveryCh } : {}),
+      ...(homeSp ? { checkoutHomeSpeed: homeSp } : {}),
     };
   } catch {
     return null;

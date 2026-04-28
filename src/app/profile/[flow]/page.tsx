@@ -39,7 +39,7 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
     notFound();
   }
 
-  const backTab = tab && ["plus", "security", "me"].includes(tab) ? tab : "plus";
+  const backTab: "plus" | "me" = tab === "me" || tab === "security" ? "me" : tab === "plus" ? "plus" : "plus";
   const copy = FLOW_COPY[flow];
 
   if (flow === "complete") {
@@ -63,7 +63,7 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
 
     return (
       <SubflowShell>
-        <ProfileCompleteFlow backTab={backTab as "plus" | "security" | "me"} displayName={displayName} completionScore={completionScore} />
+        <ProfileCompleteFlow backTab={backTab} displayName={displayName} completionScore={completionScore} />
       </SubflowShell>
     );
   }
@@ -71,7 +71,7 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
   if (flow === "kyc") {
     return (
       <SubflowShell>
-        <ProfileKycCore backTab={backTab as "plus" | "security" | "me"} />
+        <ProfileKycCore backTab={backTab} />
       </SubflowShell>
     );
   }

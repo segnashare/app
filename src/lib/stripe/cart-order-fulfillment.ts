@@ -133,7 +133,7 @@ export async function confirmCartPaidFromStripeSession(
   const relayPointId = (session.metadata?.relay_code ?? "").trim();
   const deliveryLine1 = (session.metadata?.delivery_line1 ?? "").trim();
 
-  const { error } = await admin.rpc("confirm_cart_paid_from_stripe", {
+  const { data: confirmData, error } = await admin.rpc("confirm_cart_paid_from_stripe", {
     p_cart_id: cartId,
     p_user_id: userId,
     p_checkout_session_id: session.id,
@@ -146,6 +146,11 @@ export async function confirmCartPaidFromStripeSession(
     throw new Error(error.message);
   }
 
+  const alreadyConfirmed =
+    confirmData != null &&
+    typeof confirmData === "object" &&
+    (confirmData as Record<string, unknown>).already_confirmed === true;
+
   try {
     await upsertCartOrderStripeInvoiceFromSession(admin, session, userId);
   } catch (e) {
@@ -153,5 +158,5 @@ export async function confirmCartPaidFromStripeSession(
     console.error("[cart-order] cart_order_stripe_invoices upsert failed", msg);
   }
 
-  return { ok: true };
+  return { ok: true, alreadyConfirmed };
 }

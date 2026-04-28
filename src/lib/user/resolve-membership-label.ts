@@ -1,5 +1,8 @@
 /** Résolution du label d’abonnement (aligné sur la page panier). */
 
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { refreshStripeSubscriptionForUser } from "@/lib/stripe/subscription-state";
+
 export type MembershipLabel = "Guest" | "Membre +" | "Membre X";
 
 function toMembershipLabelFromRoles(roles: string[]): MembershipLabel {
@@ -29,6 +32,13 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
 }
 
 export async function resolveMembershipLabel(supabase: any, userId: string): Promise<MembershipLabel> {
+  try {
+    const admin = createSupabaseAdminClient() as any;
+    await refreshStripeSubscriptionForUser(admin, userId);
+  } catch {
+    /* Pas de clé Stripe, Stripe indisponible, ou hors serveur : on s’appuie sur la DB / webhooks. */
+  }
+
   const [membershipStateRes, subscriptionRowRes, rolesRes] = await Promise.all([
     supabase.rpc("get_current_membership_state"),
     supabase
@@ -55,5 +65,8 @@ export async function resolveMembershipLabel(supabase: any, userId: string): Pro
 
   if (membershipLabelFromSubscriptionTable !== "Guest") return membershipLabelFromSubscriptionTable;
   if (membershipLabelFromRpc !== "Guest") return membershipLabelFromRpc;
+  /** Ligne Stripe présente mais abonnement inactif : ne pas ré-qualifier via les rôles (abo annulé côté Stripe sans sync des rôles). */
+  if (subscriptionRowRes.error == null && subRow != null) return "Guest";
+
   return toMembershipLabelFromRoles(roles);
 }

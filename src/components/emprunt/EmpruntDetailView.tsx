@@ -7,6 +7,7 @@ import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowS
 import { EmpruntBorrowCountdown } from "@/components/emprunt/EmpruntBorrowCountdown";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
+import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils/cn";
 
 type EmpruntDetailViewProps = {
   detail: MemberCartOrderDetail;
+  membershipLabel: SegnaBorrowMembershipLabel;
 };
 
 function formatEuros(n: number): string {
@@ -23,7 +25,7 @@ function formatEuros(n: number): string {
 /**
  * Panier « chez le membre » après livraison aller — durée de location & retour (placeholders).
  */
-export function EmpruntDetailView({ detail }: EmpruntDetailViewProps) {
+export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailViewProps) {
   const creditKind = detail.walletCreditKind;
   const returnCommitmentMet = isCartReturnCommitmentMet(detail.returnShipment?.status);
 
@@ -50,6 +52,7 @@ export function EmpruntDetailView({ detail }: EmpruntDetailViewProps) {
             <EmpruntBorrowCountdown
               deliveredAtIso={detail.shipment.updatedAt}
               orderNumberCompact={detail.orderNumberCompact}
+              membershipLabel={membershipLabel}
             />
           ) : (
             <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">
@@ -63,6 +66,7 @@ export function EmpruntDetailView({ detail }: EmpruntDetailViewProps) {
         cartId={detail.cartId}
         deliveredAtIso={detail.shipment?.updatedAt ?? null}
         returnCommitmentMet={returnCommitmentMet}
+        membershipLabel={membershipLabel}
       />
 
       <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-4">

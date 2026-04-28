@@ -5,6 +5,10 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { OutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
+import {
+  checkoutMetaIndicatesUberDirect,
+  isUberCartOutboundShipment,
+} from "@/lib/cart/cart-outbound-delivery-kind";
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
 import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
@@ -62,8 +66,19 @@ export function ExchangeOutboundShipmentCallout({
   if (st === "closed" || !ready || !visible) return null;
 
   const delivered = st === "delivered";
-  const trackingUrl =
-    summary.trackingNumber != null ? buildMondialRelayTrackingUrl(summary.trackingNumber) : null;
+  const isUber =
+    isUberCartOutboundShipment({
+      outboundProviderCode: summary.outboundProviderCode,
+      memberTrackingUrl: summary.memberTrackingUrl,
+      trackingNumber: summary.trackingNumber,
+    }) ||
+    checkoutMetaIndicatesUberDirect(summary.checkoutDeliveryChannel, summary.checkoutHomeSpeed);
+  const trackingUrl = isUber
+    ? summary.memberTrackingUrl
+    : summary.trackingNumber != null
+      ? buildMondialRelayTrackingUrl(summary.trackingNumber)
+      : null;
+  const trackingLinkLabel = isUber ? "Voir le suivi Uber" : "Suivre sur Mondial Relay";
   const returnActive = isActiveMemberReturnPhase(summary.returnShipmentStatus);
   const ctaHref = delivered
     ? returnActive
@@ -105,15 +120,12 @@ export function ExchangeOutboundShipmentCallout({
           ) : (
             <h2
               className={cn(
-                "flex flex-wrap items-center gap-2 text-[22px] font-bold leading-tight text-zinc-900",
+                "text-[22px] font-bold leading-tight text-zinc-900",
                 segnaPlayfairDisplay.className,
                 SEGNA_SECTION_TITLE_CLASSNAME,
               )}
             >
               {copy.title}
-              {copy.pulse ? (
-                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" aria-hidden />
-              ) : null}
             </h2>
           )}
 
@@ -153,7 +165,7 @@ export function ExchangeOutboundShipmentCallout({
                       delivered ? "text-emerald-950" : "text-zinc-900",
                     )}
                   >
-                    Suivre sur Mondial Relay
+                    {trackingLinkLabel}
                   </a>
                 </>
               ) : null}

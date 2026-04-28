@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ExternalLink, LifeBuoy, Loader2, Package } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ChevronLeft, ExternalLink, LifeBuoy, Loader2, Package } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
@@ -15,8 +15,8 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-
-
+/** Message API `member-mr-auto-generate` quand `users.adress` est incomplet. */
+const PROFILE_ADDRESS_INCOMPLETE_HINT = "Complète ton adresse postale dans ton profil";
 
 type IntakeSnap = {
   listing_stage: string | null;
@@ -59,6 +59,19 @@ export function ShippingBordereauExperience({
   itemIds,
 }: ShippingBordereauExperienceProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const shippingReturnPath = useMemo(() => {
+    const qs = searchParams.toString();
+    if (!pathname) return qs ? `/items/shipping?${qs}` : "/items/shipping";
+    return qs ? `${pathname}?${qs}` : pathname;
+  }, [pathname, searchParams]);
+
+  const profileLocationEditHref = useMemo(
+    () => `/profile/edit?field=location&returnPath=${encodeURIComponent(shippingReturnPath)}`,
+    [shippingReturnPath],
+  );
+
   const [rows, setRows] = useState<LoadedRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [autoAttemptId, setAutoAttemptId] = useState(0);
@@ -66,7 +79,6 @@ export function ShippingBordereauExperience({
   const [autoError, setAutoError] = useState<string | null>(null);
   const [autoDeveloperHint, setAutoDeveloperHint] = useState<string | null>(null);
   const [helpPhase, setHelpPhase] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const itemIdsKey = itemIds.join(",");
   useEffect(() => {
@@ -75,7 +87,6 @@ export function ShippingBordereauExperience({
     setAutoError(null);
     setAutoDeveloperHint(null);
     setHelpPhase("idle");
-    setShowAdvanced(false);
   }, [itemIdsKey]);
 
   const headerRef = useRef<HTMLElement | null>(null);
@@ -184,7 +195,6 @@ export function ShippingBordereauExperience({
       setAutoPhase("failed");
       setAutoError(typeof data.error === "string" ? data.error : "Génération impossible pour le moment.");
       setAutoDeveloperHint(typeof data.developer_hint === "string" ? data.developer_hint : null);
-      setShowAdvanced(true);
     })();
     return () => {
       cancelled = true;
@@ -371,7 +381,22 @@ export function ShippingBordereauExperience({
                   "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] leading-relaxed text-rose-950",
                 )}
               >
-                {autoError ?? "La génération automatique n’a pas abouti."}
+                {(() => {
+                  const msg = autoError ?? "La génération automatique n’a pas abouti.";
+                  if (!msg.includes(PROFILE_ADDRESS_INCOMPLETE_HINT)) return msg;
+                  return (
+                    <>
+                      Complète ton adresse postale dans{" "}
+                      <Link
+                        href={profileLocationEditHref}
+                        className="font-semibold text-rose-950 underline decoration-rose-400/80 underline-offset-2 hover:decoration-rose-700"
+                      >
+                        ton profil
+                      </Link>{" "}
+                      (rue, n°, CP, ville).
+                    </>
+                  );
+                })()}
               </p>
               {autoDeveloperHint ? (
                 <div
@@ -398,63 +423,6 @@ export function ShippingBordereauExperience({
               >
                 Réessayer la génération automatique
               </button>
-              <button
-                type="button"
-                onClick={() => void requestHelp()}
-                disabled={helpPhase === "sending" || helpPhase === "sent"}
-                className={cn(
-                  montserrat.className,
-                  "flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-black px-6 text-[14px] font-semibold text-white disabled:opacity-60",
-                )}
-              >
-                <LifeBuoy className="h-4 w-4" aria-hidden />
-                {helpPhase === "sent"
-                  ? "Demande envoyée à Segna"
-                  : helpPhase === "sending"
-                    ? "Envoi…"
-                    : "Demander de l’aide — création par Segna"}
-              </button>
-              {helpPhase === "error" ? (
-                <p className={cn(montserrat.className, "text-center text-[12px] text-rose-700")}>
-                  Envoi impossible pour le moment. Écris-nous depuis l’app ou par email.
-                </p>
-              ) : null}
-              {helpPhase === "sent" ? (
-                <p className={cn(montserrat.className, "text-center text-[12px] text-zinc-600")}>
-                  L’équipe voit ta demande dans l’espace back-office et peut générer l’étiquette à ta place. Actualise cette page
-                  plus tard.
-                </p>
-              ) : null}
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50/80">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((s) => !s)}
-                  className={cn(
-                    montserrat.className,
-                    "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] font-semibold text-zinc-800",
-                  )}
-                >
-                  Conseils si ça bloque encore
-                  <ChevronDown
-                    className={cn("h-4 w-4 shrink-0 transition-transform", showAdvanced ? "rotate-180" : "")}
-                    aria-hidden
-                  />
-                </button>
-                {showAdvanced ? (
-                  <div className={cn(montserrat.className, "space-y-2 border-t border-zinc-200 px-3 pb-3 pt-2 text-[12px] leading-relaxed text-zinc-600")}>
-                    <p>
-                      Vérifie que ton <strong>profil</strong> contient une adresse complète (rue, numéro, code postal, ville) et un
-                      numéro de mobile. Sans relais compatible près de ton code postal, l’automatisation peut échouer : dans ce
-                      cas la demande d’aide ci-dessus permet à Segna de finaliser l’expédition comme avant.
-                    </p>
-                    {mondial?.last_member_mr_error_message ? (
-                      <p className="font-mono text-[11px] text-zinc-500">
-                        Détail technique : {mondial.last_member_mr_error_message.slice(0, 280)}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
             </div>
           ) : (
             <div className="mt-4 space-y-2">

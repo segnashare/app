@@ -30,55 +30,6 @@ export { needsItemIntakeUi } from "@/lib/items/item-intake-ui";
 
 const EVALUATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function AwaitingSubscriptionGuestPanel({
-  itemId: _itemId,
-  offerPricePoints,
-  placement: _placement,
-  onStackDismiss,
-}: {
-  itemId: string;
-  offerPricePoints: number | null;
-  placement: "item" | "evaluation";
-  onStackDismiss?: () => void;
-}) {
-  void _itemId;
-  void _placement;
-
-  const pts =
-    offerPricePoints != null && Number.isFinite(offerPricePoints) ? Math.round(offerPricePoints) : null;
-  const creditsPhrase =
-    pts != null
-      ? pts === 1
-        ? "Après réception et vérification par Segna, tu pourras recevoir jusqu’à 1 point sur ton wallet (selon les règles du prêt)."
-        : `Après réception et vérification par Segna, tu pourras recevoir jusqu’à ${pts} points sur ton wallet (selon les règles du prêt).`
-      : "Après réception et vérification par Segna, des crédits peuvent être versés sur ton wallet selon les règles du prêt.";
-
-  return (
-    <IntakePanelLayout
-      title="Expédition à lancer"
-      titleId="intake-title-awaiting-subscription"
-      titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
-      footer={
-        <Link
-          href="/exchange"
-          className={cn(
-            montserrat.className,
-            "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
-          )}
-        >
-          Voir l&apos;échange — Prêts
-        </Link>
-      }
-    >
-      <p className="font-medium text-zinc-800">
-        Ta pièce est validée : tu peux lancer l&apos;envoi vers Segna depuis l&apos;onglet « Prêts » sans abonnement
-        obligatoire. Un abonnement prêteur reste utile pour les plafonds et avantages du plan.
-      </p>
-      <p className="mt-2">{creditsPhrase}</p>
-    </IntakePanelLayout>
-  );
-}
-
 function formatCountdownHms(remainingMs: number): string {
   if (remainingMs <= 0) return "00:00:00";
   const totalSec = Math.floor(remainingMs / 1000);
@@ -203,13 +154,11 @@ export function ItemIntakePanel({
     fulfillmentStage != null &&
     fulfillmentStage !== "verified" &&
     fulfillmentStage !== "refused" &&
-    fulfillmentStage !== "pre_subscribe_eligible" &&
-    fulfillmentStage !== "awaiting_subscription";
+    fulfillmentStage !== "pre_subscribe_eligible";
 
-  /** Étapes hors flux « expédition » mais avec panneau dédié (pile Échange / fiche). */
+  /** Parcours « proposition avant abonnement » : panneau dédié (pile Échange / fiche). */
   const awaitingLenderPlanUi =
-    listingStage === "validated" &&
-    (fulfillmentStage === "awaiting_subscription" || fulfillmentStage === "pre_subscribe_eligible");
+    listingStage === "validated" && fulfillmentStage === "pre_subscribe_eligible";
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;
@@ -370,8 +319,8 @@ export function ItemIntakePanel({
             />
           <p className={segnaDialogBodyClass()}>
             {pts != null
-              ? `${pts} points proposés — accepte ou refuse l’entrée au catalogue.`
-              : "Une entrée au catalogue t’est proposée — accepte ou refuse."}
+              ? `${pts} points proposés : accepte ou refuse l’entrée au catalogue.`
+              : "Une entrée au catalogue t’est proposée : accepte ou refuse."}
           </p>
           {actionError ? <p className="text-[12px] text-[#E44D3E]">{actionError}</p> : null}
           <div className="flex flex-wrap gap-2">
@@ -508,17 +457,6 @@ export function ItemIntakePanel({
       >
         <p>{refusalText}</p>
       </IntakePanelLayout>
-    );
-  }
-
-  if (listingStage === "validated" && fulfillmentStage === "awaiting_subscription") {
-    return (
-      <AwaitingSubscriptionGuestPanel
-        itemId={itemId}
-        offerPricePoints={offerPricePoints}
-        placement={placement}
-        onStackDismiss={onStackDismiss}
-      />
     );
   }
 

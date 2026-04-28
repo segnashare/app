@@ -8,7 +8,7 @@ import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteM
 import { ProfileCompleteVisualizationCore } from "@/components/profile/ProfileCompleteVisualizationCore";
 
 type ProfileCompleteFlowProps = {
-  backTab: "plus" | "security" | "me";
+  backTab: "plus" | "me";
   displayName: string;
   completionScore: number;
 };

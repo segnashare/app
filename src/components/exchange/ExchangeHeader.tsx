@@ -31,16 +31,16 @@ export function ExchangeHeader({
 }: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
 
-  const membershipDescription = useMemo(() => {
+  const subscriberMembershipDescription = useMemo(() => {
     if (membershipLabel === "Membre X") {
       return "Tu es sur le plan Membre X. Tu beneficies des plafonds les plus eleves et de la priorite sur les echanges.";
     }
     if (membershipLabel === "Membre +") {
       return "Tu es sur le plan Membre +. Tu peux louer et preter avec des limites intermediaires.";
     }
-    return "Tu es en mode Guest : tu peux emprunter et utiliser les crédits d'échange comme les membres abonnés. Un abonnement Membre + ou X reste utile pour les plafonds, livraisons incluses et avantages du plan.";
+    return null;
   }, [membershipLabel]);
-  const membershipOffersHref = membershipLabel === "Membre +" ? "/package?plan=minus" : "/package";
+  const membershipOffersHref = membershipLabel === "Guest" ? "/package?plan=x" : "/package";
 
   return (
     <>
@@ -73,7 +73,17 @@ export function ExchangeHeader({
               <Info className="h-4 w-4 text-zinc-700" />
               <p className="text-lg font-semibold text-zinc-950">{membershipLabel}</p>
             </div>
-            <p className="mt-2 text-sm text-zinc-600">{membershipDescription}</p>
+            {membershipLabel === "Guest" ? (
+              <div className="mt-2 space-y-2 text-sm text-zinc-600">
+                <p>Tu es en mode Guest : tu peux emprunter et utiliser tes crédits d&apos;échange.</p>
+                <p>
+                  Avec une adhésion SegnaX, tu débloques plus de crédits, des plafonds plus confortables et les livraisons
+                  incluses.
+                </p>
+              </div>
+            ) : subscriberMembershipDescription ? (
+              <p className="mt-2 text-sm text-zinc-600">{subscriberMembershipDescription}</p>
+            ) : null}
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -87,7 +97,7 @@ export function ExchangeHeader({
                 className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-950 px-4 text-sm font-semibold text-white"
                 onClick={() => setMembershipModalOpen(false)}
               >
-                Voir les offres
+                {membershipLabel === "Guest" ? "Découvrir l'adhésion" : "Voir les offres"}
               </Link>
             </div>
           </div>

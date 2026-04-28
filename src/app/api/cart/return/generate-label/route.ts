@@ -13,6 +13,7 @@ import { performMrConnectRelayWithProductFallback } from "@/lib/mondial-relay/mr
 import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
+import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -220,12 +221,36 @@ export async function POST(request: Request) {
     .limit(1);
   const firstLab = existingLabels?.[0] as { label_url?: string } | undefined;
   if (firstLab?.label_url?.trim()) {
+    const labelUrl = firstLab.label_url.trim();
     const { data: shipRow } = await admin.from("shipments").select("tracking_number").eq("id", returnShipId).maybeSingle();
     const tn = (shipRow as { tracking_number?: string } | null)?.tracking_number ?? null;
+    if (returnStatus === "pending") {
+      const { error: providerErr } = await admin.rpc("set_shipment_provider", {
+        p_shipment_id: returnShipId,
+        p_provider_code: "mondial_relay",
+      });
+      if (providerErr) {
+        return NextResponse.json({ ok: false as const, error: `Transporteur : ${providerErr.message}` }, { status: 500 });
+      }
+      const nowIsoReuse = new Date().toISOString();
+      const tr = await transitionShipmentStatus(admin, {
+        shipmentId: returnShipId,
+        ifCurrentStatus: "pending",
+        toStatus: "ready",
+        actorUserId: user.id,
+        reason: "Étiquette retour déjà présente — alignement statut membre",
+        source: "member_app_cart_return_generate_label_reuse",
+        context: { route: "POST /api/cart/return/generate-label", cart_id: cartId },
+        occurredAt: nowIsoReuse,
+      });
+      if (!tr.ok) {
+        return NextResponse.json({ ok: false as const, error: tr.error }, { status: tr.error === "STATUS_MISMATCH" ? 409 : 500 });
+      }
+    }
     return NextResponse.json({
       ok: true as const,
       shipment_id: returnShipId,
-      label_url: firstLab.label_url.trim(),
+      label_url: labelUrl,
       numero_suivi: typeof tn === "string" && tn.trim() ? tn.trim() : null,
       reused: true as const,
     });
@@ -312,20 +337,47 @@ export async function POST(request: Request) {
   }
 
   const nowIso = new Date().toISOString();
-  const { error: upShipErr } = await admin
-    .from("shipments")
-    .update({
-      tracking_number: result.sendingNumber,
-      status: "ready",
-      updated_at: nowIso,
-    })
-    .eq("id", returnShipId);
-
-  if (upShipErr) {
-    return NextResponse.json(
-      { ok: false as const, error: `MR ok mais mise à jour envoi : ${upShipErr.message}`, label_url: result.etiquetteLink },
-      { status: 500 },
-    );
+  if (returnStatus === "pending") {
+    const tr = await transitionShipmentStatus(admin, {
+      shipmentId: returnShipId,
+      ifCurrentStatus: "pending",
+      toStatus: "ready",
+      actorUserId: user.id,
+      reason: "Étiquette retour Mondial Relay générée",
+      source: "member_app_cart_return_generate_label",
+      context: { route: "POST /api/cart/return/generate-label", cart_id: cartId, delivery_mode: deliveryMode },
+      occurredAt: nowIso,
+      trackingNumber: result.sendingNumber,
+    });
+    if (!tr.ok) {
+      return NextResponse.json(
+        {
+          ok: false as const,
+          error: `MR ok mais mise à jour envoi : ${tr.error}`,
+          label_url: result.etiquetteLink,
+        },
+        { status: tr.error === "STATUS_MISMATCH" ? 409 : 500 },
+      );
+    }
+  } else {
+    const { error: upShipErr } = await admin
+      .from("shipments")
+      .update({
+        tracking_number: result.sendingNumber,
+        updated_at: nowIso,
+      })
+      .eq("id", returnShipId)
+      .eq("status", "ready");
+    if (upShipErr) {
+      return NextResponse.json(
+        {
+          ok: false as const,
+          error: `MR ok mais mise à jour envoi : ${upShipErr.message}`,
+          label_url: result.etiquetteLink,
+        },
+        { status: 500 },
+      );
+    }
   }
 
   const { error: labErr } = await admin.from("shipment_labels").insert({

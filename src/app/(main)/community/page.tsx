@@ -1,38 +1,24 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { Lock } from "lucide-react";
+
 import { CardBase } from "@/components/layout/CardBase";
 import { MainContent } from "@/components/layout/MainContent";
-import { CommunityShareActions } from "@/components/community/CommunityShareActions";
 
-export default async function CommunityPage() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  let referralCode: string | null = null;
-
-  if (user) {
-    const { data: referralRes } = await supabase.from("referrals_codes").select("code").eq("user_id", user.id).maybeSingle();
-    referralCode = typeof referralRes?.code === "string" ? referralRes.code : null;
-  }
-
+export default function CommunityPage() {
   return (
     <MainContent>
-      <div className="space-y-5 pt-4">
-        <section className="space-y-3">
-          <CardBase className="space-y-3">
-            <CommunityShareActions referralCode={referralCode} />
-          </CardBase>
-        </section>
-
-        <section className="space-y-3">
-          <CardBase className="space-y-2">
-            <p className="text-sm text-zinc-500">Ton code</p>
-            <p className="inline-flex w-fit rounded-lg bg-[#F8F1EC] px-3 py-2 text-base font-semibold text-[#5E3023]">
-              {referralCode ?? "Code indisponible"}
+      <div className="flex min-h-[min(520px,70dvh)] flex-col items-center justify-center px-4 py-10">
+        <CardBase className="mx-auto w-full max-w-md space-y-4 px-6 py-10 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-600">
+            <Lock className="h-7 w-7" strokeWidth={2} aria-hidden />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-semibold tracking-tight text-zinc-900">Communauté</h1>
+            <p className="text-[15px] leading-relaxed text-zinc-600">
+              Cette section n&apos;est pas encore accessible. Nous préparons l&apos;expérience communautaire, tu pourras la
+              découvrir ici très bientôt.
             </p>
-          </CardBase>
-        </section>
+          </div>
+        </CardBase>
       </div>
     </MainContent>
   );

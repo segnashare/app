@@ -9,7 +9,8 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as { returnTab?: unknown } | null;
     const tabRaw = typeof body?.returnTab === "string" ? body.returnTab.trim() : "";
-    const returnTab = ["plus", "security", "me"].includes(tabRaw) ? tabRaw : "plus";
+    const returnTab: "plus" | "me" =
+      tabRaw === "me" || tabRaw === "security" ? "me" : tabRaw === "plus" ? "plus" : "plus";
 
     const supabase = (await createSupabaseServerClient()) as any;
     const {

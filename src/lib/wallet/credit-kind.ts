@@ -15,12 +15,15 @@ export function walletCreditKindForMembership(_label: MembershipLabel): WalletCr
   return "exchange";
 }
 
-/** Packs crédits profil : crédits d’échange (le couple plan/statut ne les exclut plus). */
+/**
+ * Packs crédits « Obtenir plus » (checkout `/api/stripe/credits/checkout`) : crédits de consommation,
+ * utilisables sur le dressing partagé — distincts des compléments panier / échange (`walletCreditKindForMembership`).
+ */
 export function walletCreditKindForBillingSubscription(
   _planCode: string | null | undefined,
   _subscriptionStatus: string | null | undefined,
 ): WalletCreditKind {
-  return "exchange";
+  return "consumption";
 }
 
 /**

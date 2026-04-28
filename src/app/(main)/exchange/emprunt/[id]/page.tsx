@@ -52,5 +52,5 @@ export default async function EmpruntPage({ params }: PageProps) {
     redirect(`/exchange/retour/${cartId}`);
   }
 
-  return <EmpruntDetailView detail={detail} />;
+  return <EmpruntDetailView detail={detail} membershipLabel={membershipLabel} />;
 }

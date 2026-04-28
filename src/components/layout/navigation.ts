@@ -34,9 +34,14 @@ export function shouldShowTabBar(pathname: string): boolean {
   return isMainTabRoute(pathname);
 }
 
-/** Bouton flottant « Voir le panier » : feed + catalogue (y compris sous-pages /shop/…). */
+/** Bouton flottant « Voir le panier » : feed, catalogue (y compris /shop/…) et hub échange. */
 export function shouldShowFloatingCartButton(pathname: string): boolean {
-  return pathname === "/home" || pathname === "/shop" || pathname.startsWith("/shop/");
+  return (
+    pathname === "/home" ||
+    pathname === "/shop" ||
+    pathname.startsWith("/shop/") ||
+    pathname === "/exchange"
+  );
 }
 
 export function isShopTabActive(pathname: string): boolean {

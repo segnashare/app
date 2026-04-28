@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const playfairDisplay = segnaPlayfairDisplay;
 type ProfileKycCoreProps = {
-  backTab: "plus" | "security" | "me";
+  backTab: "plus" | "me";
 };
 
 type VerificationStatus = "not_started" | "pending" | "in_review" | "verified" | "rejected";

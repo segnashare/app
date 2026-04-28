@@ -107,7 +107,7 @@ export function OnboardingMotivationCore({ formId, onCanContinueChange, redirect
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/privacy",
+      p_current_step: "/onboarding/3",
       p_progress_json: {
         checkpoint: "/onboarding/motivation",
       },
@@ -120,7 +120,7 @@ export function OnboardingMotivationCore({ formId, onCanContinueChange, redirect
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/privacy");
+    router.push(redirectPath ?? "/onboarding/3");
   };
 
   return (

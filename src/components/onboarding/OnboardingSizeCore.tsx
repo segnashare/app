@@ -126,7 +126,8 @@ type OnboardingSizeCoreProps = {
 
 const TOP_OPTIONS = ["XXS", "XS", "S", "M", "L", "XL", "XXL"] as const;
 const BOTTOM_OPTIONS = ["32", "34", "36", "38", "40", "42", "44", "46", "48"] as const;
-const SHOES_OPTIONS = Array.from({ length: 16 }, (_, i) => String(30 + i)) as readonly string[];
+/** Pointures affichées (32–45) : 30 et 31 retirées. */
+const SHOES_OPTIONS = Array.from({ length: 12 }, (_, i) => String(33 + i)) as readonly string[];
 
 function codesFromInitial(
   multi: string[] | undefined,

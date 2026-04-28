@@ -1,42 +1,62 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { CommandeUberActivateButton } from "@/components/commande/CommandeUberActivateButton";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 const BODY_TEXT = "text-zinc-900";
 
-const btnTrack = cn(
+const btnPrimary = cn(
   segnaMontserrat.className,
   "mt-8 flex w-full max-w-sm items-center justify-center rounded-full bg-black px-6 py-3 text-center text-[15px] font-bold leading-none text-white transition hover:bg-zinc-900 active:scale-[0.99] sm:text-[16px]",
 );
 
-const btnMondialOutline = cn(
+const btnOutline = cn(
   segnaMontserrat.className,
   "mt-8 flex w-full max-w-sm items-center justify-center rounded-full border border-black bg-white px-6 py-3 text-center text-[15px] font-bold leading-none text-black transition hover:bg-zinc-50 active:scale-[0.99] sm:text-[16px]",
 );
 
 const MONDR_PUBLIC_URL = "https://www.mondialrelay.fr/";
 
+export type CommandeExpeditionVariant = "mondial" | "uber";
+
+export type CommandeUberPhases = {
+  preparationLine: string;
+  deliveryWindowLine: string | null;
+};
+
 type CommandeExpeditionSummarySectionProps = {
+  variant: CommandeExpeditionVariant;
+  cartId: string;
   previsionLine: string | null;
-  trackingNumber: string | null;
-  trackingUrl: string | null;
+  /** Numéro MR ou identifiant de livraison Uber. */
+  trackingRef: string | null;
+  /** Lien suivi (MR construit ou URL Uber). */
+  trackingHref: string | null;
+  /** Préparation / expédition structurées (Uber Direct). */
+  uberPhases?: CommandeUberPhases | null;
 };
 
 /**
- * Bloc sous le header (logique proche de l’emprunt) : visuel œil + livraison prévue + suivi + CTA Mondial Relay.
+ * Bloc sous le header : visuel + prévision + suivi (Mondial Relay ou Uber Direct).
  */
 export function CommandeExpeditionSummarySection({
+  variant,
+  cartId,
   previsionLine,
-  trackingNumber,
-  trackingUrl,
+  trackingRef,
+  trackingHref,
+  uberPhases = null,
 }: CommandeExpeditionSummarySectionProps) {
-  const line1Default =
+  const lineMondialDefault =
     "La livraison prévue sera indiquée dès que ton colis est prêt à l'expédition.";
-  const line1 = previsionLine ?? line1Default;
-  const lineNoTracking =
-    "Tu recevras un numéro de suivi dès l'expédition du colis. Le détail du trajet s'affiche sur le site Mondial Relay.";
+  const lineUberDefault = "Colis en préparation.";
+
+  const line1 =
+    variant === "uber" && uberPhases
+      ? null
+      : previsionLine ?? (variant === "uber" ? lineUberDefault : lineMondialDefault);
 
   return (
     <section
@@ -56,22 +76,54 @@ export function CommandeExpeditionSummarySection({
         />
       </div>
       <div className="mt-5 max-w-[22rem] space-y-3">
-        <p className={cn("text-[15px] font-normal leading-relaxed", BODY_TEXT)}>{line1}</p>
-        {trackingNumber ? (
+        {variant === "uber" && uberPhases ? (
+          <div className="space-y-1.5 text-center">
+            <p className={cn("text-[15px] leading-snug", BODY_TEXT)}>{uberPhases.preparationLine}</p>
+            {uberPhases.deliveryWindowLine ? (
+              <p className={cn("text-[15px] font-medium leading-snug", BODY_TEXT)}>{uberPhases.deliveryWindowLine}</p>
+            ) : null}
+          </div>
+        ) : (
+          <p className={cn("text-[15px] font-normal leading-relaxed", BODY_TEXT)}>{line1}</p>
+        )}
+
+        {variant === "uber" ? (
+          <>
+            {trackingRef ? (
+              <p className="text-[13px] leading-snug text-zinc-600">
+                Référence livraison{" "}
+                <span className="font-mono text-[13px] font-semibold text-zinc-900">{trackingRef}</span>
+              </p>
+            ) : null}
+            <p className="text-[13px] leading-relaxed text-zinc-500">Suivi disponible sur Uber dès activation de la course.</p>
+          </>
+        ) : trackingRef ? (
           <p className={cn("text-[15px] font-normal leading-relaxed", BODY_TEXT)}>
-            Suivez votre colis avec le numéro{" "}
-            <span className="font-bold tabular-nums">{trackingNumber}</span> sur Mondial Relay.
+            Suivi colis avec le numéro{" "}
+            <span className="font-bold tabular-nums">{trackingRef}</span> sur Mondial Relay.
           </p>
         ) : (
-          <p className={cn("text-[14px] font-normal leading-snug", BODY_TEXT)}>{lineNoTracking}</p>
+          <p className={cn("text-[14px] font-normal leading-snug", BODY_TEXT)}>
+            Tu recevras un numéro de suivi dès l&apos;expédition du colis. Le détail du trajet s&apos;affiche sur le site
+            Mondial Relay.
+          </p>
         )}
       </div>
-      {trackingUrl ? (
-        <Link href={trackingUrl} target="_blank" rel="noopener noreferrer" className={btnTrack}>
+
+      {variant === "uber" ? (
+        trackingHref ? (
+          <Link href={trackingHref} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
+            Voir le suivi Uber
+          </Link>
+        ) : (
+          <CommandeUberActivateButton cartId={cartId} />
+        )
+      ) : trackingHref ? (
+        <Link href={trackingHref} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
           Suivre le colis
         </Link>
       ) : (
-        <Link href={MONDR_PUBLIC_URL} target="_blank" rel="noopener noreferrer" className={btnMondialOutline}>
+        <Link href={MONDR_PUBLIC_URL} target="_blank" rel="noopener noreferrer" className={btnOutline}>
           Ouvrir Mondial Relay
         </Link>
       )}

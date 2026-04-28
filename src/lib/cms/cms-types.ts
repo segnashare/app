@@ -21,7 +21,9 @@ export type CmsFrameType =
   /** Image collage écran d’accueil /auth (BO : page Auth). */
   | "auth_collage_image"
   /** Pile visuelle onboarding (BO : page Onboarding) — même payload collage, rendu vertical sans flottement. */
-  | "onboarding_stack_image";
+  | "onboarding_stack_image"
+  /** Page abonnement SegnaX (`/package?plan=x` ou alias `plan=credits`) : textes, offre mise en avant, CTA Stripe. */
+  | "subscription_plan_landing";
 
 /** Config publiée d’une section hub catalogue (titre, flèche, lien « voir plus »). */
 export type CmsCatalogSectionConfig = {
@@ -108,6 +110,49 @@ export type CmsFramePayload = {
    * Hex `#RRGGBB` ou `RRGGBB` ; si absent → blanc.
    */
   slide_background_hex?: string;
+  /** --- subscription_plan_landing (/package?plan=x | plan=credits) --- */
+  subscription_header_wordmark?: string;
+  subscription_page_title?: string;
+  subscription_credits_line?: string;
+  subscription_intro_body?: string;
+  subscription_cta_label?: string;
+  subscription_offer_badge?: string;
+  subscription_offer_title?: string;
+  subscription_offer_subtitle?: string;
+  subscription_offer_price_detail?: string;
+  subscription_micro_line?: string;
+  subscription_footnote?: string;
+  subscription_value_props?: { title: string; body: string }[];
+  /** `segna_x` (défaut) ou `segna_plus` pour le checkout Stripe (repli si un palier n’a pas son propre code). */
+  subscription_checkout_plan_code?: string;
+  /** Titre hero sous l’en-tête (sauts de ligne `\n` possibles). */
+  subscription_hero_title?: string;
+  /** Image hero (même schéma Storage que les autres refs CMS). */
+  subscription_hero_image?: CmsImageRef | null;
+  /**
+   * Paliers d’offre (scroll horizontal). Champs optionnels : seuls les renseignés s’affichent.
+   * `featured` : carte mise en avant (style barre noire).
+   * Layout « promo » : si `promo_avg_price` + `promo_detail_bold` sont renseignés,
+   * la carte affiche en gros le prix moyen puis le détail gris (ex. « 1 mois offert » en gras + reste).
+   * `promo_discount_pct` est ignoré en UI (non affiché).
+   */
+  subscription_offer_tiers?: {
+    badge?: string;
+    title?: string;
+    subtitle?: string;
+    price_line?: string;
+    micro_line?: string;
+    featured?: boolean;
+    checkout_plan_code?: string;
+    promo_avg_price?: string;
+    promo_discount_pct?: number | string;
+    promo_detail_bold?: string;
+    promo_detail_rest?: string;
+    /** Libellé bouton principal (ex. « Profite de 3 mois pour 99,99 € »). */
+    synthetic_checkout_cta?: string;
+    /** Si renseigné (ex. 30) : période d’essai Stripe pour ce palier (`subscription_data.trial_period_days`). */
+    trial_period_days?: number | string;
+  }[];
 };
 
 export type CmsFrameRow = {

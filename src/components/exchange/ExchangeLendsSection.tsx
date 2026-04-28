@@ -78,15 +78,13 @@ export function ExchangeLendsSection({
   ..._quotaProps
 }: ExchangeLendsSectionProps) {
   void _quotaProps;
-  /** Invité sans proposition : pas de liste (bloc promo commerce ailleurs dans la page). */
-  if (membershipLabel === "Guest" && lends.length === 0) return null;
 
   const lendPriceCreditKind = walletCreditKindForMembership(membershipLabel);
 
   const showMergePopup =
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
 
-  const lendsSectionTitle = membershipLabel === "Guest" ? "Propositions de Prêts" : "Mes Prêts";
+  const lendsSectionTitle = "Prêts";
 
   const lendsPreShipping: LendItem[] = [];
   const lendsShippingOnly: LendItem[] = [];

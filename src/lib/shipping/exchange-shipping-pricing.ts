@@ -59,7 +59,7 @@ export type ExchangeRoundTripShipping = {
   outboundCents: number;
   /** Retour, toujours tarif relais. */
   returnRelayCents: number;
-  /** Aller + retour, sans option priorité Paris. */
+  /** Aller + retour, sans option Uber Direct. */
   subtotalCents: number;
 };
 

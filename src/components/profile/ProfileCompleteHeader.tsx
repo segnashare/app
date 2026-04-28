@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils/cn";
 export type ProfileCompleteMode = "edit" | "view";
 
 type ProfileCompleteHeaderProps = {
-  backTab: "plus" | "security" | "me";
+  backTab: "plus" | "me";
   displayName: string;
   completionScore: number;
   mode: ProfileCompleteMode;

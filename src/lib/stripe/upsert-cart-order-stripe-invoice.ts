@@ -38,6 +38,8 @@ export function stripeInvoiceRowFromCartOrderSession(
   const amountTotal = typeof session.amount_total === "number" ? Math.trunc(session.amount_total) : 0;
   const feesTtc = metaCents(md, "fees_ttc_cents");
   const feesVat = metaCents(md, "fees_vat_cents");
+  const deliveryCh = typeof md?.delivery_channel === "string" ? md.delivery_channel.trim().toLowerCase() : "";
+  const homeSp = typeof md?.home_speed === "string" ? md.home_speed.trim().toLowerCase() : "";
 
   return {
     cart_id: cartId,
@@ -51,6 +53,8 @@ export function stripeInvoiceRowFromCartOrderSession(
     fees_ttc_cents: feesTtc > 0 ? feesTtc : null,
     fees_vat_cents: feesVat > 0 ? feesVat : null,
     currency: (session.currency ?? "eur").toLowerCase(),
+    checkout_delivery_channel: deliveryCh || null,
+    checkout_home_speed: homeSp || null,
   };
 }
 
@@ -79,6 +83,12 @@ export function cartOrderStripeInvoiceJsonToEuroDetail(data: unknown): CartCheck
   const feesVatCents = fv == null ? 0 : Number(fv);
   const feesTtcCents = ft == null ? 0 : Number(ft);
 
+  const cdc = o.checkout_delivery_channel;
+  const chs = o.checkout_home_speed;
+  const checkoutDeliveryChannel =
+    typeof cdc === "string" && cdc.trim() ? cdc.trim().toLowerCase() : null;
+  const checkoutHomeSpeed = typeof chs === "string" && chs.trim() ? chs.trim().toLowerCase() : null;
+
   return {
     complementCreditsEuros: Number(o.credits_line_cents ?? 0) / 100,
     serviceFeeEuros: Number(o.service_ttc_cents ?? 0) / 100,
@@ -86,5 +96,7 @@ export function cartOrderStripeInvoiceJsonToEuroDetail(data: unknown): CartCheck
     totalPaidEuros: amountTotal / 100,
     ...(Number.isFinite(feesVatCents) && feesVatCents > 0 ? { feesVatEuros: feesVatCents / 100 } : {}),
     ...(Number.isFinite(feesTtcCents) && feesTtcCents > 0 ? { feesTtcEuros: feesTtcCents / 100 } : {}),
+    ...(checkoutDeliveryChannel ? { checkoutDeliveryChannel } : {}),
+    ...(checkoutHomeSpeed ? { checkoutHomeSpeed } : {}),
   };
 }

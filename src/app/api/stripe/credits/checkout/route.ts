@@ -2,17 +2,13 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
+import { type CreditPackAmount, isCreditPackAmount } from "@/lib/stripe/credit-packs";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { type WalletCreditKind, walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
-/** Packs catalogue « Obtenir plus » — alignés sur les prix Stripe (STRIPE_PRICE_CREDITS_*). */
-export const CREDIT_PACK_AMOUNTS = [200, 500, 1000] as const;
-export type CreditPackAmount = (typeof CREDIT_PACK_AMOUNTS)[number];
-
-function isCreditPackAmount(value: unknown): value is CreditPackAmount {
-  return typeof value === "number" && Number.isInteger(value) && (CREDIT_PACK_AMOUNTS as readonly number[]).includes(value);
-}
+export type { CreditPackAmount } from "@/lib/stripe/credit-packs";
+export { CREDIT_PACK_AMOUNTS } from "@/lib/stripe/credit-packs";
 
 async function resolvePriceIdFromEnvKey(stripe: Stripe, envKey: string): Promise<string | null> {
   const rawValue = process.env[envKey]?.trim() ?? "";
@@ -37,8 +33,8 @@ function envKeyForCreditPack(pack: CreditPackAmount): string {
 }
 
 /**
- * Achat pack de crédits (profil « Obtenir plus »).
- * Body : `{ "pack": 200 | 500 | 1000 }` — crédits d’échange (plus liés au seul abonnement).
+ * Achat pack de crédits (profil « Obtenir plus » / landing SegnaX).
+ * Body : `{ "pack": 200 | 500 | 1000 }` — crédits de consommation (dressing partagé).
  */
 export async function POST(request: Request) {
   try {

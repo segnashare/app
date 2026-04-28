@@ -11,6 +11,7 @@ import { SegnaConsumptionCreditPhrase } from "@/components/ui/SegnaPointsUnitDis
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
 import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
@@ -260,10 +261,10 @@ export function CartScreen({
     }
   };
 
-  /** Sous-titre type Uber Eats : durée d’emprunt (abonnés = 1 mois, invité = location 7 j.). */
+  /** Sous-titre type Uber Eats : durée d’emprunt (abonnés = 1 mois, invité = location 10 j.). */
   const panierSubtitle = useMemo(() => {
     if (membershipLabel === "Guest") {
-      return "7 jours de location à partir de la réception de votre commande";
+      return "10 jours de location à partir de la réception de votre commande";
     }
     const until = new Date();
     until.setMonth(until.getMonth() + 1);
@@ -324,8 +325,8 @@ export function CartScreen({
             <button
               type="button"
               className="-ml-1.5 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-zinc-900"
-              aria-label="Retour"
-              onClick={() => router.back()}
+              aria-label="Fermer le panier"
+              onClick={() => exitCartFlow(router)}
             >
               <X className="h-8 w-8" strokeWidth={2.25} />
             </button>

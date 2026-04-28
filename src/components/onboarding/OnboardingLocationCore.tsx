@@ -269,14 +269,17 @@ export function OnboardingLocationCore({
       return;
     }
 
-    const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/profile",
-      p_progress_json: { checkpoint: "/onboarding/location" },
-      p_request_id: crypto.randomUUID(),
-    });
-    if (error) {
-      setErrorMessage(error.message);
-      return;
+    const returnToOnboarding = (redirectPath ?? "/onboarding/profile").startsWith("/onboarding");
+    if (returnToOnboarding) {
+      const { error } = await supabase.rpc("upsert_onboarding_progress", {
+        p_current_step: "/onboarding/profile",
+        p_progress_json: { checkpoint: "/onboarding/location" },
+        p_request_id: crypto.randomUUID(),
+      });
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
     }
 
     router.push(redirectPath ?? "/onboarding/profile");

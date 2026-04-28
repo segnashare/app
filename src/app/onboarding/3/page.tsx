@@ -16,9 +16,41 @@ export default function OnboardingCheckpointThreePage() {
     if (isContinuing) return;
     setErrorMessage(null);
     setIsContinuing(true);
-    const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/privacy",
-      p_progress_json: { checkpoint: "/onboarding/3" },
+
+    const requestId = () => crypto.randomUUID();
+
+    const [audienceResult, personalizationResult, socialFeaturesResult] = await Promise.all([
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "audience",
+        p_version: "v1",
+        p_granted: true,
+        p_request_id: requestId(),
+      }),
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "personalization",
+        p_version: "v1",
+        p_granted: true,
+        p_request_id: requestId(),
+      }),
+      supabase.rpc("accept_user_consent", {
+        p_consent_type: "social_features",
+        p_version: "v1",
+        p_granted: true,
+        p_request_id: requestId(),
+      }),
+    ]);
+
+    const consentError =
+      audienceResult.error ?? personalizationResult.error ?? socialFeaturesResult.error;
+    if (consentError) {
+      setIsContinuing(false);
+      setErrorMessage(consentError.message);
+      return;
+    }
+
+    const { error } = await supabase.rpc("complete_onboarding", {
+      p_answers_json: {},
+      p_visibility_json: {},
       p_request_id: crypto.randomUUID(),
     });
     setIsContinuing(false);
@@ -26,7 +58,7 @@ export default function OnboardingCheckpointThreePage() {
       setErrorMessage(error.message);
       return;
     }
-    router.push("/onboarding/privacy");
+    router.push("/home");
   };
 
   return (

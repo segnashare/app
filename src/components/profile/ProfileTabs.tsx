@@ -3,14 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ShieldCheck, Settings, Sparkles, CircleHelp, CircleAlert, Shield, Flag, Ban, PhoneCall } from "lucide-react";
+import { ShieldCheck, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CmsFrameItem, CmsLinkCardCtaToneProvider } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
 import { CommunityBadgesGrid } from "@/components/community/CommunityBadgesGrid";
+import { CommunityShareActions } from "@/components/community/CommunityShareActions";
 import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySummary";
-import { MarketplaceSection, type MarketplaceMembershipTier } from "@/components/profile/MarketplaceSection";
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -19,7 +19,6 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const PROFILE_TABS = [
   { id: "plus", label: "Obtenir plus" },
-  { id: "security", label: "Sécurité" },
   { id: "me", label: "Mon profil" },
 ] as const;
 
@@ -30,6 +29,10 @@ type ProfileTabsProps = {
   initialDisplayName?: string;
   /** CMS — onglet Obtenir plus */
   initialPlusTabCmsFrames?: CmsFrameRow[];
+  /** CMS — onglet Mon profil : frames `profile_plus_hero` (page Autre dans le BO), même format que « Obtenir plus ». */
+  initialMeTabProfileHeroFrames?: CmsFrameRow[];
+  /** Code parrainage (table `referrals_codes`) — affiché sous les cartes « Obtenir plus ». */
+  initialReferralCode?: string | null;
 };
 
 type ProfileHeaderData = {
@@ -65,42 +68,6 @@ type ProfileGamificationData = {
   badges: BadgeProgressItem[];
 };
 
-type MembershipStateRpc = {
-  plan_code?: string | null;
-  subscription_status?: string | null;
-};
-
-function getMembershipTierFromState(state: MembershipStateRpc | null | undefined): MarketplaceMembershipTier {
-  const planCode = String(state?.plan_code ?? "").toLowerCase();
-  const status = String(state?.subscription_status ?? "").toLowerCase();
-  const isActive = status === "active" || status === "trialing";
-  if (!isActive) return "guest";
-  if (planCode === "segna_x") return "segna_x";
-  if (planCode === "segna_plus") return "segna_plus";
-  return "guest";
-}
-
-function getMembershipTierFromRoles(roles: string[]): MarketplaceMembershipTier {
-  const normalized = roles.map((role) => role.trim().toLowerCase());
-  if (normalized.some((role) => role.includes("segna_x") || role.includes("membre_x") || role.includes("premium") || role.includes("member_x"))) {
-    return "segna_x";
-  }
-  if (
-    normalized.some(
-      (role) =>
-        role.includes("segna_plus") ||
-        role.includes("membre_plus") ||
-        role.includes("member_plus") ||
-        role.includes("membre +") ||
-        role.includes("segna+") ||
-        role.includes("plus"),
-    )
-  ) {
-    return "segna_plus";
-  }
-  return "guest";
-}
-
 const DEFAULT_HEADER_DATA: ProfileHeaderData = {
   displayName: "Profil",
   completionScore: 0,
@@ -129,6 +96,7 @@ const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v1";
 const PROFILE_HEADER_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function parseProfileTab(value: string | null | undefined): ProfileTabId {
+  if (value === "security") return "me";
   return value && TAB_SET.has(value as ProfileTabId) ? (value as ProfileTabId) : "plus";
 }
 
@@ -259,13 +227,19 @@ function writeProfileHeaderCache(userId: string, headerData: ProfileHeaderData) 
   }
 }
 
-export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsFrames = [] }: ProfileTabsProps) {
+export function ProfileTabs({
+  initialTab,
+  initialDisplayName,
+  initialPlusTabCmsFrames = [],
+  initialMeTabProfileHeroFrames = [],
+  initialReferralCode = null,
+}: ProfileTabsProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const tabsRef = useRef<Array<HTMLButtonElement | null>>([]);
-  const scrollByTabRef = useRef<Record<ProfileTabId, number>>({ plus: 0, security: 0, me: 0 });
+  const scrollByTabRef = useRef<Record<ProfileTabId, number>>({ plus: 0, me: 0 });
   const restoreAfterTabChangeRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<ProfileTabId>(parseProfileTab(initialTab));
@@ -279,8 +253,6 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
   const hasWarmHeaderDataRef = useRef(false);
   const [gamificationData, setGamificationData] = useState<ProfileGamificationData>(DEFAULT_GAMIFICATION_DATA);
   const [isLoadingGamification, setIsLoadingGamification] = useState(true);
-  const [membershipTier, setMembershipTier] = useState<MarketplaceMembershipTier | null>(null);
-
   useEffect(() => {
     const cached = readWarmProfileHeaderCache();
     if (!cached) return;
@@ -302,39 +274,9 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
     } = await supabase.auth.getUser();
     if (userError || !user) {
       setHeaderError("Session invalide");
-      setMembershipTier(null);
       setIsLoadingHeader(false);
       return;
     }
-
-    const [subscriptionRes, membershipStateRes, rolesRes] = await Promise.all([
-      supabase.from("user_subscriptions").select("plan_code,status").eq("user_id", user.id).eq("provider", "stripe").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.rpc("get_current_membership_state"),
-      supabase.from("user_roles").select("role").eq("user_id", user.id),
-    ]);
-
-    const roles: string[] = (rolesRes.data ?? []).map((row: { role?: string | null }) => row.role ?? "").filter(Boolean);
-    const tierFromRoles = getMembershipTierFromRoles(roles);
-    const tierFromSubscriptionTable =
-      subscriptionRes.error == null && subscriptionRes.data
-        ? getMembershipTierFromState(
-            {
-              plan_code: (subscriptionRes.data as { plan_code?: string | null }).plan_code ?? null,
-              subscription_status: (subscriptionRes.data as { status?: string | null }).status ?? null,
-            } satisfies MembershipStateRpc,
-          )
-        : "guest";
-    const tierFromMembershipRpc = membershipStateRes.error
-      ? "guest"
-      : getMembershipTierFromState((membershipStateRes.data ?? null) as MembershipStateRpc | null);
-
-    const resolvedTier =
-      tierFromSubscriptionTable !== "guest"
-        ? tierFromSubscriptionTable
-        : tierFromMembershipRpc !== "guest"
-          ? tierFromMembershipRpc
-          : tierFromRoles;
-    setMembershipTier(resolvedTier);
 
     const cachedHeaderData = options?.forceRefresh ? null : readProfileHeaderCache(user.id);
     if (cachedHeaderData) {
@@ -555,6 +497,13 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
   }, [searchParams]);
 
   useEffect(() => {
+    if (searchParams.get("tab") !== "security") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "me");
+    router.replace(params.toString() ? `${pathname}?${params.toString()}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  useEffect(() => {
     const modifiedId = searchParams.get("photoModifyId");
     if (!modifiedId) return;
     const draft = readPhotoModifyDraft(modifiedId);
@@ -647,9 +596,13 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
 
   const subtitle = !isLoadingHeader && headerData.completionScore < 100 ? "Profil incomplet" : "";
 
+  const meProfileHeroRows = useMemo(
+    () => initialMeTabProfileHeroFrames.filter((row) => row.frame_type === "profile_plus_hero"),
+    [initialMeTabProfileHeroFrames],
+  );
+
   const panelContent = useMemo(() => {
     if (activeTab === "plus") {
-      if (!membershipTier) return null;
       return (
         <div className="space-y-5">
           {initialPlusTabCmsFrames.length > 0 ? (
@@ -675,64 +628,16 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
               </div>
             </CmsLinkCardCtaToneProvider>
           ) : null}
-          <MarketplaceSection />
-        </div>
-      );
-    }
-
-    if (activeTab === "security") {
-      return (
-        <div className="space-y-4">
-          <section className="grid grid-cols-1 gap-3">
-            {!isLoadingHeader && headerData.kycStatus !== "verified" && (
-              <Link href="/profile/kyc?tab=security" className="block">
-                <CardBase className="flex items-center gap-3">
-                  <ShieldCheck className={headerData.kycStatus === "rejected" ? "text-[#E44D3E]" : "text-zinc-500"} />
-                  <div>
-                    <p className="text-xl font-semibold text-zinc-900">
-                      {headerData.kycStatus === "rejected" ? "Vérification refusée" : "Vérification d'identité"}
-                    </p>
-                    <p className="text-sm text-zinc-600">
-                      {headerData.kycStatus === "rejected"
-                        ? "Action requise : relance la vérification avec un document conforme."
-                        : "Ton identité n'a pas encore été vérifiée."}
-                    </p>
-                  </div>
-                </CardBase>
-              </Link>
-            )}
-            <Link href="/profile/reports?tab=security" className="block">
-              <CardBase className="flex items-center gap-3">
-                <Flag className="text-zinc-500" />
-                <div>
-                  <p className="text-xl font-semibold text-zinc-900">Signalements</p>
-                  <p className="text-sm text-zinc-600">Masque les interactions irrespectueuses.</p>
-                </div>
-              </CardBase>
-            </Link>
-            <Link href="/profile/blocks?tab=security" className="block">
-              <CardBase className="flex items-center gap-3">
-                <Ban className="text-zinc-500" />
-                <div>
-                  <p className="text-xl font-semibold text-zinc-900">Liste rouge</p>
-                  <p className="text-sm text-zinc-600">Bloque les personnes que tu connais.</p>
-                </div>
-              </CardBase>
-            </Link>
-          </section>
-
-          <section className="mt-8 space-y-4">
-            <h2 className="px-1 text-[30px] font-semibold leading-tight tracking-tight text-zinc-900">Parcours nos ressources sur la sécurité</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <CardBase className="min-h-28">
-                <PhoneCall className="text-zinc-600" />
-                <p className="mt-3 text-xl font-medium text-zinc-900">Assistance d&apos;urgence</p>
-              </CardBase>
-              <CardBase className="min-h-28">
-                <CircleHelp className="text-zinc-600" />
-                <p className="mt-3 text-xl font-medium text-zinc-900">Centre d&apos;aide</p>
-              </CardBase>
-            </div>
+          <section className="space-y-3">
+            <CardBase className="space-y-3">
+              <CommunityShareActions referralCode={initialReferralCode} />
+            </CardBase>
+            <CardBase className="space-y-2">
+              <p className="text-sm text-zinc-500">Ton code</p>
+              <p className="inline-flex w-fit rounded-lg bg-[#F8F1EC] px-3 py-2 text-base font-semibold text-[#5E3023]">
+                {initialReferralCode ?? "Code indisponible"}
+              </p>
+            </CardBase>
           </section>
         </div>
       );
@@ -740,42 +645,84 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
 
     return (
       <div className="space-y-3">
-        <CardBase className="space-y-2 text-center">
-          <div className="relative mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100">
-            <Image
-              src="/ressources/icons/oeil_logo.svg"
-              alt="Segna"
-              width={64}
-              height={64}
-              className="pointer-events-none absolute left-1/2 top-1/2 h-[84%] w-[84%] -translate-x-1/2 -translate-y-1/2 object-contain object-center"
-            />
-            {!isLoadingHeader && headerData.completionScore < 100 ? (
-              <span className="absolute right-0 top-0 z-20 inline-flex h-4 w-4 translate-x-[10%] -translate-y-[10%] items-center justify-center rounded-full bg-[#E25745] text-[10px] font-bold text-white shadow-sm">
-                !
-              </span>
-            ) : null}
-          </div>
-          <h3 className="text-[20px] font-semibold text-zinc-900">
-            {isLoadingHeader ? "Chargement du profil..." : headerData.completionScore < 100 ? "Complète ton profil" : "Modifie ton profil"}
-          </h3>
-          <p className="text-[18px] font-extrabold leading-tight text-zinc-900">
-            {isLoadingHeader
-              ? "On met à jour tes informations."
-              : headerData.completionScore < 100
-              ? "Tu y es presque : encore quelques détails à ajouter pour commencer à matcher."
-              : (
-                <>
-                  Mets-le à jour à tout moment pour qu&apos;il reste fidèle à ta réalité.
-                </>
-              )}
-          </p>
-          <Link
-            href="/profile/complete?tab=me"
-            className="inline-flex mt-4 h-11 min-w-[170px] items-center justify-center rounded-full border border-zinc-500 px-5 text-base font-semibold text-zinc-900 transition hover:bg-zinc-50"
-          >
-            Modifie ton profil
+        {!isLoadingHeader && headerData.kycStatus !== "verified" ? (
+          <Link href="/profile/kyc?tab=me" className="block">
+            <CardBase className="flex items-center gap-3">
+              <ShieldCheck className={headerData.kycStatus === "rejected" ? "text-[#E44D3E]" : "text-zinc-500"} />
+              <div>
+                <p className="text-xl font-semibold text-zinc-900">
+                  {headerData.kycStatus === "rejected" ? "Vérification refusée" : "Vérification d'identité"}
+                </p>
+                <p className="text-sm text-zinc-600">
+                  {headerData.kycStatus === "rejected"
+                    ? "Action requise : relance la vérification avec un document conforme."
+                    : "Ton identité n'a pas encore été vérifiée."}
+                </p>
+              </div>
+            </CardBase>
           </Link>
-        </CardBase>
+        ) : null}
+        {meProfileHeroRows.length > 0 ? (
+          <CmsLinkCardCtaToneProvider tone="neutral">
+            {meProfileHeroRows.length > 1 ? (
+              <div
+                className="-mx-5 snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-pl-5 scroll-pr-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
+                  <div className="w-5 shrink-0 snap-normal" aria-hidden />
+                  {meProfileHeroRows.map((row) => (
+                    <div key={row.id} className="w-[min(90vw,420px)] max-w-[420px] shrink-0 snap-start">
+                      <CmsFrameItem row={row} layoutMode="stack" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <div className="w-full max-w-[420px]">
+                  <CmsFrameItem row={meProfileHeroRows[0]} layoutMode="stack" />
+                </div>
+              </div>
+            )}
+          </CmsLinkCardCtaToneProvider>
+        ) : (
+          <CardBase className="space-y-2 text-center">
+            <div className="relative mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100">
+              <Image
+                src="/ressources/icons/oeil_logo.svg"
+                alt="Segna"
+                width={64}
+                height={64}
+                className="pointer-events-none absolute left-1/2 top-1/2 h-[84%] w-[84%] -translate-x-1/2 -translate-y-1/2 object-contain object-center"
+              />
+              {!isLoadingHeader && headerData.completionScore < 100 ? (
+                <span className="absolute right-0 top-0 z-20 inline-flex h-4 w-4 translate-x-[10%] -translate-y-[10%] items-center justify-center rounded-full bg-[#E25745] text-[10px] font-bold text-white shadow-sm">
+                  !
+                </span>
+              ) : null}
+            </div>
+            <h3 className="text-[20px] font-semibold text-zinc-900">
+              {isLoadingHeader ? "Chargement du profil..." : headerData.completionScore < 100 ? "Complète ton profil" : "Modifie ton profil"}
+            </h3>
+            <p className="text-[18px] font-extrabold leading-tight text-zinc-900">
+              {isLoadingHeader
+                ? "On met à jour tes informations."
+                : headerData.completionScore < 100
+                ? "Tu y es presque : encore quelques détails à ajouter pour commencer à matcher."
+                : (
+                  <>
+                    Mets-le à jour à tout moment pour qu&apos;il reste fidèle à ta réalité.
+                  </>
+                )}
+            </p>
+            <Link
+              href="/profile/complete?tab=me"
+              className="inline-flex mt-4 h-11 min-w-[170px] items-center justify-center rounded-full border border-zinc-500 px-5 text-base font-semibold text-zinc-900 transition hover:bg-zinc-50"
+            >
+              Modifie ton profil
+            </Link>
+          </CardBase>
+        )}
 
         {isLoadingGamification ? (
           <CardBase className="space-y-3 animate-pulse" aria-hidden>
@@ -829,9 +776,10 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
     headerData.completionScore,
     headerData.kycStatus,
     initialPlusTabCmsFrames,
+    initialReferralCode,
     isLoadingGamification,
     isLoadingHeader,
-    membershipTier,
+    meProfileHeroRows,
   ]);
 
   return (
@@ -881,7 +829,7 @@ export function ProfileTabs({ initialTab, initialDisplayName, initialPlusTabCmsF
         </header>
 
         <div className="sticky top-0 z-10 mt-4 border-b border-zinc-200 bg-white/95 backdrop-blur">
-          <div role="tablist" aria-label="Sections profile" onKeyDown={handleTabsKeyboard} className="grid grid-cols-3 px-2">
+          <div role="tablist" aria-label="Sections profile" onKeyDown={handleTabsKeyboard} className="grid grid-cols-2 px-2">
             {PROFILE_TABS.map((tab, index) => {
               const isActive = activeTab === tab.id;
               return (

@@ -12,6 +12,7 @@ import {
   ExchangeOutboundShipmentCallout,
   outboundCalloutDismissStorageKey,
 } from "./ExchangeOutboundShipmentCallout";
+import { ExchangeUberRelayFallbackBanner } from "./ExchangeUberRelayFallbackBanner";
 
 export type { ExchangeIntakeBannerItem } from "./exchange-intake-banner-types";
 
@@ -85,9 +86,12 @@ function StackCardSilhouette({ heightPx }: { heightPx: number }) {
 export function ExchangeHeaderAlertStack({
   intakeItems,
   outboundSummary,
+  uberRelayFallback = false,
 }: {
   intakeItems: ExchangeIntakeBannerItem[];
   outboundSummary: OutboundShipmentSummary | null;
+  /** Uber prévu mais course non créée : message + contact pour basculer en relais MR. */
+  uberRelayFallback?: boolean;
 }) {
   const router = useRouter();
   const [intakeAck, setIntakeAck] = useState<Set<string>>(() => new Set());
@@ -153,16 +157,26 @@ export function ExchangeHeaderAlertStack({
     return () => ro?.disconnect();
   }, [frontLayerKey, layers.length]);
 
-  if (layers.length === 0) return null;
+  if (layers.length === 0 && !uberRelayFallback) return null;
 
-  const peekTotal = (layers.length - 1) * STACK_PEEK_PX;
+  const peekTotal = Math.max(0, layers.length - 1) * STACK_PEEK_PX;
   const frontBasis = frontHeightPx ?? STACK_PRE_MEASURE_FALLBACK_PX;
   /** Hauteur utile seulement : évite le vide sous une carte plus basse que le plancher historique (196px). */
   const stackMinHeight =
-    frontHeightPx != null ? frontBasis + peekTotal : STACK_PRE_MEASURE_FALLBACK_PX + peekTotal;
+    layers.length === 0
+      ? 0
+      : frontHeightPx != null
+        ? frontBasis + peekTotal
+        : STACK_PRE_MEASURE_FALLBACK_PX + peekTotal;
 
   return (
-    <div className="px-5 pb-1">
+    <div className="space-y-2 px-5 pb-1">
+      {uberRelayFallback ? (
+        <div className="mx-auto w-full max-w-[460px]">
+          <ExchangeUberRelayFallbackBanner />
+        </div>
+      ) : null}
+      {layers.length === 0 ? null : (
       <div
         className="relative mx-auto w-full max-w-[460px]"
         style={{ minHeight: stackMinHeight }}
@@ -247,6 +261,7 @@ export function ExchangeHeaderAlertStack({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

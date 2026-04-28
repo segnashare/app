@@ -2153,7 +2153,7 @@ export function ShopCatalog({
         if (featuredLenders.length === 0) return null;
         return (
               <section className="space-y-3">
-                <SectionHeader title="Nos supers prêteuses" sectionHref="/shop/lenders" />
+                <SectionHeader title="Nos supers prêteuses" sectionHref="/community" />
                 <div className="grid grid-cols-3 gap-3">
                   {featuredLenders.map((p) => {
                     const pseudo = pickPseudoFrame(`lender-${p.userId}`);

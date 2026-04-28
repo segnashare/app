@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -68,22 +69,24 @@ export async function POST(request: Request) {
   }
 
   const nowIso = new Date().toISOString();
-  const { data: updated, error: upErr } = await admin
-    .from("shipments")
-    .update({ status: "dropped_out", updated_at: nowIso })
-    .eq("id", ret.id)
-    .eq("status", "ready")
-    .is("deleted_at", null)
-    .select("id");
-
-  if (upErr) {
-    return NextResponse.json({ ok: false as const, error: upErr.message }, { status: 500 });
-  }
-  if (!updated?.length) {
-    return NextResponse.json(
-      { ok: false as const, error: "Mise à jour impossible (statut modifié entre-temps)." },
-      { status: 409 },
-    );
+  const tr = await transitionShipmentStatus(admin, {
+    shipmentId: ret.id,
+    ifCurrentStatus: "ready",
+    toStatus: "dropped_out",
+    actorUserId: user.id,
+    reason: "Membre indique dépôt au relais (retour)",
+    source: "member_app_cart_return_mark_dropped_out",
+    context: { route: "POST /api/cart/return/mark-dropped-out", cart_id: cartId },
+    occurredAt: nowIso,
+  });
+  if (!tr.ok) {
+    if (tr.error === "STATUS_MISMATCH") {
+      return NextResponse.json(
+        { ok: false as const, error: "Mise à jour impossible (statut modifié entre-temps)." },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ ok: false as const, error: tr.error }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true as const, shipment_id: ret.id, status: "dropped_out" as const });

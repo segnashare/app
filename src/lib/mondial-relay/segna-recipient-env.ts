@@ -1,3 +1,4 @@
+import type { RelayDeliveryProduct } from "@/lib/mondial-relay/build-item-shipment";
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
 
 /**
@@ -44,3 +45,40 @@ export function getSegnaRecipientFromEnv(): MrPerson | null {
     Title: titleRaw === "Mr" ? "Mr" : "Mme",
   };
 }
+
+/**
+ * Codes PR hub **destination** retour, dans l’ordre (cascade MR).
+ * `MONDR_SEGNA_RETURN_DELIVERY_RELAY_CODE` : soit `FR-xxxxxx`, soit un JSON tableau
+ * comme `MONDR_RELAY_PREFERRED_JSON` : `[{"code":"FR-…","label":"…"},…]`.
+ */
+export function getSegnaReturnDeliveryRelayCodesFromEnv(): string[] {
+  const raw = process.env.MONDR_SEGNA_RETURN_DELIVERY_RELAY_CODE?.trim();
+  if (!raw) return [];
+  if (raw.startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw) as unknown;
+      if (!Array.isArray(arr)) return [];
+      const out: string[] = [];
+      for (const el of arr) {
+        if (typeof el === "string") {
+          const c = el.trim();
+          if (c) out.push(c);
+        } else if (el && typeof el === "object" && "code" in el) {
+          const c = String((el as { code: unknown }).code).trim();
+          if (c) out.push(c);
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+  return [raw];
+}
+
+export function getSegnaReturnRelayProductFromEnv(): RelayDeliveryProduct {
+  const rp = (process.env.MONDR_SEGNA_RETURN_RELAY_PRODUCT ?? "LCC").trim().toUpperCase();
+  if (rp === "24R" || rp === "24L" || rp === "LCC" || rp === "XOH") return rp;
+  return "LCC";
+}
+

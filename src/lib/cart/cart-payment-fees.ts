@@ -8,5 +8,3 @@ export function cartPaymentServiceFeeHtCents(itemCount: number): number {
   return itemCount > 3 ? CART_SERVICE_FEE_CENTS : 0;
 }
 
-export const CART_PRIORITY_PARIS_SURCHARGE_EUROS = 1.49;
-export const CART_PRIORITY_PARIS_SURCHARGE_CENTS = 149;

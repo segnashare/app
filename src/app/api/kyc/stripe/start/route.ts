@@ -26,7 +26,7 @@ export async function POST() {
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
 
-    const returnUrl = `${config.returnUrlBase}/profile/kyc?tab=security&kyc=processing`;
+    const returnUrl = `${config.returnUrlBase}/profile/kyc?tab=me&kyc=processing`;
     const verificationSession = await stripe.identity.verificationSessions.create({
       type: "document",
       return_url: returnUrl,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { EMPRUNT_PERIOD_DAYS } from "@/components/emprunt/EmpruntBorrowCountdown";
+import { BORROW_PERIOD_DAYS_GUEST, computeBorrowDeadlineMs, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -13,6 +13,7 @@ const BODY_GRAY = "text-[#555555]";
 type EmpruntBorrowRemainingCountdownProps = {
   deliveredAtIso: string;
   returnCommitmentMet?: boolean;
+  membershipLabel: SegnaBorrowMembershipLabel;
 };
 
 function clampRemaining(deadlineMs: number, now: number): number {
@@ -23,14 +24,21 @@ function fullDaysRemaining(remainingMs: number): number {
   return Math.floor(remainingMs / MS_PER_DAY);
 }
 
+function borrowIntroCopy(membershipLabel: SegnaBorrowMembershipLabel): string {
+  if (membershipLabel === "Guest") {
+    return `Emprunt de ${BORROW_PERIOD_DAYS_GUEST} jours à partir de la livraison.`;
+  }
+  return `Emprunt d'un mois à partir de la livraison.`;
+}
+
 /** Décompte en jours entiers uniquement. */
 export function EmpruntBorrowRemainingCountdown({
   deliveredAtIso,
   returnCommitmentMet,
+  membershipLabel,
 }: EmpruntBorrowRemainingCountdownProps) {
   const deliveredMs = Date.parse(deliveredAtIso);
-  const deadlineMs =
-    Number.isFinite(deliveredMs) && deliveredMs > 0 ? deliveredMs + EMPRUNT_PERIOD_DAYS * MS_PER_DAY : NaN;
+  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
 
   const [now, setNow] = useState(() => Date.now());
 
@@ -46,7 +54,7 @@ export function EmpruntBorrowRemainingCountdown({
   );
 
   if (!Number.isFinite(deadlineMs)) {
-    return <p className={body}>Emprunt de {EMPRUNT_PERIOD_DAYS} jours à partir de la livraison.</p>;
+    return <p className={body}>{borrowIntroCopy(membershipLabel)}</p>;
   }
 
   if (returnCommitmentMet) {
@@ -61,11 +69,16 @@ export function EmpruntBorrowRemainingCountdown({
   const remaining = clampRemaining(deadlineMs, now);
   const days = fullDaysRemaining(remaining);
 
+  const elapsedLabel =
+    membershipLabel === "Guest"
+      ? `Les ${BORROW_PERIOD_DAYS_GUEST} jours d'emprunt sont écoulés`
+      : `La période d'emprunt d'un mois est écoulée`;
+
   return (
     <div aria-live="polite">
       {remaining <= 0 ? (
         <p className={body}>
-          Les {EMPRUNT_PERIOD_DAYS} jours d&apos;emprunt sont écoulés — pense à{" "}
+          {elapsedLabel} — pense à{" "}
           <span className="font-bold text-black">retourner ton panier</span> ci-dessous.
         </p>
       ) : days >= 1 ? (
