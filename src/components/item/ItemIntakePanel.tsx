@@ -41,13 +41,13 @@ function formatCountdownHms(remainingMs: number): string {
 
 function EvaluationCountdown({ startedAtMs }: { startedAtMs: number }) {
   const deadlineMs = startedAtMs + EVALUATION_WINDOW_MS;
-  const [, setTick] = useState(0);
+  const [nowMs, setNowMs] = useState<number | null>(null);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  const remaining = Math.max(0, deadlineMs - Date.now());
-  const label = formatCountdownHms(remaining);
+  const label = nowMs == null ? "--:--:--" : formatCountdownHms(Math.max(0, deadlineMs - nowMs));
   return (
     <div
       className={cn(montserrat.className, "flex shrink-0 flex-col items-end gap-0.5 text-right")}

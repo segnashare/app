@@ -101,16 +101,51 @@ async function upsertDraftCondition(
   conditionScore: string,
   defectNotes: string | null,
 ): Promise<{ error: Error | null }> {
-  await supabase.from("item_condition_history").delete().eq("item_id", itemId).eq("source", "owner_announced");
-  const { error } = await supabase.from("item_condition_history").insert({
-    item_id: itemId,
+  // Contrainte DB: une seule ligne draft par item (index unique partiel).
+  // Strategie robuste: update si draft existe, sinon insert; en cas de course 409, retry update.
+  const payload = {
     source: "owner_announced",
     condition_score: conditionScore,
     defect_notes: defectNotes,
     status: "draft",
     recorded_by_user_id: userId,
+  };
+
+  const { data: existingDraft, error: selError } = await supabase
+    .from("item_condition_history")
+    .select("id")
+    .eq("item_id", itemId)
+    .eq("status", "draft")
+    .maybeSingle();
+  if (selError) return { error: new Error(selError.message) };
+
+  if (existingDraft?.id) {
+    const { error: updError } = await supabase
+      .from("item_condition_history")
+      .update(payload)
+      .eq("id", existingDraft.id)
+      .eq("item_id", itemId)
+      .eq("status", "draft");
+    return { error: updError ? new Error(updError.message) : null };
+  }
+
+  const { error: insError } = await supabase.from("item_condition_history").insert({
+    item_id: itemId,
+    ...payload,
   });
-  return { error: error ? new Error(error.message) : null };
+  if (!insError) return { error: null };
+
+  // Si conflit unique en insertion, un draft a ete cree entre-temps: on update la ligne existante.
+  if (insError.code === "23505") {
+    const { error: raceUpdError } = await supabase
+      .from("item_condition_history")
+      .update(payload)
+      .eq("item_id", itemId)
+      .eq("status", "draft");
+    return { error: raceUpdError ? new Error(raceUpdError.message) : null };
+  }
+
+  return { error: new Error(insError.message) };
 }
 const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   neuf_etiquette: "Neuf avec étiquette",
@@ -148,6 +183,37 @@ function getPhotoEntriesFromJson(photosRaw: unknown): Array<Record<string, unkno
       return indexA - indexB;
     })
     .map(([, value]) => value as Record<string, unknown>);
+}
+
+function normalizeStringValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed : null;
+}
+
+function normalizePhotosForComparison(photosRaw: unknown): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const entries = getPhotoEntriesFromJson(photosRaw).slice(0, 6);
+  for (let index = 0; index < entries.length; index += 1) {
+    const row = entries[index];
+    const storagePathRaw = row.storage_path ?? row.storagePath ?? row.url ?? row.photo_url ?? row.photoUrl;
+    const storagePath = typeof storagePathRaw === "string" && storagePathRaw.trim() ? storagePathRaw.trim() : null;
+    if (!storagePath) continue;
+    const position = row.position && typeof row.position === "object" ? (row.position as Record<string, unknown>) : null;
+    const offsetRaw = position?.offset && typeof position.offset === "object" ? (position.offset as Record<string, unknown>) : null;
+    const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
+    const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
+    const zoom = typeof position?.zoom === "number" ? position.zoom : 1;
+    payload[`photo${index + 1}`] = {
+      url: storagePath,
+      storage_path: storagePath,
+      position: {
+        offset: { x: offsetX, y: offsetY },
+        zoom,
+        aspect: "square",
+      },
+    };
+  }
+  return payload;
 }
 
 function normalizeDraftTitle(value: string | null | undefined): string {
@@ -194,6 +260,7 @@ export default function NewItemPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasHydratedSlots, setHasHydratedSlots] = useState(false);
+  const [photoEditVersion, setPhotoEditVersion] = useState(0);
   const [itemPricePoints, setItemPricePoints] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [itemStatus, setItemStatus] = useState<string | null>(null);
@@ -873,6 +940,7 @@ export default function NewItemPage() {
         };
         return compactSlotsLeft(next);
       });
+      setPhotoEditVersion((v) => v + 1);
       removePhotoModifyDraft(modifiedId);
       pendingSlotRef.current = null;
       // Garder l'itemId depuis l'URL : draftItemId peut être null si ensureDraft n'a pas encore fini
@@ -1042,30 +1110,157 @@ export default function NewItemPage() {
     }
 
     const proposalCols = readPreSubscribeProposalFlag() ? { pre_subscribe_proposal: true as const } : {};
-    const { error: upsertError } = await supabase
-      .from("items")
-      .update({
-        title: itemTitle.trim(),
-        description: description.trim() || null,
-        photos: photosPayload,
-        status: "draft",
-        ...infoIds,
-        ...proposalCols,
-      })
-      .eq("id", draftItemId)
-      .eq("owner_user_id", user.id)
-      .is("deleted_at", null);
+    const normalizedConditionDetails = normalizeStringValue(conditionDetailsParam);
+    const nextConditionScore = conditionParam ? CONDITION_LABEL_TO_SCORE[conditionParam] ?? "bon" : null;
+    const nextItemPayload = {
+      title: itemTitle.trim(),
+      description: description.trim() || null,
+      photos: photosPayload,
+      status: "draft",
+      ...infoIds,
+      ...proposalCols,
+    };
+
+    const [{ data: currentItem, error: currentItemError }, { data: currentCondition, error: currentConditionError }] =
+      await Promise.all([
+        supabase
+          .from("items")
+          .select(
+            "title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id,pre_subscribe_proposal,status",
+          )
+          .eq("id", draftItemId)
+          .eq("owner_user_id", user.id)
+          .is("deleted_at", null)
+          .maybeSingle(),
+        supabase
+          .from("item_condition_history")
+          .select("condition_score,defect_notes")
+          .eq("item_id", draftItemId)
+          .eq("source", "owner_announced")
+          .maybeSingle(),
+      ]);
+
+    if (currentItemError || !currentItem) {
+      setIsSubmitting(false);
+      setErrorMessage(currentItemError?.message ?? "Pièce introuvable.");
+      return;
+    }
+    if (currentConditionError) {
+      setIsSubmitting(false);
+      setErrorMessage(currentConditionError.message);
+      return;
+    }
+
+    const currentComparable = {
+      title: normalizeStringValue((currentItem as { title?: string | null }).title) ?? "",
+      description: normalizeStringValue((currentItem as { description?: string | null }).description),
+      photos: normalizePhotosForComparison((currentItem as { photos?: unknown }).photos),
+      status: normalizeStringValue((currentItem as { status?: string | null }).status),
+      item_category_id: normalizeStringValue((currentItem as { item_category_id?: string | null }).item_category_id),
+      item_brand_id: normalizeStringValue((currentItem as { item_brand_id?: string | null }).item_brand_id),
+      item_custom_brand_label: normalizeStringValue(
+        (currentItem as { item_custom_brand_label?: string | null }).item_custom_brand_label,
+      ),
+      item_size_id: normalizeStringValue((currentItem as { item_size_id?: string | null }).item_size_id),
+      item_materiaux_id: normalizeStringValue((currentItem as { item_materiaux_id?: string | null }).item_materiaux_id),
+      item_couleur_id: normalizeStringValue((currentItem as { item_couleur_id?: string | null }).item_couleur_id),
+      pre_subscribe_proposal: Boolean(
+        (currentItem as { pre_subscribe_proposal?: boolean | null }).pre_subscribe_proposal,
+      ),
+      condition_score: normalizeStringValue((currentCondition as { condition_score?: string | null } | null)?.condition_score),
+      condition_details: normalizeStringValue((currentCondition as { defect_notes?: string | null } | null)?.defect_notes),
+    };
+
+    const nextComparable = {
+      title: normalizeStringValue(nextItemPayload.title) ?? "",
+      description: normalizeStringValue(nextItemPayload.description),
+      photos: photosPayload,
+      status: normalizeStringValue(nextItemPayload.status),
+      item_category_id: normalizeStringValue(nextItemPayload.item_category_id),
+      item_brand_id: normalizeStringValue(nextItemPayload.item_brand_id),
+      item_custom_brand_label: normalizeStringValue(nextItemPayload.item_custom_brand_label ?? null),
+      item_size_id: normalizeStringValue(nextItemPayload.item_size_id),
+      item_materiaux_id: normalizeStringValue(nextItemPayload.item_materiaux_id),
+      item_couleur_id: normalizeStringValue(nextItemPayload.item_couleur_id),
+      pre_subscribe_proposal: Boolean(nextItemPayload.pre_subscribe_proposal),
+      condition_score: normalizeStringValue(nextConditionScore),
+      condition_details: normalizedConditionDetails,
+    };
+
+    const hasMeaningfulChanges =
+      JSON.stringify(currentComparable) !== JSON.stringify(nextComparable) || photoEditVersion > 0;
+    const shouldRelaunchEvaluation = hasMeaningfulChanges || isEditValidationMode;
+
+    if (hasMeaningfulChanges) {
+      const { error: upsertError } = await supabase
+        .from("items")
+        .update(nextItemPayload)
+        .eq("id", draftItemId)
+        .eq("owner_user_id", user.id)
+        .is("deleted_at", null);
+      if (upsertError) {
+        setIsSubmitting(false);
+        setErrorMessage(upsertError.message);
+        return;
+      }
+
+      if (conditionParam) {
+        const conditionScore = nextConditionScore ?? "bon";
+        const { error: conditionError } = await upsertDraftCondition(
+          supabase,
+          draftItemId,
+          user.id,
+          conditionScore,
+          normalizedConditionDetails,
+        );
+        if (conditionError) {
+          setIsSubmitting(false);
+          setErrorMessage(conditionError.message);
+          return;
+        }
+      }
+
+    }
+
+    if (shouldRelaunchEvaluation) {
+      const { data: latestIntake, error: latestIntakeError } = await supabase
+        .from("item_intake")
+        .select("listing_stage")
+        .eq("item_id", draftItemId)
+        .maybeSingle();
+      if (latestIntakeError) {
+        setIsSubmitting(false);
+        setErrorMessage(latestIntakeError.message);
+        return;
+      }
+
+      const latestListingStage =
+        latestIntake && typeof latestIntake.listing_stage === "string" ? latestIntake.listing_stage : null;
+      const retriggerRes = await fetch("/api/items/intake/retrigger-evaluation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          itemId: draftItemId,
+          restart: latestListingStage === "evaluation",
+        }),
+      });
+      if (!retriggerRes.ok) {
+        const retriggerPayload = (await retriggerRes.json().catch(() => null)) as
+          | { error?: string; code?: string; stage?: string }
+          | null;
+        setIsSubmitting(false);
+        setErrorMessage(
+          retriggerPayload?.error
+            ? `Relance evaluation impossible (${retriggerPayload.stage ?? "unknown"}): ${retriggerPayload.error}`
+            : "Relance evaluation impossible.",
+        );
+        return;
+      }
+    }
 
     setIsSubmitting(false);
-    if (upsertError) {
-      setErrorMessage(upsertError.message);
-      return;
-    }
-    const intakeErr = await setItemIntakeListingStage(supabase, draftItemId, "evaluation");
-    if (!intakeErr.ok) {
-      setErrorMessage(intakeErr.message);
-      return;
-    }
     try {
       sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
     } catch {
@@ -1075,6 +1270,7 @@ export default function NewItemPage() {
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
     clearItemInfoDraft();
+    setPhotoEditVersion(0);
     router.push("/exchange");
   };
 
@@ -1224,6 +1420,7 @@ export default function NewItemPage() {
       next[fromIndex] = temp;
       return compactSlotsLeft(next);
     });
+    setPhotoEditVersion((v) => v + 1);
   };
 
   const buildPhotosPayload = (slotsWithPaths: Array<ItemPhotoSlot | null>): Record<string, unknown> => {
@@ -1275,6 +1472,7 @@ export default function NewItemPage() {
       next[index] = null;
       return compactSlotsLeft(next);
     });
+    setPhotoEditVersion((v) => v + 1);
   };
 
   const onDropSlot = (dropIndex: number) => {

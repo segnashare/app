@@ -2,7 +2,10 @@ import Link from "next/link";
 
 import { X } from "lucide-react";
 
-import { CommandeCancelOrderButton } from "@/components/commande/CommandeCancelOrderButton";
+import {
+  CommandeCancelOrderButton,
+  type CommandeCancelStripeEuroLines,
+} from "@/components/commande/CommandeCancelOrderButton";
 import {
   CommandeExpeditionSummarySection,
   type CommandeUberPhases,
@@ -13,8 +16,10 @@ import {
   checkoutPaymentIndicatesUberDirect,
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
+import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
+import { getSegnaSupportContact } from "@/lib/config/support-contact";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -23,6 +28,17 @@ import { cn } from "@/lib/utils/cn";
 
 function formatEuros(n: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(n);
+}
+
+function formatDateTimeFr(ms: number): string {
+  return new Date(ms).toLocaleString("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Paris",
+  });
 }
 
 function commandeStatusTitle(d: MemberCartOrderDetail): string {
@@ -61,7 +77,7 @@ function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
     isUberCartOutboundShipment(d.shipment) ||
     checkoutPaymentIndicatesUberDirect(d.paymentBreakdown?.euroDetail);
   if (!d.shipment) {
-    return "La livraison prévue sera indiquée dès que ton colis est prêt à l’expédition.";
+    return "Ton colis est en préparation ; tu recevras des détails sur le suivi du colis.";
   }
   const st = d.shipment.status.toLowerCase();
   if (st === "delivered" || st === "closed") return null;
@@ -69,7 +85,7 @@ function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
     if (isUberOutbound) {
       return null;
     }
-    return "La livraison prévue sera indiquée dès que ton colis est prêt à l’expédition.";
+    return "Ton colis est en préparation ; tu recevras des détails sur le suivi du colis.";
   }
   const anchor = readyAnchorIso(d.shipment);
   if (!anchor) return null;
@@ -112,7 +128,15 @@ function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPha
   return { preparationLine: prep, deliveryWindowLine: null };
 }
 
-export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }) {
+export function CommandeDetailView({
+  detail,
+  membershipLabel,
+  returnDeadlineMs,
+}: {
+  detail: MemberCartOrderDetail;
+  membershipLabel: MembershipLabel;
+  returnDeadlineMs: number | null;
+}) {
   const headerDate = new Date(detail.createdAtIso).toLocaleString("fr-FR", {
     dateStyle: "short",
     timeStyle: "short",
@@ -129,6 +153,20 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
       : null;
   const uberTrackingHref = isUberOutbound ? (detail.shipment?.memberTrackingUrl ?? null) : null;
   const uberPhases = isUberOutbound ? buildCommandeUberPhases(detail) : null;
+  const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
+  const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
+  /** Tant que l’aller MR est « en préparation », pas de lien / libellé suivi côté membre. */
+  const hideMondialTrackingWhilePending = !isUberOutbound && shipSt === "pending";
+  const expeditionTrackingRef = hideMondialTrackingWhilePending ? null : (detail.shipment?.trackingNumber ?? null);
+  const expeditionTrackingHref = hideMondialTrackingWhilePending
+    ? null
+    : isUberOutbound
+      ? uberTrackingHref
+      : mondialTrackingUrl;
+  const isDelivered = shipSt === "delivered";
+  const rentalDurationLabel = membershipLabel === "Guest" ? "10 jours de location" : "1 mois de location";
+  const hasReturnDeadline = returnDeadlineMs != null && Number.isFinite(returnDeadlineMs);
+  const returnDeadlineLabel = hasReturnDeadline ? formatDateTimeFr(returnDeadlineMs) : null;
 
   const euro = detail.paymentBreakdown?.euroDetail ?? null;
   const showFraisFactures =
@@ -137,6 +175,17 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
       euro.complementCreditsEuros > 0.005 ||
       euro.serviceFeeEuros > 0.005 ||
       euro.shippingFeeEuros > 0.005);
+
+  const cancelStripeEuroLines: CommandeCancelStripeEuroLines | null =
+    euro && euro.totalPaidEuros > 0.005
+      ? {
+          complementCreditsEuros: euro.complementCreditsEuros,
+          serviceFeeEuros: euro.serviceFeeEuros,
+          shippingFeeEuros: euro.shippingFeeEuros,
+          totalPaidEuros: euro.totalPaidEuros,
+          ...(euro.feesVatEuros != null && euro.feesVatEuros > 0.005 ? { feesVatEuros: euro.feesVatEuros } : {}),
+        }
+      : null;
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
@@ -163,17 +212,22 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
 
       {detail.cartStatus === "canceled" ? (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-[14px] leading-snug text-amber-950">
-          Cette commande a été annulée. Les crédits prélevés ont été recrédités sur ton wallet et les pièces sont de
-          nouveau disponibles à l&apos;achat.
+          Cette commande a été annulée. Les crédits prélevés ont été recrédités sur ton wallet
+          {cancelStripeEuroLines ? (
+            <>
+              , le paiement carte remboursé après retenue de 20&nbsp;% (frais d&apos;annulation sur le montant
+              encaissé par carte)
+            </>
+          ) : null}
+          , et les pièces sont de nouveau disponibles à l&apos;achat.
         </div>
       ) : null}
 
       <CommandeExpeditionSummarySection
         variant={isUberOutbound ? "uber" : "mondial"}
-        cartId={detail.cartId}
         previsionLine={previsionLine}
-        trackingRef={detail.shipment?.trackingNumber ?? null}
-        trackingHref={isUberOutbound ? uberTrackingHref : mondialTrackingUrl}
+        trackingRef={expeditionTrackingRef}
+        trackingHref={expeditionTrackingHref}
         uberPhases={uberPhases}
       />
 
@@ -183,6 +237,27 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
           <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
             {statusTitle}
           </h2>
+          {isDelivered ? (
+            <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-3.5 text-left">
+              <p className="text-[14px] leading-snug text-zinc-800">
+                Durée de location : <span className="font-semibold text-zinc-900">{rentalDurationLabel}</span>
+                {returnDeadlineLabel ? (
+                  <>
+                    {" "}
+                    · date limite de retour : <span className="font-semibold text-zinc-900">{returnDeadlineLabel}</span>
+                  </>
+                ) : null}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px]">
+                <Link href={`/exchange/retour/${detail.cartId}`} className="text-zinc-700 underline underline-offset-2">
+                  Préparer mon retour
+                </Link>
+                <Link href={`mailto:${supportEmail}`} className="text-zinc-500 underline underline-offset-2">
+                  Déclarer un problème
+                </Link>
+              </div>
+            </div>
+          ) : null}
           {detail.lines.length === 0 ? (
             <p className="text-sm text-zinc-500">Aucun article sur cette commande.</p>
           ) : (
@@ -242,14 +317,6 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
           ) : null}
         </section>
 
-        {detail.cartStatus !== "canceled" ? (
-          <CommandeCancelOrderButton
-            cartId={detail.cartId}
-            cancellation={detail.orderCancellation}
-            wrapClassName="mt-7 flex flex-col items-center gap-2 pb-2 pt-2"
-          />
-        ) : null}
-
         {/* Frais facturés (€) — uniquement s’il existe un montant € facturé (pas de bloc vide / explainer). */}
         {showFraisFactures && euro ? (
           <section className="border-b border-zinc-200 py-4">
@@ -293,6 +360,15 @@ export function CommandeDetailView({ detail }: { detail: MemberCartOrderDetail }
               </div>
             </div>
           </section>
+        ) : null}
+
+        {detail.cartStatus !== "canceled" ? (
+          <CommandeCancelOrderButton
+            cartId={detail.cartId}
+            cancellation={detail.orderCancellation}
+            stripeEuroLines={cancelStripeEuroLines}
+            wrapClassName="mt-6 flex flex-col items-center gap-2 pb-[max(1.25rem,env(safe-area-inset-bottom,0px)+0.75rem)] pt-2"
+          />
         ) : null}
       </div>
     </main>

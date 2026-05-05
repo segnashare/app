@@ -111,7 +111,7 @@ export type MemberCartOrderPointsPaidSplit = {
 };
 
 export type MemberCartOrderCancellation = {
-  /** Bouton « Annuler » : expédition aller `pending` et aucun encaissement Stripe enregistré. */
+  /** Bouton « Annuler » : commande confirmée et expédition aller `pending` ou `ready` (avant prise en charge transporteur). */
   canRequest: boolean;
   disabledReason: "canceled" | "archived" | "stripe_paid" | "shipment_started" | null;
 };
@@ -428,9 +428,6 @@ export async function fetchMemberCartOrderDetail(
       ? { creditSplit, euroDetail }
       : null;
 
-  const paidEuros = paymentBreakdown?.euroDetail?.totalPaidEuros ?? 0;
-  const stripePaidRecorded = paidEuros > 0.005;
-
   const debitRows = (cartDebitRes.error ? [] : (cartDebitRes.data ?? [])) as {
     amount_points: number;
     credit_bucket: string | null;
@@ -465,16 +462,16 @@ export async function fetchMemberCartOrderDetail(
   }
 
   const shipLc = shipment?.status?.toLowerCase() ?? "";
+  const outboundCancelable = shipLc === "pending" || shipLc === "ready";
   let cancellationReason: MemberCartOrderCancellation["disabledReason"] = null;
   if (cart.status === "canceled") cancellationReason = "canceled";
   else if (cart.status === "archived") cancellationReason = "archived";
-  else if (stripePaidRecorded) cancellationReason = "stripe_paid";
-  else if (cart.status === "confirmed" && shipment && shipLc !== "pending") {
+  else if (cart.status === "confirmed" && shipment && !outboundCancelable) {
     cancellationReason = "shipment_started";
   }
 
   const orderCancellation: MemberCartOrderCancellation = {
-    canRequest: cart.status === "confirmed" && shipLc === "pending" && !stripePaidRecorded,
+    canRequest: cart.status === "confirmed" && shipment != null && outboundCancelable,
     disabledReason: cancellationReason,
   };
 

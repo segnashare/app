@@ -14,6 +14,7 @@ import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines"
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
+import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
 import {
   getMemberOutboundShipmentPhaseCopy,
   getOutboundShipmentDeliverySubtitle,
@@ -99,6 +100,8 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
   if (planCode === "segna_plus") return "Membre +";
   return "Guest";
 }
+
+const RETURN_ENFORCE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -602,7 +605,16 @@ export default async function ExchangePage() {
       };
     }
     const ret = returnShipmentByCartId.get(order.id);
-    if (ret) {
+    const ship = outboundShipmentByCartId.get(order.id);
+    const forceReturnNow = (() => {
+      if (!ret || !ship) return false;
+      if (String(ship.status).toLowerCase() !== "delivered") return false;
+      const deliveredAtMs = Date.parse(ship.updated_at);
+      const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+      if (!Number.isFinite(deadlineMs)) return false;
+      return deadlineMs - Date.now() <= RETURN_ENFORCE_WINDOW_MS;
+    })();
+    if (ret && forceReturnNow) {
       const phase = getMemberReturnShipmentPhaseCopy(ret.status);
       const deliveryLabel = getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
       return {
@@ -616,7 +628,6 @@ export default async function ExchangePage() {
       };
     }
 
-    const ship = outboundShipmentByCartId.get(order.id);
     if (!ship) {
       return {
         id: order.id,

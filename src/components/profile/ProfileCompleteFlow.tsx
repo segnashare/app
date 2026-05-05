@@ -8,12 +8,13 @@ import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteM
 import { ProfileCompleteVisualizationCore } from "@/components/profile/ProfileCompleteVisualizationCore";
 
 type ProfileCompleteFlowProps = {
-  backTab: "plus" | "me";
+  /** Annuler / Terminé : profil ou paramètres selon l’entrée dans le flux. */
+  exitHref: string;
   displayName: string;
   completionScore: number;
 };
 
-export function ProfileCompleteFlow({ backTab, displayName, completionScore }: ProfileCompleteFlowProps) {
+export function ProfileCompleteFlow({ exitHref, displayName, completionScore }: ProfileCompleteFlowProps) {
   const router = useRouter();
   const [mode, setMode] = useState<ProfileCompleteMode>("edit");
   const [insightsAreComplete, setInsightsAreComplete] = useState(true);
@@ -31,14 +32,14 @@ export function ProfileCompleteFlow({ backTab, displayName, completionScore }: P
       return;
     }
     setShowInsightsValidationError(false);
-    router.push(`/profile?tab=${backTab}`);
+    router.push(exitHref);
   };
 
   return (
     <div className="min-h-[100dvh] w-full">
       <main className="mx-auto flex h-[100dvh] w-full max-w-[430px] flex-col overflow-hidden bg-white">
         <ProfileCompleteHeader
-          backTab={backTab}
+          exitHref={exitHref}
           displayName={displayName}
           completionScore={displayedScore}
           mode={mode}

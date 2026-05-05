@@ -1,6 +1,7 @@
 "use client";
 
-import { GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
+import { CheckCircle2, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, TouchEvent } from "react";
@@ -55,8 +56,25 @@ type ProfileRowItem = {
   visibilityKey?: string;
 };
 
+type ContactSnapshot = {
+  phoneLabel: string;
+  emailLabel: string;
+  phoneVerified: boolean;
+  emailVerified: boolean;
+};
+
 const LOOK_STAGE_RATIO = 1;
 const MODIFY_CACHE_KEY = "segna:profile-complete:modify-cache:v1";
+
+/** Préserve `tab` et `from=settings` pour les retours depuis /profile/edit, insights, etc. */
+function buildProfileCompleteReturnPath(pathname: string, searchParams: { get: (key: string) => string | null }) {
+  const q = new URLSearchParams();
+  const tab = searchParams.get("tab");
+  if (tab) q.set("tab", tab);
+  if (searchParams.get("from") === "settings") q.set("from", "settings");
+  const s = q.toString();
+  return s ? `${pathname}?${s}` : pathname;
+}
 
 type ModifyCachePayload = {
   profilePhoto: LookSlot | null;
@@ -173,6 +191,16 @@ function toPreferenceDisplay(value: unknown, customText: unknown) {
   }
   if (custom) return custom;
   return "À compléter";
+}
+
+function formatPhoneDisplayE164(e164: string): string {
+  const d = e164.replace(/\D/g, "");
+  if (d.startsWith("33") && d.length >= 11) {
+    const national = d.slice(2);
+    if (national.length === 9) return `+33 0${national}`;
+    return `+33 ${national}`;
+  }
+  return e164.trim() || "";
 }
 
 const clampPercent = (value: unknown) => {
@@ -427,6 +455,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
   /** Dernier `profile_data` chargé : pour que le % prévisualisé utilise la même règle « réseaux » que `user_profiles.score`. */
   const [completionPreviewProfileData, setCompletionPreviewProfileData] = useState<Record<string, unknown> | null>(null);
   const [infoVisibilityMap, setInfoVisibilityMap] = useState<Record<string, boolean>>({});
+  const [contactSnapshot, setContactSnapshot] = useState<ContactSnapshot | null>(null);
   const [supportsHover, setSupportsHover] = useState(true);
   const [hoveredLookIndex, setHoveredLookIndex] = useState<number | null>(null);
   const [draggingLookIndex, setDraggingLookIndex] = useState<number | null>(null);
@@ -484,7 +513,10 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
   );
 
   const hydrateFromDatabase = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) setIsHydrating(true);
+    if (!options?.silent) {
+      setIsHydrating(true);
+      setContactSnapshot(null);
+    }
     setErrorMessage(null);
 
     const {
@@ -527,7 +559,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       profileId
         ? supabase.from("user_profile_sizes").select("category, size_id").eq("user_profile_id", profileId)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("users").select("first_name,last_name").eq("id", user.id).maybeSingle(),
+      supabase.from("users").select("first_name,last_name,phone").eq("id", user.id).maybeSingle(),
       (supabase.rpc as unknown as (fn: string) => Promise<{ data?: Record<string, unknown> | null; error?: { message: string } | null }>)(
         "get_user_preferences_payload",
       ),
@@ -749,6 +781,18 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       };
     });
     setPreferenceItems(prefRows);
+
+    const profilePhoneE164 = typeof profileData.phone_e164 === "string" ? profileData.phone_e164.trim() : "";
+    const publicPhone = typeof usersRow.phone === "string" ? usersRow.phone.trim() : "";
+    const authPhone = typeof user.phone === "string" ? user.phone.trim() : "";
+    const resolvedPhone = authPhone || publicPhone || profilePhoneE164;
+    const emailLabel = typeof user.email === "string" && user.email.trim().length > 0 ? user.email.trim() : "—";
+    setContactSnapshot({
+      phoneLabel: resolvedPhone ? formatPhoneDisplayE164(resolvedPhone) : "—",
+      emailLabel,
+      phoneVerified: Boolean(user.phone_confirmed_at),
+      emailVerified: Boolean(user.email_confirmed_at),
+    });
 
     setIsHydrating(false);
   }, [resolveStoragePaths, searchParams, supabase]);
@@ -1228,8 +1272,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     const targetSlot = resolveInsightPickerSlot(slot, insightSlots);
     const params = new URLSearchParams();
     params.set("slot", String(targetSlot));
-    const tabParam = searchParams.get("tab") ?? (pathname === "/profile/complete" ? "me" : null);
-    params.set("returnPath", tabParam ? `${pathname}?tab=${encodeURIComponent(tabParam)}` : pathname);
+    params.set("returnPath", buildProfileCompleteReturnPath(pathname, searchParams));
     if (prompt0.trim()) params.set("p0", prompt0.trim());
     if (prompt1.trim()) params.set("p1", prompt1.trim());
     if (prompt2.trim()) params.set("p2", prompt2.trim());
@@ -1286,9 +1329,10 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     }
   };
 
-  const currentReturnPath = `${pathname}${searchParams.get("tab") ? `?tab=${encodeURIComponent(searchParams.get("tab") as string)}` : ""}`;
+  const currentReturnPath = buildProfileCompleteReturnPath(pathname, searchParams);
   const getEditPath = (field: string) => `/profile/edit?field=${encodeURIComponent(field)}&returnPath=${encodeURIComponent(currentReturnPath)}`;
   const getReseauxPath = () => `/profile/reseaux?returnPath=${encodeURIComponent(currentReturnPath)}`;
+  const getEditContactPath = () => `/profile/edit-contact?returnPath=${encodeURIComponent(currentReturnPath)}`;
 
   const renderProfileRows = (items: ProfileRowItem[]) => (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
@@ -1517,6 +1561,40 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
         ) : null}
         {isSavingAnswers ? <p className={cn(montserrat.className, "text-[12px] text-zinc-500")}>Sauvegarde des insights...</p> : null}
       </section>
+
+      {!isHydrating && contactSnapshot ? (
+        <section className="space-y-2">
+          <p className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-400")}>Téléphone & e-mail</p>
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+              <p className={cn(montserrat.className, "min-w-0 flex-1 truncate text-[18px] font-semibold text-zinc-900")}>
+                {contactSnapshot.phoneLabel}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                {contactSnapshot.phoneVerified ? (
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="Téléphone vérifié" />
+                ) : null}
+                <Link href={getEditContactPath()} className={cn(montserrat.className, "text-[15px] font-semibold text-zinc-900")}>
+                  Modifier
+                </Link>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <p className={cn(montserrat.className, "min-w-0 flex-1 truncate text-[18px] font-semibold text-zinc-900")}>
+                {contactSnapshot.emailLabel}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                {contactSnapshot.emailVerified ? (
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="E-mail vérifié" />
+                ) : null}
+                <Link href={getEditContactPath()} className={cn(montserrat.className, "text-[15px] font-semibold text-zinc-900")}>
+                  Modifier
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="space-y-2">
         <p className="text-[18px] font-semibold text-zinc-400">Mes infos</p>

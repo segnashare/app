@@ -8,15 +8,17 @@ import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHel
 import { RetourPhaseHeroSection } from "@/components/retour/RetourPhaseHeroSection";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { getMemberReturnPageUi } from "@/lib/cart/member-return-page-ui";
+import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
 type RetourDetailViewProps = {
   detail: MemberCartOrderDetail;
+  membershipLabel: MembershipLabel;
 };
 
-export function RetourDetailView({ detail }: RetourDetailViewProps) {
+export function RetourDetailView({ detail, membershipLabel }: RetourDetailViewProps) {
   const rs = detail.returnShipment;
   const statusForCopy = rs?.status ?? "pending";
   const creditKind = detail.walletCreditKind;
@@ -27,6 +29,8 @@ export function RetourDetailView({ detail }: RetourDetailViewProps) {
     trackingNumber: rs?.trackingNumber ?? null,
     labelUrl: rs?.labelUrl ?? null,
     updatedAtIso: rs?.updatedAt ?? null,
+    outboundDeliveredAtIso: detail.shipment?.updatedAt ?? null,
+    membershipLabel,
   });
 
   return (
@@ -55,7 +59,7 @@ export function RetourDetailView({ detail }: RetourDetailViewProps) {
       <RetourPhaseHeroSection ui={ui} />
 
       {ui.includeLabelClientBlock ? (
-        <div className="border-b border-zinc-100 px-5 pb-2 pt-1">
+        <div className="flex flex-col items-center px-5 pb-2 pt-0">
           <RetourShippingFormClient
             cartId={detail.cartId}
             initialReturn={detail.returnShipment}

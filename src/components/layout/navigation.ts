@@ -1,15 +1,14 @@
 import type { LucideIcon } from "lucide-react";
-import { House, Store, Repeat2, Users, UserRound } from "lucide-react";
+import { Store, Repeat2, Users, UserRound } from "lucide-react";
 
 export type MainTab = {
-  id: "home" | "shop" | "exchange" | "community" | "profile";
+  id: "shop" | "exchange" | "community" | "profile";
   label: string;
-  href: "/home" | "/shop" | "/exchange" | "/community" | "/profile";
+  href: "/shop" | "/exchange" | "/community" | "/profile";
   icon: LucideIcon;
 };
 
 export const MAIN_TABS: MainTab[] = [
-  { id: "home", label: "Home", href: "/home", icon: House },
   { id: "shop", label: "Shop", href: "/shop", icon: Store },
   { id: "exchange", label: "Exchange", href: "/exchange", icon: Repeat2 },
   { id: "community", label: "Community", href: "/community", icon: Users },
@@ -34,14 +33,9 @@ export function shouldShowTabBar(pathname: string): boolean {
   return isMainTabRoute(pathname);
 }
 
-/** Bouton flottant « Voir le panier » : feed, catalogue (y compris /shop/…) et hub échange. */
+/** Bouton flottant « Voir le panier » : catalogue (y compris /shop/…) et hub échange. */
 export function shouldShowFloatingCartButton(pathname: string): boolean {
-  return (
-    pathname === "/home" ||
-    pathname === "/shop" ||
-    pathname.startsWith("/shop/") ||
-    pathname === "/exchange"
-  );
+  return pathname === "/shop" || pathname.startsWith("/shop/") || pathname === "/exchange";
 }
 
 export function isShopTabActive(pathname: string): boolean {

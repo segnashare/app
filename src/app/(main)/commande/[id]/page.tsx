@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CommandeDetailView } from "@/components/commande/CommandeDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
 import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -9,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RETURN_ENFORCE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -40,12 +42,25 @@ export default async function CommandeDetailPage({ params }: PageProps) {
   }
 
   const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
-  if (shipSt === "delivered") {
-    if (isActiveMemberReturnPhase(detail.returnShipment?.status)) {
+  const deliveredAtMs =
+    shipSt === "delivered" && detail.shipment?.updatedAt ? Date.parse(detail.shipment.updatedAt) : Number.NaN;
+  const returnDeadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+  const msUntilReturnDeadline = Number.isFinite(returnDeadlineMs) ? returnDeadlineMs - Date.now() : Number.NaN;
+  const mustUseReturnPage =
+    shipSt === "delivered" &&
+    isActiveMemberReturnPhase(detail.returnShipment?.status) &&
+    Number.isFinite(msUntilReturnDeadline) &&
+    msUntilReturnDeadline <= RETURN_ENFORCE_WINDOW_MS;
+
+  if (mustUseReturnPage) {
       redirect(`/exchange/retour/${cartId}`);
-    }
-    redirect(`/exchange/emprunt/${cartId}`);
   }
 
-  return <CommandeDetailView detail={detail} />;
+  return (
+    <CommandeDetailView
+      detail={detail}
+      membershipLabel={membershipLabel}
+      returnDeadlineMs={Number.isFinite(returnDeadlineMs) ? returnDeadlineMs : null}
+    />
+  );
 }

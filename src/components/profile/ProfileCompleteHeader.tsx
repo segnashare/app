@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils/cn";
 export type ProfileCompleteMode = "edit" | "view";
 
 type ProfileCompleteHeaderProps = {
-  backTab: "plus" | "me";
+  exitHref: string;
   displayName: string;
   completionScore: number;
   mode: ProfileCompleteMode;
@@ -16,7 +16,7 @@ type ProfileCompleteHeaderProps = {
 };
 
 export function ProfileCompleteHeader({
-  backTab,
+  exitHref,
   displayName,
   completionScore,
   mode,
@@ -27,7 +27,7 @@ export function ProfileCompleteHeader({
     <header className="w-full px-1 pt-5">
       <div className="w-full p-2">
         <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <Link href={`/profile?tab=${backTab}`} className="justify-self-start px-2 text-[20px] font-bold text-zinc-900">
+          <Link href={exitHref} className="justify-self-start px-2 text-[20px] font-bold text-zinc-900">
             Annuler
           </Link>
           <div className="px-3 py-1 text-center">
@@ -41,7 +41,7 @@ export function ProfileCompleteHeader({
               Terminé
             </button>
           ) : (
-            <Link href={`/profile?tab=${backTab}`} className="justify-self-end px-2 text-[20px] font-bold text-zinc-900">
+            <Link href={exitHref} className="justify-self-end px-2 text-[20px] font-bold text-zinc-900">
               Terminé
             </Link>
           )}

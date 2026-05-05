@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { MemberCartOrderReturnShipment } from "@/lib/cart/fetch-member-cart-order-detail";
@@ -28,7 +28,6 @@ export function RetourShippingFormClient({
   const triedRef = useRef(false);
 
   const labelUrl = returnState?.labelUrl ?? null;
-  const tracking = returnState?.trackingNumber ?? null;
   const status = returnState?.status?.toLowerCase() ?? "";
   const commitmentMet = isCartReturnCommitmentMet(returnState?.status);
   const canGenerateLabel = !commitmentMet && (status === "" || status === "pending" || status === "ready");
@@ -87,7 +86,7 @@ export function RetourShippingFormClient({
   }, [canGenerateLabel, cartId, labelUrl, autoAttemptId]);
 
   return (
-    <div className="flex flex-1 flex-col gap-4 pb-8 pt-2">
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center gap-4 pb-8 pt-1">
       {showExplainer ? (
         <>
           <p className="text-[15px] leading-relaxed text-zinc-600">
@@ -103,21 +102,21 @@ export function RetourShippingFormClient({
       ) : null}
 
       {commitmentMet ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+        <p className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
           Ton retour est pris en charge — ton engagement sur les délais est{" "}
           <span className="font-semibold">réputé respecté</span> dès le dépôt au relais.
         </p>
       ) : null}
 
       {autoPhase === "trying" ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-700">
+        <div className="flex w-full items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-700">
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
           Génération de l&apos;étiquette…
         </div>
       ) : null}
 
       {autoPhase === "failed" ? (
-        <div className="space-y-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-4">
+        <div className="w-full space-y-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-4">
           <p className="text-sm text-rose-900">{autoError ?? "Génération impossible."}</p>
           <button
             type="button"
@@ -135,22 +134,15 @@ export function RetourShippingFormClient({
       ) : null}
 
       {labelUrl ? (
-        <div className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
-          <p className="text-sm font-medium text-zinc-900">Étiquette</p>
+        <div className="flex w-full flex-col items-center gap-2 pt-2">
           <a
             href={labelUrl}
             target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-violet-700 underline-offset-2 hover:underline"
+            rel="noopener noreferrer"
+            className="inline-block rounded-none border-0 bg-transparent p-0 text-center text-[15px] font-semibold text-zinc-900 underline decoration-zinc-400 underline-offset-[5px] outline-none ring-0 hover:decoration-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
           >
-            Télécharger le PDF
-            <ExternalLink className="h-4 w-4" aria-hidden />
+            Imprimer le bordereau
           </a>
-          {tracking ? (
-            <p className="text-xs text-zinc-600">
-              Suivi : <span className="font-mono font-medium">{tracking}</span>
-            </p>
-          ) : null}
         </div>
       ) : null}
     </div>

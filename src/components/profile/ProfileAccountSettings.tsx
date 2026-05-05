@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ChevronRight, ExternalLink, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { SettingsAdminPhantomRow } from "@/components/profile/SettingsAdminPhantomRow";
+import { SettingsContactSection } from "@/components/profile/SettingsContactSection";
 import { SettingsSignOutButton } from "@/components/profile/SettingsSignOutButton";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -16,8 +18,9 @@ const montserrat = segnaMontserrat;
 const SETTINGS_RULE_TOP = "border-t border-zinc-100";
 const SETTINGS_LIST_DIVIDE = "divide-y divide-zinc-100";
 
-const SETTINGS_HEADER_PT = "pt-[max(1.125rem,calc(env(safe-area-inset-top,0px)+14px))]";
-const SETTINGS_HEADER_PB = "pb-4";
+const SEGNA_WEB_PRIVACY_POLICY = "https://www.segnashare.com/politique-confidentialite";
+const SEGNA_WEB_TERMS_OF_USE = "https://www.segnashare.com/conditions-generales-utilisation";
+const SEGNA_WEB_RENTAL_TERMS = "https://www.segnashare.com/conditions-location";
 
 type ProfileTabBack = "plus" | "me";
 
@@ -28,6 +31,10 @@ type ProfileAccountSettingsProps = {
   /** KYC Stripe Identity validé (requis pour souscrire à SegnaX). */
   kycVerified: boolean;
   supportEmail: string | null;
+  /** Compte équipe Segna (rôle app `admin`) : accès au mode Phantom. */
+  isStaffAdmin: boolean;
+  /** État initial du mode Phantom (colonne `users.phantom_mode`). */
+  initialAdminPhantomMode: boolean;
 };
 
 function SectionBlock({ title, ariaLabel, children }: { title: string; ariaLabel: string; children: ReactNode }) {
@@ -93,9 +100,13 @@ export function ProfileAccountSettings({
   membershipLabel,
   kycVerified,
   supportEmail,
+  isStaffAdmin,
+  initialAdminPhantomMode,
 }: ProfileAccountSettingsProps) {
   const [portalBusy, setPortalBusy] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
   const planBadge = subscriberPlanBadge(membershipLabel);
   const packageChangeHref = membershipLabel === "Membre X" ? "/package?plan=x" : "/package";
 
@@ -103,19 +114,6 @@ export function ProfileAccountSettings({
   const profileSubflowTabQuery = `tab=${encodeURIComponent(backTab)}`;
   const kycHref = `/profile/kyc?${profileSubflowTabQuery}`;
   const packageSegnaXHref = "/package?plan=x";
-  const dataExportHref =
-    supportEmail && supportEmail.length > 0
-      ? `mailto:${supportEmail}?subject=${encodeURIComponent("Demande d'export de mes données (RGPD)")}&body=${encodeURIComponent(
-          "Bonjour,\n\nJe souhaite recevoir une copie de mes données personnelles associées à mon compte Segna.\n\nMerci.",
-        )}`
-      : null;
-
-  const deleteOrSuspendHref =
-    supportEmail && supportEmail.length > 0
-      ? `mailto:${supportEmail}?subject=${encodeURIComponent("Suppression ou suspension de compte Segna")}&body=${encodeURIComponent(
-          "Bonjour,\n\nJe souhaite supprimer ou suspendre mon compte Segna.\n\nMerci de me recontacter avec la marche à suivre.\n\nCordialement,",
-        )}`
-      : null;
 
   const openBillingPortal = async () => {
     if (portalBusy) return;
@@ -138,6 +136,67 @@ export function ProfileAccountSettings({
     }
   };
 
+  const requestDeleteAccount = async () => {
+    if (deleteBusy) return;
+    const confirmed = window.confirm(
+      "Confirmer la demande de suppression du compte ?\n\nLa suppression sera bloquée automatiquement tant que tes commandes/retours ne sont pas entièrement clôturés.",
+    );
+    if (!confirmed) return;
+
+    setDeleteBusy(true);
+    setDeleteFeedback(null);
+    try {
+      const res = await fetch("/api/account/delete/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const payload = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            blocked?: boolean;
+            blockers?: {
+              open_carts?: number;
+              open_outbound_shipments?: number;
+              open_return_shipments?: number;
+              open_cart_items?: number;
+            };
+            error?: string;
+          }
+        | null;
+
+      if (!res.ok) {
+        throw new Error(payload?.error ?? "Impossible d'envoyer la demande.");
+      }
+
+      const blocked = Boolean(payload?.blocked);
+      const blockers = payload?.blockers ?? {};
+      if (blocked) {
+        const openCarts = Number(blockers.open_carts ?? 0);
+        const openOutboundShipments = Number(blockers.open_outbound_shipments ?? 0);
+        const openReturnShipments = Number(blockers.open_return_shipments ?? 0);
+        const openCartItems = Number(blockers.open_cart_items ?? 0);
+        const details = [
+          openCarts > 0 ? `${openCarts} commande(s) encore ouverte(s)` : null,
+          openOutboundShipments > 0 ? `${openOutboundShipments} expédition(s) aller en cours` : null,
+          openReturnShipments > 0 ? `${openReturnShipments} retour(s) en cours` : null,
+          openCartItems > 0 ? `${openCartItems} pièce(s) pas encore rendue(s)` : null,
+        ]
+          .filter(Boolean)
+          .join(", ");
+        setDeleteFeedback(
+          `Suppression bloquée pour l'instant: ${details || "des opérations de location sont encore actives"}. Termine les retours et la vérification des pièces, puis réessaie.`,
+        );
+      } else {
+        setDeleteFeedback("Demande de suppression enregistrée. Notre équipe va te recontacter pour finaliser le processus.");
+      }
+    } catch (e) {
+      setDeleteFeedback(e instanceof Error ? e.message : "Une erreur est survenue.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <main
       className={cn(
@@ -148,75 +207,69 @@ export function ProfileAccountSettings({
       <header
         className={cn(
           montserrat.className,
-          "fixed left-1/2 top-0 z-[41] w-full max-w-[430px] -translate-x-1/2 bg-white",
+          "fixed left-1/2 top-0 z-40 w-full max-w-[430px] -translate-x-1/2 bg-white",
         )}
       >
-        <div className={cn("grid min-h-14 w-full grid-cols-[3rem_1fr_3rem] items-center px-2", SETTINGS_HEADER_PT, SETTINGS_HEADER_PB)}>
-          <Link
-            href={profileHref}
-            className="inline-flex h-12 w-12 items-center justify-center justify-self-start rounded-full text-zinc-900 transition hover:bg-zinc-100"
-            aria-label="Fermer"
-          >
-            <X className="h-8 w-8" strokeWidth={2.25} />
-          </Link>
-          <h1 className="min-w-0 px-0.5 text-center text-[17px] font-bold leading-[1.15] text-zinc-900 sm:text-[18px]">
-            Paramètres du compte
-          </h1>
-          <span className="inline-block w-12 shrink-0 justify-self-end" aria-hidden />
+        {/* Même logique que panier / paiement : ligne d’action, titre Playfair en dessous, sans trait sous le header */}
+        <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
+          <div className="flex items-center justify-between gap-2">
+            <Link
+              href={profileHref}
+              className="-ml-1.5 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-zinc-900 transition hover:bg-zinc-100"
+              aria-label="Fermer"
+            >
+              <X className="h-8 w-8" strokeWidth={2.25} />
+            </Link>
+            <div className="h-12 w-12 shrink-0" aria-hidden />
+          </div>
+          <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Paramètres du compte</h1>
         </div>
       </header>
 
-      {/* Réserve la hauteur du header fixe (même padding + ligne grille 3rem). */}
-      <div aria-hidden className={cn("mx-auto w-full max-w-[430px] shrink-0 bg-white", SETTINGS_HEADER_PT, SETTINGS_HEADER_PB)}>
-        <div className="min-h-14 w-full" />
-      </div>
+      {/* Réserve la place du header fixe (même ordre de grandeur que le panier : titre Playfair plus long que « Paiement »). */}
+      <div
+        className="mx-auto h-[calc(env(safe-area-inset-top,0px)+10.25rem)] w-full max-w-[430px] shrink-0 bg-white"
+        aria-hidden
+      />
 
       <div className="flex min-h-0 flex-1 flex-col space-y-[4.5px] pt-[4.5px] pb-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.25rem))]">
         <section className="bg-white px-0 pt-[4.5px] first:pt-[4.5px]">
           <h2 className={cn("min-w-0 px-5 pb-3 pt-4", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Mentions légales</h2>
           <div className={SETTINGS_RULE_TOP}>
             <div className={cn(montserrat.className, SETTINGS_LIST_DIVIDE)} role="navigation" aria-label="Mentions légales">
-              <SettingsLinkRow href="/legal/confidentialite" title="Politique de confidentialité" />
-              <SettingsLinkRow href="/legal/contrat-services" title="Conditions d'utilisation" />
               <SettingsLinkRow
-                href="/legal/conditions-generales-location"
+                href={SEGNA_WEB_PRIVACY_POLICY}
+                title="Politique de confidentialité"
+                external
+              />
+              <SettingsLinkRow href={SEGNA_WEB_TERMS_OF_USE} title="Conditions d'utilisation" external />
+              <SettingsLinkRow
+                href={SEGNA_WEB_RENTAL_TERMS}
                 title="Conditions générales de location"
                 subtitle="Pour les échanges et locations sur Segna."
+                external
               />
               <SettingsLinkRow
-                href="/legal/confidentialite"
+                href={`/legal/confidentialite?${profileSubflowTabQuery}`}
                 title="Préférences de confidentialité"
                 subtitle="Détail dans la politique de confidentialité."
               />
-              <SettingsLinkRow href="/legal/contrat-services" title="Licences et services" subtitle="Cadre contractuel Segna." />
-              {dataExportHref ? (
-                <SettingsLinkRow href={dataExportHref} title="Télécharger mes données" subtitle="Demande par e-mail au support." external />
-              ) : (
-                <SettingsDisabledRow title="Télécharger mes données" subtitle="Contacte le support depuis l’app." />
-              )}
             </div>
           </div>
         </section>
 
-        <SectionBlock title="Communauté Segna" ariaLabel="Communauté Segna">
-          <SettingsLinkRow
-            href={`/profile/reports?${profileSubflowTabQuery}`}
-            title="Échanges respectueux"
-            subtitle="Signale un comportement inapproprié après un match ou un échange."
-          />
-          <SettingsLinkRow
-            href={`/profile/blocks?${profileSubflowTabQuery}`}
-            title="Membres et interactions"
-            subtitle="Gère les blocages pour garder ta communauté saine."
-          />
-          <SettingsLinkRow
-            href={`/profile/kyc?${profileSubflowTabQuery}`}
-            title="Confiance sur la plateforme"
-            subtitle="Identité vérifiée : rassure les autres membres."
-          />
-        </SectionBlock>
+        {isSubscriber ? (
+          <SectionBlock title="Profil" ariaLabel="Profil">
+            <SettingsLinkRow
+              href={`/profile/complete?${profileSubflowTabQuery}&from=settings`}
+              title="Modifier mon profil"
+              subtitle="Nom affiché, photos, visibilité, coordonnées…"
+            />
+          </SectionBlock>
+        ) : null}
 
         <SectionBlock title="Sécurité" ariaLabel="Sécurité">
+          {isStaffAdmin ? <SettingsAdminPhantomRow initialEnabled={initialAdminPhantomMode} /> : null}
           <SettingsLinkRow
             href={`/profile/kyc?${profileSubflowTabQuery}`}
             title="Vérification d'identité"
@@ -229,6 +282,10 @@ export function ProfileAccountSettings({
         <SectionBlock title="Notifications" ariaLabel="Notifications">
           <SettingsDisabledRow title="Notifications push" subtitle="Réglages détaillés : bientôt dans l’app." />
           <SettingsDisabledRow title="E-mail" subtitle="Choix des e-mails Segna : bientôt." />
+        </SectionBlock>
+
+        <SectionBlock title="Téléphone & e-mail" ariaLabel="Téléphone et e-mail">
+          <SettingsContactSection />
         </SectionBlock>
 
         <SectionBlock title="Abonnement" ariaLabel="Abonnement">
@@ -269,13 +326,9 @@ export function ProfileAccountSettings({
           ) : (
             <>
               <SettingsLinkRow
-                href={kycHref}
-                title="Vérification d’identité (KYC)"
-                subtitle={
-                  kycVerified
-                    ? "Identité validée — tu peux souscrire à SegnaX."
-                    : "Obligatoire avant tout abonnement : selfie et pièce d’identité."
-                }
+                href={`/profile/complete?${profileSubflowTabQuery}&from=settings`}
+                title="Complète ton profil pour devenir membre"
+                subtitle="Tu n’as pas d’abonnement actuellement."
               />
               <SettingsLinkRow
                 href={kycVerified ? packageSegnaXHref : kycHref}
@@ -293,20 +346,30 @@ export function ProfileAccountSettings({
         <section className="mt-[4.5px] bg-white">
           <div className={cn(montserrat.className, SETTINGS_LIST_DIVIDE)} role="navigation" aria-label="Compte et abonnement">
             <SettingsSignOutButton variant="row" />
-            {deleteOrSuspendHref ? (
-              <a
-                href={deleteOrSuspendHref}
-                className="flex min-h-[52px] items-center justify-center px-5 py-4 text-center text-[16px] font-medium text-zinc-900 transition hover:bg-zinc-50"
-              >
-                Supprimer ou suspendre le compte
-              </a>
-            ) : (
-              <div className="flex min-h-[52px] items-center justify-center px-5 py-4 text-center text-[15px] font-medium text-zinc-500">
-                Supprimer ou suspendre le compte — contacte le support depuis l’app.
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => void requestDeleteAccount()}
+              disabled={deleteBusy}
+              className="flex min-h-[52px] w-full items-center justify-center px-5 py-4 text-center text-[16px] font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleteBusy ? "Envoi de la demande..." : "Supprimer ou suspendre le compte"}
+            </button>
           </div>
           {portalError ? <p className="border-t border-zinc-100 px-5 py-3 text-center text-sm text-red-600">{portalError}</p> : null}
+          {deleteFeedback ? (
+            <p className="border-t border-zinc-100 px-5 py-3 text-center text-sm text-zinc-700">
+              {deleteFeedback}{" "}
+              {supportEmail ? (
+                <>
+                  Besoin d'aide ?{" "}
+                  <a className="underline underline-offset-2" href={`mailto:${supportEmail}`}>
+                    Contacte le support
+                  </a>
+                  .
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </section>
 
         {/* Évite le fond zinc-100 visible sous le dernier bloc quand la page est plus haute que le contenu. */}

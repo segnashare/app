@@ -48,7 +48,6 @@ type CartScreenProps = {
   balanceConsumptionPoints: number;
   balanceExchangePoints: number;
   hasReachedLendingCap: boolean;
-  insuranceEuros: number;
   /** Ordre des blocs (RPC CMS + sections à frames). */
   panierSectionOrder?: string[];
   /** Frames + affichage publié par `section_key` (hors `cart_system_*`). */
@@ -103,7 +102,6 @@ export function CartScreen({
   balanceConsumptionPoints,
   balanceExchangePoints,
   hasReachedLendingCap,
-  insuranceEuros,
   panierSectionOrder = ["cart_system_items", "cart_offers", "cart_system_exchange"],
   cmsSectionsByKey = {},
   cmsShopHubCatalogItems = [],
@@ -116,14 +114,10 @@ export function CartScreen({
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
-  const [insuranceOn, setInsuranceOn] = useState(false);
   const [exchangeCreditsModalOpen, setExchangeCreditsModalOpen] = useState(false);
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
-
-  /** Option protection commande uniquement (hors crédits d’échange). */
-  const cashFees = useMemo(() => (insuranceOn ? insuranceEuros : 0), [insuranceEuros, insuranceOn]);
 
   const orderedLines = useMemo(() => sortCartLinesByPriceAsc(lines), [lines]);
   const hasReservedElsewhere = useMemo(() => orderedLines.some((l) => l.reservedByOther), [orderedLines]);
@@ -176,11 +170,11 @@ export function CartScreen({
   const cartExceedsWallet = activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalPoints - availablePoints) : 0;
   const exchangeCreditsEuroCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
-  /** Protection (si cochée) + crédits d’échange si besoin. */
+  /** Crédits d’échange si le panier dépasse le wallet (hors option protection, bientôt disponible). */
   const subtotalCashFees = useMemo(() => {
     const creditsEuros = cartExceedsWallet ? exchangeCreditsEuroCents / 100 : 0;
-    return cashFees + creditsEuros;
-  }, [cashFees, cartExceedsWallet, exchangeCreditsEuroCents]);
+    return creditsEuros;
+  }, [cartExceedsWallet, exchangeCreditsEuroCents]);
 
   useEffect(() => {
     if (!cartExceedsWallet) setExchangeCreditsModalOpen(false);
@@ -413,32 +407,10 @@ export function CartScreen({
                         </div>
                       ) : null}
 
-                      <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
-                        <span
-                          className={cn(
-                            "min-w-0 text-[15px] text-zinc-900",
-                            insuranceOn ? "font-semibold" : "font-medium",
-                          )}
-                        >
-                          Protection commande
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span
-                            className={cn(
-                              "text-[15px] tabular-nums text-zinc-900",
-                              insuranceOn ? "font-semibold" : "font-medium",
-                            )}
-                          >
-                            {euros(insuranceEuros)}
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={insuranceOn}
-                            onChange={(e) => setInsuranceOn(e.target.checked)}
-                            className="h-4 w-4 cursor-pointer rounded border-zinc-300 accent-zinc-950 text-zinc-950"
-                          />
-                        </div>
-                      </label>
+                      <div className="flex items-center justify-between gap-3 py-1">
+                        <span className="min-w-0 text-[15px] font-medium text-zinc-900">Protection commande</span>
+                        <span className="shrink-0 text-[15px] font-medium text-zinc-500">Bientôt disponible</span>
+                      </div>
                     </div>
 
                     <div className="mt-6 w-full border-t border-zinc-200 pt-4">

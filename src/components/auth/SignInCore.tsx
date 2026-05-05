@@ -61,7 +61,7 @@ export function SignInCore({
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (onboardingData?.status === "completed") return "/home";
+      if (onboardingData?.status === "completed") return "/shop";
       if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
 
       const { data: profileRow } = await supabase
@@ -72,7 +72,7 @@ export function SignInCore({
       const profileData = (profileRow?.profile_data ?? {}) as Record<string, unknown>;
       const rawScore = profileRow?.score ?? profileData.completion_score ?? profileData.profile_completion ?? profileData.score ?? profileData.progress_score;
       const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
-      if (Number.isFinite(numericScore) && numericScore >= 100) return "/home";
+      if (Number.isFinite(numericScore) && numericScore >= 100) return "/shop";
 
       return "/onboarding/1";
     },

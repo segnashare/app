@@ -27,7 +27,7 @@ export const passwordSchema = z
 export const otpSchema = z.object({
   code: z
     .string()
-    .regex(/^\d{8}$/, "Le code doit contenir 8 chiffres"),
+    .regex(/^\d{6}$/, "Le code doit contenir 6 chiffres"),
 });
 
 /** SMS / téléphone onboarding (6 chiffres). */

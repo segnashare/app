@@ -67,7 +67,7 @@ function ItemDetailLoadingBody({
       >
         <div className="pb-2">
           <SegnaSkeletonBlock
-            className="aspect-square w-full border border-zinc-200 shadow-sm"
+            className={cn(ITEM_DETAIL_SKELETON_PHOTO_FRAME_CLASS, "w-full border border-zinc-200 shadow-sm")}
             rounded="rounded-2xl"
           />
         </div>
@@ -84,7 +84,7 @@ function ItemDetailLoadingBody({
         </div>
         <div className="space-y-4 pt-4">
           <SegnaSkeletonBlock
-            className="aspect-square w-full border border-zinc-200 shadow-sm"
+            className={cn(ITEM_DETAIL_SKELETON_PHOTO_FRAME_CLASS, "w-full border border-zinc-200 shadow-sm")}
             rounded="rounded-2xl"
           />
           <div className="rounded-2xl border border-zinc-200 py-9 pl-[50px] pr-[60px] shadow-sm">
@@ -107,6 +107,7 @@ function ItemDetailLoadingBody({
 }
 
 const ITEM_DETAIL_BACK_HREF_KEY = "segna:item-detail:back-href";
+const ITEM_DETAIL_SKELETON_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 
 const ITEM_DETAIL_CACHED_EVENT = "segna:item-detail-cached";
 

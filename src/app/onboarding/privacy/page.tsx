@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Ancienne étape : le parcours passe par `/onboarding/3` puis `/home`. */
+/** Ancienne étape : le parcours passe par `/onboarding/3` puis le catalogue (`/shop`). */
 export default function OnboardingPrivacyLegacyRedirectPage() {
   redirect("/onboarding/3");
 }

@@ -15,8 +15,8 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
       };
     case "ready":
       return {
-        title: "En attente d’expédition",
-        detail: "L’étiquette est créée : la prise en charge par le transporteur arrive bientôt.",
+        title: "Prêt à l’expédition",
+        detail: "Le colis est en attente d’expédition.",
       };
     case "dropped_in":
       return {
@@ -40,8 +40,8 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
       };
     case "delivered":
       return {
-        title: "Livré",
-        detail: "Le transporteur indique une livraison. Vérifie tes pièces et signale un souci depuis l’app si besoin.",
+        title: "Reçu",
+        detail: "Le transporteur confirme la réception du colis. Vérifie tes pièces et signale un souci depuis l’app si besoin.",
       };
     case "closed":
       return { title: "Expédition terminée", detail: "Ce suivi est clos." };
@@ -70,7 +70,7 @@ export function getOutboundShipmentDeliverySubtitle(
 ): string | null {
   const s = status.toLowerCase();
   if (s === "delivered" || s === "closed") {
-    return `Livraison effective le ${formatDate(updatedAtIso)}`;
+    return `Réception effective le ${formatDate(updatedAtIso)}`;
   }
   if (isOutboundShipmentInTransit(s)) {
     return getMemberOutboundShipmentPhaseCopy(status).detail;

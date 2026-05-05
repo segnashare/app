@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils/cn";
 
 
 const ITEM_STAGE_RATIO = 1;
+const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 
 function FrameActionButton({
   variant = "heart",
@@ -126,7 +127,7 @@ export function ItemViewView({
       {/* 1. Photo principale */}
       <div className="pb-2">
         {filledSlots[0] ? (
-          <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
+          <div className={cn("relative w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm", ITEM_PHOTO_FRAME_CLASS)}>
             <ItemViewCoverPhoto slot={filledSlots[0]} />
             {!hideFrameLikeButtons ? (
               <FrameActionButton
@@ -148,7 +149,7 @@ export function ItemViewView({
             ) : null}
           </div>
         ) : (
-          <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
+          <div className={cn("relative w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm", ITEM_PHOTO_FRAME_CLASS)}>
             <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
           </div>
         )}
@@ -163,7 +164,7 @@ export function ItemViewView({
         {/* 3. Photo 2 */}
         {photo2 ? (
           <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
               <ItemViewCoverPhoto slot={photo2} />
             </div>
             {!hideFrameLikeButtons ? (
@@ -193,7 +194,7 @@ export function ItemViewView({
         {/* 5. Photo 3 */}
         {photo3 ? (
           <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
               <ItemViewCoverPhoto slot={photo3} />
             </div>
             {!hideFrameLikeButtons ? (
@@ -232,7 +233,7 @@ export function ItemViewView({
         {/* 7. Photos restantes (4, 5, 6) */}
         {remainingPhotos.map((slot, index) => (
           <div key={index} className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
               <ItemViewCoverPhoto slot={slot} />
             </div>
             {!hideFrameLikeButtons ? (

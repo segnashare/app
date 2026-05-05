@@ -138,7 +138,7 @@ export function ExchangeOutboundShipmentCallout({
             {copy.detail}
           </p>
 
-          {summary.trackingNumber ? (
+          {st !== "ready" && summary.trackingNumber ? (
             <div
               className={cn(
                 "mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[14px] leading-snug",

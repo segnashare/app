@@ -27,7 +27,7 @@ type SignUpVerifyCoreProps = {
 
 const RESEND_SECONDS = 30;
 const RATE_LIMIT_BACKOFF_SECONDS = 60;
-const OTP_LENGTH = 8;
+const OTP_LENGTH = 6;
 
 export function SignUpVerifyCore({
   formId,

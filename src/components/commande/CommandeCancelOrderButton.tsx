@@ -3,7 +3,24 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  CART_ORDER_CANCEL_STRIPE_FEE_RATE,
+  stripeCancelFeeBreakdownFromTotalCents,
+} from "@/lib/cart/cart-order-cancel-stripe-fee";
 import type { MemberCartOrderCancellation } from "@/lib/cart/fetch-member-cart-order-detail";
+
+function formatEuros(n: number): string {
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(n);
+}
+
+/** Lignes € affichées uniquement dans la modale d’annulation. */
+export type CommandeCancelStripeEuroLines = {
+  complementCreditsEuros: number;
+  serviceFeeEuros: number;
+  shippingFeeEuros: number;
+  totalPaidEuros: number;
+  feesVatEuros?: number;
+};
 
 function reasonHint(reason: MemberCartOrderCancellation["disabledReason"]): string | null {
   switch (reason) {
@@ -14,7 +31,7 @@ function reasonHint(reason: MemberCartOrderCancellation["disabledReason"]): stri
     case "stripe_paid":
       return "Un paiement carte a été enregistré : l’annulation en ligne n’est pas disponible. Contacte le support Segna.";
     case "shipment_started":
-      return "L’expédition a quitté le statut « en préparation » : annulation impossible depuis l’app.";
+      return "L’expédition a quitté la préparation ou le statut « prêt » : annulation impossible depuis l’app.";
     default:
       return null;
   }
@@ -23,11 +40,13 @@ function reasonHint(reason: MemberCartOrderCancellation["disabledReason"]): stri
 type Props = {
   cartId: string;
   cancellation: MemberCartOrderCancellation;
+  /** Détail € carte pour la modale (frais + pénalité 20 %) ; null si aucun paiement carte. */
+  stripeEuroLines?: CommandeCancelStripeEuroLines | null;
   /** Classes du conteneur du lien (ex. espacement sous « En préparation »). */
   wrapClassName?: string;
 };
 
-export function CommandeCancelOrderButton({ cartId, cancellation, wrapClassName }: Props) {
+export function CommandeCancelOrderButton({ cartId, cancellation, stripeEuroLines, wrapClassName }: Props) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,6 +64,13 @@ export function CommandeCancelOrderButton({ cartId, cancellation, wrapClassName 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen, closeModal]);
+
+  const stripeTotalCents =
+    stripeEuroLines && stripeEuroLines.totalPaidEuros > 0.005
+      ? Math.round(stripeEuroLines.totalPaidEuros * 100)
+      : 0;
+  const stripeFeePreview =
+    stripeTotalCents > 0 ? stripeCancelFeeBreakdownFromTotalCents(stripeTotalCents) : null;
 
   if (!cancellation.canRequest) {
     const hint = reasonHint(cancellation.disabledReason);
@@ -95,7 +121,7 @@ export function CommandeCancelOrderButton({ cartId, cancellation, wrapClassName 
           }}
           className="text-[15px] font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
         >
-          Annuler la commande
+          Annuler
         </button>
         {err && !modalOpen ? (
           <p className="max-w-sm text-center text-[12px] text-red-600" role="alert">
@@ -124,6 +150,62 @@ export function CommandeCancelOrderButton({ cartId, cancellation, wrapClassName 
             <p className="mt-2 text-[14px] leading-relaxed text-zinc-600">
               Tes crédits seront recrédités sur ton wallet et les pièces remises en vente.
             </p>
+            {stripeEuroLines && stripeFeePreview ? (
+              <p className="mt-2 text-[14px] leading-relaxed text-zinc-600">
+                Sur le montant payé par carte, une retenue de{" "}
+                <span className="font-semibold text-zinc-800">
+                  {Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100)}&nbsp;%
+                </span>{" "}
+                est appliquée ; le solde est remboursé sur ton moyen de paiement.
+              </p>
+            ) : null}
+            {stripeEuroLines && stripeFeePreview ? (
+              <div className="mt-4 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/90 px-3 py-3 text-left text-[13px] leading-snug text-zinc-700">
+                <p className="font-semibold text-zinc-900">Détail paiement carte (TTC)</p>
+                {stripeEuroLines.complementCreditsEuros > 0.005 ? (
+                  <div className="flex justify-between gap-2">
+                    <span>Complément d&apos;échange</span>
+                    <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                      {formatEuros(stripeEuroLines.complementCreditsEuros)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-2">
+                  <span>Frais de service</span>
+                  <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                    {formatEuros(stripeEuroLines.serviceFeeEuros)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Frais de livraison</span>
+                  <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                    {formatEuros(stripeEuroLines.shippingFeeEuros)}
+                  </span>
+                </div>
+                {stripeEuroLines.feesVatEuros != null && stripeEuroLines.feesVatEuros > 0.005 ? (
+                  <div className="flex justify-between gap-2">
+                    <span>dont TVA</span>
+                    <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                      {formatEuros(stripeEuroLines.feesVatEuros)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-2 border-t border-zinc-200 pt-2 font-medium text-zinc-900">
+                  <span>Total payé carte</span>
+                  <span className="shrink-0 tabular-nums">{formatEuros(stripeEuroLines.totalPaidEuros)}</span>
+                </div>
+                <div className="flex justify-between gap-2 text-zinc-600">
+                  <span>Frais d&apos;annulation ({Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100)}&nbsp;%)</span>
+                  <span className="shrink-0 tabular-nums font-medium text-zinc-800">
+                    {formatEuros(stripeFeePreview.feeCents / 100)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 border-t border-zinc-200 pt-2 text-[14px] font-semibold text-zinc-900">
+                  <span>Remboursement carte estimé</span>
+                  <span className="shrink-0 tabular-nums">{formatEuros(stripeFeePreview.refundCents / 100)}</span>
+                </div>
+              </div>
+            ) : null}
             {err ? (
               <p className="mt-3 text-[13px] text-red-600" role="alert">
                 {err}

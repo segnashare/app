@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SubflowShell } from "@/components/layout/SubflowShell";
+import { ProfileBlocksClient } from "@/components/profile/ProfileBlocksClient";
 import { ProfileCompleteFlow } from "@/components/profile/ProfileCompleteFlow";
 import { ProfileKycCore } from "@/components/profile/ProfileKycCore";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,19 +22,19 @@ const FLOW_COPY: Record<string, { title: string; description: string }> = {
     description: "Gerer les signalements et retours de moderation.",
   },
   blocks: {
-    title: "Liste rouge",
-    description: "Gerer les profils bloques et restrictions.",
+    title: "Liste de blocage",
+    description: "Gere les profils bloques et restrictions.",
   },
 };
 
 type ProfileFlowPageProps = {
   params: Promise<{ flow: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; from?: string }>;
 };
 
 export default async function ProfileFlowPage({ params, searchParams }: ProfileFlowPageProps) {
   const { flow } = await params;
-  const { tab } = await searchParams;
+  const { tab, from } = await searchParams;
   if (!ALLOWED_FLOWS.has(flow)) {
     notFound();
   }
@@ -61,9 +61,11 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
       }
     }
 
+    const exitHref = from === "settings" ? `/profile/settings?tab=${encodeURIComponent(backTab)}` : `/profile?tab=${encodeURIComponent(backTab)}`;
+
     return (
       <SubflowShell>
-        <ProfileCompleteFlow backTab={backTab} displayName={displayName} completionScore={completionScore} />
+        <ProfileCompleteFlow exitHref={exitHref} displayName={displayName} completionScore={completionScore} />
       </SubflowShell>
     );
   }
@@ -76,22 +78,24 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
     );
   }
 
+  if (flow === "blocks") {
+    return (
+      <SubflowShell>
+        <ProfileBlocksClient backTab={backTab} />
+      </SubflowShell>
+    );
+  }
+
   return (
     <SubflowShell>
-      <main className="mx-auto flex min-h-[100dvh] w-full max-w-[430px] flex-col bg-white px-5 py-6">
-        <header className="flex items-center justify-between">
-          <Link href={`/profile?tab=${backTab}`} className="inline-flex h-10 items-center text-sm font-medium text-zinc-700 underline">
-            Retour au profil
-          </Link>
-        </header>
-
-        <section className="mt-8 space-y-4">
-          <h1 className="text-3xl font-semibold text-zinc-950">{copy.title}</h1>
-          <p className="text-base text-zinc-600">{copy.description}</p>
-        </section>
-
-        <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-          Ecran placeholder de flow. Le contexte d'onglet est conserve via <code>?tab=</code>.
+      <main className="mx-auto flex min-h-[100dvh] w-full max-w-[430px] flex-col bg-zinc-100">
+        <p className="sr-only">{copy.title}</p>
+        <div className="rounded-none border-b border-zinc-200 bg-white px-5 py-6">
+          <h1 className="text-2xl font-bold text-zinc-900">{copy.title}</h1>
+          <p className="mt-2 text-sm text-zinc-600">{copy.description}</p>
+          <p className="mt-4 text-sm text-zinc-500">
+            Écran à venir. Le contexte d’onglet est conservé via <code className="text-zinc-800">?tab=</code>.
+          </p>
         </div>
       </main>
     </SubflowShell>

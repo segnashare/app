@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { parseLooseFiniteNumber } from "@/lib/items/intake-metadata";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type EvaluationSummary = {
@@ -13,29 +14,71 @@ type EvaluationSummary = {
   rationale?: string;
 };
 
-function asFiniteNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value.trim());
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
+function asFiniteNumberLoose(value: unknown): number | null {
+  const n = parseLooseFiniteNumber(value);
+  return n != null ? n : null;
 }
 
 function asNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function firstNumber(...candidates: unknown[]): number | null {
+  for (const c of candidates) {
+    const n = asFiniteNumberLoose(c);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 function sanitizeEvaluationSummary(value: unknown): EvaluationSummary | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
+  const suggested = raw.suggested_range;
+  const suggestedRec =
+    suggested && typeof suggested === "object" && !Array.isArray(suggested)
+      ? (suggested as Record<string, unknown>)
+      : null;
+  const marketRef = raw.market_reference_range;
+  const marketRefRec =
+    marketRef && typeof marketRef === "object" && !Array.isArray(marketRef)
+      ? (marketRef as Record<string, unknown>)
+      : null;
 
-  const low = asFiniteNumber((raw.suggested_range as Record<string, unknown> | undefined)?.low);
-  const median = asFiniteNumber((raw.suggested_range as Record<string, unknown> | undefined)?.median);
-  const high = asFiniteNumber((raw.suggested_range as Record<string, unknown> | undefined)?.high);
-  const segnaOffer = asFiniteNumber(raw.segna_offer);
+  let low = firstNumber(
+    suggestedRec?.low,
+    marketRefRec?.low,
+    raw.low,
+    raw.fourchette_basse,
+    raw.range_low,
+  );
+  let median = firstNumber(
+    suggestedRec?.median,
+    marketRefRec?.median,
+    raw.median,
+    raw.mediane,
+    raw.median_price,
+  );
+  let high = firstNumber(
+    suggestedRec?.high,
+    marketRefRec?.high,
+    raw.high,
+    raw.fourchette_haute,
+    raw.range_high,
+  );
+  let segnaOffer = firstNumber(
+    raw.segna_offer,
+    raw.valorisation_segna,
+    raw.valorisationSegna,
+    raw.segna_valuation,
+    raw.offre_segna,
+    raw.valorisation,
+  );
   const positioning = asNonEmptyString(raw.positioning);
-  const rationale = asNonEmptyString(raw.rationale);
+  const rationale =
+    asNonEmptyString(raw.rationale) ??
+    asNonEmptyString(raw.member_explanation) ??
+    asNonEmptyString(raw.explanation);
 
   const hasSuggestedRange = low != null || median != null || high != null;
   const hasCore =

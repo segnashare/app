@@ -16,7 +16,6 @@ const PUBLIC_PREFIXES = [
 const PROTECTED_PREFIXES = [
   "/onboarding",
   "/auth/sign-up/password",
-  "/home",
   "/shop",
   "/cart",
   "/exchange",
@@ -36,6 +35,8 @@ const ONBOARDING_PATHS = [
   "/onboarding/3",
   "/onboarding/end",
 ] as const;
+const DEMO_ONBOARDING_ENTRY = "/onboarding/demo";
+const BRIDGE_ONBOARDING_ENTRY = "/onboarding/bridge";
 
 /** Ancien `current_step` ou URL : ramène au canonique utilisé pour l’index du parcours. */
 const LEGACY_ONBOARDING_STEP: Record<string, (typeof ONBOARDING_PATHS)[number]> = {
@@ -43,6 +44,7 @@ const LEGACY_ONBOARDING_STEP: Record<string, (typeof ONBOARDING_PATHS)[number]> 
 };
 
 type OnboardingPath = (typeof ONBOARDING_PATHS)[number];
+type OnboardingMode = "demo" | "bridge" | "real";
 
 const ONBOARDING_ALIASES: Record<string, OnboardingPath> = {
   "/onboarding": "/onboarding/1",
@@ -91,6 +93,18 @@ function isPublicRoute(pathname: string) {
 
 function isProtectedRoute(pathname: string) {
   return PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+function isDemoOnboardingRoute(pathname: string) {
+  return pathname === DEMO_ONBOARDING_ENTRY || pathname.startsWith(`${DEMO_ONBOARDING_ENTRY}/`);
+}
+
+function isBridgeOnboardingRoute(pathname: string) {
+  return pathname === BRIDGE_ONBOARDING_ENTRY || pathname.startsWith(`${BRIDGE_ONBOARDING_ENTRY}/`);
+}
+
+function isMutationMethod(method: string) {
+  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
 /** Lets returning members open sign-in even with an active session (switch account / re-auth). */
@@ -180,16 +194,28 @@ export async function middleware(request: NextRequest) {
   let cachedReachedIndex: number | null = null;
   let cachedReachedPath: OnboardingPath | undefined;
   let cachedStatus: string | null | undefined;
+  let cachedOnboardingMode: OnboardingMode | null | undefined;
   const getReachedState = async () => {
     if (!session) {
       return {
         reachedIndex: 0,
         reachedPath: ONBOARDING_PATHS[0],
         status: null as string | null,
+        onboardingMode: "real" as OnboardingMode,
       };
     }
-    if (cachedReachedIndex !== null && cachedReachedPath !== undefined && cachedStatus !== undefined) {
-      return { reachedIndex: cachedReachedIndex, reachedPath: cachedReachedPath, status: cachedStatus };
+    if (
+      cachedReachedIndex !== null &&
+      cachedReachedPath !== undefined &&
+      cachedStatus !== undefined &&
+      cachedOnboardingMode !== undefined
+    ) {
+      return {
+        reachedIndex: cachedReachedIndex,
+        reachedPath: cachedReachedPath,
+        status: cachedStatus,
+        onboardingMode: cachedOnboardingMode,
+      };
     }
 
     const { data } = await supabase
@@ -202,14 +228,83 @@ export async function middleware(request: NextRequest) {
     cachedReachedPath = reachedPath;
     cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
     cachedStatus = data?.status ?? null;
-    return { reachedIndex: cachedReachedIndex, reachedPath: cachedReachedPath, status: cachedStatus };
+
+    const { data: userData } = await supabase
+      .from("users")
+      .select("onboarding_mode")
+      .eq("id", session.user.id)
+      .maybeSingle();
+
+    const onboardingModeValue = userData?.onboarding_mode;
+    cachedOnboardingMode =
+      onboardingModeValue === "demo" || onboardingModeValue === "bridge" || onboardingModeValue === "real"
+        ? onboardingModeValue
+        : "real";
+
+    return {
+      reachedIndex: cachedReachedIndex,
+      reachedPath: cachedReachedPath,
+      status: cachedStatus,
+      onboardingMode: cachedOnboardingMode,
+    };
   };
 
+  if (session && pathname.startsWith("/api")) {
+    const { onboardingMode } = await getReachedState();
+    const isOnboardingApi = pathname.startsWith("/api/onboarding/");
+    if (onboardingMode === "demo" && isMutationMethod(request.method) && !isOnboardingApi) {
+      return NextResponse.json(
+        {
+          error: "Mode demo actif: les actions de modification sont desactivees (Stripe inclus).",
+          demoMode: true,
+        },
+        { status: 403 },
+      );
+    }
+  }
+
+  if (session && !pathname.startsWith("/api")) {
+    const { onboardingMode } = await getReachedState();
+
+    if (
+      onboardingMode === "demo" &&
+      pathname.startsWith("/onboarding") &&
+      !isDemoOnboardingRoute(pathname) &&
+      !isBridgeOnboardingRoute(pathname)
+    ) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/shop";
+      return NextResponse.redirect(url);
+    }
+
+    if (onboardingMode === "bridge" && !isBridgeOnboardingRoute(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = BRIDGE_ONBOARDING_ENTRY;
+      return NextResponse.redirect(url);
+    }
+
+    if (onboardingMode === "real" && (isDemoOnboardingRoute(pathname) || isBridgeOnboardingRoute(pathname))) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/shop";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (session && pathname.startsWith("/auth/sign-up/password")) {
-    const { reachedIndex, status } = await getReachedState();
+    const { reachedIndex, status, onboardingMode } = await getReachedState();
+    if (onboardingMode === "demo") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/shop";
+      return NextResponse.redirect(url);
+    }
+    if (onboardingMode === "bridge") {
+      const url = request.nextUrl.clone();
+      url.pathname = BRIDGE_ONBOARDING_ENTRY;
+      return NextResponse.redirect(url);
+    }
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/home";
+      url.pathname = "/shop";
       return NextResponse.redirect(url);
     }
     if (reachedIndex > 0) {
@@ -219,11 +314,11 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (session && pathname.startsWith("/onboarding")) {
+  if (session && pathname.startsWith("/onboarding") && !isDemoOnboardingRoute(pathname) && !isBridgeOnboardingRoute(pathname)) {
     const { reachedIndex, reachedPath, status } = await getReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/home";
+      url.pathname = "/shop";
       return NextResponse.redirect(url);
     }
     if (pathname === "/onboarding") {
@@ -245,9 +340,16 @@ export async function middleware(request: NextRequest) {
   }
 
   if (session && isPublicRoute(pathname) && pathname !== "/" && !isExplicitMemberSignIn(request)) {
-    const { reachedIndex, status } = await getReachedState();
+    const { reachedIndex, status, onboardingMode } = await getReachedState();
     const url = request.nextUrl.clone();
-    url.pathname = status === "completed" ? "/home" : getOnboardingPathFromIndex(reachedIndex);
+    url.pathname =
+      onboardingMode === "demo"
+        ? "/shop"
+        : onboardingMode === "bridge"
+          ? BRIDGE_ONBOARDING_ENTRY
+          : status === "completed"
+            ? "/shop"
+            : getOnboardingPathFromIndex(reachedIndex);
     return NextResponse.redirect(url);
   }
 

@@ -38,7 +38,7 @@ export function RetourPhaseHeroSection({ ui }: Props) {
     <section
       className={cn(
         segnaMontserrat.className,
-        "flex flex-col items-center border-b border-zinc-100 px-5 pb-6 pt-3 text-center",
+        "flex flex-col items-center px-5 pb-3 pt-3 text-center",
       )}
       aria-labelledby="retour-phase-hero-title"
     >

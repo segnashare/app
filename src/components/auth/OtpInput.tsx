@@ -8,6 +8,8 @@ type OtpInputProps = {
   value: string;
   onChange: (value: string) => void;
   length?: number;
+  /** Champs plus petits (ex. modale paramètres ~400px). */
+  compact?: boolean;
   className?: string;
   itemClassName?: string;
   inputClassName?: string;
@@ -18,6 +20,7 @@ export function OtpInput({
   value,
   onChange,
   length = 6,
+  compact = false,
   className,
   itemClassName,
   inputClassName,
@@ -41,9 +44,18 @@ export function OtpInput({
   };
 
   return (
-    <div className={cn("flex items-center gap-4", className)}>
+    <div
+      className={cn(
+        "flex max-w-full items-center justify-center",
+        compact ? "w-full flex-nowrap gap-2" : "flex-wrap gap-2",
+        className,
+      )}
+    >
       {chars.map((char, index) => (
-        <div key={index} className={cn("relative", itemClassName)}>
+        <div
+          key={index}
+          className={cn("relative", compact ? "min-w-[1.625rem] flex-1 basis-0" : "shrink-0", itemClassName)}
+        >
           <input
             ref={(element) => {
               refs.current[index] = element;
@@ -77,14 +89,19 @@ export function OtpInput({
               refs.current[Math.min(pasted.length, length) - 1]?.focus();
             }}
             className={cn(
-              "h-[74px] w-[70px] border-0 border-b-[1.5px] border-zinc-900 bg-transparent text-center text-[56px] font-medium leading-none text-zinc-900 caret-transparent outline-none focus:border-zinc-900",
+              compact
+                ? "box-border h-11 w-full min-w-0 border-0 border-b-[1.5px] border-zinc-900 bg-transparent px-0.5 text-center text-[22px] font-semibold tabular-nums leading-none text-zinc-900 caret-transparent outline-none focus:border-zinc-900"
+                : "h-[74px] w-[70px] border-0 border-b-[1.5px] border-zinc-900 bg-transparent text-center text-[56px] font-medium leading-none text-zinc-900 caret-transparent outline-none focus:border-zinc-900",
               inputClassName,
             )}
           />
           {activeIndex === index && !char ? (
             <span
               aria-hidden
-              className="pointer-events-none absolute left-1/2 top-1/2 h-[46%] max-h-[2.25rem] w-[1.5px] -translate-x-1/2 -translate-y-1/2 bg-zinc-900/70"
+              className={cn(
+                "pointer-events-none absolute left-1/2 top-1/2 w-[1.5px] -translate-x-1/2 -translate-y-1/2 bg-zinc-900/70",
+                compact ? "h-[44%] max-h-[1.1rem]" : "h-[46%] max-h-[2.25rem]",
+              )}
               style={{ animation: "segnaCaretBlink 1s step-end infinite" }}
             />
           ) : null}

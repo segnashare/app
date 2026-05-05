@@ -30,7 +30,7 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
     .maybeSingle();
 
   if (data?.status === "completed") {
-    redirect("/home");
+    redirect("/shop");
   }
 
   if (data?.current_step?.startsWith("/onboarding/")) {

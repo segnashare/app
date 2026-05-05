@@ -24,6 +24,17 @@ const RESEND_SECONDS = 30;
 const RATE_LIMIT_BACKOFF_SECONDS = 60;
 const OTP_LENGTH = 6;
 
+function mapPhoneProviderError(message?: string): string {
+  const normalized = (message ?? "").toLowerCase();
+  if (normalized.includes("unable to get sms provider")) {
+    return "Le fournisseur SMS n'est pas configuré sur le projet. Active Twilio dans Supabase (Auth > Phone).";
+  }
+  if (normalized.includes("rate limit")) {
+    return "Tu as demandé trop de codes. Réessaie dans 1 minute.";
+  }
+  return message ?? "Erreur SMS temporaire. Réessaie dans un instant.";
+}
+
 function normalizeFrenchPhoneToE164(value: string) {
   const digits = value.replace(/\D/g, "");
   const local = digits.startsWith("0") ? digits.slice(1) : digits;
@@ -156,6 +167,25 @@ export function OnboardingPhoneVerifyCore({
 
     setIsSubmitting(true);
     try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        phone: normalizedPhone,
+        token: code,
+        type: "phone_change",
+      });
+      if (verifyError) {
+        const normalizedMessage = (verifyError.message ?? "").toLowerCase();
+        if (normalizedMessage.includes("token has expired") || normalizedMessage.includes("invalid")) {
+          setErrorMessage("Ce n'est pas le bon code.");
+          return;
+        }
+        if (normalizedMessage.includes("unable to get sms provider")) {
+          setErrorMessage(mapPhoneProviderError(verifyError.message));
+          return;
+        }
+        setErrorMessage("Code incorrect.");
+        return;
+      }
+
       const { error: phoneError } = await supabase.rpc("set_user_phone_verified", {
         p_phone_e164: normalizedPhone,
         p_request_id: crypto.randomUUID(),
@@ -224,7 +254,7 @@ export function OnboardingPhoneVerifyCore({
     const storageKey = `segna:onboarding:phone-verify:resend-until:${phone}`;
     let error: { message?: string } | null = null;
     try {
-      const result = await supabase.auth.signInWithOtp({
+      const result = await supabase.auth.updateUser({
         phone: normalizedPhone,
       });
       error = result.error;
@@ -241,10 +271,10 @@ export function OnboardingPhoneVerifyCore({
         setResendLockedUntil(nextLockUntil);
         setRemainingSeconds(RATE_LIMIT_BACKOFF_SECONDS);
         window.localStorage.setItem(storageKey, String(nextLockUntil));
-        setErrorMessage("Tu as demandé trop de codes. Réessaie dans 1 minute.");
+        setErrorMessage(mapPhoneProviderError(error.message));
         return;
       }
-      setErrorMessage(error.message ?? "Erreur lors du renvoi du code.");
+      setErrorMessage(mapPhoneProviderError(error.message));
       return;
     }
 

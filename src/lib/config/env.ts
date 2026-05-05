@@ -8,6 +8,9 @@ const clientEnvSchema = z.object({
 const serverEnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_SECRET_KEY: z.string().min(1).optional(),
+  SUPABASE_DEMO_URL: z.url().optional(),
+  SUPABASE_DEMO_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  SUPABASE_DEMO_SECRET_KEY: z.string().min(1).optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
@@ -37,12 +40,17 @@ export function getServerEnv(): ServerEnv {
   const parsed = serverEnvSchema.parse({
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+    SUPABASE_DEMO_URL: process.env.SUPABASE_DEMO_URL,
+    SUPABASE_DEMO_SERVICE_ROLE_KEY: process.env.SUPABASE_DEMO_SERVICE_ROLE_KEY,
+    SUPABASE_DEMO_SECRET_KEY: process.env.SUPABASE_DEMO_SECRET_KEY,
   });
 
   cachedServerEnv = {
     ...parsed,
     SUPABASE_SERVICE_ROLE_KEY:
       parsed.SUPABASE_SERVICE_ROLE_KEY ?? parsed.SUPABASE_SECRET_KEY,
+    SUPABASE_DEMO_SERVICE_ROLE_KEY:
+      parsed.SUPABASE_DEMO_SERVICE_ROLE_KEY ?? parsed.SUPABASE_DEMO_SECRET_KEY,
   };
 
   return cachedServerEnv;

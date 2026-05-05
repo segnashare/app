@@ -30,7 +30,8 @@ export function getMemberReturnShipmentPhaseCopy(status: string): MemberReturnSh
     case "ready":
       return {
         title: "Étiquette retour prête",
-        detail: "Imprime le PDF et dépose ton colis au point relais indiqué.",
+        detail:
+          "Bordereau déjà dans la pochette d’origine ; le lien ci-dessous est un PDF de secours (optionnel). Dépose au relais indiqué.",
       };
     case "dropped_out":
       return {

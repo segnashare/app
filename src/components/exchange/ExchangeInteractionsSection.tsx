@@ -15,7 +15,7 @@ export type ExchangeOrderCard = {
   orderNumberCompact: string;
   /** État lisible (phase logistique, confirmée, archivée…). */
   statusLabel: string;
-  /** Pastille verte (ex. « Livré » aller). */
+  /** Pastille verte (ex. « Reçu » aller). */
   statusPillTone?: "success";
   /** Sous-texte livraison (en transit / livré) ; absent tant que l’expédition n’y est pas. */
   deliveryLabel: string | null;

@@ -15,5 +15,11 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
     redirect("/auth/login");
   }
 
-  return <MainShell>{children}</MainShell>;
+  const { data: userState } = await supabase
+    .from("users")
+    .select("onboarding_mode")
+    .eq("id", user.id)
+    .maybeSingle<{ onboarding_mode?: string | null }>();
+
+  return <MainShell isDemoMode={userState?.onboarding_mode === "demo"}>{children}</MainShell>;
 }

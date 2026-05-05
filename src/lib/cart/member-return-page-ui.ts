@@ -1,6 +1,8 @@
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 
 import { getMemberReturnShipmentPhaseCopy, getReturnShipmentSubtitle } from "@/lib/cart/member-return-shipment-copy";
+import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
+import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 
 export type ReturnPageCta = {
   label: string;
@@ -28,6 +30,9 @@ type Ctx = {
   trackingNumber: string | null;
   labelUrl: string | null;
   updatedAtIso: string | null;
+  /** Livraison aller (`shipments.updated_at`) — pour l’accroche « retourne avant le … ». */
+  outboundDeliveredAtIso?: string | null;
+  membershipLabel?: MembershipLabel;
 };
 
 function fmt(iso: string) {
@@ -38,6 +43,28 @@ function meta(ctx: Ctx, status: string): string {
   const sub = ctx.updatedAtIso ? getReturnShipmentSubtitle(status, ctx.updatedAtIso, fmt) : null;
   const base = `Commande ${ctx.orderNumberCompact}`;
   return sub ? `${base} · ${sub}` : base;
+}
+
+function fmtBorrowDeadlineDdMm(deadlineMs: number): string {
+  return new Date(deadlineMs).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+/** Accroche hero : même échéance que l’emprunt (`computeBorrowDeadlineMs`). */
+function heroTaglineReturnBeforeDeadline(ctx: Ctx): string {
+  const iso = ctx.outboundDeliveredAtIso;
+  const label = ctx.membershipLabel ?? "Guest";
+  if (!iso?.trim()) {
+    return "Retourne ta box dans les délais indiqués sur ta commande";
+  }
+  const deliveredMs = Date.parse(iso);
+  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, label);
+  if (!Number.isFinite(deadlineMs)) {
+    return "Retourne ta box dans les délais indiqués sur ta commande";
+  }
+  return `Retourne ta box avant le ${fmtBorrowDeadlineDdMm(deadlineMs)}`;
 }
 
 /**
@@ -60,18 +87,17 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
       return {
         headerTitle: phase.title,
         metaLine: m,
-        heroTagline: "Prépare ton envoi vers Segna",
+        heroTagline: heroTaglineReturnBeforeDeadline(ctx),
         bodyLines: [
-          "Nous préparons ton bordereau Mondial Relay (relais proche de l’adresse de ton profil).",
-          "Tu recevras le PDF ici dès qu’il est prêt — imprime-le, colle-le sur ton colis, puis dépose-le au point indiqué.",
+          "Réutilise la pochette d’expédition initiale : le bordereau retour y est déjà glissé. Le PDF ci-dessous n’est qu’une copie de secours, purement optionnelle.",
         ],
-        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "secondary" }],
+        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "primary" }],
         includeLabelClientBlock: true,
       };
     }
     case "ready": {
       /** Lien PDF dans le bloc client pour éviter le doublon avec le hero. */
-      const ctas: ReturnPageCta[] = [{ label: "Voir la commande", href: commandeHref, variant: "secondary" }];
+      const ctas: ReturnPageCta[] = [{ label: "Voir la commande", href: commandeHref, variant: "primary" }];
       return {
         headerTitle: phase.title,
         metaLine: m,
@@ -140,7 +166,7 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
           phase.detail,
           "Tu peux réessayer la génération ci-dessous, ou contacter le support depuis « Aide commande ».",
         ],
-        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "secondary" }],
+        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "primary" }],
         includeLabelClientBlock: true,
       };
     default:

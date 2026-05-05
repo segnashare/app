@@ -101,7 +101,7 @@ export function ResetPasswordCore({
       .maybeSingle();
 
     if (onboardingRow?.status === "completed") {
-      router.replace("/home");
+      router.replace("/shop");
       return;
     }
 

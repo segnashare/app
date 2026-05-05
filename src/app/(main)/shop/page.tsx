@@ -10,25 +10,12 @@ import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-
 import { loadFauxProfileLenders } from "@/lib/shop/load-faux-profile-lenders";
 import { padFeaturedLendersToNine } from "@/lib/shop/placeholder-lenders";
 import { buildShopDepartmentHubRail } from "@/lib/shop/shop-department-categories";
+import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function ShopPage() {
   const supabase = await createSupabaseServerClient();
-  const anySb = supabase as unknown as {
-    rpc: (
-      name: string,
-      args?: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
-    from: (t: string) => {
-      select: (c: string) => {
-        eq: (c: string, v: string) => {
-          is: (c: string, v: null) => Promise<{ data: unknown; error: { message?: string } | null }>;
-        };
-        order: (c: string, o?: { ascending?: boolean }) => Promise<{ data: unknown; error: { message?: string } | null }>;
-      };
-    };
-  };
 
   const {
     data: { user },
@@ -37,15 +24,36 @@ export default async function ShopPage() {
     return null;
   }
 
+  const { data: userState } = await supabase
+    .from("users")
+    .select("onboarding_mode")
+    .eq("id", user.id)
+    .maybeSingle<{ onboarding_mode?: string | null }>();
+
+  const isDemoMode = userState?.onboarding_mode === "demo";
+  const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
+  const catalogDb = (demoAdmin ?? supabase) as any;
+  const catalogSb = catalogDb as unknown as {
+    rpc: (
+      name: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+    from: (t: string) => {
+      select: (c: string) => {
+        order: (c: string, o?: { ascending?: boolean }) => Promise<{ data: unknown; error: { message?: string } | null }>;
+      };
+    };
+  };
+
   const [
-    catalogRes,
-    mostLikedRes,
+    catalogResFinal,
+    mostLikedResFinal,
+    catResFinal,
+    sizeResFinal,
+    brandResFinal,
+    colResFinal,
+    matResFinal,
     favRes,
-    catRes,
-    sizeRes,
-    brandRes,
-    colRes,
-    matRes,
     cmsShopFrames,
     shopHomeCapsulesDisplay,
     cmsHubDiscover,
@@ -55,19 +63,19 @@ export default async function ShopPage() {
     cmsHubFrench,
     boutiqueHubSectionOrder,
   ] = await Promise.all([
-    anySb.rpc("get_shop_catalog_items", { p_limit: 160 }),
-    anySb.rpc("get_shop_most_liked_items", { p_limit: 10 }),
+    catalogSb.rpc("get_shop_catalog_items", { p_limit: 160 }),
+    catalogSb.rpc("get_shop_most_liked_items", { p_limit: 10 }),
+    catalogSb.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
+    catalogSb.from("sizes").select("id,label").order("label", { ascending: true }),
+    catalogSb.from("item_brands").select("id,label").order("label", { ascending: true }),
+    catalogSb.from("item_couleurs").select("id,label").order("label", { ascending: true }),
+    catalogSb.from("item_materiaux").select("id,label").order("label", { ascending: true }),
     supabase
       .from("item_favorites")
       .select("item_id")
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
-    anySb.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
-    anySb.from("sizes").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_brands").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_couleurs").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_materiaux").select("id,label").order("label", { ascending: true }),
     fetchCmsSectionFramesResolved(supabase, "shop_home_capsules"),
     fetchCmsSectionPublishedDisplay(supabase, "shop_home_capsules"),
     fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.discover),
@@ -79,7 +87,7 @@ export default async function ShopPage() {
   ]);
 
   if (process.env.SEGNA_DEBUG_CMS === "1") {
-    const categoriesTree = mapCategoryFilterRows(catRes.data);
+    const categoriesTree = mapCategoryFilterRows(catResFinal.data);
     const railDbg = buildShopDepartmentHubRail(categoriesTree, cmsHubCategories.frames);
     console.info(
       "[SEGNA_DEBUG_CMS] rail Catégories (buildShopDepartmentHubRail):",
@@ -96,7 +104,7 @@ export default async function ShopPage() {
     );
   }
 
-  const catalogPayload = (catalogRes.data ?? { items: [] }) as { items?: ShopCatalogItem[] };
+  const catalogPayload = (catalogResFinal.data ?? { items: [] }) as { items?: ShopCatalogItem[] };
   const initialItems = Array.isArray(catalogPayload.items) ? catalogPayload.items : [];
 
   const hubBundles: Record<string, CmsCatalogSectionBundle | undefined> = {
@@ -118,7 +126,7 @@ export default async function ShopPage() {
 
   const inInitialCatalog = new Set(initialItems.map((i) => i.id));
   const idsToFetchForHub = [...hubReferencedItemIds].filter((id) => !inInitialCatalog.has(id));
-  const hubExtraItems = await fetchShopCatalogItemsByIds(supabase, idsToFetchForHub);
+  const hubExtraItems = await fetchShopCatalogItemsByIds(catalogDb, idsToFetchForHub);
   const initialItemsForShop = [...initialItems];
   for (const it of hubExtraItems) {
     if (!inInitialCatalog.has(it.id)) {
@@ -127,7 +135,7 @@ export default async function ShopPage() {
     }
   }
 
-  const mostLikedPayload = (mostLikedRes.error ? { items: [] } : (mostLikedRes.data ?? { items: [] })) as {
+  const mostLikedPayload = (mostLikedResFinal.error ? { items: [] } : (mostLikedResFinal.data ?? { items: [] })) as {
     items?: ShopCatalogItem[];
   };
   const initialMostLikedItems = Array.isArray(mostLikedPayload.items) ? mostLikedPayload.items : [];
@@ -146,11 +154,11 @@ export default async function ShopPage() {
         initialItems={initialItemsForShop}
         initialLikedItemIds={initialLikedItemIds}
         initialMostLikedItems={initialMostLikedItems}
-        categories={mapCategoryFilterRows(catRes.data)}
-        sizes={mapFilterRows(sizeRes.data)}
-        brands={mapFilterRows(brandRes.data)}
-        colors={mapFilterRows(colRes.data)}
-        materials={mapFilterRows(matRes.data)}
+        categories={mapCategoryFilterRows(catResFinal.data)}
+        sizes={mapFilterRows(sizeResFinal.data)}
+        brands={mapFilterRows(brandResFinal.data)}
+        colors={mapFilterRows(colResFinal.data)}
+        materials={mapFilterRows(matResFinal.data)}
         featuredLenders={featuredLendersPadded}
         featuredLenderSectionItemIds={featuredLenderSectionItemIds}
         initialCmsShopFrames={cmsShopFrames}

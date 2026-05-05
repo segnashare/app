@@ -33,7 +33,7 @@ export default function OnboardingEndPage() {
       setErrorMessage(error.message);
       return;
     }
-    router.push("/home");
+    router.push("/shop");
   };
 
   return (

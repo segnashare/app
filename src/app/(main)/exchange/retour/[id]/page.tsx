@@ -47,5 +47,5 @@ export default async function ExchangeRetourPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  return <RetourDetailView detail={detail} />;
+  return <RetourDetailView detail={detail} membershipLabel={membershipLabel} />;
 }

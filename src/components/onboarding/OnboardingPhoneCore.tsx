@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useForm } from "react-hook-form";
 
 import { Input } from "@/components/ui/Input";
+import { normalizeFrenchLocalNumber } from "@/lib/phone/fr-mobile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -27,11 +28,6 @@ type OnboardingPhoneCoreProps = {
   onSubmittingChange?: (value: boolean) => void;
 };
 
-function normalizeFrenchLocalNumber(value: string) {
-  const digits = value.replace(/\D/g, "");
-  return digits.startsWith("0") ? digits.slice(1) : digits;
-}
-
 /** Même taille / graisse que le champ (Montserrat, valeur + placeholder). */
 const MEASURE_PHONE =
   "inline-block whitespace-pre font-segna-montserrat font-semibold not-italic leading-none text-[clamp(1.05rem,4.2vw,1.35rem)]";
@@ -52,6 +48,17 @@ function measureTextWidth(text: string, measureClasses: string): number {
   const w = span.getBoundingClientRect().width;
   span.remove();
   return w;
+}
+
+function mapPhoneProviderError(message?: string): string {
+  const normalized = (message ?? "").toLowerCase();
+  if (normalized.includes("unable to get sms provider")) {
+    return "Le fournisseur SMS n'est pas configuré sur le projet. Active Twilio dans Supabase (Auth > Phone).";
+  }
+  if (normalized.includes("rate limit")) {
+    return "Trop de tentatives. Réessaie dans 1 minute.";
+  }
+  return message ?? "Impossible d'envoyer le code SMS.";
 }
 
 export function OnboardingPhoneCore({
@@ -100,16 +107,33 @@ export function OnboardingPhoneCore({
     setErrorMessage(null);
     const normalizedPhone = `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
 
-    const { error: profileError } = await supabase.rpc("update_user_profile_public", {
-      p_profile_json: {
-        profile_data: {
-          phone_e164: normalizedPhone,
-        },
-      },
-      p_request_id: crypto.randomUUID(),
+    const {
+      data: { user },
+      error: getUserError,
+    } = await supabase.auth.getUser();
+    if (getUserError || !user) {
+      setErrorMessage("Session invalide. Reconnecte-toi puis réessaie.");
+      return;
+    }
+
+    const { data: phoneOk, error: phoneAvailErr } = await supabase.rpc("phone_available_for_user_change", {
+      p_phone: normalizedPhone,
+      p_user_id: user.id,
     });
-    if (profileError) {
-      setErrorMessage(profileError.message);
+    if (phoneAvailErr) {
+      setErrorMessage(phoneAvailErr.message ?? "Impossible de vérifier le numéro.");
+      return;
+    }
+    if (phoneOk !== true) {
+      setErrorMessage("Ce numéro de téléphone est déjà utilisé par un autre compte.");
+      return;
+    }
+
+    const { error: otpError } = await supabase.auth.updateUser({
+      phone: normalizedPhone,
+    });
+    if (otpError) {
+      setErrorMessage(mapPhoneProviderError(otpError.message));
       return;
     }
 

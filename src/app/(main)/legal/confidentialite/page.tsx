@@ -1,13 +1,12 @@
-import Link from "next/link";
+import { LegalPrivacyPreferencesClient } from "@/components/legal/LegalPrivacyPreferencesClient";
 
-export default function ConfidentialitePage() {
-  return (
-    <main className="mx-auto max-w-[430px] px-5 py-8">
-      <h1 className="text-2xl font-bold text-zinc-900">Politique de confidentialité</h1>
-      <p className="mt-4 text-sm text-zinc-600">Contenu à venir.</p>
-      <Link href="/cart/payment" className="mt-8 inline-block text-sm font-semibold text-zinc-900 underline underline-offset-2">
-        Retour
-      </Link>
-    </main>
-  );
+type ConfidentialitePageProps = {
+  searchParams: Promise<{ tab?: string }>;
+};
+
+export default async function ConfidentialitePage({ searchParams }: ConfidentialitePageProps) {
+  const { tab } = await searchParams;
+  const backTab = tab === "me" ? "me" : "plus";
+
+  return <LegalPrivacyPreferencesClient settingsHref={`/profile/settings?tab=${backTab}`} />;
 }

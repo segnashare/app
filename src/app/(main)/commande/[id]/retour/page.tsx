@@ -43,5 +43,5 @@ export default async function CommandeRetourPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  return <RetourDetailView detail={detail} />;
+  return <RetourDetailView detail={detail} membershipLabel={membershipLabel} />;
 }

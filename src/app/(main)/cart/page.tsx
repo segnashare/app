@@ -11,11 +11,10 @@ import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
-
-const INSURANCE_EUROS = 2.99;
 
 /** Blocs catalogue AUTO rendus nativement sur le panier (pas de frames `get_cms_section_frames`). */
 const PANIER_NATIVE_SHOP_SYSTEM_KEYS = new Set<string>(["shop_system_for_you"]);
@@ -31,9 +30,6 @@ function mergeShopCatalogItemsDedupe(a: ShopCatalogItem[], b: ShopCatalogItem[])
 
 export default async function CartPage() {
   const supabase = (await createSupabaseServerClient()) as any;
-  const anySb = supabase as unknown as {
-    rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
-  };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -43,7 +39,8 @@ export default async function CartPage() {
   }
 
   const userId = user.id as string;
-  const [membershipLabel, walletRes] = await Promise.all([
+  const [{ data: userState }, membershipLabel, walletRes] = await Promise.all([
+    supabase.from("users").select("onboarding_mode").eq("id", userId).maybeSingle<{ onboarding_mode?: string | null }>(),
     resolveMembershipLabel(supabase, userId),
     supabase
       .from("user_wallets")
@@ -54,7 +51,15 @@ export default async function CartPage() {
   ]);
 
   const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
-  const availablePoints = walletPoints.total;
+  const isDemoMode = userState?.onboarding_mode === "demo";
+  const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
+  const catalogSb = (demoAdmin ?? supabase) as any;
+  const demoWalletPoints = {
+    total: 1200,
+    consumption: 700,
+    exchange: 500,
+  };
+  const availablePoints = isDemoMode ? demoWalletPoints.total : walletPoints.total;
 
   const panierSectionOrder = await fetchPanierSectionOrder(supabase);
   const needsShopSystemForYou = panierSectionOrder.includes("shop_system_for_you");
@@ -63,7 +68,7 @@ export default async function CartPage() {
     fetchActiveCartLinesForUser(supabase, userId),
     fetchActiveCartSummaryForUser(supabase, userId),
     needsShopSystemForYou
-      ? anySb.rpc("get_shop_catalog_items", { p_limit: 160 })
+      ? catalogSb.rpc("get_shop_catalog_items", { p_limit: 160 })
       : Promise.resolve({ data: { items: [] }, error: null }),
   ]);
 
@@ -105,10 +110,9 @@ export default async function CartPage() {
         cartStatus={cartSummary.status}
         membershipLabel={membershipLabel}
         availablePoints={availablePoints}
-        balanceConsumptionPoints={walletPoints.consumption}
-        balanceExchangePoints={walletPoints.exchange}
+        balanceConsumptionPoints={isDemoMode ? demoWalletPoints.consumption : walletPoints.consumption}
+        balanceExchangePoints={isDemoMode ? demoWalletPoints.exchange : walletPoints.exchange}
         hasReachedLendingCap={false}
-        insuranceEuros={INSURANCE_EUROS}
         panierSectionOrder={panierSectionOrder}
         cmsSectionsByKey={cmsSectionsByKey}
         cmsShopHubCatalogItems={cmsShopHubCatalogItems}

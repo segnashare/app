@@ -91,12 +91,13 @@ type ProfileViewProps = {
 };
 
 const LOOK_STAGE_RATIO = 1;
+const PROFILE_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 
 /** Squelette page profil (aligné chargement fiche article). */
 export function ProfileViewLoadingSkeleton() {
   return (
     <div className="space-y-4 bg-white py-6">
-      <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
+      <div className={cn("relative mx-auto w-full max-w-[430px] overflow-hidden rounded-2xl", PROFILE_PHOTO_FRAME_CLASS)}>
         <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
       </div>
       <div className="mx-auto w-full max-w-[430px] space-y-3 rounded-2xl border border-zinc-200 p-6 shadow-sm">
@@ -169,7 +170,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
       {/* 1. Photo de profil */}
       <div className="pb-2">
         {data.profilePhoto ? (
-          <div className="relative mx-auto aspect-square w-full max-w-[430px] overflow-hidden rounded-2xl">
+          <div className={cn("relative mx-auto w-full max-w-[430px] overflow-hidden rounded-2xl", PROFILE_PHOTO_FRAME_CLASS)}>
             <LookImage slot={data.profilePhoto} />
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
@@ -184,7 +185,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
               />
             ) : null}
           </div>
-        ) : <div className="mx-auto aspect-square w-full max-w-[430px] rounded-2xl bg-zinc-100" />}
+        ) : <div className={cn("mx-auto w-full max-w-[430px] rounded-2xl bg-zinc-100", PROFILE_PHOTO_FRAME_CLASS)} />}
       </div>
 
       {/* 2. Composant infos (directement après la photo) */}
@@ -197,7 +198,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
         {/* 4. Look 1 */}
         {data.looksSlots[0] ? (
           <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", PROFILE_PHOTO_FRAME_CLASS)}>
               <LookImage slot={data.looksSlots[0]} />
             </div>
             {mode === "vue_etrangere" ? (
@@ -242,7 +243,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
         {/* 7. Look 2 */}
         {data.looksSlots[1] ? (
           <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", PROFILE_PHOTO_FRAME_CLASS)}>
               <LookImage slot={data.looksSlots[1]} />
             </div>
             {mode === "vue_etrangere" ? (
@@ -302,7 +303,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
         {/* 10. Look 3 */}
         {data.looksSlots[2] ? (
           <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="relative aspect-square w-full">
+            <div className={cn("relative w-full", PROFILE_PHOTO_FRAME_CLASS)}>
               <LookImage slot={data.looksSlots[2]} />
             </div>
             {mode === "vue_etrangere" ? (
