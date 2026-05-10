@@ -171,12 +171,12 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
 
           <div className="relative mt-0 w-full min-w-0 flex-1 shrink-0 min-h-[min(52vh,420px)]">
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-              <div className="relative flex h-[clamp(120px,32vw,168px)] w-[clamp(120px,32vw,168px)] items-center justify-center">
+              <div className="relative flex aspect-[497/204] w-[clamp(180px,50vw,280px)] items-center justify-center">
                 <img
-                  src="/ressources/Segna.svg"
+                  src="/ressources/segna_logo.svg"
                   alt="Segna"
-                  width={168}
-                  height={168}
+                  width={497}
+                  height={204}
                   className="h-full w-full object-contain brightness-0"
                   fetchPriority="high"
                   decoding="async"

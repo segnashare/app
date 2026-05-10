@@ -787,7 +787,7 @@ export function ProfileTabs({
       <div ref={panelRef} onScroll={handlePanelScroll} className="min-h-0 flex-1 overflow-y-auto pb-28">
         <header className="px-5 pt-6">
           <div className="flex h-6 items-center justify-between">
-            <Image src="/ressources/Segna.svg" alt="Segna" width={96} height={24} priority className="h-6 w-auto" />
+            <Image src="/ressources/segna_logo.svg" alt="Segna" width={96} height={24} priority className="h-6 w-auto" />
             <Link
               href={`/profile/settings?tab=${activeTab}`}
               aria-label="Reglages"
