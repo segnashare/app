@@ -689,7 +689,7 @@ export function ProfileTabs({
           <CardBase className="space-y-2 text-center">
             <div className="relative mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100">
               <Image
-                src="/ressources/icons/oeil_logo.svg"
+                src="/ressources/segna_logo.svg"
                 alt="Segna"
                 width={64}
                 height={64}

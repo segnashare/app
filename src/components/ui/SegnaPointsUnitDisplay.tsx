@@ -1,9 +1,9 @@
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
+import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { walletCreditKindLabel } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
-/** Icône Segna pour les crédits de consommation — `public/ressources/icons/segna.svg`. */
-const SEGNA_CONSUMPTION_ICON_SRC = "/ressources/icons/segna.svg";
+const SEGNA_CONSUMPTION_ICON_SRC = SEGNA_BRAND_LOGO_SRC;
 
 type SegnaPointsUnitDisplayProps = {
   points: number;
@@ -55,9 +55,7 @@ export function SegnaPointsUnitDisplay({
         <img
           src={SEGNA_CONSUMPTION_ICON_SRC}
           alt=""
-          width={18}
-          height={18}
-          className="h-[1.15em] w-[1.15em] shrink-0 self-center object-contain"
+          className="h-[1.15em] w-auto max-w-[4rem] shrink-0 self-center object-contain object-left"
           aria-hidden
         />
       ) : (
@@ -75,16 +73,14 @@ type SegnaConsumptionCreditPhraseProps = {
   textClassName?: string;
 };
 
-/** Icône `segna.svg` seule — pour phrases (« X … couverts ») où l’unité consommation est déjà implicite. */
+/** Logotype Segna seul — pour phrases (« X … couverts ») où l’unité consommation est déjà implicite. */
 export function SegnaConsumptionCreditPhrase({ className, textClassName }: SegnaConsumptionCreditPhraseProps) {
   return (
     <span className={cn("inline-flex items-center", className, textClassName)} aria-hidden>
       <img
         src={SEGNA_CONSUMPTION_ICON_SRC}
         alt=""
-        width={14}
-        height={14}
-        className="h-[1.1em] w-[1.1em] shrink-0 object-contain"
+        className="h-[1.1em] w-auto max-w-[3.5rem] shrink-0 object-contain object-left"
         aria-hidden
       />
     </span>

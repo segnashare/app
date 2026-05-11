@@ -59,12 +59,6 @@ export default function OnboardingCheckpointThreePage() {
       return;
     }
 
-    const initResponse = await fetch("/api/onboarding/init", { method: "POST" });
-    if (!initResponse.ok) {
-      setErrorMessage("Onboarding terminé, mais impossible d'ouvrir l'espace démo.");
-      return;
-    }
-
     router.push("/shop");
   };
 

@@ -10,6 +10,7 @@ import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLends
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
+import { InAppOnboardingProfileSheet } from "@/components/onboarding/InAppOnboardingProfileSheet";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
@@ -720,6 +721,13 @@ export default async function ExchangePage() {
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
   const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
 
+  const { data: exchangeOnboardingRow } = await supabase
+    .from("users")
+    .select("onboarding_process")
+    .eq("id", userId)
+    .maybeSingle<{ onboarding_process?: string | null }>();
+  const showProfileInAppOnboarding = exchangeOnboardingRow?.onboarding_process === "profile";
+
   return (
     <>
       <ExchangeLendsDetailPrefetch itemIds={lends.map((l) => l.id)} />
@@ -817,6 +825,7 @@ export default async function ExchangePage() {
         </div>
         <ExchangeEmptyFill />
       </MainContent>
+      {showProfileInAppOnboarding ? <InAppOnboardingProfileSheet initiallyVisible /> : null}
     </>
   );
 }

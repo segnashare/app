@@ -14,6 +14,14 @@ import { themeClassNames } from "@/styles/theme";
 
 const montserrat = segnaMontserrat;
 
+const AUTH_TEASER_MODE = process.env.NEXT_PUBLIC_AUTH_TEASER_MODE === "true";
+const LAUNCH_AT_MS = (() => {
+  const raw = process.env.NEXT_PUBLIC_LAUNCH_AT?.trim();
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
+})();
+
 /** Au-delà de ce délai, on affiche quand même la page (évite blocage infini). */
 const COLLAGE_PRELOAD_TIMEOUT_MS = 12_000;
 
@@ -27,6 +35,85 @@ function uniqueSignedCollageUrls(frames: AuthCollageFrameRow[]): string[] {
 type AuthWelcomePageClientProps = {
   initialCollageFrames: AuthCollageFrameRow[];
 };
+
+function splitRemainingMs(totalMs: number) {
+  const s = Math.floor(totalMs / 1000);
+  const days = Math.floor(s / 86_400);
+  const hours = Math.floor((s % 86_400) / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const seconds = s % 60;
+  return { days, hours, minutes, seconds };
+}
+
+function pad2(n: number) {
+  return n.toString().padStart(2, "0");
+}
+
+function AuthTeaserCountdown({ launchAtMs }: { launchAtMs: number }) {
+  const [remainingMs, setRemainingMs] = useState(() => Math.max(0, launchAtMs - Date.now()));
+
+  useEffect(() => {
+    const tick = () => setRemainingMs(Math.max(0, launchAtMs - Date.now()));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [launchAtMs]);
+
+  if (remainingMs <= 0) {
+    return (
+      <div className="flex w-full flex-col items-center gap-3 px-4 pb-2">
+        <p
+          className={cn(
+            montserrat.className,
+            "text-center text-[15px] font-semibold leading-snug text-zinc-600 md:text-[16px]",
+          )}
+        >
+          Ouverture imminente
+        </p>
+      </div>
+    );
+  }
+
+  const { days, hours, minutes, seconds } = splitRemainingMs(remainingMs);
+
+  return (
+    <div className="flex w-full flex-col items-center gap-3 px-2 pb-2 md:px-4">
+      <p
+        className={cn(
+          montserrat.className,
+          "text-center text-[13px] font-semibold leading-snug text-zinc-600 md:text-[14px]",
+        )}
+      >
+        Disponible dans
+      </p>
+      <div
+        className={cn(
+          montserrat.className,
+          "flex w-full items-end justify-center gap-5 sm:gap-7",
+        )}
+        role="timer"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {[
+          { value: days, label: "JOURS" },
+          { value: pad2(hours), label: "HEURES" },
+          { value: pad2(minutes), label: "MINUTES" },
+          { value: pad2(seconds), label: "SECONDES" },
+        ].map((cell) => (
+          <div key={cell.label} className="flex flex-col items-center">
+            <span className="text-[34px] font-bold tabular-nums leading-none text-zinc-950 sm:text-[40px]">
+              {cell.value}
+            </span>
+            <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500 sm:text-[11px]">
+              {cell.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageClientProps) {
   const router = useRouter();
@@ -132,6 +219,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
 
   const collageFrames = initialCollageFrames;
   const showCollageLoader = initialCollageFrames.length > 0 && !collageReady;
+  const showAuthTeaser = AUTH_TEASER_MODE && LAUNCH_AT_MS !== null;
 
   return (
     <main
@@ -185,60 +273,82 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
             </div>
           </div>
 
-          <div className="relative z-20 mx-auto mt-auto flex w-full max-w-[min(100%,480px)] flex-col items-center gap-5 bg-transparent px-2 pt-2 md:px-4">
-            <p
-              className={cn(
-                montserrat.className,
-                "w-full max-w-full text-balance text-center text-[12px] font-semibold leading-snug text-zinc-500 md:text-[13px]",
-              )}
-            >
-              En créant un compte, tu acceptes les{" "}
-              <Link
-                href="https://www.segnashare.com/conditions-generales-utilisation"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-zinc-700 underline underline-offset-2"
+          <div
+            className={cn(
+              "relative z-20 mx-auto mt-auto flex w-full max-w-[min(100%,480px)] flex-col items-center bg-transparent px-2 md:px-4",
+              showAuthTeaser || AUTH_TEASER_MODE
+                ? "min-h-[180px] justify-center gap-3 pt-2"
+                : "gap-5 pt-2",
+            )}
+          >
+            {showAuthTeaser && LAUNCH_AT_MS !== null ? (
+              <AuthTeaserCountdown launchAtMs={LAUNCH_AT_MS} />
+            ) : AUTH_TEASER_MODE && LAUNCH_AT_MS === null ? (
+              <p
+                className={cn(
+                  montserrat.className,
+                  "px-4 text-center text-[13px] font-semibold leading-snug text-zinc-500 md:text-[14px]",
+                )}
               >
-                Conditions Générales d&apos;Utilisation
-              </Link>{" "}
-              et notre{" "}
-              <Link
-                href="https://www.segnashare.com/politique-confidentialite"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-zinc-700 underline underline-offset-2"
-              >
-                Politique de confidentialité
-              </Link>
-              .
-            </p>
+                Ouverture prochaine.
+              </p>
+            ) : (
+              <>
+                <p
+                  className={cn(
+                    montserrat.className,
+                    "w-full max-w-full text-balance text-center text-[12px] font-semibold leading-snug text-zinc-500 md:text-[13px]",
+                  )}
+                >
+                  En créant un compte, tu acceptes les{" "}
+                  <Link
+                    href="https://www.segnashare.com/conditions-generales-utilisation"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-zinc-700 underline underline-offset-2"
+                  >
+                    Conditions Générales d&apos;Utilisation
+                  </Link>{" "}
+                  et notre{" "}
+                  <Link
+                    href="https://www.segnashare.com/politique-confidentialite"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-zinc-700 underline underline-offset-2"
+                  >
+                    Politique de confidentialité
+                  </Link>
+                  .
+                </p>
 
-            <button
-              type="button"
-              onClick={() => void handleCommencer()}
-              disabled={isContinuing}
-              className={cn(
-                montserrat.className,
-                themeClassNames.auth.pillCtaTextSize,
-                "flex h-[52px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity disabled:opacity-60",
-              )}
-            >
-              Commencer
-            </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCommencer()}
+                  disabled={isContinuing}
+                  className={cn(
+                    montserrat.className,
+                    themeClassNames.auth.pillCtaTextSize,
+                    "flex h-[52px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity disabled:opacity-60",
+                  )}
+                >
+                  Commencer
+                </button>
 
-            <Link
-              href="/auth/login?from=member"
-              className={cn(
-                montserrat.className,
-                "text-[16px] font-bold text-zinc-950 underline-offset-4 hover:underline md:text-[17px]",
-              )}
-            >
-              Je suis membre
-            </Link>
+                <Link
+                  href="/auth/login?from=member"
+                  className={cn(
+                    montserrat.className,
+                    "text-[16px] font-bold text-zinc-950 underline-offset-4 hover:underline md:text-[17px]",
+                  )}
+                >
+                  Je suis membre
+                </Link>
 
-            {errorMessage ? (
-              <p className={cn(montserrat.className, "text-center text-[14px] text-[#E44D3E]")}>{errorMessage}</p>
-            ) : null}
+                {errorMessage ? (
+                  <p className={cn(montserrat.className, "text-center text-[14px] text-[#E44D3E]")}>{errorMessage}</p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
         </>

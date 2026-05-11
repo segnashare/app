@@ -2,15 +2,11 @@
 
 import { BadgeCheck, Package } from "lucide-react";
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
+import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
-
-
-
-
-const SEGNA_ICON_PATH = "/ressources/icons/segna.svg";
 
 export type ItemSegnaDetentionSectionProps = {
   /** Points affichés comme sur la fiche info. */
@@ -55,7 +51,7 @@ export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }:
         </span>
         <span className="inline-flex items-center gap-1 font-semibold text-zinc-700">
           {priceText}
-          <img src={SEGNA_ICON_PATH} alt="" className="h-4 w-4 shrink-0" aria-hidden />
+          <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-4 w-auto max-w-[3.5rem] shrink-0 object-contain" aria-hidden />
         </span>
         <>
           <span aria-hidden className="text-zinc-400">

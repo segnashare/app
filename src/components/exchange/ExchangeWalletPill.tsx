@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { WalletPanel, type WalletPanelStateContent } from "@/components/exchange/WalletPanel";
+import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeWalletPillProps = {
@@ -115,9 +116,19 @@ export function ExchangeWalletPill({
       >
         <span className="min-w-0 truncate text-sm font-semibold">{walletPillLabel}</span>
         {cartExceedsWallet ? (
-          <img src="/ressources/icons/segna.svg" alt="" aria-hidden className="h-4 w-4 shrink-0" />
+          <img
+            src={SEGNA_BRAND_LOGO_SRC}
+            alt=""
+            aria-hidden
+            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left"
+          />
         ) : (
-          <img src="/ressources/icons/segna.svg" alt="" aria-hidden className="h-4 w-4 shrink-0 brightness-0 invert" />
+          <img
+            src={SEGNA_BRAND_LOGO_SRC}
+            alt=""
+            aria-hidden
+            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left brightness-0 invert"
+          />
         )}
         <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.25} />
       </button>

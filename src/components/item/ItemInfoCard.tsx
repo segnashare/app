@@ -5,10 +5,8 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
+import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
-
-
-const SEGNA_ICON_PATH = "/ressources/icons/segna.svg";
 const STAR_ICON_PATH = "/ressources/icons/star.svg";
 const RATING_STARS = 5;
 
@@ -87,7 +85,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     content: (
       <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
         {data.pricePoints != null ? data.pricePoints : "—"}
-        <img src={SEGNA_ICON_PATH} alt="" className="h-5 w-5 shrink-0" aria-hidden />
+        <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-5 w-auto max-w-[4.25rem] shrink-0 object-contain" aria-hidden />
       </span>
     ),
   });

@@ -3,14 +3,25 @@ import type { ReactNode } from "react";
 import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
+import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
 import { cn } from "@/lib/utils/cn";
+
+type InAppOnboardingIntroGate = {
+  userId: string;
+  lastSignInAt: string | null;
+};
 
 type MainShellProps = {
   children: ReactNode;
   isDemoMode?: boolean;
+  inAppOnboardingIntro?: InAppOnboardingIntroGate | null;
 };
 
-export function MainShell({ children, isDemoMode = false }: MainShellProps) {
+export function MainShell({
+  children,
+  isDemoMode = false,
+  inAppOnboardingIntro = null,
+}: MainShellProps) {
   return (
     <div className="min-h-[100dvh] bg-zinc-100 text-zinc-900">
       <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] overflow-x-hidden bg-white md:my-6 md:min-h-[calc(100dvh-48px)] md:rounded-[32px] md:border md:border-zinc-200 md:shadow-[0_24px_60px_rgba(0,0,0,0.12)]">
@@ -24,6 +35,12 @@ export function MainShell({ children, isDemoMode = false }: MainShellProps) {
       </div>
       <FloatingViewCartButton />
       <BottomTabBar />
+      {inAppOnboardingIntro ? (
+        <InAppOnboardingIntroModal
+          userId={inAppOnboardingIntro.userId}
+          lastSignInAt={inAppOnboardingIntro.lastSignInAt}
+        />
+      ) : null}
     </div>
   );
 }

@@ -17,9 +17,24 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
 
   const { data: userState } = await supabase
     .from("users")
-    .select("onboarding_mode")
+    .select("onboarding_mode, onboarding_process")
     .eq("id", user.id)
-    .maybeSingle<{ onboarding_mode?: string | null }>();
+    .maybeSingle<{
+      onboarding_mode?: string | null;
+      onboarding_process?: string | null;
+    }>();
 
-  return <MainShell isDemoMode={userState?.onboarding_mode === "demo"}>{children}</MainShell>;
+  const inAppOnboardingIntro =
+    userState?.onboarding_process === "intro"
+      ? { userId: user.id, lastSignInAt: user.last_sign_in_at ?? null }
+      : null;
+
+  return (
+    <MainShell
+      isDemoMode={userState?.onboarding_mode === "demo"}
+      inAppOnboardingIntro={inAppOnboardingIntro}
+    >
+      {children}
+    </MainShell>
+  );
 }
