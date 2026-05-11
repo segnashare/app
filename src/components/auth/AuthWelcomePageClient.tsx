@@ -120,7 +120,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   const supabase = createSupabaseBrowserClient();
   const [isContinuing, setIsContinuing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [collageReady, setCollageReady] = useState(() => initialCollageFrames.length === 0);
+  const [collageReady, setCollageReady] = useState(() => uniqueSignedCollageUrls(initialCollageFrames).length === 0);
 
   useEffect(() => {
     const url = window.location.href;
@@ -136,14 +136,8 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   }, []);
 
   useEffect(() => {
-    if (initialCollageFrames.length === 0) {
-      setCollageReady(true);
-      return;
-    }
-
     const urls = uniqueSignedCollageUrls(initialCollageFrames);
     if (urls.length === 0) {
-      setCollageReady(true);
       return;
     }
 
@@ -223,7 +217,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
 
   return (
     <main
-      className="relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-white"
+      className="segna-lock-document-scroll relative flex h-dvh min-h-0 flex-col overflow-hidden bg-white"
       aria-busy={showCollageLoader}
     >
       {showCollageLoader ? (
@@ -241,12 +235,12 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
       ) : (
         <>
           {collageFrames.length > 0 ? (
-            <div className="pointer-events-none absolute inset-0 z-0 min-h-[100dvh]" aria-hidden>
+            <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
               <AuthLandingCollage frames={collageFrames} />
             </div>
           ) : null}
 
-          <div className="relative z-10 flex min-h-[100dvh] min-w-0 flex-1 flex-col bg-transparent pb-8 pt-[max(2.5rem,env(safe-area-inset-top))]">
+          <div className="relative z-10 flex h-dvh min-h-0 min-w-0 flex-col bg-transparent pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
           <p
             className={cn(
               montserrat.className,
@@ -257,9 +251,9 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
             Empruntez, portez, renvoyez et recommencez
           </p>
 
-          <div className="relative mt-0 w-full min-w-0 flex-1 shrink-0 min-h-[min(52vh,420px)]">
+          <div className="relative mt-0 min-h-[min(40vh,300px)] w-full min-w-0 flex-1 shrink">
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-              <div className="relative flex aspect-[497/204] w-[clamp(180px,50vw,280px)] items-center justify-center">
+              <div className="relative flex aspect-[497/204] w-[clamp(160px,45vw,250px)] items-center justify-center">
                 <img
                   src="/ressources/segna_logo.svg"
                   alt="Segna"
@@ -275,10 +269,10 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
 
           <div
             className={cn(
-              "relative z-20 mx-auto mt-auto flex w-full max-w-[min(100%,480px)] flex-col items-center bg-transparent px-2 md:px-4",
+              "relative z-20 mx-auto mt-auto flex w-full max-w-[min(100%,480px)] shrink-0 flex-col items-center bg-transparent px-2 md:px-4",
               showAuthTeaser || AUTH_TEASER_MODE
                 ? "min-h-[180px] justify-center gap-3 pt-2"
-                : "gap-5 pt-2",
+                : "gap-3 pt-1",
             )}
           >
             {showAuthTeaser && LAUNCH_AT_MS !== null ? (
@@ -297,7 +291,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
                 <p
                   className={cn(
                     montserrat.className,
-                    "w-full max-w-full text-balance text-center text-[12px] font-semibold leading-snug text-zinc-500 md:text-[13px]",
+                    "w-full max-w-full text-balance text-center text-[11px] font-semibold leading-tight text-zinc-500 md:text-[13px]",
                   )}
                 >
                   En créant un compte, tu acceptes les{" "}
@@ -328,7 +322,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
                   className={cn(
                     montserrat.className,
                     themeClassNames.auth.pillCtaTextSize,
-                    "flex h-[52px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity disabled:opacity-60",
+                    "flex h-[48px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity disabled:opacity-60 md:h-[52px]",
                   )}
                 >
                   Commencer
@@ -338,7 +332,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
                   href="/auth/login?from=member"
                   className={cn(
                     montserrat.className,
-                    "text-[16px] font-bold text-zinc-950 underline-offset-4 hover:underline md:text-[17px]",
+                    "text-[15px] font-bold text-zinc-950 underline-offset-4 hover:underline md:text-[17px]",
                   )}
                 >
                   Je suis membre

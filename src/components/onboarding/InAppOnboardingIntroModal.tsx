@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import {
   SEGNA_DIALOG_CARD_CLASS,
@@ -24,26 +24,17 @@ type InAppOnboardingIntroModalProps = {
 
 export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboardingIntroModalProps) {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  const [open, setOpen] = useState(false);
+  /** null = pas encore lu le sessionStorage (évite flash + double effet useEffect). */
+  const [open, setOpen] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const snoozed = isIntroSnoozedForAuthSession(
-      typeof window !== "undefined" ? window.sessionStorage : null,
-      userId,
-      lastSignInAt,
-    );
+  useLayoutEffect(() => {
+    const snoozed = isIntroSnoozedForAuthSession(window.sessionStorage, userId, lastSignInAt);
     setOpen(!snoozed);
-  }, [mounted, userId, lastSignInAt]);
+  }, [userId, lastSignInAt]);
 
-  if (!mounted || !open) return null;
+  if (open !== true) return null;
 
   const dismissIntroForSession = () => {
     setBusy(true);
@@ -88,7 +79,7 @@ export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboard
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-2xl backdrop-saturate-75"
       role="presentation"
     >
       <div
@@ -107,11 +98,10 @@ export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboard
           aria-label="Fermer pour plus tard"
         />
         <h2 id="in-app-onboarding-intro-title" className={cn(segnaDialogTitleClass(), "pr-10")}>
-          Bienvenue sur Segna
+          Bienvenue sur Segna&nbsp;!
         </h2>
-        <p className={cn(segnaDialogBodyClass(), "mt-3")}>
-          Tu peux explorer le catalogue et l’app. Quand tu es prêt·e, poursuis la mise en route en deux petites
-          étapes.
+        <p className={cn(segnaDialogBodyClass(), "mt-3 font-medium text-zinc-800")}>
+          Découvre notre collection et commence à échanger tes premières pièces&nbsp;!
         </p>
         {error ? <p className={cn(segnaDialogMontserrat.className, "mt-3 text-sm text-red-600")}>{error}</p> : null}
         <div className={cn(segnaDialogMontserrat.className, "mt-5 flex flex-col gap-2")}>

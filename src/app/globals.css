@@ -57,6 +57,14 @@ body {
   overflow-x: auto;
 }
 
+html:has(.segna-lock-document-scroll),
+body:has(.segna-lock-document-scroll) {
+  min-width: 0;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #ffffff;
+}
+
 /* Panier : bouton poubelle des lignes « surplus » — petite vibration en boucle (action rapide). */
 @keyframes cart-surplus-trash-vibrate {
   0%,

@@ -42,13 +42,13 @@
 
 /* Tailles (largeur de référence ; hauteur selon aspect) */
 .sizeSmall {
-  width: clamp(52px, 14vw, 76px);
+  width: clamp(42px, min(11vw, 7.5vh), 62px);
 }
 .sizeMedium {
-  width: clamp(72px, 19vw, 104px);
+  width: clamp(56px, min(15vw, 10vh), 82px);
 }
 .sizeLarge {
-  width: clamp(96px, 26vw, 132px);
+  width: clamp(72px, min(20vw, 13vh), 104px);
 }
 
 .aspectSquare {

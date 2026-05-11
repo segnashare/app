@@ -34,7 +34,7 @@ export function AppViewport({
       className={cn(
         "flex w-full bg-[#f9f9f8]",
         fillHeight
-          ? "min-h-dvh min-w-0 flex-col items-stretch justify-start"
+          ? "segna-lock-document-scroll h-dvh min-h-0 min-w-0 flex-col items-stretch justify-start overflow-hidden"
           : "h-dvh min-h-[844px] min-w-[390px] items-center justify-center",
         outerClassName,
       )}
@@ -44,7 +44,7 @@ export function AppViewport({
         className={cn(
           fillHeight
             ? cn(
-                "mx-auto flex min-h-0 w-full flex-1 flex-col overflow-y-auto",
+                "mx-auto flex h-dvh min-h-0 w-full flex-col overflow-y-auto",
                 fillHeightWideAtMd
                   ? "max-w-[min(100%,430px)] md:max-w-[min(100%,min(92vw,880px))]"
                   : "max-w-[min(100%,430px)]",

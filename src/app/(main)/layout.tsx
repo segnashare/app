@@ -15,23 +15,28 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
     redirect("/auth/login");
   }
 
-  const { data: userState } = await supabase
+  const { data: userRow } = await supabase
     .from("users")
-    .select("onboarding_mode, onboarding_process")
+    .select("onboarding_process")
     .eq("id", user.id)
-    .maybeSingle<{
-      onboarding_mode?: string | null;
-      onboarding_process?: string | null;
-    }>();
+    .maybeSingle<{ onboarding_process?: string | null }>();
+
+  const { data: demoRow, error: demoColError } = await supabase
+    .from("users")
+    .select("onboarding_mode")
+    .eq("id", user.id)
+    .maybeSingle<{ onboarding_mode?: string | null }>();
+
+  const isDemoMode = demoColError == null && demoRow?.onboarding_mode === "demo";
 
   const inAppOnboardingIntro =
-    userState?.onboarding_process === "intro"
+    userRow?.onboarding_process === "intro"
       ? { userId: user.id, lastSignInAt: user.last_sign_in_at ?? null }
       : null;
 
   return (
     <MainShell
-      isDemoMode={userState?.onboarding_mode === "demo"}
+      isDemoMode={isDemoMode}
       inAppOnboardingIntro={inAppOnboardingIntro}
     >
       {children}

@@ -169,13 +169,6 @@ export async function middleware(request: NextRequest) {
     response.cookies.delete(SESSION_IDLE_COOKIE);
   }
 
-  if (session?.user) {
-    console.info("[middleware][auth] Connected user on request", {
-      userId: session.user.id,
-      email: session.user.email ?? null,
-      pathname,
-    });
-  }
   const hasVerifyParams = request.nextUrl.searchParams.has("email") && request.nextUrl.searchParams.has("sentAt");
 
   if (!session && pathname === "/auth/sign-up/verify" && !hasVerifyParams) {
