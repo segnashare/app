@@ -53,11 +53,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Impossible de mettre à jour la checklist" }, { status: 500 });
   }
 
-  const { data: progress, error: progressError } = await supabase
+  const { data: progressRaw, error: progressError } = await supabase
     .from("onboarding_progress")
     .select("check_profile_done, check_list_first_item_done, check_style_size_done, check_first_cart_done")
     .eq("user_id", user.id)
-    .maybeSingle<OnboardingProgressRow>();
+    .maybeSingle();
+  const progress = progressRaw as OnboardingProgressRow | null;
 
   if (progressError || !progress) {
     return NextResponse.json({ error: "Impossible de lire la checklist" }, { status: 500 });

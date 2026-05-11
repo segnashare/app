@@ -115,7 +115,7 @@ export function SignInCore({
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting, isValid },
+    formState: { errors, isSubmitting, isValid, touchedFields, isSubmitted },
   } = useForm<SignInFormValues>({
     resolver: zodResolver(signInSchema),
     mode: "onChange",
@@ -129,17 +129,35 @@ export function SignInCore({
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
 
-  const hasEmailError = Boolean(errors.email) || authErrorType === "account_not_found";
-  const hasPasswordError = Boolean(errors.password) || authErrorType === "wrong_password";
+  // N'affiche les erreurs qu'après une action utilisateur :
+  // - blur du champ (ex. clic sur le champ mot de passe quitte le champ e-mail)
+  // - tentative de soumission (clic sur Continuer)
+  const showEmailError = Boolean(touchedFields.email) || isSubmitted;
+  const showPasswordError = Boolean(touchedFields.password) || isSubmitted;
+
+  const hasEmailError =
+    (showEmailError && Boolean(errors.email)) || authErrorType === "account_not_found";
+  const hasPasswordError =
+    (showPasswordError && Boolean(errors.password)) || authErrorType === "wrong_password";
 
   useEffect(() => {
     if (!onFooterStateChange) return;
+    const emailMessage = showEmailError ? errors.email?.message ?? null : null;
+    const passwordMessage = showPasswordError ? errors.password?.message ?? null : null;
     onFooterStateChange({
-      email: errors.email?.message ?? (authErrorType === "account_not_found" ? "Ce compte n'existe pas." : null),
-      password: errors.password?.message ?? (authErrorType === "wrong_password" ? "Mot de passe incorrect." : null),
+      email: emailMessage ?? (authErrorType === "account_not_found" ? "Ce compte n'existe pas." : null),
+      password: passwordMessage ?? (authErrorType === "wrong_password" ? "Mot de passe incorrect." : null),
       general: errorMessage && !authErrorType ? errorMessage : null,
     });
-  }, [errors.email?.message, errors.password?.message, authErrorType, errorMessage, onFooterStateChange]);
+  }, [
+    errors.email?.message,
+    errors.password?.message,
+    showEmailError,
+    showPasswordError,
+    authErrorType,
+    errorMessage,
+    onFooterStateChange,
+  ]);
 
   const onSubmit = handleSubmit(async ({ email, password }) => {
     setErrorMessage(null);
@@ -249,7 +267,7 @@ export function SignInCore({
             style={hasEmailError ? ({ color: "#df4e43", WebkitTextFillColor: "#df4e43" } as CSSProperties) : undefined}
             {...register("email")}
           />
-          {showInlineErrors && errors.email ? <p className="mt-2 text-[14px] font-semibold text-[#E44D3E]">{errors.email.message}</p> : null}
+          {showInlineErrors && showEmailError && errors.email ? <p className="mt-2 text-[14px] font-semibold text-[#E44D3E]">{errors.email.message}</p> : null}
           {showInlineErrors && !errors.email && authErrorType === "account_not_found" ? (
             <p className="mt-2 text-[14px] font-semibold text-[#E44D3E]">Ce compte n&apos;existe pas.</p>
           ) : null}
@@ -286,7 +304,7 @@ export function SignInCore({
               className="pointer-events-none max-h-[22px] w-auto object-contain opacity-70"
             />
           </button>
-          {showInlineErrors && errors.password ? <p className="mt-2 pr-10 text-[14px] font-semibold text-[#E44D3E]">{errors.password.message}</p> : null}
+          {showInlineErrors && showPasswordError && errors.password ? <p className="mt-2 pr-10 text-[14px] font-semibold text-[#E44D3E]">{errors.password.message}</p> : null}
           {showInlineErrors && !errors.password && authErrorType === "wrong_password" ? (
             <p className="mt-2 pr-10 text-[14px] font-semibold text-[#E44D3E]">Mot de passe incorrect.</p>
           ) : null}

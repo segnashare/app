@@ -721,11 +721,14 @@ export default async function ExchangePage() {
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
   const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
 
-  const { data: exchangeOnboardingRow } = await supabase
+  const { data: exchangeOnboardingRowRaw } = await supabase
     .from("users")
     .select("onboarding_process")
     .eq("id", userId)
-    .maybeSingle<{ onboarding_process?: string | null }>();
+    .maybeSingle();
+  const exchangeOnboardingRow = exchangeOnboardingRowRaw as {
+    onboarding_process?: string | null;
+  } | null;
   const showProfileInAppOnboarding = exchangeOnboardingRow?.onboarding_process === "profile";
 
   return (

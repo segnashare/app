@@ -40,7 +40,7 @@ export default async function CartPage() {
 
   const userId = user.id as string;
   const [{ data: userState }, membershipLabel, walletRes] = await Promise.all([
-    supabase.from("users").select("onboarding_mode").eq("id", userId).maybeSingle<{ onboarding_mode?: string | null }>(),
+    supabase.from("users").select("onboarding_mode").eq("id", userId).maybeSingle(),
     resolveMembershipLabel(supabase, userId),
     supabase
       .from("user_wallets")

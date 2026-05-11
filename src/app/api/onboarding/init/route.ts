@@ -19,11 +19,12 @@ export async function POST() {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
-  const { data: userRow, error: userRowError } = await supabase
+  const { data: userRowRaw, error: userRowError } = await supabase
     .from("users")
     .select("onboarding_mode, onboarding_completed_at")
     .eq("id", user.id)
-    .maybeSingle<UserOnboardingState>();
+    .maybeSingle();
+  const userRow = userRowRaw as UserOnboardingState | null;
 
   if (userRowError) {
     return NextResponse.json({ error: "Impossible de lire l'état onboarding" }, { status: 500 });

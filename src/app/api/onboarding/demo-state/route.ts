@@ -14,11 +14,12 @@ export async function GET() {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
-  const { data: row, error } = await supabase
+  const { data: rowRaw, error } = await supabase
     .from("onboarding_demo_state")
     .select("data")
     .eq("user_id", user.id)
-    .maybeSingle<{ data: unknown }>();
+    .maybeSingle();
+  const row = rowRaw as { data: unknown } | null;
 
   if (error) {
     return NextResponse.json({ error: "Impossible de lire les données démo" }, { status: 500 });
