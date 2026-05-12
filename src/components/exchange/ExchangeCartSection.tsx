@@ -31,6 +31,7 @@ type ExchangeCartSectionProps = {
   /** Rail CMS sous le titre « Panier » lorsque le panier est vide (`exchange_cart_empty`). */
   emptyCartCms?: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } | null;
   emptyCartCmsCatalogItems?: ShopCatalogItem[];
+  guideCartOnboarding?: boolean;
 };
 
 export function ExchangeCartSection({
@@ -40,6 +41,7 @@ export function ExchangeCartSection({
   availablePoints,
   emptyCartCms = null,
   emptyCartCmsCatalogItems = [],
+  guideCartOnboarding = false,
 }: ExchangeCartSectionProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
@@ -139,7 +141,10 @@ export function ExchangeCartSection({
     <SectionBlock
       title="Panier"
       titleHref="/cart"
-      className="w-full bg-white px-5 py-4"
+      className={cn(
+        "w-full bg-white px-5 py-2.5",
+        guideCartOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+      )}
       titleClassName={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}
     >
       <CardBase className="!rounded-none !border-0 !bg-transparent !p-0 !shadow-none space-y-0">
@@ -154,7 +159,7 @@ export function ExchangeCartSection({
                 ) : null}
                 <CmsHorizontalScrollRow
                   rows={emptyCartCms.frames}
-                  className={emptyCartCms.display.hide_section_title ? "!mt-0" : undefined}
+                  className={cn(emptyCartCms.display.hide_section_title && "!mt-0", guideCartOnboarding && "segna-guidance-shimmer-active")}
                   hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_STACK_OUTER_CLASS}
                   layout="stack"
                 />
@@ -164,7 +169,10 @@ export function ExchangeCartSection({
               <div className="flex justify-end rounded-xl py-0.5">
                 <Link
                   href="/shop"
-                  className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
+                  className={cn(
+                    "segna-guidance-shimmer-target inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900",
+                    guideCartOnboarding && "segna-guidance-shimmer-active",
+                  )}
                 >
                   <Plus className="h-4 w-4" strokeWidth={2.5} />
                   <span>Ajouter des articles</span>
@@ -182,6 +190,7 @@ export function ExchangeCartSection({
             onRemoveLine={(id) => void removeLine(id)}
             showAddArticlesLink
             exchangeUiCalm
+            guideAddArticlesLink={guideCartOnboarding}
           />
         )}
       </CardBase>

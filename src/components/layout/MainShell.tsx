@@ -4,6 +4,7 @@ import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
+import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
 import { cn } from "@/lib/utils/cn";
 
 type InAppOnboardingIntroGate = {
@@ -15,12 +16,14 @@ type MainShellProps = {
   children: ReactNode;
   isDemoMode?: boolean;
   inAppOnboardingIntro?: InAppOnboardingIntroGate | null;
+  inAppOnboardingRewardUserId?: string | null;
 };
 
 export function MainShell({
   children,
   isDemoMode = false,
   inAppOnboardingIntro = null,
+  inAppOnboardingRewardUserId = null,
 }: MainShellProps) {
   return (
     <div className="min-h-[100dvh] bg-zinc-100 text-zinc-900">
@@ -41,6 +44,7 @@ export function MainShell({
           lastSignInAt={inAppOnboardingIntro.lastSignInAt}
         />
       ) : null}
+      {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal userId={inAppOnboardingRewardUserId} /> : null}
     </div>
   );
 }

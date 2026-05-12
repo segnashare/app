@@ -13,6 +13,7 @@ type ProfileCompleteHeaderProps = {
   mode: ProfileCompleteMode;
   onModeChange: (mode: ProfileCompleteMode) => void;
   onDone?: () => void;
+  doneDisabled?: boolean;
 };
 
 export function ProfileCompleteHeader({
@@ -22,6 +23,7 @@ export function ProfileCompleteHeader({
   mode,
   onModeChange,
   onDone,
+  doneDisabled = false,
 }: ProfileCompleteHeaderProps) {
   return (
     <header className="w-full px-1 pt-5">
@@ -37,7 +39,16 @@ export function ProfileCompleteHeader({
             </p>
           </div>
           {onDone ? (
-            <button type="button" onClick={onDone} className="justify-self-end px-2 text-[20px] font-bold text-zinc-900">
+            <button
+              type="button"
+              onClick={onDone}
+              disabled={doneDisabled}
+              aria-disabled={doneDisabled}
+              className={cn(
+                "justify-self-end px-2 text-[20px] font-bold",
+                doneDisabled ? "pointer-events-none cursor-default text-zinc-300" : "text-zinc-900",
+              )}
+            >
               Terminé
             </button>
           ) : (

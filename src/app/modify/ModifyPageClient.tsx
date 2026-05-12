@@ -7,12 +7,44 @@ const montserrat = segnaMontserrat;
 
 import { PhotoModifyEditor } from "@/components/onboarding/PhotoModifyEditor";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { dataUrlToFile, fileToDataUrl, readPhotoModifyDraft, savePhotoModifyDraft, type PhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
+import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
+import {
+  dataUrlToFile,
+  getPhotoModifyRuntimeFile,
+  preparePhotoModifyImage,
+  readPhotoModifyDraft,
+  registerPhotoModifyRuntimeFile,
+  savePhotoModifyDraft,
+  type PhotoModifyDraft,
+} from "@/lib/onboarding/photoModifyStore";
 import { cn } from "@/lib/utils/cn";
 
 
 
 type Offset = { x: number; y: number };
+
+function createUploadObjectPath({
+  source,
+  userId,
+  slot,
+  extension,
+  itemId,
+}: {
+  source: PhotoModifyDraft["source"];
+  userId: string;
+  slot?: number;
+  extension: string;
+  itemId?: string;
+}) {
+  const uploadId = `${Date.now()}-${crypto.randomUUID()}`;
+  if (source === "looks" && typeof slot === "number") {
+    return `users/${userId}/looks/${slot + 1}/${uploadId}.${extension}`;
+  }
+  if (source === "item" && typeof slot === "number") {
+    return `users/${userId}/items/${itemId ?? "draft"}/photo_${slot + 1}_${uploadId}.${extension}`;
+  }
+  return `users/${userId}/profile/${uploadId}.${extension}`;
+}
 
 export function ModifyPageClient() {
   const router = useRouter();
@@ -61,6 +93,7 @@ export function ModifyPageClient() {
 
     const uploadAtDone = async (): Promise<string | null> => {
       if (!shouldUploadNow) return null;
+      if (draft.isRemoteSource) return draft.originalStoragePath ?? null;
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData.user?.id) {
         throw new Error("Session introuvable pour uploader la photo.");
@@ -70,17 +103,22 @@ export function ModifyPageClient() {
       const fileExtension = draft.fileName.includes(".") ? draft.fileName.split(".").pop() || "jpg" : "jpg";
       const normalizedExt = fileExtension.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
       const bucketId = draft.source === "item" ? "bucket_items" : "bucket_focus";
-      const path =
-        draft.source === "looks" && typeof draft.slot === "number"
-          ? `users/${userId}/looks/${draft.slot + 1}/original.${normalizedExt}`
-          : draft.source === "item" && typeof draft.slot === "number"
-            ? `users/${userId}/items/${draft.itemId ?? "draft"}/photo_${draft.slot + 1}.${normalizedExt}`
-            : `users/${userId}/profile/original.${normalizedExt}`;
-      const file = await dataUrlToFile(draft.dataUrl, draft.fileName, draft.mimeType);
-      const { error: uploadError } = await supabase.storage.from(bucketId).upload(path, file, {
-        upsert: true,
-        contentType: file.type || "image/jpeg",
+      const path = createUploadObjectPath({
+        source: draft.source,
+        userId,
+        slot: draft.slot,
+        extension: normalizedExt,
+        itemId: draft.itemId,
       });
+      const file = getPhotoModifyRuntimeFile(draft.id) ?? await dataUrlToFile(draft.dataUrl, draft.fileName, draft.mimeType);
+      const { error: uploadError } = await measureClientPhotoPerf("photo.storageUpload", () =>
+        supabase.storage.from(bucketId).upload(path, file, {
+          upsert: false,
+          cacheControl: "31536000",
+          contentType: file.type || "image/jpeg",
+        }),
+        { source: draft.source, size: file.size },
+      );
       if (uploadError) {
         throw new Error(uploadError.message);
       }
@@ -89,7 +127,7 @@ export function ModifyPageClient() {
 
     let storagePath = shouldUploadNow ? draft.originalStoragePath ?? null : null;
     try {
-      const uploaded = await uploadAtDone();
+      const uploaded = await measureClientPhotoPerf("photo.modifyDone", uploadAtDone, { source: draft.source });
       if (uploaded) storagePath = uploaded;
     } catch (error) {
       setIsSaving(false);
@@ -112,20 +150,22 @@ export function ModifyPageClient() {
     event.currentTarget.value = "";
     if (!file || !draft) return;
 
-    const nextDataUrl = await fileToDataUrl(file);
+    const prepared = await preparePhotoModifyImage(file);
     const nextDraft: PhotoModifyDraft = {
       ...draft,
-      dataUrl: nextDataUrl,
-      fileName: file.name || draft.fileName,
-      mimeType: file.type || draft.mimeType,
+      dataUrl: prepared.previewUrl,
+      fileName: prepared.fileName || draft.fileName,
+      mimeType: prepared.mimeType || draft.mimeType,
       offset: { x: 0, y: 0 },
       zoom: 1,
       status: "pending",
+      isRemoteSource: false,
     };
 
     setDraft(nextDraft);
     setOffset(nextDraft.offset);
     setZoom(nextDraft.zoom);
+    registerPhotoModifyRuntimeFile(nextDraft.id, prepared.file, prepared.previewUrl);
     savePhotoModifyDraft(nextDraft);
   };
 

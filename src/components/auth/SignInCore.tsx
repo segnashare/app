@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/Input";
 import { signInSchema } from "@/features/auth/lib/schemas";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
-import { themeClassNames } from "@/styles/theme";
 
 type SignInFormValues = {
   email: string;
@@ -51,6 +50,7 @@ export function SignInCore({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [authErrorType, setAuthErrorType] = useState<"account_not_found" | "wrong_password" | null>(null);
   const [activeSessionEmail, setActiveSessionEmail] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [passwordPlainVisible, setPasswordPlainVisible] = useState(false);
 
   const resolvePostSignInPath = useCallback(
@@ -214,8 +214,17 @@ export function SignInCore({
   };
 
   const handleSignOutMemberEntry = async () => {
-    await supabase.auth.signOut();
+    if (isSigningOut) return;
+    setErrorMessage(null);
+    setIsSigningOut(true);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setErrorMessage(error.message || "Impossible de te déconnecter.");
+      setIsSigningOut(false);
+      return;
+    }
     setActiveSessionEmail(null);
+    router.replace("/auth/login");
     router.refresh();
   };
 
@@ -224,29 +233,42 @@ export function SignInCore({
   return (
     <div className={cn(montserrat.className, "flex w-full flex-col items-center")}>
       {memberEntry && activeSessionEmail ? (
-        <div className="mb-6 w-full max-w-[min(100%,380px)] rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-zinc-800">
-          <p className="text-[15px] font-medium leading-snug">
-            Tu es déjà connecté avec <span className="text-zinc-950">{activeSessionEmail}</span>.
-          </p>
-          <div className="mt-4 flex flex-col gap-3">
-            <button
-              type="button"
-              className={cn(
-                themeClassNames.auth.pillCtaTextSize,
-                "rounded-full bg-zinc-900 py-3 font-semibold text-white",
-              )}
-              onClick={() => void handleContinueExistingSession()}
-            >
-              Continuer où j&apos;en étais
-            </button>
-            <button
-              type="button"
-              className="text-[15px] font-semibold text-[#8B6A54] underline underline-offset-2"
-              onClick={() => void handleSignOutMemberEntry()}
-            >
-              Me déconnecter et me connecter avec un autre compte
-            </button>
-          </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-5 py-8 backdrop-blur-[3px]">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signin-existing-session-title"
+            className="w-full max-w-[360px] rounded-[30px] border border-white/70 bg-white px-6 py-7 text-center text-zinc-900 shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
+          >
+            <p id="signin-existing-session-title" className="text-[20px] font-semibold leading-snug tracking-[-0.02em]">
+              Tu es déjà connecté
+            </p>
+            <p className="mt-3 break-words text-[15px] font-medium leading-snug text-zinc-500">
+              avec <span className="font-semibold text-zinc-950">{activeSessionEmail}</span>.
+            </p>
+            <div className="mt-6 flex flex-col gap-4">
+              <button
+                type="button"
+                className={cn(
+                  "mx-auto h-[48px] w-full max-w-[280px] rounded-full bg-zinc-950 px-5 text-[16px] font-bold text-white transition hover:bg-zinc-900",
+                )}
+                onClick={() => void handleContinueExistingSession()}
+              >
+                Continuer
+              </button>
+              <button
+                type="button"
+                className="px-4 text-[14px] font-bold leading-snug text-zinc-950 underline underline-offset-4 transition hover:text-zinc-700 disabled:cursor-wait disabled:opacity-60"
+                onClick={() => void handleSignOutMemberEntry()}
+                disabled={isSigningOut}
+              >
+                {isSigningOut ? "Déconnexion..." : "Changer de compte"}
+              </button>
+            </div>
+            {errorMessage && !authErrorType ? (
+              <p className="mt-4 text-[14px] font-semibold leading-snug text-[#E44D3E]">{errorMessage}</p>
+            ) : null}
+          </section>
         </div>
       ) : null}
 

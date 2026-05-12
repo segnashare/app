@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils/cn";
 
 
 const ITEM_STAGE_RATIO = 1;
-const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
+const ITEM_PHOTO_FRAME_CLASS = "aspect-square";
 
 function FrameActionButton({
   variant = "heart",

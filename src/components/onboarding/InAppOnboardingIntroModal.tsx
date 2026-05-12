@@ -74,7 +74,7 @@ export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboard
       return;
     }
     setOpen(false);
-    router.push("/exchange");
+    router.refresh();
   };
 
   return (

@@ -10,17 +10,15 @@ import { photoCoverStyleFromCmsPosition } from "@/lib/cms/cms-editor-photo-style
 import { lerpHexColors } from "@/lib/ui/lerp-hex-color";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
+import {
+  isLightBackgroundHex,
+  normalizeSlideBackgroundHex,
+  type OnboardingCarouselVisualState,
+} from "@/components/onboarding/onboarding-intro-carousel-visual";
 
 import stackStyles from "./OnboardingIntroImageStack.module.css";
 
 const montserrat = segnaMontserrat;
-
-export type OnboardingCarouselVisualState = {
-  /** Diapositive la plus proche du centre (arrondi). */
-  activeIndex: number;
-  /** Couleur de fond à afficher hors carrousel (titre, CTA) — interpolée pendant le balayage. */
-  backgroundHex: string;
-};
 
 function aspectClass(aspect: string | undefined) {
   if (aspect === "portrait") return stackStyles.aspectPortrait;
@@ -51,26 +49,6 @@ function slideImageStyle(row: CmsFrameRow): CSSProperties {
     };
   }
   return { background: "linear-gradient(135deg, #f4f4f5 0%, #e4e4e7 100%)" };
-}
-
-export function normalizeSlideBackgroundHex(raw: string | undefined | null, fallback: string): string {
-  if (!raw || typeof raw !== "string") return fallback;
-  const t = raw.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(t)) return t;
-  if (/^[0-9a-fA-F]{6}$/.test(t)) return `#${t}`;
-  return fallback;
-}
-
-/** true si fond très clair → texte foncé sur la légende slide. */
-export function isLightBackgroundHex(hex: string): boolean {
-  const n = hex.replace("#", "");
-  if (n.length !== 6) return true;
-  const r = Number.parseInt(n.slice(0, 2), 16);
-  const g = Number.parseInt(n.slice(2, 4), 16);
-  const b = Number.parseInt(n.slice(4, 6), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return true;
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.72;
 }
 
 function computeCarouselVisualState(list: CmsFrameRow[], scrollProgress: number): OnboardingCarouselVisualState {
@@ -233,7 +211,8 @@ export function OnboardingIntroImageCarousel({ frames, onCarouselVisualUpdate, c
   const [scrollBodyMounted, setScrollBodyMounted] = useState(false);
 
   useLayoutEffect(() => {
-    setScrollBodyMounted(true);
+    const rafId = window.requestAnimationFrame(() => setScrollBodyMounted(true));
+    return () => window.cancelAnimationFrame(rafId);
   }, []);
 
   if (sorted.length === 0) return null;

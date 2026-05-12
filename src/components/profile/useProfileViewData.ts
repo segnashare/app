@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { parseUserProfilePhotoPath } from "@/lib/profile/parse-profile-photo-path";
@@ -36,6 +36,21 @@ type CachedPayload = {
   infoCard?: ProfileViewInfoCardData;
 };
 
+function cleanDisplayValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "À compléter" || trimmed === "Non renseigné") return "";
+  return trimmed;
+}
+
+function compactLookSlots<T>(slots: Array<T | null>): Array<T | null> {
+  const filled = slots.filter((slot): slot is T => slot != null);
+  const compacted: Array<T | null> = [...filled];
+  while (compacted.length < 3) compacted.push(null);
+  return compacted.slice(0, 3);
+}
+
 function readModifyCache(): CachedPayload | null {
   if (typeof window === "undefined") return null;
   try {
@@ -51,10 +66,17 @@ function readModifyCache(): CachedPayload | null {
 }
 
 function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null, cityFromDb: string | null): ProfileViewInfoCardData {
+  const age = cleanDisplayValue(cache.infoItems?.find((i) => i.id === "age")?.value);
+  const profession = cleanDisplayValue(cache.infoItems?.find((i) => i.id === "work")?.value);
   const base = cache.infoCard
-    ? { ...cache.infoCard, displayName: displayName ?? cache.infoCard.displayName ?? null }
+    ? {
+        ...cache.infoCard,
+        age: cleanDisplayValue(cache.infoCard.age) || null,
+        profession: cleanDisplayValue(cache.infoCard.profession) || null,
+        displayName: displayName ?? cache.infoCard.displayName ?? null,
+      }
     : {
-        age: cache.infoItems?.find((i) => i.id === "age")?.value ?? null,
+        age: age || null,
         ratingValue: "5.0",
         ratingStars: 5,
         levelIcon: "🌱",
@@ -64,7 +86,7 @@ function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null
         sport: false,
         night: true,
         city: null,
-        profession: cache.infoItems?.find((i) => i.id === "work")?.value ?? null,
+        profession: profession || null,
         socialSectionVisible: true,
         instagramHandle: null,
         tiktokHandle: null,
@@ -78,15 +100,18 @@ function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null
 
 function cacheToProfileViewData(cache: CachedPayload, displayName?: string | null, cityFromDb?: string | null): ProfileViewData {
   const visibilityMap = cache.infoVisibilityMap ?? {};
-  const infoItems: ProfileViewInfoItem[] = cache.infoItems.map((item) => ({
-    ...item,
-    visibility: (visibilityMap[item.id] !== false ? "visible" : "hidden") as "visible" | "hidden",
-  }));
+  const infoItems: ProfileViewInfoItem[] = cache.infoItems
+    .map((item) => ({
+      ...item,
+      value: cleanDisplayValue(item.value),
+      visibility: (visibilityMap[item.id] !== false ? "visible" : "hidden") as "visible" | "hidden",
+    }))
+    .filter((item) => item.value.length > 0);
 
   const brandsItem = cache.styleItems?.find((s) => s.id === "brands");
-  const brandsLabel = brandsItem?.value ?? "";
+  const brandsLabel = cleanDisplayValue(brandsItem?.value);
   const brands: ProfileViewBrand[] = brandsLabel
-    ? brandsLabel.split(",").map((label) => ({ id: "", label: label.trim(), logoUrl: null })).filter((b) => b.label)
+    ? brandsLabel.split(",").map((label) => ({ id: "", label: cleanDisplayValue(label), logoUrl: null })).filter((b) => b.label)
     : [];
 
   const answers = cache.answers ?? {
@@ -109,7 +134,7 @@ function cacheToProfileViewData(cache: CachedPayload, displayName?: string | nul
   return {
     profilePhoto: toLookSlot(cache.profilePhoto),
     infoCard: buildInfoCardFromCache(cache, displayName ?? null, cityFromDb ?? null),
-    looksSlots: cache.looksSlots.map(toLookSlot),
+    looksSlots: compactLookSlots(cache.looksSlots.map(toLookSlot)),
     infoItems,
     brands,
     insights,
@@ -120,13 +145,23 @@ function cacheToProfileViewData(cache: CachedPayload, displayName?: string | nul
   };
 }
 
+function readInitialModifyCacheData(userId?: string | null, displayName?: string | null) {
+  if (userId) return null;
+  const cache = readModifyCache();
+  return cache ? cacheToProfileViewData(cache, displayName ?? null, null) : null;
+}
+
 export function useProfileViewData(userId?: string | null, displayName?: string | null) {
-  const [data, setData] = useState<ProfileViewData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<ProfileViewData | null>(() => readInitialModifyCacheData(userId, displayName));
+  const [isLoading, setIsLoading] = useState(() => !readInitialModifyCacheData(userId, displayName));
+  const didInitializeUserIdRef = useRef(false);
 
   const loadFromCache = useCallback(async () => {
     const cache = readModifyCache();
     if (!cache) return false;
+    const optimisticViewData = cacheToProfileViewData(cache, displayName ?? null, null);
+    setData(optimisticViewData);
+    setIsLoading(false);
     const supabase = createSupabaseBrowserClient() as any;
     let cityFromDb: string | null = null;
     let brandsFromDb: ProfileViewBrand[] = [];
@@ -312,7 +347,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       };
     }
 
-    const looksSlots: Array<ProfileViewLookSlot | null> = await Promise.all(
+    const looksSlots: Array<ProfileViewLookSlot | null> = compactLookSlots(await Promise.all(
       looksRaw.map(async (r) => {
         if (!r) return null;
         const sp = r.storage_path ?? r.url ?? r.path;
@@ -328,7 +363,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
           imageRatio: await getImageRatio(url),
         };
       }),
-    );
+    ));
     while (looksSlots.length < 3) looksSlots.push(null);
 
     const parseAnswers = () => {
@@ -364,7 +399,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       }
     }
 
-    const toDisplay = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
+    const toDisplay = cleanDisplayValue;
 
     const ageStr = toDisplay(profileRow.age ?? profileData.age);
     const workStr = toDisplay(profileData.work);
@@ -428,6 +463,10 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
   }, [userId]);
 
   useEffect(() => {
+    if (!didInitializeUserIdRef.current) {
+      didInitializeUserIdRef.current = true;
+      return;
+    }
     setData(null);
     setIsLoading(true);
   }, [userId]);

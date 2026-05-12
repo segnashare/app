@@ -38,6 +38,8 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
   const router = useRouter();
 
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ONBOARDING_CLIENT_GUARD !== "1") return;
+
     const guardOnboardingAccess = async () => {
       const supabase = createSupabaseBrowserClient();
 

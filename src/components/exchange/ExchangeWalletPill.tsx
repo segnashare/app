@@ -61,7 +61,7 @@ export function ExchangeWalletPill({
         description:
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
         primaryCtaLabel: "Obtenir des crédits d'échange",
-        primaryCtaHref: "/profile?tab=obtenirplus",
+        primaryCtaHref: "/package?plan=credits",
         secondaryCtaLabel: "Devenir membre SegnaX",
         secondaryCtaHref: "/package?plan=x",
       };
@@ -75,7 +75,7 @@ export function ExchangeWalletPill({
         primaryCtaLabel: "Voir les offres Segna+",
         primaryCtaHref: "/package",
         secondaryCtaLabel: "Obtenir des crédits d'échange",
-        secondaryCtaHref: "/profile?tab=obtenirplus",
+        secondaryCtaHref: "/package?plan=credits",
       };
     }
 
@@ -84,7 +84,7 @@ export function ExchangeWalletPill({
         title: "Plafond de prêt atteint",
         description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
         primaryCtaLabel: "Obtenir des crédits d'échange",
-        primaryCtaHref: "/profile?tab=obtenirplus",
+        primaryCtaHref: "/package?plan=credits",
         secondaryCtaLabel: "Comprendre",
         secondaryCtaHref: "/package",
       };
@@ -97,7 +97,7 @@ export function ExchangeWalletPill({
       primaryCtaLabel: "Ajouter",
       primaryCtaHref: "/shop",
       secondaryCtaLabel: "Obtenir des crédits d'échange",
-      secondaryCtaHref: "/profile?tab=obtenirplus",
+      secondaryCtaHref: "/package?plan=credits",
     };
   }, [walletState]);
 
@@ -127,7 +127,7 @@ export function ExchangeWalletPill({
             src={SEGNA_BRAND_LOGO_SRC}
             alt=""
             aria-hidden
-            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left brightness-0 invert"
+            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left invert"
           />
         )}
         <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.25} />

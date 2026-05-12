@@ -1,6 +1,6 @@
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import {
-  createSignedUrlForStoragePath,
+  createSignedUrlsForStoragePaths,
   type StorageSignClient,
 } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -53,13 +53,7 @@ export async function fetchSignedFirstPhotoUrlsByCartIds(
     rawPathsByCart.get(row.cart_id)?.push(path);
   }
 
-  const signedByPath = new Map<string, string>();
-  await Promise.all(
-    [...pathsToSign].map(async (path) => {
-      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-      if (signed) signedByPath.set(path, signed);
-    }),
-  );
+  const signedByPath = await createSignedUrlsForStoragePaths(supabase, [...pathsToSign], 60 * 60 * 24);
 
   for (const id of cartIds) {
     const urls = (rawPathsByCart.get(id) ?? [])

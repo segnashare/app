@@ -123,7 +123,7 @@ function backgroundSolidStyle(payload: CmsFramePayload): CSSProperties | undefin
  * que `shop_link_card` (section `shop_home_capsules` 2ᵉ rail, « Nos offres », etc.).
  */
 function hubWidePayloadFromOffer(p: CmsFramePayload): CmsFramePayload {
-  const title = [p.title?.trim(), p.subtitle?.trim()].filter(Boolean).join("\n") || "Sans titre";
+  const title = [p.title?.trim(), p.subtitle?.trim()].filter(Boolean).join("\n");
   return {
     ...p,
     title,
@@ -134,7 +134,7 @@ function hubWidePayloadFromOffer(p: CmsFramePayload): CmsFramePayload {
 }
 
 function hubWidePayloadFromPromo(p: CmsFramePayload): CmsFramePayload {
-  const title = [p.header?.trim(), p.title?.trim()].filter(Boolean).join("\n") || p.title?.trim() || "—";
+  const title = [p.header?.trim(), p.title?.trim()].filter(Boolean).join("\n");
   return {
     ...p,
     title,
@@ -145,8 +145,7 @@ function hubWidePayloadFromPromo(p: CmsFramePayload): CmsFramePayload {
 }
 
 function hubWidePayloadFromEditorial(p: CmsFramePayload): CmsFramePayload {
-  const title =
-    [p.label?.trim(), p.title?.trim(), p.body?.trim()].filter(Boolean).join("\n") || p.title?.trim() || "—";
+  const title = [p.label?.trim(), p.title?.trim(), p.body?.trim()].filter(Boolean).join("\n");
   return {
     ...p,
     title,
@@ -177,7 +176,7 @@ function OfferCardInner({ payload }: { payload: CmsFramePayload }) {
     payload.background?.kind === "image"
       ? imageUrlFromPayload(payload.background.image)
       : null;
-  const title = payload.title?.trim() || "Sans titre";
+  const title = payload.title?.trim() || "";
   const subtitle = payload.subtitle?.trim() || "";
   const cta = payload.cta_label?.trim() || "Découvrir →";
 
@@ -202,7 +201,7 @@ function OfferCardInner({ payload }: { payload: CmsFramePayload }) {
         </div>
       ) : null}
       <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
-        <p className="text-[15px] font-semibold leading-snug text-zinc-900">{title}</p>
+        {title ? <p className="text-[15px] font-semibold leading-snug text-zinc-900">{title}</p> : null}
         {subtitle ? <p className="mt-1 text-[13px] leading-snug text-zinc-600">{subtitle}</p> : null}
         <span className={cn("mt-3 inline-flex text-xs font-semibold", cmsLinkCardCtaClassName(linkCtaTone))}>{cta}</span>
       </div>
@@ -227,7 +226,7 @@ export function ShopWideLinkCardBlock({
 }) {
   const layout = useCmsFrameLayoutMode();
   const href = payload.target_url?.trim() || "/shop";
-  const title = payload.title?.trim() || "Découvrir";
+  const title = payload.title?.trim() || "";
   const pill = payload.cta_pill === true;
   const ctaText = payload.cta_label?.trim() || "Découvrir";
   const bgUrl =
@@ -240,7 +239,7 @@ export function ShopWideLinkCardBlock({
     setCoverState(bgUrl ? "loading" : "ready");
   }, [bgUrl]);
 
-  const showTitle = !visualOnly && (!bgUrl || coverState === "ready" || coverState === "failed");
+  const showTitle = Boolean(title) && !visualOnly && (!bgUrl || coverState === "ready" || coverState === "failed");
   const fullCardShimmer = Boolean(bgUrl) && coverState === "loading";
   const showPillOverlay = pill && !visualOnly;
 
@@ -294,21 +293,22 @@ export function ShopWideLinkCardBlock({
               pill ? "justify-between" : "justify-start",
             )}
           >
-            <p
-              className={cn(
-                /* Même échelle typographique que CmsFramePreview (ShopLinkCardPreview) BO */
-                "whitespace-pre-line text-[22px] font-bold not-italic leading-tight",
-                montserratLinkCardTitle.className,
-                linkCardTitleClassName(payload),
-                !showTitle && "invisible",
-              )}
-            >
-              {title}
-            </p>
+            {showTitle ? (
+              <p
+                className={cn(
+                  /* Même échelle typographique que CmsFramePreview (ShopLinkCardPreview) BO */
+                  "whitespace-pre-line text-[22px] font-bold not-italic leading-tight",
+                  montserratLinkCardTitle.className,
+                  linkCardTitleClassName(payload),
+                )}
+              >
+                {title}
+              </p>
+            ) : null}
             {pill ? (
               <span
                 className={cn(
-                  "mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
+                  "segna-guidance-shimmer-target mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
                   montserratWideCardCta.className,
                 )}
               >
@@ -326,7 +326,7 @@ function CategoryCapsuleInner({ payload }: { payload: CmsFramePayload }) {
   const layout = useCmsFrameLayoutMode();
   const href = payload.target_url?.trim() || "/shop";
   const label = payload.label?.trim();
-  const title = payload.title?.trim() || "Sans titre";
+  const title = payload.title?.trim() || "";
   const inset = payload.inset_image;
   const insetUrl = imageUrlFromPayload(inset);
 
@@ -353,9 +353,11 @@ function CategoryCapsuleInner({ payload }: { payload: CmsFramePayload }) {
       ) : null}
       <div className="relative z-[1] flex flex-1 flex-col">
         {label ? <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">{label}</p> : null}
-        <p className={cn("font-bold text-zinc-900", label ? "mt-1 text-[20px] leading-tight" : "text-[20px] leading-tight")}>
-          {title}
-        </p>
+        {title ? (
+          <p className={cn("font-bold text-zinc-900", label ? "mt-1 text-[20px] leading-tight" : "text-[20px] leading-tight")}>
+            {title}
+          </p>
+        ) : null}
         {insetUrl ? (
           <div className="mt-2 h-16 w-full overflow-hidden rounded-lg">
             <RemoteCoverThumb
@@ -588,7 +590,7 @@ function CmsShopItemRefStandalone({ row }: { row: CmsFrameRow }) {
   const id = typeof p.item_id === "string" ? p.item_id.trim() : "";
   if (!id) return null;
   const spotUrl = imageUrlFromPayload(p.item_spotlight_image);
-  const title = p.title?.trim() || "Découvrir la pièce";
+  const title = p.title?.trim() || "";
 
   return (
     <Link href={`/items/${id}?from=cms`} className={cn(cmsRefOuterClass(layout, hubOuter), "block")}>
@@ -604,7 +606,7 @@ function CmsShopItemRefStandalone({ row }: { row: CmsFrameRow }) {
             <div className="h-full w-full bg-zinc-200" aria-hidden />
           )}
         </div>
-        <p className="px-0.5 text-left text-[14px] font-bold leading-snug text-zinc-900">{title}</p>
+        {title ? <p className="px-0.5 text-left text-[14px] font-bold leading-snug text-zinc-900">{title}</p> : null}
       </div>
     </Link>
   );
@@ -715,7 +717,7 @@ function ProfilePlusHeroInner({ payload }: { payload: CmsFramePayload }) {
           <span
             className={cn(
               segnaMontserrat.className,
-              "mt-6 inline-flex max-w-full items-center justify-center rounded-full bg-zinc-100 px-5 py-2.5 text-center text-[13px] font-bold leading-snug text-zinc-900 sm:px-6 sm:py-3 sm:text-sm",
+              "segna-guidance-shimmer-target mt-6 inline-flex max-w-full items-center justify-center rounded-full bg-zinc-100 px-5 py-2.5 text-center text-[13px] font-bold leading-snug text-zinc-900 sm:px-6 sm:py-3 sm:text-sm",
             )}
           >
             {renderCmsStarBoldSegments(ctaText, "profile-plus-hero-cta")}

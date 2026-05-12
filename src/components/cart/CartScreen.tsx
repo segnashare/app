@@ -56,6 +56,8 @@ type CartScreenProps = {
   cmsShopHubCatalogItems?: ShopCatalogItem[];
   /** Échantillon catalogue pour le bloc AUTO « Susceptibles de vous plaire » sur le panier (`shop_system_for_you`). */
   cartShopSystemForYouItems?: ShopCatalogItem[];
+  /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
+  showOfferOnboarding?: boolean;
 };
 
 const OFFERS: OfferCardData[] = [
@@ -106,6 +108,7 @@ export function CartScreen({
   cmsSectionsByKey = {},
   cmsShopHubCatalogItems = [],
   cartShopSystemForYouItems = [],
+  showOfferOnboarding = false,
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
@@ -333,7 +336,10 @@ export function CartScreen({
               hasReachedLendingCap={hasReachedLendingCap}
               cartExceedsWallet={cartExceedsWallet}
               onWalletPanelOpenChange={setWalletPanelOpen}
-              className="min-w-0 max-w-[min(100%,14.5rem)] shrink"
+              className={cn(
+                "min-w-0 max-w-[min(100%,14.5rem)] shrink",
+                showOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+              )}
             />
           </div>
           <h1 className={cn("mt-5", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Panier</h1>
@@ -354,7 +360,19 @@ export function CartScreen({
           {panierSectionOrder.map((slotKey) => {
             if (slotKey === "cart_system_items") {
               return (
-                <section key={slotKey} className="bg-white px-5 py-4">
+                <section key={slotKey} className="bg-white px-5 pb-4 pt-8">
+                  {showOfferOnboarding ? (
+                    <div
+                      className="mb-5 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-[0_8px_28px_rgba(24,24,27,0.07)]"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <h2 className={segnaDialogTitleClass()}>Crédits et capacité</h2>
+                      <p className={cn(segnaDialogBodyClass(), "mt-1.5 text-[14px] font-medium text-zinc-600")}>
+                        Tu n'as pas encore de crédits. Remplis ton wallet gratuitement !
+                      </p>
+                    </div>
+                  ) : null}
                   {orderedLines.length === 0 ? (
                     <div className="pb-2 pt-1">
                       <p className="text-center text-sm font-medium text-zinc-600">
@@ -453,7 +471,10 @@ export function CartScreen({
                 {cms.frames.length > 0 ? (
                   <CmsHorizontalScrollRow
                     rows={cms.frames}
-                    className={cms.display.hide_section_title ? "!mt-0" : undefined}
+                    className={cn(
+                      cms.display.hide_section_title && "!mt-0",
+                      showOfferOnboarding && slotKey === "cart_offers" && "segna-guidance-shimmer-active",
+                    )}
                     hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
                   />
                 ) : (

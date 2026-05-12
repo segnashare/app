@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Briefcase, Cigarette, Dumbbell, Moon, Share2, Wine } from "lucide-react";
+import { Briefcase, Cigarette, Dumbbell, Moon, Wine } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
@@ -164,21 +164,13 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
         </div>
       </div>
 
-      {/* Ligne 2 : profession + résumé réseaux (infos) */}
-      {data.profession || data.reseauxSummary ? (
+      {/* Ligne 2 : profession uniquement ; les réseaux ont leur section dédiée juste dessous. */}
+      {data.profession ? (
         <div className="space-y-3 border-t border-zinc-100 py-4">
-          {data.profession ? (
-            <div className="flex items-center gap-4">
-              <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
-              <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.profession}</span>
-            </div>
-          ) : null}
-          {data.reseauxSummary ? (
-            <div className="flex items-start gap-4">
-              <Share2 className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
-              <span className={cn(montserrat.className, "min-w-0 flex-1 font-semibold leading-snug text-zinc-900")}>{data.reseauxSummary}</span>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-4">
+            <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
+            <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.profession}</span>
+          </div>
         </div>
       ) : null}
 

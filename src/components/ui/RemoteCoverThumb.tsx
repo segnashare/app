@@ -65,7 +65,7 @@ function exchangeCoverStyle(photoPosition: PhotoPosition): Pick<CSSProperties, "
  * Squelette balayage puis fond crop : affichage net seulement après chargement (pas de dévoilement progressif).
  */
 export function RemoteCoverThumb(props: RemoteCoverThumbProps) {
-  return <RemoteCoverThumbImpl key={props.photoUrl} {...props} />;
+  return <RemoteCoverThumbImpl {...props} />;
 }
 
 function RemoteCoverThumbImpl({
@@ -78,17 +78,25 @@ function RemoteCoverThumbImpl({
   suppressLoadSkeleton = false,
   onLoadStateChange,
 }: RemoteCoverThumbProps) {
-  const [ready, setReady] = useState(false);
+  const canPaintBeforeDecode = Boolean(coverStyle && !photoCoverFill);
+  const [ready, setReady] = useState(canPaintBeforeDecode);
   const [failed, setFailed] = useState(false);
+  const [loadedPhotoUrl, setLoadedPhotoUrl] = useState<string | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [containerBox, setContainerBox] = useState({ w: 0, h: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
+  const loadedPhotoUrlRef = useRef<string | null>(null);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
-  onLoadStateChangeRef.current = onLoadStateChange;
 
   const pos = photoPosition ?? null;
   const useCoverFill = Boolean(photoCoverFill && !coverStyle);
   const bgExtras = coverStyle ?? exchangeCoverStyle(pos);
+  const displayedPhotoUrl = loadedPhotoUrl ?? photoUrl;
+  const shouldPaintPhoto = ready || canPaintBeforeDecode;
+
+  useEffect(() => {
+    onLoadStateChangeRef.current = onLoadStateChange;
+  }, [onLoadStateChange]);
 
   useEffect(() => {
     const state: RemoteCoverLoadState = failed ? "failed" : ready ? "ready" : "loading";
@@ -97,9 +105,11 @@ function RemoteCoverThumbImpl({
 
   useEffect(() => {
     let cancelled = false;
-    setNaturalSize(null);
-    setReady(false);
-    setFailed(false);
+    if (canPaintBeforeDecode) {
+      loadedPhotoUrlRef.current = photoUrl;
+      setLoadedPhotoUrl(photoUrl);
+      setReady(true);
+    }
     const img = new Image();
     img.onload = () => {
       void (async () => {
@@ -110,12 +120,15 @@ function RemoteCoverThumbImpl({
         }
         if (!cancelled) {
           setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+          loadedPhotoUrlRef.current = photoUrl;
+          setLoadedPhotoUrl(photoUrl);
+          setFailed(false);
           setReady(true);
         }
       })();
     };
     img.onerror = () => {
-      if (!cancelled) {
+      if (!cancelled && !loadedPhotoUrlRef.current) {
         setFailed(true);
       }
     };
@@ -123,7 +136,7 @@ function RemoteCoverThumbImpl({
     return () => {
       cancelled = true;
     };
-  }, [photoUrl]);
+  }, [canPaintBeforeDecode, photoUrl]);
 
   useLayoutEffect(() => {
     if (!useCoverFill || !ready) return;
@@ -138,7 +151,7 @@ function RemoteCoverThumbImpl({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [useCoverFill, ready, photoUrl]);
+  }, [useCoverFill, ready, displayedPhotoUrl]);
 
   const cmsMatchedFillStyle = useMemo(() => {
     if (!useCoverFill || !ready) return null;
@@ -147,7 +160,7 @@ function RemoteCoverThumbImpl({
     const oy = Number(pos?.offset?.y ?? 0);
     if (!naturalSize || containerBox.w <= 0 || containerBox.h <= 0) return null;
     return backgroundStyleCmsPhotoEditorMatch({
-      photoUrl,
+      photoUrl: displayedPhotoUrl,
       naturalWidth: naturalSize.w,
       naturalHeight: naturalSize.h,
       containerWidth: containerBox.w,
@@ -159,7 +172,7 @@ function RemoteCoverThumbImpl({
   }, [
     useCoverFill,
     ready,
-    photoUrl,
+    displayedPhotoUrl,
     naturalSize,
     containerBox.w,
     containerBox.h,
@@ -172,13 +185,13 @@ function RemoteCoverThumbImpl({
     useCoverFill && ready
       ? (cmsMatchedFillStyle ?? {
           ...exchangeCoverStyle(pos),
-          backgroundImage: `url(${photoUrl})`,
+          backgroundImage: `url(${displayedPhotoUrl})`,
         })
       : null;
 
   return (
     <div ref={frameRef} className={cn("relative overflow-hidden bg-zinc-200", frameClassName)}>
-      {!suppressLoadSkeleton && !failed && !ready ? (
+      {!suppressLoadSkeleton && !failed && !shouldPaintPhoto ? (
         <SegnaSkeletonBlock
           className="pointer-events-none absolute inset-0 z-[2]"
           rounded="rounded-none"
@@ -188,7 +201,7 @@ function RemoteCoverThumbImpl({
         <div className="relative z-[1] flex h-full w-full items-center justify-center text-zinc-400">
           <ImageIcon className="h-7 w-7" aria-hidden />
         </div>
-      ) : ready ? (
+      ) : shouldPaintPhoto ? (
         useCoverFill && fillLayerStyle ? (
           <div
             className={cn("relative z-[1] h-full w-full bg-no-repeat", className)}
@@ -199,7 +212,7 @@ function RemoteCoverThumbImpl({
             className={cn("relative z-[1] h-full w-full bg-center bg-no-repeat", className)}
             style={{
               ...bgExtras,
-              backgroundImage: `url(${photoUrl})`,
+              backgroundImage: `url(${displayedPhotoUrl})`,
             }}
           />
         )

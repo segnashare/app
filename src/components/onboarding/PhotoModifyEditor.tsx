@@ -191,7 +191,7 @@ function PhotoModifyEditorImpl({ dataUrl, aspect, offset, zoom, onOffsetChange, 
     <div className="bg-white">
       <div
         ref={stageRef}
-        className={`relative w-full overflow-hidden ${bitmapReady ? "bg-black" : "bg-zinc-200"} ${aspect === "portrait" ? "aspect-[3/5]" : "aspect-square"}`}
+        className={`relative w-full overflow-hidden ${bitmapReady ? "bg-black" : "bg-zinc-200"} ${aspect === "portrait" ? "aspect-[3/4]" : "aspect-square"}`}
         style={
           bitmapReady
             ? {

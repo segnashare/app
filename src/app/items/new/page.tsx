@@ -147,6 +147,21 @@ async function upsertDraftCondition(
 
   return { error: new Error(insError.message) };
 }
+
+async function advanceExchangeOnboardingToReward(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>,
+  userId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("users")
+    .update({ onboarding_process: "reward" })
+    .eq("id", userId)
+    .eq("onboarding_process", "exchange");
+  if (error) {
+    console.warn("[onboarding] exchange -> reward failed", error.message);
+  }
+}
+
 const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   neuf_etiquette: "Neuf avec étiquette",
   excellent: "Excellent état",
@@ -1060,6 +1075,7 @@ export default function NewItemPage() {
       setErrorMessage(intakeErr.message);
       return;
     }
+    await advanceExchangeOnboardingToReward(supabase, user.id);
     try {
       sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);
     } catch {
@@ -1260,6 +1276,7 @@ export default function NewItemPage() {
       }
     }
 
+    await advanceExchangeOnboardingToReward(supabase, user.id);
     setIsSubmitting(false);
     try {
       sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);

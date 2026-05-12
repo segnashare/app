@@ -37,6 +37,7 @@ export function OnboardingIntroImageStack({ frames, className }: OnboardingIntro
     <div
       className={cn(
         stackStyles.stackRowDesktop,
+        stackStyles.stackCompactMobile,
         "flex w-full max-w-full flex-col items-center justify-center gap-3 md:flex-row md:items-center md:justify-center md:gap-5 lg:gap-7",
         className,
       )}

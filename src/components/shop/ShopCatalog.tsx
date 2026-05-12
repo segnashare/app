@@ -14,7 +14,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import {
   consumeShopCatalogRestoreFromStorage,
@@ -55,6 +55,9 @@ const montserratHubWideCard = segnaMontserrat;
 const montserratPieceBold = segnaMontserrat;
 const montserratPieceItalic = segnaMontserrat;
 const montserratPieceMedium = segnaMontserrat;
+const SHOP_GRID_INITIAL_VISIBLE_COUNT = 48;
+const SHOP_GRID_LOAD_MORE_COUNT = 48;
+const SHOP_INITIAL_COVER_WARM_COUNT = 32;
 
 /** Chips filtres: base grise, active noire, plus plates et moins arrondies. */
 const filterChipActiveClass = "border-transparent bg-zinc-950 text-white";
@@ -167,6 +170,8 @@ type ShopCatalogProps = {
   initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
   /** Ordre vertical des blocs hub (RPC `get_cms_boutique_section_order`). */
   boutiqueHubSectionOrder?: string[];
+  /** Onboarding panier : attire l'oeil vers les + d'ajout au panier. */
+  guideCartOnboarding?: boolean;
 };
 
 type MenuKey = keyof ShopFilters;
@@ -400,7 +405,7 @@ function ShopPieceSquareCatalogCard({
               }}
               disabled={cartBusyIds.has(item.id)}
               className={cn(
-                "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+                "segna-guidance-shimmer-target inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
                 actionBtnClass,
               )}
               title="Ajouter au panier"
@@ -502,7 +507,9 @@ function ShopPieceSplitCard({
   const [loadState, setLoadState] = useState<RemoteCoverLoadState>(() => (cover ? "loading" : "ready"));
 
   useEffect(() => {
-    if (cover) setLoadState("loading");
+    if (!cover) return;
+    const rafId = window.requestAnimationFrame(() => setLoadState("loading"));
+    return () => window.cancelAnimationFrame(rafId);
   }, [cover]);
 
   /** Tant que l’URL cover charge : squelette sur toute la frame (pas seulement la photo). */
@@ -598,7 +605,7 @@ function ShopPieceSplitCard({
           }}
           disabled={cartBusyIds.has(item.id)}
           className={cn(
-            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+            "segna-guidance-shimmer-target inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
             actionBtnClass,
           )}
           title="Ajouter au panier"
@@ -757,6 +764,7 @@ export function ShopCatalog({
   shopHomeCapsulesSectionDisplay = { hide_section_title: false, title: null },
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
+  guideCartOnboarding = false,
 }: ShopCatalogProps) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { itemIds: cartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
@@ -777,6 +785,7 @@ export function ShopCatalog({
   const [categorySheetBrowseL1, setCategorySheetBrowseL1] = useState<string | null>(null);
   const [categorySheetBrowseL2, setCategorySheetBrowseL2] = useState<string | null>(null);
   const [availableVisibleCount, setAvailableVisibleCount] = useState(40);
+  const [gridVisibleCount, setGridVisibleCount] = useState(SHOP_GRID_INITIAL_VISIBLE_COUNT);
 
   const [likedSet, setLikedSet] = useState(() => new Set(initialLikedItemIds));
   const [localCartItemIds, setLocalCartItemIds] = useState<Set<string>>(() => new Set());
@@ -861,13 +870,17 @@ export function ShopCatalog({
     });
   }, [filteredItems, sortMode]);
 
+  useEffect(() => {
+    setGridVisibleCount(SHOP_GRID_INITIAL_VISIBLE_COUNT);
+  }, [search, sortMode, heartsOnly, disponiblesOnly, filters]);
+
   /** Vignettes encore sans URL alors qu’un chemin photo existe (chargement signé en cours). */
   const hasPendingCovers = useMemo(() => {
-    for (const item of sortedFilteredItems) {
+    for (const item of sortedFilteredItems.slice(0, gridVisibleCount)) {
       if (!coverUrlById[item.id] && getFirstPhotoStoragePath(item.photos)) return true;
     }
     return false;
-  }, [sortedFilteredItems, coverUrlById]);
+  }, [sortedFilteredItems, gridVisibleCount, coverUrlById]);
 
   /** Ralentit légèrement le balayage quand l’attente s’allonge (effet type Uber). */
   const [shimmerSlowStep, setShimmerSlowStep] = useState(0);
@@ -934,28 +947,31 @@ export function ShopCatalog({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rows = await Promise.all(
-        sortedFilteredItems.map(async (item) => {
-          if (coverResolvedRef.current.has(item.id)) return null;
-          const path = getFirstPhotoStoragePath(item.photos);
-          if (!path) {
-            coverResolvedRef.current.add(item.id);
-            return null;
-          }
-          try {
-            const url = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-            if (!url) return null;
-            return [item.id, url] as const;
-          } catch {
-            return null;
-          }
-        }),
-      );
+      const candidates = [
+        ...sortedFilteredItems.slice(0, gridVisibleCount),
+        ...initialMostLikedItems.slice(0, 10),
+        ...initialItems.slice(0, SHOP_INITIAL_COVER_WARM_COUNT),
+      ];
+      const pathByItemId = new Map<string, string>();
+      const paths: string[] = [];
+
+      for (const item of candidates) {
+        if (coverResolvedRef.current.has(item.id)) continue;
+        const path = getFirstPhotoStoragePath(item.photos);
+        if (!path) {
+          coverResolvedRef.current.add(item.id);
+          continue;
+        }
+        pathByItemId.set(item.id, path);
+        paths.push(path);
+      }
+
+      const signedByPath = await createSignedUrlsForStoragePaths(supabase, paths, 60 * 60 * 24);
       if (cancelled) return;
       const updates: Record<string, string> = {};
-      for (const row of rows) {
-        if (!row) continue;
-        const [id, url] = row;
+      for (const [id, path] of pathByItemId) {
+        const url = signedByPath.get(path);
+        if (!url) continue;
         updates[id] = url;
         coverResolvedRef.current.add(id);
       }
@@ -966,7 +982,7 @@ export function ShopCatalog({
     return () => {
       cancelled = true;
     };
-  }, [sortedFilteredItems, supabase]);
+  }, [gridVisibleCount, initialItems, initialMostLikedItems, sortedFilteredItems, supabase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1515,7 +1531,10 @@ export function ShopCatalog({
     [initialItems, likedSet],
   );
 
-  const visibleGridItems = useMemo(() => sortedFilteredItems, [sortedFilteredItems]);
+  const visibleGridItems = useMemo(
+    () => sortedFilteredItems.slice(0, gridVisibleCount),
+    [sortedFilteredItems, gridVisibleCount],
+  );
 
   const availableCatalogItems = useMemo(
     () => initialItems.filter((item) => item.status === "available" || item.status === "in_cart"),
@@ -2343,7 +2362,7 @@ export function ShopCatalog({
   }
 
   return (
-    <div className="min-h-0 bg-white text-zinc-900">
+    <div className={cn("min-h-0 bg-white text-zinc-900", guideCartOnboarding && "segna-guidance-shimmer-active")}>
       {/* En-tête recherche : fixe, le reste défile en dessous. */}
       <header
         ref={searchHeaderRef}
@@ -2534,39 +2553,50 @@ export function ShopCatalog({
                 : "Aucune pièce ne correspond à votre recherche."}
             </p>
           ) : (
-            <ul className="grid grid-cols-2 gap-3">
-              {visibleGridItems.map((item) => {
-                const canAddToCart = item.status === "available" || item.status === "in_cart";
-                const inCart = localCartItemIds.has(item.id);
-                const liked = likedSet.has(item.id);
-                const cover = coverUrlById[item.id];
-                return (
-                  <li key={`${item.id}-${cover ?? "nocover"}`}>
-                    <ShopCatalogGridItemCard
-                      item={item}
-                      cover={cover}
-                      shimmerDurationSec={shimmerDurationSec}
-                      canAddToCart={canAddToCart}
-                      inCart={inCart}
-                      liked={liked}
-                      likeBusyIds={likeBusyIds}
-                      cartBusyIds={cartBusyIds}
-                      onToggleLike={handleToggleLike}
-                      onToggleCart={handleToggleCart}
-                      onNavigate={() =>
-                        persistShopCatalogStateForItemNavigation({
-                          search,
-                          sortMode,
-                          heartsOnly,
-                          disponiblesOnly,
-                          filters: { ...filters },
-                        })
-                      }
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ul className="grid grid-cols-2 gap-3">
+                {visibleGridItems.map((item) => {
+                  const canAddToCart = item.status === "available" || item.status === "in_cart";
+                  const inCart = localCartItemIds.has(item.id);
+                  const liked = likedSet.has(item.id);
+                  const cover = coverUrlById[item.id];
+                  return (
+                    <li key={`${item.id}-${cover ?? "nocover"}`}>
+                      <ShopCatalogGridItemCard
+                        item={item}
+                        cover={cover}
+                        shimmerDurationSec={shimmerDurationSec}
+                        canAddToCart={canAddToCart}
+                        inCart={inCart}
+                        liked={liked}
+                        likeBusyIds={likeBusyIds}
+                        cartBusyIds={cartBusyIds}
+                        onToggleLike={handleToggleLike}
+                        onToggleCart={handleToggleCart}
+                        onNavigate={() =>
+                          persistShopCatalogStateForItemNavigation({
+                            search,
+                            sortMode,
+                            heartsOnly,
+                            disponiblesOnly,
+                            filters: { ...filters },
+                          })
+                        }
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+              {gridVisibleCount < sortedFilteredItems.length ? (
+                <button
+                  type="button"
+                  onClick={() => setGridVisibleCount((n) => Math.min(n + SHOP_GRID_LOAD_MORE_COUNT, sortedFilteredItems.length))}
+                  className="mt-4 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-800"
+                >
+                  Afficher plus
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       </div>

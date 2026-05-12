@@ -1,7 +1,7 @@
 import type { CmsFramePayload, CmsFrameRow, CmsFrameType, CmsPlanCode } from "@/lib/cms/cms-types";
 import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
 import { resolveCmsPayloadStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
-import { createSignedUrlForStoragePath, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type RpcFrame = {
   id?: unknown;
@@ -62,6 +62,22 @@ function parseRows(data: unknown): CmsFrameRow[] {
   return out;
 }
 
+function collectStoragePaths(value: unknown, out = new Set<string>()) {
+  if (value == null) return out;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectStoragePaths(entry, out));
+    return out;
+  }
+  if (typeof value !== "object") return out;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.storage_path === "string" && record.storage_path.trim()) {
+    out.add(record.storage_path.trim());
+  }
+  Object.values(record).forEach((entry) => collectStoragePaths(entry, out));
+  return out;
+}
+
 /**
  * Charge les frames publiées pour une section, avec URLs Storage signées.
  */
@@ -100,15 +116,16 @@ export async function fetchCmsSectionFramesResolved(
     }
 
     const rows = parseRows(data);
-    const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
+    const pathsToSign = [...collectStoragePaths(rows.map((row) => row.payload))];
+    const signedByPath = await createSignedUrlsForStoragePaths(supabase, pathsToSign, signTtlSeconds);
+    const sign = async (path: string) => signedByPath.get(path) ?? null;
 
-    const resolved: CmsFrameRow[] = [];
-    for (const row of rows) {
-      resolved.push({
+    const resolved = await Promise.all(
+      rows.map(async (row) => ({
         ...row,
         payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
-      });
-    }
+      })),
+    );
     return resolved;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

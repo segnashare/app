@@ -1,9 +1,25 @@
 /** Résolution du label d’abonnement (aligné sur la page panier). */
 
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { refreshStripeSubscriptionForUser } from "@/lib/stripe/subscription-state";
-
 export type MembershipLabel = "Guest" | "Membre +" | "Membre X";
+
+type MembershipQueryResult = {
+  data: unknown;
+  error: { message?: string } | null;
+};
+
+type MembershipQueryBuilder = {
+  select: (columns: string) => MembershipQueryBuilder;
+  eq: (column: string, value: string) => MembershipQueryBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => MembershipQueryBuilder;
+  limit: (count: number) => MembershipQueryBuilder;
+  maybeSingle: () => PromiseLike<MembershipQueryResult>;
+  then: PromiseLike<MembershipQueryResult>["then"];
+};
+
+type MembershipSupabaseClient = {
+  rpc: (name: string, args?: Record<string, unknown>) => PromiseLike<MembershipQueryResult>;
+  from: (table: string) => MembershipQueryBuilder;
+};
 
 function toMembershipLabelFromRoles(roles: string[]): MembershipLabel {
   const normalized = roles.map((role) => role.trim().toLowerCase());
@@ -31,17 +47,11 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
   return "Guest";
 }
 
-export async function resolveMembershipLabel(supabase: any, userId: string): Promise<MembershipLabel> {
-  try {
-    const admin = createSupabaseAdminClient() as any;
-    await refreshStripeSubscriptionForUser(admin, userId);
-  } catch {
-    /* Pas de clé Stripe, Stripe indisponible, ou hors serveur : on s’appuie sur la DB / webhooks. */
-  }
-
+export async function resolveMembershipLabel(supabase: unknown, userId: string): Promise<MembershipLabel> {
+  const client = supabase as MembershipSupabaseClient;
   const [membershipStateRes, subscriptionRowRes, rolesRes] = await Promise.all([
-    supabase.rpc("get_current_membership_state"),
-    supabase
+    client.rpc("get_current_membership_state"),
+    client
       .from("user_subscriptions")
       .select("plan_code,status")
       .eq("user_id", userId)
@@ -49,10 +59,12 @@ export async function resolveMembershipLabel(supabase: any, userId: string): Pro
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase.from("user_roles").select("role").eq("user_id", userId),
+    client.from("user_roles").select("role").eq("user_id", userId),
   ]);
 
-  const roles: string[] = (rolesRes.data ?? []).map((entry: { role?: string | null }) => entry.role ?? "").filter(Boolean);
+  const roles: string[] = ((rolesRes.data as Array<{ role?: string | null }> | null) ?? [])
+    .map((entry) => entry.role ?? "")
+    .filter(Boolean);
   const membershipLabelFromRpc = toMembershipLabelFromBilling((membershipStateRes.data ?? null) as MembershipState | null);
   const subRow = subscriptionRowRes.data as { plan_code?: string | null; status?: string | null } | null;
   const membershipLabelFromSubscriptionTable =

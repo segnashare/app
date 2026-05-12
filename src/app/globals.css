@@ -45,8 +45,8 @@
 
 html,
 body {
-  min-width: var(--app-min-width);
-  min-height: var(--app-min-height);
+  min-width: 0;
+  min-height: 100dvh;
   background: var(--app-chrome-bg);
   overscroll-behavior: none;
 }
@@ -167,8 +167,45 @@ body:has(.segna-lock-document-scroll) {
   animation: shop-catalog-image-shimmer var(--shop-shimmer-duration, 2.85s) linear infinite;
 }
 
+/* Onboarding in-app : attire l'oeil vers le CTA attendu en réutilisant le balayage blanc/argenté. */
+.segna-guidance-shimmer-active .segna-guidance-shimmer-target,
+.segna-guidance-shimmer-active.segna-guidance-shimmer-target {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.segna-guidance-shimmer-active .segna-guidance-shimmer-target::after,
+.segna-guidance-shimmer-active.segna-guidance-shimmer-target::after {
+  content: "";
+  position: absolute;
+  inset: -90% -45%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    92deg,
+    transparent 0%,
+    rgba(228, 228, 231, 0.04) 22%,
+    rgba(212, 212, 216, 0.2) 38%,
+    rgba(161, 161, 170, 0.34) 50%,
+    rgba(212, 212, 216, 0.2) 62%,
+    rgba(228, 228, 231, 0.04) 78%,
+    transparent 100%
+  );
+  filter: blur(14px);
+  opacity: 0.78;
+  will-change: transform;
+  animation: shop-catalog-image-shimmer 2.85s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shop-catalog-image-skeleton::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .segna-guidance-shimmer-active .segna-guidance-shimmer-target::after,
+  .segna-guidance-shimmer-active.segna-guidance-shimmer-target::after {
     animation: none;
     opacity: 0;
   }

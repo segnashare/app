@@ -1,5 +1,7 @@
 "use client";
 
+import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
+
 export type PhotoModifySource = "profile" | "looks" | "item";
 export type PhotoModifyAspect = "square" | "portrait";
 
@@ -17,12 +19,16 @@ export type PhotoModifyDraft = {
   offset: { x: number; y: number };
   zoom: number;
   status: "pending" | "confirmed" | "cancelled";
+  isRemoteSource?: boolean;
 };
 
 const keyFor = (id: string) => `segna:photo-modify:${id}`;
 const DRAFT_STORAGE_PREFIX = "segna:photo-modify:";
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.86;
+
+const runtimeFiles = new Map<string, File>();
+const runtimeObjectUrls = new Map<string, string>();
 
 const loadImage = (src: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -32,9 +38,13 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
-const normalizeDataUrlForStorage = async (dataUrl: string) => {
-  if (!dataUrl.startsWith("data:image/")) return dataUrl;
-  const image = await loadImage(dataUrl);
+const canvasToBlob = (canvas: HTMLCanvasElement) =>
+  new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
+  });
+
+const normalizedImageBlobForStorage = async (src: string) => {
+  const image = await loadImage(src);
   const largestSide = Math.max(image.width, image.height, 1);
   const scale = Math.min(1, MAX_IMAGE_SIDE / largestSide);
   const outputWidth = Math.max(1, Math.round(image.width * scale));
@@ -43,26 +53,87 @@ const normalizeDataUrlForStorage = async (dataUrl: string) => {
   canvas.width = outputWidth;
   canvas.height = outputHeight;
   const context = canvas.getContext("2d");
-  if (!context) return dataUrl;
+  if (!context) return null;
   context.drawImage(image, 0, 0, outputWidth, outputHeight);
-  return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+  return canvasToBlob(canvas);
+};
+
+const normalizeDataUrlForStorage = async (dataUrl: string) => {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  const blob = await normalizedImageBlobForStorage(dataUrl);
+  if (!blob) return dataUrl;
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Unable to read normalized image"));
+    reader.readAsDataURL(blob);
+  });
 };
 
 export const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
+  measureClientPhotoPerf("photo.fileToDataUrl", () =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const rawDataUrl = String(reader.result ?? "");
+          const normalized = await normalizeDataUrlForStorage(rawDataUrl);
+          resolve(normalized);
+        } catch {
+          resolve(String(reader.result ?? ""));
+        }
+      };
+      reader.onerror = () => reject(new Error("Unable to read file"));
+      reader.readAsDataURL(file);
+    }),
+  );
+
+export async function preparePhotoModifyImage(file: File) {
+  return measureClientPhotoPerf(
+    "photo.prepareLocalFile",
+    async () => {
+      const sourceUrl = URL.createObjectURL(file);
       try {
-        const rawDataUrl = String(reader.result ?? "");
-        const normalized = await normalizeDataUrlForStorage(rawDataUrl);
-        resolve(normalized);
-      } catch {
-        resolve(String(reader.result ?? ""));
+        const blob = await normalizedImageBlobForStorage(sourceUrl);
+        const normalizedName = (file.name || "photo.jpg").replace(/\.[^.]+$/, "") || "photo";
+        const normalizedFile =
+          blob && blob.size > 0
+            ? new File([blob], `${normalizedName}.jpg`, { type: "image/jpeg" })
+            : file;
+        const previewUrl = URL.createObjectURL(normalizedFile);
+        return {
+          file: normalizedFile,
+          previewUrl,
+          fileName: normalizedFile.name || file.name || "photo.jpg",
+          mimeType: normalizedFile.type || file.type || "image/jpeg",
+        };
+      } finally {
+        URL.revokeObjectURL(sourceUrl);
       }
-    };
-    reader.onerror = () => reject(new Error("Unable to read file"));
-    reader.readAsDataURL(file);
-  });
+    },
+    { size: file.size },
+  );
+}
+
+export function registerPhotoModifyRuntimeFile(id: string, file: File, objectUrl?: string) {
+  runtimeFiles.set(id, file);
+  if (objectUrl) {
+    const previousUrl = runtimeObjectUrls.get(id);
+    if (previousUrl && previousUrl !== objectUrl) URL.revokeObjectURL(previousUrl);
+    runtimeObjectUrls.set(id, objectUrl);
+  }
+}
+
+export function getPhotoModifyRuntimeFile(id: string) {
+  return runtimeFiles.get(id) ?? null;
+}
+
+export function clearPhotoModifyRuntime(id: string, options?: { revokeObjectUrl?: boolean }) {
+  runtimeFiles.delete(id);
+  const objectUrl = runtimeObjectUrls.get(id);
+  if (objectUrl && options?.revokeObjectUrl) URL.revokeObjectURL(objectUrl);
+  runtimeObjectUrls.delete(id);
+}
 
 export const dataUrlToFile = async (dataUrl: string, fileName: string, mimeType: string) => {
   const response = await fetch(dataUrl);
@@ -106,4 +177,5 @@ export const readPhotoModifyDraft = (id: string) => {
 
 export const removePhotoModifyDraft = (id: string) => {
   window.sessionStorage.removeItem(keyFor(id));
+  clearPhotoModifyRuntime(id);
 };

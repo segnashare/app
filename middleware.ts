@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { createPerfTracker } from "@/lib/perf/server-timing";
+
 const SESSION_IDLE_COOKIE = "segna_last_seen_at";
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -107,6 +109,10 @@ function isMutationMethod(method: string) {
   return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
+function middlewareShouldRun(pathname: string) {
+  return isPublicRoute(pathname) || isProtectedRoute(pathname) || pathname.startsWith("/api");
+}
+
 /** Lets returning members open sign-in even with an active session (switch account / re-auth). */
 function isExplicitMemberSignIn(request: NextRequest) {
   return (
@@ -115,7 +121,22 @@ function isExplicitMemberSignIn(request: NextRequest) {
 }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
   let response = NextResponse.next({ request });
+  const perf = createPerfTracker(`middleware:${request.method}:${pathname}`);
+
+  if (!middlewareShouldRun(pathname)) {
+    return response;
+  }
+
+  const finalize = (nextResponse: NextResponse) => {
+    const serverTiming = perf.serverTimingHeader();
+    if (serverTiming) {
+      nextResponse.headers.set("Server-Timing", serverTiming);
+    }
+    perf.log({ pathname, status: nextResponse.status });
+    return nextResponse;
+  };
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -136,9 +157,8 @@ export async function middleware(request: NextRequest) {
 
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await perf.measure("auth.getSession", () => supabase.auth.getSession());
 
-  const { pathname } = request.nextUrl;
   const now = Date.now();
   const lastSeenRaw = request.cookies.get(SESSION_IDLE_COOKIE)?.value;
   const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : Number.NaN;
@@ -154,7 +174,7 @@ export async function middleware(request: NextRequest) {
       redirectResponse.cookies.set(cookie);
     });
     redirectResponse.cookies.delete(SESSION_IDLE_COOKIE);
-    return redirectResponse;
+    return finalize(redirectResponse);
   }
 
   if (session?.user) {
@@ -175,13 +195,13 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/sign-up/email";
     url.search = "";
-    return NextResponse.redirect(url);
+    return finalize(NextResponse.redirect(url));
   }
 
   if (isProtectedRoute(pathname) && !session) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
+    return finalize(NextResponse.redirect(url));
   }
 
   let cachedReachedIndex: number | null = null;
@@ -211,24 +231,29 @@ export async function middleware(request: NextRequest) {
       };
     }
 
-    const { data } = await supabase
-      .from("onboarding_sessions")
-      .select("current_step, status")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
+    const [sessionStateRes, userStateRes] = await Promise.all([
+      perf.measure("onboarding_sessions.read", () =>
+        supabase
+          .from("onboarding_sessions")
+          .select("current_step, status")
+          .eq("user_id", session.user.id)
+          .maybeSingle(),
+      ),
+      perf.measure("users.onboarding_mode.read", () =>
+        supabase
+          .from("users")
+          .select("onboarding_mode")
+          .eq("id", session.user.id)
+          .maybeSingle(),
+      ),
+    ]);
 
-    const reachedPath = normalizeOnboardingPath(data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
+    const reachedPath = normalizeOnboardingPath(sessionStateRes.data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
     cachedReachedPath = reachedPath;
     cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
-    cachedStatus = data?.status ?? null;
+    cachedStatus = sessionStateRes.data?.status ?? null;
 
-    const { data: userData } = await supabase
-      .from("users")
-      .select("onboarding_mode")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    const onboardingModeValue = userData?.onboarding_mode;
+    const onboardingModeValue = userStateRes.data?.onboarding_mode;
     cachedOnboardingMode =
       onboardingModeValue === "demo" || onboardingModeValue === "bridge" || onboardingModeValue === "real"
         ? onboardingModeValue
@@ -246,13 +271,13 @@ export async function middleware(request: NextRequest) {
     const { onboardingMode } = await getReachedState();
     const isOnboardingApi = pathname.startsWith("/api/onboarding/");
     if (onboardingMode === "demo" && isMutationMethod(request.method) && !isOnboardingApi) {
-      return NextResponse.json(
+      return finalize(NextResponse.json(
         {
           error: "Mode demo actif: les actions de modification sont desactivees (Stripe inclus).",
           demoMode: true,
         },
         { status: 403 },
-      );
+      ));
     }
   }
 
@@ -267,19 +292,19 @@ export async function middleware(request: NextRequest) {
     ) {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
 
     if (onboardingMode === "bridge" && !isBridgeOnboardingRoute(pathname)) {
       const url = request.nextUrl.clone();
       url.pathname = BRIDGE_ONBOARDING_ENTRY;
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
 
     if (onboardingMode === "real" && (isDemoOnboardingRoute(pathname) || isBridgeOnboardingRoute(pathname))) {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
   }
 
@@ -288,22 +313,22 @@ export async function middleware(request: NextRequest) {
     if (onboardingMode === "demo") {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     if (onboardingMode === "bridge") {
       const url = request.nextUrl.clone();
       url.pathname = BRIDGE_ONBOARDING_ENTRY;
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     if (status === "completed") {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     if (reachedIndex > 0) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
   }
 
@@ -312,23 +337,23 @@ export async function middleware(request: NextRequest) {
     if (status === "completed") {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     if (pathname === "/onboarding") {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     const requestedIndex = getOnboardingIndexFromPath(pathname);
     if (requestedIndex === -1) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
     if (requestedIndex > reachedIndex && !isAllowedOnboardingJump(pathname, reachedPath)) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
-      return NextResponse.redirect(url);
+      return finalize(NextResponse.redirect(url));
     }
   }
 
@@ -343,12 +368,14 @@ export async function middleware(request: NextRequest) {
           : status === "completed"
             ? "/shop"
             : getOnboardingPathFromIndex(reachedIndex);
-    return NextResponse.redirect(url);
+    return finalize(NextResponse.redirect(url));
   }
 
-  return response;
+  return finalize(response);
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|_next/data|favicon.ico|icon.png|apple-icon.png|robots.txt|sitemap.xml|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml|woff|woff2|ttf|otf)$).*)",
+  ],
 };

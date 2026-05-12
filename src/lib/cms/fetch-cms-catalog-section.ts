@@ -7,7 +7,7 @@ import type {
 } from "@/lib/cms/cms-types";
 import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
 import { resolveCmsPayloadStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
-import { createSignedUrlForStoragePath, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 const FRAME_TYPES: CmsFrameType[] = [
   "offer_card",
@@ -88,6 +88,22 @@ function parseFrameRows(data: unknown): CmsFrameRow[] {
   return out;
 }
 
+function collectStoragePaths(value: unknown, out = new Set<string>()) {
+  if (value == null) return out;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectStoragePaths(entry, out));
+    return out;
+  }
+  if (typeof value !== "object") return out;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.storage_path === "string" && record.storage_path.trim()) {
+    out.add(record.storage_path.trim());
+  }
+  Object.values(record).forEach((entry) => collectStoragePaths(entry, out));
+  return out;
+}
+
 export type CmsCatalogSectionBundle = {
   config: CmsCatalogSectionConfig;
   frames: CmsFrameRow[];
@@ -153,15 +169,19 @@ export async function fetchCmsCatalogSectionResolved(
         rows.map((r) => ({ id: r.id, type: r.frame_type, ...payload(r.payload) })),
       );
     }
-    const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
+    const signedByPath = await createSignedUrlsForStoragePaths(
+      supabase,
+      [...collectStoragePaths(rows.map((row) => row.payload))],
+      signTtlSeconds,
+    );
+    const sign = async (path: string) => signedByPath.get(path) ?? null;
 
-    const resolved: CmsFrameRow[] = [];
-    for (const row of rows) {
-      resolved.push({
+    const resolved = await Promise.all(
+      rows.map(async (row) => ({
         ...row,
         payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
-      });
-    }
+      })),
+    );
     return { config, frames: resolved };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -90,7 +90,7 @@ type ProfileViewProps = {
   onLikeFrame?: () => void;
 };
 
-const LOOK_STAGE_RATIO = 1;
+const LOOK_STAGE_RATIO = 3 / 4;
 const PROFILE_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 
 /** Squelette page profil (aligné chargement fiche article). */
@@ -164,14 +164,16 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
   const hasInsights = data.insights.some((i) => i.prompt.trim() || i.response.trim());
   const hasBrands = data.brands.length > 0;
   const hasLentPieces = data.lentPieces.length > 0;
+  const heroPhoto = data.profilePhoto ?? data.looksSlots[0] ?? null;
+  const look1AlreadyUsedAsHero = data.profilePhoto == null && data.looksSlots[0] != null;
 
   return (
     <div className="bg-white pb-2">
-      {/* 1. Photo de profil */}
-      <div className="pb-2">
-        {data.profilePhoto ? (
+      {/* 1. Photo principale : dans l’onboarding, la première photo sert de PDP. */}
+      {heroPhoto ? (
+        <div className="pb-2">
           <div className={cn("relative mx-auto w-full max-w-[430px] overflow-hidden rounded-2xl", PROFILE_PHOTO_FRAME_CLASS)}>
-            <LookImage slot={data.profilePhoto} />
+            <LookImage slot={heroPhoto} />
             {mode === "vue_etrangere" ? (
               <FrameLikeButton
                 isLiked={Boolean(likedFrames.profile_photo)}
@@ -185,8 +187,8 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
               />
             ) : null}
           </div>
-        ) : <div className={cn("mx-auto w-full max-w-[430px] rounded-2xl bg-zinc-100", PROFILE_PHOTO_FRAME_CLASS)} />}
-      </div>
+        </div>
+      ) : null}
 
       {/* 2. Composant infos (directement après la photo) */}
       <div className="mx-auto w-full max-w-[430px] pt-2">
@@ -196,7 +198,7 @@ export function ProfileView({ mode, data, isLoading, onLikeFrame }: ProfileViewP
       <div className="mx-auto w-full max-w-[430px] space-y-4 pt-4">
 
         {/* 4. Look 1 */}
-        {data.looksSlots[0] ? (
+        {data.looksSlots[0] && !look1AlreadyUsedAsHero ? (
           <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm">
             <div className={cn("relative w-full", PROFILE_PHOTO_FRAME_CLASS)}>
               <LookImage slot={data.looksSlots[0]} />

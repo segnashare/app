@@ -39,6 +39,46 @@
   width: clamp(124px, 33vw, 172px);
 }
 
+/**
+ * `/onboarding/1` sur petits écrans : la pile doit rester entre le titre et le CTA.
+ * On réduit uniquement les visuels mobiles courts, sans toucher au rendu desktop.
+ */
+@media (max-width: 767px) and (max-height: 780px) {
+  .stackCompactMobile {
+    gap: clamp(8px, 1.8dvh, 12px) !important;
+  }
+
+  .stackCompactMobile .sizeSmall {
+    width: clamp(66px, 18vw, 96px);
+  }
+
+  .stackCompactMobile .sizeMedium {
+    width: clamp(88px, 24vw, 126px);
+  }
+
+  .stackCompactMobile .sizeLarge {
+    width: clamp(116px, 32vw, 164px);
+  }
+}
+
+@media (max-width: 767px) and (max-height: 690px) {
+  .stackCompactMobile {
+    gap: 8px !important;
+  }
+
+  .stackCompactMobile .sizeSmall {
+    width: clamp(60px, 16vw, 84px);
+  }
+
+  .stackCompactMobile .sizeMedium {
+    width: clamp(80px, 21vw, 112px);
+  }
+
+  .stackCompactMobile .sizeLarge {
+    width: clamp(104px, 28vw, 144px);
+  }
+}
+
 .aspectSquare {
   aspect-ratio: 1 / 1;
 }

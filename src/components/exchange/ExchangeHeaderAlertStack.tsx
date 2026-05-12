@@ -4,6 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from "next/navigation";
 
 import { ItemIntakePanel } from "@/components/item/ItemIntakePanel";
+import { InAppOnboardingCartSheet } from "@/components/onboarding/InAppOnboardingCartSheet";
+import { InAppOnboardingExchangeSheet } from "@/components/onboarding/InAppOnboardingExchangeSheet";
+import { InAppOnboardingKycSheet } from "@/components/onboarding/InAppOnboardingKycSheet";
+import { InAppOnboardingProfileSheet } from "@/components/onboarding/InAppOnboardingProfileSheet";
 import type { OutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
 import { cn } from "@/lib/utils/cn";
 
@@ -60,6 +64,10 @@ function readOutboundHidden(summary: OutboundShipmentSummary | null): boolean {
 }
 
 type StackLayer =
+  | { kind: "onboarding-profile" }
+  | { kind: "onboarding-kyc" }
+  | { kind: "onboarding-cart" }
+  | { kind: "onboarding-exchange" }
   | { kind: "intake"; item: ExchangeIntakeBannerItem }
   | { kind: "outbound"; summary: OutboundShipmentSummary };
 
@@ -86,10 +94,22 @@ function StackCardSilhouette({ heightPx }: { heightPx: number }) {
 export function ExchangeHeaderAlertStack({
   intakeItems,
   outboundSummary,
+  showProfileOnboarding = false,
+  showKycOnboarding = false,
+  showCartOnboarding = false,
+  showExchangeOnboarding = false,
   uberRelayFallback = false,
 }: {
   intakeItems: ExchangeIntakeBannerItem[];
   outboundSummary: OutboundShipmentSummary | null;
+  /** Onboarding in-app : carte profil placée dans la pile haute Échange. */
+  showProfileOnboarding?: boolean;
+  /** Onboarding in-app : carte KYC placée dans la pile haute Échange. */
+  showKycOnboarding?: boolean;
+  /** Onboarding in-app : carte panier placée dans la pile haute Échange. */
+  showCartOnboarding?: boolean;
+  /** Onboarding in-app : carte prêt de pièce placée dans la pile haute Échange. */
+  showExchangeOnboarding?: boolean;
   /** Uber prévu mais course non créée : message + contact pour basculer en relais MR. */
   uberRelayFallback?: boolean;
 }) {
@@ -115,12 +135,24 @@ export function ExchangeHeaderAlertStack({
   );
 
   const layers = useMemo(() => {
-    const list: StackLayer[] = visibleIntakes.map((item) => ({ kind: "intake" as const, item }));
+    const list: StackLayer[] = showProfileOnboarding ? [{ kind: "onboarding-profile" }] : [];
+    if (showKycOnboarding) list.push({ kind: "onboarding-kyc" });
+    if (showCartOnboarding) list.push({ kind: "onboarding-cart" });
+    if (showExchangeOnboarding) list.push({ kind: "onboarding-exchange" });
+    list.push(...visibleIntakes.map((item) => ({ kind: "intake" as const, item })));
     if (outboundSummary != null && !outboundHidden) {
       list.push({ kind: "outbound", summary: outboundSummary });
     }
     return list;
-  }, [visibleIntakes, outboundSummary, outboundHidden]);
+  }, [
+    showProfileOnboarding,
+    showKycOnboarding,
+    showCartOnboarding,
+    showExchangeOnboarding,
+    visibleIntakes,
+    outboundSummary,
+    outboundHidden,
+  ]);
 
   const persistIntakeAck = useCallback((itemId: string, listingStage: string) => {
     setIntakeAck((prev) => {
@@ -134,6 +166,10 @@ export function ExchangeHeaderAlertStack({
   const frontLayerKey = useMemo(() => {
     const first = layers[0];
     if (!first) return "";
+    if (first.kind === "onboarding-profile") return "onboarding:profile";
+    if (first.kind === "onboarding-kyc") return "onboarding:kyc";
+    if (first.kind === "onboarding-cart") return "onboarding:cart";
+    if (first.kind === "onboarding-exchange") return "onboarding:exchange";
     return first.kind === "intake"
       ? `in:${intakeAckKey(first.item.id, first.item.listingStage)}`
       : `out:${first.summary.cartId}:${first.summary.status}`;
@@ -187,6 +223,102 @@ export function ExchangeHeaderAlertStack({
           const zIndex = 32 + (layers.length - index);
           const translateY = index * STACK_PEEK_PX;
           const scale = 1 - index * STACK_SCALE_STEP;
+
+          if (layer.kind === "onboarding-profile") {
+            return (
+              <div
+                key="onboarding-profile"
+                className="absolute left-0 right-0 top-0 origin-top will-change-transform"
+                style={{
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  zIndex,
+                }}
+                aria-hidden={!isFront}
+              >
+                {isFront ? (
+                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
+                    <InAppOnboardingProfileSheet initiallyVisible />
+                  </div>
+                ) : (
+                  <div className="pointer-events-none select-none opacity-[0.92]">
+                    <StackCardSilhouette heightPx={frontBasis} />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (layer.kind === "onboarding-kyc") {
+            return (
+              <div
+                key="onboarding-kyc"
+                className="absolute left-0 right-0 top-0 origin-top will-change-transform"
+                style={{
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  zIndex,
+                }}
+                aria-hidden={!isFront}
+              >
+                {isFront ? (
+                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
+                    <InAppOnboardingKycSheet initiallyVisible />
+                  </div>
+                ) : (
+                  <div className="pointer-events-none select-none opacity-[0.92]">
+                    <StackCardSilhouette heightPx={frontBasis} />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (layer.kind === "onboarding-cart") {
+            return (
+              <div
+                key="onboarding-cart"
+                className="absolute left-0 right-0 top-0 origin-top will-change-transform"
+                style={{
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  zIndex,
+                }}
+                aria-hidden={!isFront}
+              >
+                {isFront ? (
+                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
+                    <InAppOnboardingCartSheet initiallyVisible />
+                  </div>
+                ) : (
+                  <div className="pointer-events-none select-none opacity-[0.92]">
+                    <StackCardSilhouette heightPx={frontBasis} />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (layer.kind === "onboarding-exchange") {
+            return (
+              <div
+                key="onboarding-exchange"
+                className="absolute left-0 right-0 top-0 origin-top will-change-transform"
+                style={{
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  zIndex,
+                }}
+                aria-hidden={!isFront}
+              >
+                {isFront ? (
+                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
+                    <InAppOnboardingExchangeSheet initiallyVisible />
+                  </div>
+                ) : (
+                  <div className="pointer-events-none select-none opacity-[0.92]">
+                    <StackCardSilhouette heightPx={frontBasis} />
+                  </div>
+                )}
+              </div>
+            );
+          }
 
           if (layer.kind === "intake") {
             const { item } = layer;

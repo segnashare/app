@@ -12,7 +12,7 @@ type ProfileKycCoreProps = {
 type VerificationStatus = "not_started" | "pending" | "in_review" | "verified" | "rejected";
 
 
-const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v1";
+const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 
 export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
   const router = useRouter();
@@ -147,7 +147,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
           </div>
         </section>
       ) : (
-        <section className="mt-50 flex flex-1 flex-col items-center px-2 text-center">
+        <section className="flex flex-1 flex-col items-center px-2 pt-[clamp(4.5rem,14dvh,8rem)] text-center">
           <img
             src={isVerified ? "/ressources/oeil_charme.png" : "/ressources/Alerte_oeil.png"}
             alt=""
@@ -158,7 +158,7 @@ export function ProfileKycCore({ backTab }: ProfileKycCoreProps) {
             {isRejected ? "Vérification refusée" : isVerified ? "Vérification validée" : "Vérification KYC"}
           </h1>
 
-          <p className="mt-30 max-w-[290px] text-[17px] leading-[1.25] text-zinc-600">
+          <p className="mt-[clamp(2.75rem,7.5dvh,5.5rem)] max-w-[290px] text-[17px] leading-[1.25] text-zinc-600">
             {isRejected
               ? "Ton document n'a pas été validé."
               : isVerified

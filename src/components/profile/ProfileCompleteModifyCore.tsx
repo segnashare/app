@@ -14,7 +14,14 @@ import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye
 import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { fileToDataUrl, readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
+import {
+  preparePhotoModifyImage,
+  readPhotoModifyDraft,
+  removePhotoModifyDraft,
+  registerPhotoModifyRuntimeFile,
+  savePhotoModifyDraft,
+} from "@/lib/onboarding/photoModifyStore";
+import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { computeProfileCompletionPreviewPercent } from "@/lib/profile/profile-completion-score";
 import { formatReseauxSummary } from "@/lib/profile/social-handles";
 import { cn } from "@/lib/utils/cn";
@@ -63,8 +70,9 @@ type ContactSnapshot = {
   emailVerified: boolean;
 };
 
-const LOOK_STAGE_RATIO = 1;
+const LOOK_STAGE_RATIO = 3 / 4;
 const MODIFY_CACHE_KEY = "segna:profile-complete:modify-cache:v1";
+const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 
 /** Préserve `tab` et `from=settings` pour les retours depuis /profile/edit, insights, etc. */
 function buildProfileCompleteReturnPath(pathname: string, searchParams: { get: (key: string) => string | null }) {
@@ -173,10 +181,25 @@ function writeModifyCache(payload: ModifyCachePayload) {
   }
 }
 
+function clearProfileHeaderCache() {
+  try {
+    window.sessionStorage.removeItem(PROFILE_HEADER_CACHE_KEY);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
 function toDisplayValue(value: unknown, fallback = "À compléter") {
   if (typeof value === "string" && value.trim().length > 0) return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return fallback;
+}
+
+function isProfileRequirementValueFilled(value: unknown): boolean {
+  if (typeof value === "number" && Number.isFinite(value)) return true;
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed !== "À compléter" && trimmed !== "Non renseigné";
 }
 
 function toPreferenceDisplay(value: unknown, customText: unknown) {
@@ -300,7 +323,7 @@ function buildLooksPayload(slots: Array<LookSlot | null>) {
           y: slot.offset.y,
         },
         zoom: slot.zoom,
-        aspect: "square",
+        aspect: "portrait",
       },
     };
     return accumulator;
@@ -419,9 +442,18 @@ type ProfileCompleteModifyCoreProps = {
   onInsightsValidityChange?: (isComplete: boolean) => void;
   showInsightsValidationError?: boolean;
   onScorePreviewChange?: React.Dispatch<React.SetStateAction<number | null>>;
+  onOnboardingProfileRequirementsChange?: (requirements: {
+    hasPhoto: boolean;
+    hasEssentialInfos: boolean;
+  }) => void;
 };
 
-export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsightsValidationError = false, onScorePreviewChange }: ProfileCompleteModifyCoreProps = {}) {
+export function ProfileCompleteModifyCore({
+  onInsightsValidityChange,
+  showInsightsValidationError = false,
+  onScorePreviewChange,
+  onOnboardingProfileRequirementsChange,
+}: ProfileCompleteModifyCoreProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -606,7 +638,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
         } satisfies LookSlot;
       }),
     );
-    setLooksSlots(hydratedLooks);
+    setLooksSlots(compactLooksSlots(hydratedLooks));
 
     const answers = parseAnswers(profileRow);
     const hasAnswersInUrl =
@@ -827,8 +859,9 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
 
   useEffect(() => {
     if (!cacheBootstrapDone) return;
+    if (searchParams.get("photoModifyId")) return;
     void hydrateFromDatabase({ silent: hasCachedBootstrap });
-  }, [cacheBootstrapDone, hasCachedBootstrap, hydrateFromDatabase]);
+  }, [cacheBootstrapDone, hasCachedBootstrap, hydrateFromDatabase, searchParams]);
 
   useEffect(() => {
     const p0 = searchParams.get("p0");
@@ -875,12 +908,17 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       fileName: string;
       mimeType: string;
       dataUrl: string;
+      file?: File;
       originalStoragePath?: string;
       offset: { x: number; y: number };
       zoom: number;
+      isRemoteSource?: boolean;
     }) => {
       const draftId = crypto.randomUUID();
       try {
+        if (draftPayload.file) {
+          registerPhotoModifyRuntimeFile(draftId, draftPayload.file, draftPayload.dataUrl);
+        }
         savePhotoModifyDraft({
           id: draftId,
           source: draftPayload.source,
@@ -890,10 +928,11 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
           fileName: draftPayload.fileName,
           mimeType: draftPayload.mimeType,
           slot: draftPayload.slot,
-          aspect: "square",
+          aspect: draftPayload.source === "looks" ? "portrait" : "square",
           offset: draftPayload.offset,
           zoom: draftPayload.zoom,
           status: "pending",
+          isRemoteSource: draftPayload.isRemoteSource ?? !draftPayload.file,
         });
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Impossible de préparer la photo.");
@@ -913,15 +952,17 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       return;
     }
     setErrorMessage(null);
-    const dataUrl = await fileToDataUrl(file);
+    const prepared = await preparePhotoModifyImage(file);
     openModifyPage({
       source: "profile",
-      fileName: file.name,
-      mimeType: file.type || "image/jpeg",
-      dataUrl,
+      fileName: prepared.fileName,
+      mimeType: prepared.mimeType,
+      dataUrl: prepared.previewUrl,
+      file: prepared.file,
       originalStoragePath: profilePhoto?.storagePath,
       offset: { x: 0, y: 0 },
       zoom: 1,
+      isRemoteSource: false,
     });
   };
 
@@ -934,16 +975,18 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       return;
     }
     const slot = activeLookSlotRef.current;
-    const dataUrl = await fileToDataUrl(file);
+    const prepared = await preparePhotoModifyImage(file);
     openModifyPage({
       source: "looks",
       slot,
-      fileName: file.name,
-      mimeType: file.type || "image/jpeg",
-      dataUrl,
+      fileName: prepared.fileName,
+      mimeType: prepared.mimeType,
+      dataUrl: prepared.previewUrl,
+      file: prepared.file,
       originalStoragePath: looksSlots[slot]?.storagePath,
       offset: { x: 0, y: 0 },
       zoom: 1,
+      isRemoteSource: false,
     });
   };
 
@@ -1001,6 +1044,8 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
       if (error) {
         setErrorMessage(error.message);
         setLooksSlots(previousLooks);
+      } else {
+        clearProfileHeaderCache();
       }
     },
     [looksSlots, supabase],
@@ -1077,6 +1122,19 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     void (async () => {
       setErrorMessage(null);
       if (draft.source === "profile") {
+        const imageRatio = await getImageRatio(draft.dataUrl);
+        const previousProfilePhoto = profilePhoto;
+        const nextProfilePhoto: LookSlot = {
+          dataUrl: draft.dataUrl,
+          fileName: draft.fileName,
+          mimeType: draft.mimeType,
+          storagePath: draft.originalStoragePath ?? profilePhoto?.storagePath,
+          imageRatio,
+          offset: { x: draft.offset.x, y: draft.offset.y },
+          zoom: draft.zoom,
+        };
+        setProfilePhoto(nextProfilePhoto);
+
         const { error } = await supabase.rpc("update_user_profile_public", {
           p_profile_json: {
             photos: {
@@ -1093,27 +1151,37 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
           p_request_id: crypto.randomUUID(),
         });
         if (error) {
+          setProfilePhoto(previousProfilePhoto);
           setErrorMessage(error.message);
         } else {
-          const imageRatio = await getImageRatio(draft.dataUrl);
-          setProfilePhoto((previous) => ({
-            dataUrl: draft.dataUrl,
-            fileName: draft.fileName,
-            mimeType: draft.mimeType,
-            storagePath: draft.originalStoragePath ?? previous?.storagePath,
-            imageRatio,
-            offset: { x: draft.offset.x, y: draft.offset.y },
-            zoom: draft.zoom,
-          }));
+          clearProfileHeaderCache();
         }
       } else {
         const slot = typeof draft.slot === "number" ? Math.max(0, Math.min(2, draft.slot)) : 0;
         const imageRatio = await getImageRatio(draft.dataUrl);
+        const previousLooks = looksSlots;
+        const nextLookSlot: LookSlot = {
+          dataUrl: draft.dataUrl,
+          fileName: draft.fileName,
+          mimeType: draft.mimeType,
+          storagePath: draft.originalStoragePath,
+          imageRatio,
+          offset: { x: draft.offset.x, y: draft.offset.y },
+          zoom: draft.zoom,
+        };
+        if (draft.originalStoragePath) {
+          setLooksSlots((previous) => {
+            const next = [...previous];
+            next[slot] = nextLookSlot;
+            return compactLooksSlots(next);
+          });
+        }
         const {
           data: { user: currentUser },
         } = await supabase.auth.getUser();
         if (!currentUser) {
           setErrorMessage("Session invalide.");
+          setLooksSlots(previousLooks);
           removePhotoModifyDraft(modifiedId);
           router.replace(nextUrl, { scroll: false });
           return;
@@ -1139,7 +1207,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
             position: {
               offset: { x: draft.offset.x, y: draft.offset.y },
               zoom: draft.zoom,
-              aspect: "square",
+              aspect: "portrait",
             },
           };
         } else {
@@ -1156,30 +1224,17 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
           p_request_id: crypto.randomUUID(),
         });
         if (error) {
+          setLooksSlots(previousLooks);
           setErrorMessage(error.message);
         } else {
-          // Re-hydrate from DB to keep all look slots in sync.
-          await hydrateFromDatabase({ silent: true });
-          setLooksSlots((previous) => {
-            const next = [...previous];
-            next[slot] = {
-              dataUrl: draft.dataUrl,
-              fileName: draft.fileName,
-              mimeType: draft.mimeType,
-              storagePath: draft.originalStoragePath,
-              imageRatio,
-              offset: { x: draft.offset.x, y: draft.offset.y },
-              zoom: draft.zoom,
-            };
-            return compactLooksSlots(next);
-          });
+          clearProfileHeaderCache();
         }
       }
 
       removePhotoModifyDraft(modifiedId);
       router.replace(nextUrl, { scroll: false });
     })();
-  }, [hydrateFromDatabase, pathname, profilePhoto?.storagePath, router, searchParams, supabase]);
+  }, [looksSlots, pathname, profilePhoto, router, searchParams, supabase]);
 
   const answersForSave = useMemo(
     () => [
@@ -1235,6 +1290,21 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
     preferenceItems,
     completionPreviewProfileData,
   ]);
+
+  useEffect(() => {
+    if (!onOnboardingProfileRequirementsChange || isHydrating) return;
+    const getInfo = (id: string) => infoItems.find((item) => item.id === id)?.value ?? "";
+    onOnboardingProfileRequirementsChange({
+      // Dans l’onboarding, la photo de profil correspond à la première photo ajoutée.
+      hasPhoto: looksSlots.some(Boolean),
+      hasEssentialInfos:
+        isProfileRequirementValueFilled(getInfo("first_name")) &&
+        isProfileRequirementValueFilled(getInfo("age")) &&
+        isProfileRequirementValueFilled(getInfo("location")) &&
+        isProfileRequirementValueFilled(getInfo("work")) &&
+        isProfileRequirementValueFilled(getInfo("sizes")),
+    });
+  }, [infoItems, isHydrating, looksSlots, onOnboardingProfileRequirementsChange]);
 
   useEffect(() => {
     if (isHydrating) return;
@@ -1455,7 +1525,7 @@ export function ProfileCompleteModifyCore({ onInsightsValidityChange, showInsigh
               onFocus={() => setHoveredLookIndex(index)}
               onBlur={() => setHoveredLookIndex((current) => (current === index ? null : current))}
               className={cn(
-                "group relative aspect-square overflow-visible rounded-2xl border-2 border-dashed transition",
+                "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
                 "border-zinc-400/55 bg-zinc-50",
                 dragOverLookIndex === index ? "border-zinc-700 bg-zinc-100" : "",
                 slot ? "cursor-grab touch-none active:cursor-grabbing" : "",

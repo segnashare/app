@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 
 import { shouldShowFloatingCartButton } from "@/components/layout/navigation";
 import { useActiveCartItemCount } from "@/hooks/useActiveCartItemCount";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
 /** Au-dessus de la tab bar (noire ~56px + safe area). */
@@ -15,7 +16,7 @@ const BOTTOM_ABOVE_TAB_BAR = "calc(56px + env(safe-area-inset-bottom, 0px) + 10p
 /** Quand la tab bar est masquée au scroll : même bande basse qu’elle (safe area + marge). */
 const BOTTOM_IN_TAB_BAR_SLOT = "calc(10px + env(safe-area-inset-bottom, 0px))";
 
-function FloatingViewCartPill({ pathname, count }: { pathname: string; count: number }) {
+function FloatingViewCartPill({ pathname, count, guideCartOnboarding }: { pathname: string; count: number; guideCartOnboarding: boolean }) {
   const [tabBarVisible, setTabBarVisible] = useState(true);
 
   useEffect(() => {
@@ -44,8 +45,9 @@ function FloatingViewCartPill({ pathname, count }: { pathname: string; count: nu
         href="/cart"
         aria-label={`Voir le panier, ${count} article${count > 1 ? "s" : ""}`}
         className={cn(
-          "pointer-events-auto inline-flex min-h-[60px] w-[min(50vw,215px)] items-center justify-center gap-1.5 rounded-full bg-black",
+          "segna-guidance-shimmer-target pointer-events-auto inline-flex min-h-[60px] w-[min(50vw,215px)] items-center justify-center gap-1.5 rounded-full bg-black",
           "px-3 py-[18px] text-base leading-tight text-white shadow-[0_10px_28px_rgba(0,0,0,0.28)]",
+          guideCartOnboarding && "segna-guidance-shimmer-active",
         )}
       >
         <ShoppingCart className="h-6 w-6 shrink-0" aria-hidden />
@@ -63,9 +65,30 @@ export function FloatingViewCartButton() {
   const pathname = usePathname();
   const canRender = useMemo(() => shouldShowFloatingCartButton(pathname), [pathname]);
   const { count } = useActiveCartItemCount();
+  const [guideCartOnboarding, setGuideCartOnboarding] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("users")
+        .select("onboarding_process")
+        .eq("id", user.id)
+        .maybeSingle<{ onboarding_process?: string | null }>();
+      if (!cancelled) setGuideCartOnboarding(data?.onboarding_process === "panier");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!canRender || count <= 0) return null;
   if (pathname === "/cart") return null;
 
-  return <FloatingViewCartPill key={pathname} pathname={pathname} count={count} />;
+  return <FloatingViewCartPill key={pathname} pathname={pathname} count={count} guideCartOnboarding={guideCartOnboarding} />;
 }

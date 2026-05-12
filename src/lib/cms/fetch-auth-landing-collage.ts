@@ -1,6 +1,6 @@
 import type { CmsImageRef } from "@/lib/cms/cms-types";
 import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
-import { createSignedUrlForStoragePath, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 export type AuthCollageAspect = "square" | "portrait" | "landscape";
 export type AuthCollageSize = "small" | "medium" | "large";
@@ -63,17 +63,11 @@ async function resolveAuthCollageRowsSignedUrls(
   supabase: StorageSignClient,
   signTtlSeconds: number,
 ): Promise<AuthCollageFrameRow[]> {
-  const sign = (path: string) => createSignedUrlForStoragePath(supabase, path, signTtlSeconds);
   const rawPaths = rows
     .map((r) => r.payload.collage_image?.storage_path)
     .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
     .map((p) => p.trim());
-  const uniquePaths = [...new Set(rawPaths)];
-  const signedList = await Promise.all(uniquePaths.map((path) => sign(path)));
-  const urlByPath = new Map<string, string | null>();
-  uniquePaths.forEach((path, i) => {
-    urlByPath.set(path, signedList[i]);
-  });
+  const urlByPath = await createSignedUrlsForStoragePaths(supabase, [...new Set(rawPaths)], signTtlSeconds);
 
   return rows.map((row) => {
     const img = row.payload.collage_image;
@@ -129,7 +123,7 @@ export async function fetchAuthLandingCollageResolved(
     const rpcMs = Date.now() - t0;
     const tResolve0 = Date.now();
     const resolved = await resolveAuthCollageRowsSignedUrls(rows, supabase, signTtlSeconds);
-    if (process.env.NODE_ENV === "development") {
+    if (process.env.SEGNA_PERF_DEBUG === "1") {
       const withUrl = resolved.filter((r) => Boolean(r.payload.collage_image?.signed_url)).length;
       const uniqueSignCount = new Set(
         rows

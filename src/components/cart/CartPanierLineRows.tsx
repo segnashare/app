@@ -65,6 +65,8 @@ export type CartPanierLineRowsProps = {
   showAddArticlesLink?: boolean;
   /** Page Échange : pas de rouge ni de classes d’animation sur surplus / concurrence. */
   exchangeUiCalm?: boolean;
+  /** Onboarding panier : attire l'oeil vers l'ajout d'articles. */
+  guideAddArticlesLink?: boolean;
 };
 
 /**
@@ -80,6 +82,7 @@ export function CartPanierLineRows({
   onRemoveLine,
   showAddArticlesLink = true,
   exchangeUiCalm = false,
+  guideAddArticlesLink = false,
 }: CartPanierLineRowsProps) {
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
   const isGuest = membershipLabel === "Guest";
@@ -119,7 +122,12 @@ export function CartPanierLineRows({
                   </div>
                 </>
               ) : null}
-              <article className="relative grid w-full grid-cols-[100px_minmax(0,50%)_auto] items-center gap-1 px-5 py-3">
+              <article
+                className={cn(
+                  "relative grid w-full items-center gap-1 px-5",
+                  exchangeUiCalm ? "grid-cols-[78px_minmax(0,50%)_auto] py-1.5" : "grid-cols-[100px_minmax(0,50%)_auto] py-3",
+                )}
+              >
                 <Link
                   href={`/items/${line.itemId}?from=cart`}
                   aria-label={`Voir ${line.itemName}`}
@@ -131,10 +139,15 @@ export function CartPanierLineRows({
                     <RemoteCoverThumb
                       photoUrl={line.photoUrl}
                       photoPosition={line.photoPosition}
-                      frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
+                      frameClassName={cn("aspect-square shrink-0 rounded-md", exchangeUiCalm ? "w-[78px]" : "w-[100px]")}
                     />
                   ) : (
-                    <div className="flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400">
+                    <div
+                      className={cn(
+                        "flex aspect-square shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+                        exchangeUiCalm ? "w-[78px]" : "w-[100px]",
+                      )}
+                    >
                       <ImageIcon className="h-7 w-7" aria-hidden />
                     </div>
                   )}
@@ -142,15 +155,15 @@ export function CartPanierLineRows({
 
                 <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[18px] font-semibold italic leading-[1.15] text-zinc-900 break-words">
+                    <p className={cn("font-semibold italic text-zinc-900 break-words", exchangeUiCalm ? "text-[16px] leading-[1.08]" : "text-[18px] leading-[1.15]")}>
                       {line.itemName}
                     </p>
                     {line.brand ? (
-                      <span className="font-semibold text-[16px] not-italic text-zinc-900"> ({line.brand})</span>
+                      <span className={cn("font-semibold not-italic text-zinc-900", exchangeUiCalm ? "text-[14px]" : "text-[16px]")}> ({line.brand})</span>
                     ) : null}
                     {line.description ? (
                       <p
-                        className="mt-1 min-w-0 text-[13px] leading-[1.3] text-zinc-500 line-clamp-1"
+                        className={cn("mt-0.5 min-w-0 text-zinc-500 line-clamp-1", exchangeUiCalm ? "text-[12px] leading-[1.2]" : "text-[13px] leading-[1.3]")}
                         title={line.description}
                       >
                         {line.description}
@@ -225,10 +238,14 @@ export function CartPanierLineRows({
       ) : null}
 
       {showAddArticlesLink ? (
-        <div className="flex justify-end pt-4">
+        <div className={cn("flex justify-end", exchangeUiCalm ? "pt-1" : "pt-4")}>
           <Link
             href="/shop"
-            className="inline-flex h-10 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-4 text-[14px] font-bold text-zinc-900"
+            className={cn(
+              "segna-guidance-shimmer-target inline-flex w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 text-[14px] font-bold text-zinc-900",
+              exchangeUiCalm ? "h-9 px-3" : "h-10 px-4",
+              guideAddArticlesLink && "segna-guidance-shimmer-active",
+            )}
           >
             <Plus className="h-4 w-4" strokeWidth={2.5} />
             <span>Ajouter des articles</span>

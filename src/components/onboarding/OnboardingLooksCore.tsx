@@ -23,7 +23,7 @@ type OnboardingLooksCoreProps = {
   onCanContinueChange?: (value: boolean) => void;
 };
 
-const LOOK_STAGE_RATIO = 1;
+const LOOK_STAGE_RATIO = 3 / 4;
 const LOOKS_DRAFT_STORAGE_KEY = "segna:onboarding:looks:draft";
 
 const getImageRatio = (dataUrl: string) =>
@@ -143,7 +143,7 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
         fileName: file.name,
         mimeType: file.type || "image/jpeg",
         slot: slotIndex,
-        aspect: "square",
+        aspect: "portrait",
         offset: { x: 0, y: 0 },
         zoom: 1,
         status: "pending",
@@ -189,7 +189,7 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
         position: {
           offset: slot.offset,
           zoom: slot.zoom,
-          aspect: "square",
+          aspect: "portrait",
         },
       };
       return accumulator;
@@ -259,7 +259,7 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
                       fileName: slot.fileName,
                       mimeType: slot.mimeType,
                       slot: index,
-                      aspect: "square",
+                      aspect: "portrait",
                       offset: { x: slot.offset.x, y: slot.offset.y },
                       zoom: slot.zoom,
                       status: "pending",
@@ -274,7 +274,7 @@ export function OnboardingLooksCore({ formId, onCanContinueChange }: OnboardingL
                 openPickerForSlot(index);
               }}
               className={cn(
-                "relative aspect-square overflow-hidden rounded-2xl border-2 border-dashed bg-[#f7f3ef] transition",
+                "relative aspect-[3/4] overflow-hidden rounded-2xl border-2 border-dashed bg-[#f7f3ef] transition",
                 dragOverIndex === index ? "border-[#5E3023] bg-[#f3ece5]" : "border-[#5E3023]/55",
               )}
             >

@@ -1,15 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import {
-  OnboardingIntroImageCarousel,
   isLightBackgroundHex,
   normalizeSlideBackgroundHex,
   type OnboardingCarouselVisualState,
-} from "@/components/onboarding/OnboardingIntroImageCarousel";
+} from "@/components/onboarding/onboarding-intro-carousel-visual";
 import { OnboardingIntroImageGrid } from "@/components/onboarding/OnboardingIntroImageGrid";
 import { OnboardingIntroImageStack } from "@/components/onboarding/OnboardingIntroImageStack";
 import { OnboardingProgressPills } from "@/components/onboarding/OnboardingProgressPills";
@@ -23,6 +23,10 @@ import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
 const montserrat = segnaMontserrat;
+const OnboardingIntroImageCarousel = dynamic(
+  () => import("@/components/onboarding/OnboardingIntroImageCarousel").then((m) => m.OnboardingIntroImageCarousel),
+  { ssr: false },
+);
 
 /** Même logique que l’écran /auth : évite d’afficher le contenu tant que les visuels CMS ne sont pas prêts. */
 const ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS = 12_000;
@@ -53,12 +57,10 @@ export function OnboardingIntroCmsStepShell({
   onContinue,
 }: OnboardingIntroCmsStepShellProps) {
   const [frames, setFrames] = useState<CmsFrameRow[]>([]);
-  const [visualsReady, setVisualsReady] = useState(false);
+  const [visualsReady, setVisualsReady] = useState(true);
   const isGridIntro = sectionKey === "onboarding_2_intro";
   const isCarouselIntro = sectionKey === "onboarding_3_intro";
   const [carouselBgHex, setCarouselBgHex] = useState("#ffffff");
-
-  const sortedStackFrames = useMemo(() => [...frames].sort((a, b) => a.sort_order - b.sort_order), [frames]);
 
   const applyCarouselVisual = useCallback((state: OnboardingCarouselVisualState) => {
     setCarouselBgHex((prev) => (prev === state.backgroundHex ? prev : state.backgroundHex));
@@ -160,7 +162,7 @@ export function OnboardingIntroCmsStepShell({
 
       {showBlockingLoader ? (
         <div
-          className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-5 bg-white px-6"
+          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 bg-white px-6"
           role="status"
           aria-live="polite"
           aria-label="Chargement des visuels"
@@ -182,14 +184,14 @@ export function OnboardingIntroCmsStepShell({
       >
         {showBackgroundStack ? (
           <div
-            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden bg-transparent px-5 sm:px-7 md:px-10 lg:px-14"
+            className="pointer-events-none absolute inset-x-0 bottom-[clamp(6.75rem,14dvh,9rem)] top-[clamp(10.75rem,26dvh,13rem)] z-0 flex items-center justify-center overflow-hidden bg-transparent px-5 sm:px-7 md:inset-0 md:px-10 lg:px-14"
             aria-hidden
           >
             <OnboardingIntroImageStack frames={frames} />
           </div>
         ) : null}
 
-        <div className="relative z-10 flex min-h-[100dvh] min-w-0 flex-1 flex-col bg-transparent pb-8 pt-[max(4.5rem,calc(env(safe-area-inset-top)+1.35rem))]">
+        <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col bg-transparent pb-8 pt-[max(4.5rem,calc(env(safe-area-inset-top)+1.35rem))]">
           <div
             className={cn(
               montserrat.className,

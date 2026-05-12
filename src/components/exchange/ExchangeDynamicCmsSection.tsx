@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils/cn";
 export type ExchangeDynamicCmsSectionProps = {
   sectionKey: string;
   cms: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay };
+  guideOfferOnboarding?: boolean;
 };
 
 /**
@@ -17,8 +18,29 @@ export type ExchangeDynamicCmsSectionProps = {
  * Gabarit large systématique (`w-full` dans la colonne, comme Prêts et `commerce_promo_ad`) pour éviter
  * le rail défaut 88vw/90 % plus étroit — ex. section BO « Nos offres » (`nos_offres`, etc.).
  */
-export function ExchangeDynamicCmsSection({ sectionKey, cms }: ExchangeDynamicCmsSectionProps) {
+function isOfferGuidanceSection(sectionKey: string, cms: ExchangeDynamicCmsSectionProps["cms"]): boolean {
+  const normalizedKey = sectionKey.toLowerCase();
+  if (normalizedKey.includes("offer") || normalizedKey.includes("offre")) return true;
+  return cms.frames.some((frame) => {
+    const payload = frame.payload ?? {};
+    const haystack = [
+      payload.target_url,
+      payload.title,
+      payload.label,
+      payload.subtitle,
+      payload.cta_label,
+      payload.button_label,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes("/package") || haystack.includes("segnax") || haystack.includes("crédit");
+  });
+}
+
+export function ExchangeDynamicCmsSection({ sectionKey, cms, guideOfferOnboarding = false }: ExchangeDynamicCmsSectionProps) {
   if (cms.frames.length === 0) return null;
+  const shouldGuideOfferFrames = guideOfferOnboarding && isOfferGuidanceSection(sectionKey, cms);
 
   return (
     <CartCmsShopHubProvider catalogItems={[]}>
@@ -30,7 +52,7 @@ export function ExchangeDynamicCmsSection({ sectionKey, cms }: ExchangeDynamicCm
         ) : null}
         <CmsHorizontalScrollRow
           rows={cms.frames}
-          className={cms.display.hide_section_title ? "!mt-0" : undefined}
+          className={cn(cms.display.hide_section_title && "!mt-0", shouldGuideOfferFrames && "segna-guidance-shimmer-active")}
           hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
         />
       </section>

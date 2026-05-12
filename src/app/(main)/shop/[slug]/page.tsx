@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 
 import { MainContent } from "@/components/layout/MainContent";
 import { ShopCatalog, type ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import { getCurrentUserAppState } from "@/lib/auth/current-user-server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
 import {
@@ -45,6 +47,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
   if (!user) {
     return null;
   }
+  const userState = await getCurrentUserAppState(user.id);
 
   const [lendersRes, profileRes, catRes, sizeRes, brandRes, colRes, matRes, favRes] = await Promise.all([
     anySb.rpc("get_shop_featured_lenders", { p_limit: 9 }),
@@ -96,8 +99,16 @@ export default async function ShopSectionPage({ params }: PageProps) {
   }
 
   const categoryRows = mapCategoryFilterRows(catRes.data);
+  let sectionCatalogClient: unknown = supabase;
+  if (slug === "collection-segna") {
+    try {
+      sectionCatalogClient = createSupabaseAdminClient();
+    } catch {
+      sectionCatalogClient = supabase;
+    }
+  }
 
-  const initialItems: ShopCatalogItem[] = await loadShopSectionItems(supabase, slug, {
+  const initialItems: ShopCatalogItem[] = await loadShopSectionItems(sectionCatalogClient, slug, {
     userId: user.id,
     featuredLenderItemIds,
     preferredBrandIds,
@@ -121,6 +132,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
         materials={mapFilterRows(matRes.data)}
         featuredLenders={[]}
         featuredLenderSectionItemIds={[]}
+        guideCartOnboarding={userState.onboarding_process === "panier"}
       />
     </MainContent>
   );

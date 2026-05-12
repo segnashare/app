@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils/cn";
 type FieldErrors = Partial<Record<"instagram" | "tiktok" | "pinterest" | "threads", string>>;
 
 /** Même clé que `ProfileTabs` / `ProfileKycCore` pour forcer un rechargement du score après sauvegarde. */
-const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v1";
+const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 
 function SocialNetworkIcon({ id }: { id: keyof FieldErrors }) {
   const cls = "h-5 w-5 shrink-0 text-zinc-900";

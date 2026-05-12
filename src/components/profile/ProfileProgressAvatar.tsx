@@ -61,11 +61,11 @@ export function ProfileProgressAvatar({ completionScore, avatarUrl, avatarTransf
           <RemoteCoverThumb
             photoUrl={avatarUrl}
             frameClassName="h-full w-full rounded-full"
-            coverStyle={{
-              backgroundSize: `${Math.max(55, zoom * 100)}%`,
-              backgroundPosition: `calc(50% + ${offsetX}%) calc(50% + ${offsetY}%)`,
-              backgroundRepeat: "no-repeat",
+            photoPosition={{
+              offset: { x: offsetX, y: offsetY },
+              zoom,
             }}
+            photoCoverFill
             className="rounded-full"
           />
         ) : (

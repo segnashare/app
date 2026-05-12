@@ -13,16 +13,29 @@ export type OutboundShipmentSummary = {
   returnShipmentStatus: string | null;
 };
 
+type ShipmentSummaryQueryBuilder = {
+  eq: (column: string, value: string) => ShipmentSummaryQueryBuilder;
+  is: (column: string, value: null) => ShipmentSummaryQueryBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => ShipmentSummaryQueryBuilder;
+  limit: (count: number) => ShipmentSummaryQueryBuilder;
+  maybeSingle: () => PromiseLike<{ data: unknown; error: unknown }>;
+};
+
+type ShipmentSummaryRootBuilder = {
+  select: (columns: string) => ShipmentSummaryQueryBuilder;
+};
+
 /**
  * Dernier panier confirmé + résumé expédition aller (RPC `get_cart_outbound_shipment_summary`).
  */
 export async function fetchLatestConfirmedCartOutboundShipmentSummary(
-  supabase: {
-    from: (table: string) => any;
-    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
-  },
+  supabaseInput: unknown,
   userId: string,
 ): Promise<OutboundShipmentSummary | null> {
+  const supabase = supabaseInput as {
+    from: (table: string) => ShipmentSummaryRootBuilder;
+    rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
+  };
   const cartRes = await supabase
     .from("carts")
     .select("id")

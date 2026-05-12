@@ -20,7 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <AuthSessionLogger />
+        {process.env.SEGNA_AUTH_SESSION_LOGGER === "1" ? <AuthSessionLogger /> : null}
         {children}
       </body>
     </html>

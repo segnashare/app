@@ -16,9 +16,11 @@ import { cn } from "@/lib/utils/cn";
 export function ExchangeLendsEmptyCmsBlock({
   cms,
   catalogItems,
+  guideExchangeOnboarding = false,
 }: {
   cms: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay };
   catalogItems: ShopCatalogItem[];
+  guideExchangeOnboarding?: boolean;
 }) {
   const router = useRouter();
   if (cms.frames.length === 0) return null;
@@ -32,7 +34,10 @@ export function ExchangeLendsEmptyCmsBlock({
       ) : null}
       <CmsHorizontalScrollRow
         rows={cms.frames}
-        className={cms.display.hide_section_title ? "!mt-0" : undefined}
+        className={cn(
+          cms.display.hide_section_title && "!mt-0",
+          guideExchangeOnboarding && "segna-guidance-shimmer-active",
+        )}
         hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
         layout="rail"
       />

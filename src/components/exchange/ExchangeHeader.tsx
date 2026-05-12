@@ -9,6 +9,7 @@ import { Info } from "lucide-react";
 
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { SegnaDialogDismissButton } from "@/components/ui/SegnaAppDialog";
+import { cn } from "@/lib/utils/cn";
 
 type ExchangeHeaderProps = {
   membershipLabel: string;
@@ -17,6 +18,7 @@ type ExchangeHeaderProps = {
   balanceExchangePoints: number;
   activeCartCostPoints: number | null;
   hasReachedLendingCap: boolean;
+  guideOfferOnboarding?: boolean;
 };
 
 
@@ -28,6 +30,7 @@ export function ExchangeHeader({
   balanceExchangePoints,
   activeCartCostPoints,
   hasReachedLendingCap,
+  guideOfferOnboarding = false,
 }: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
 
@@ -62,6 +65,7 @@ export function ExchangeHeader({
           activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
           cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
+          className={cn(guideOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target")}
         />
       </header>
 
@@ -77,28 +81,28 @@ export function ExchangeHeader({
               <div className="mt-2 space-y-2 text-sm text-zinc-600">
                 <p>Tu es en mode Guest : tu peux emprunter et utiliser tes crédits d&apos;échange.</p>
                 <p>
-                  Avec une adhésion SegnaX, tu débloques plus de crédits, des plafonds plus confortables et les livraisons
-                  incluses.
+                  Avec une adhésion SegnaX, tu débloques 500 crédits SegnaX inclus et 2 échanges mensuels inclus
+                  (gratuits).
                 </p>
               </div>
             ) : subscriberMembershipDescription ? (
               <p className="mt-2 text-sm text-zinc-600">{subscriberMembershipDescription}</p>
             ) : null}
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setMembershipModalOpen(false)}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-semibold text-zinc-800"
-              >
-                Fermer
-              </button>
+            <div className="mt-4 flex flex-col gap-2">
               <Link
                 href={membershipOffersHref}
-                className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-950 px-4 text-sm font-semibold text-white"
+                className="inline-flex h-11 items-center justify-center rounded-xl border-2 border-zinc-950 bg-white px-4 text-sm font-semibold text-zinc-950 transition active:bg-zinc-50"
                 onClick={() => setMembershipModalOpen(false)}
               >
                 {membershipLabel === "Guest" ? "Découvrir l'adhésion" : "Voir les offres"}
               </Link>
+              <button
+                type="button"
+                onClick={() => setMembershipModalOpen(false)}
+                className="inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold text-zinc-700 transition active:bg-zinc-50"
+              >
+                Fermer
+              </button>
             </div>
           </div>
         </div>

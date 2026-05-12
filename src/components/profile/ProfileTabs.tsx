@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ShieldCheck, Settings } from "lucide-react";
+import { BadgeCheck, ShieldCheck, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CmsFrameItem, CmsLinkCardCtaToneProvider } from "@/components/cms/CmsSectionBlocks";
@@ -14,8 +14,10 @@ import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySumm
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { cn } from "@/lib/utils/cn";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
 const PROFILE_TABS = [
   { id: "plus", label: "Obtenir plus" },
@@ -92,12 +94,50 @@ const DEFAULT_GAMIFICATION_DATA: ProfileGamificationData = {
 };
 
 const TAB_SET = new Set<ProfileTabId>(PROFILE_TABS.map((tab) => tab.id));
-const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v1";
+const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 const PROFILE_HEADER_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function parseProfileTab(value: string | null | undefined): ProfileTabId {
   if (value === "security") return "me";
   return value && TAB_SET.has(value as ProfileTabId) ? (value as ProfileTabId) : "plus";
+}
+
+function isProfileCompletionHeroRow(row: CmsFrameRow): boolean {
+  const payload = (row.payload ?? {}) as Record<string, unknown>;
+  const haystack = [
+    payload.target_url,
+    payload.title,
+    payload.label,
+    payload.subtitle,
+    payload.cta_label,
+    payload.button_label,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes("/profile/complete") || haystack.includes("complète ton profil") || haystack.includes("complete ton profil");
+}
+
+function getFirstLookPhotoPath(row: Record<string, unknown> | null | undefined): string | null {
+  if (!row || typeof row !== "object") return null;
+  const profileData = (row.profile_data ?? {}) as Record<string, unknown>;
+  const source = row.looks ?? profileData.looks ?? {};
+  const readEntry = (entry: unknown) => {
+    if (!entry || typeof entry !== "object") return null;
+    const record = entry as Record<string, unknown>;
+    const raw = record.storage_path ?? record.url ?? record.path;
+    return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+  };
+  if (Array.isArray(source)) {
+    for (const entry of source) {
+      const path = readEntry(entry);
+      if (path) return path;
+    }
+    return null;
+  }
+  if (!source || typeof source !== "object") return null;
+  const record = source as Record<string, unknown>;
+  return readEntry(record.look1) ?? readEntry(record.look2) ?? readEntry(record.look3);
 }
 
 function getProfileHeaderFromRow(row: Record<string, unknown> | null | undefined): Partial<ProfileHeaderData> {
@@ -135,6 +175,7 @@ function getProfileHeaderFromRow(row: Record<string, unknown> | null | undefined
   ];
   const profilePhotoPath =
     profilePhotoPathCandidates.find((value) => typeof value === "string" && value.trim().length > 0)?.toString().trim() ?? null;
+  const fallbackLookPhotoPath = getFirstLookPhotoPath(row);
   const transformRaw = (photos.profile_photo_transform ?? {}) as Record<string, unknown>;
   const offsetRaw = (transformRaw.offset ?? {}) as Record<string, unknown>;
   const zoomRaw = typeof transformRaw.zoom === "number" ? transformRaw.zoom : Number(transformRaw.zoom);
@@ -150,7 +191,7 @@ function getProfileHeaderFromRow(row: Record<string, unknown> | null | undefined
     completionScore: Number.isFinite(numericScore) ? numericScore : undefined,
     avatarUrl,
     avatarTransform,
-    profilePhotoPath,
+    profilePhotoPath: profilePhotoPath ?? fallbackLookPhotoPath,
     kycStatus,
   };
 }
@@ -167,18 +208,6 @@ function getKycStatusFromVerificationRow(row: Record<string, unknown> | null | u
   if (!row || typeof row !== "object") return "unknown";
   return normalizeKycStatus(row.verification_status ?? row.status);
 }
-
-const urlToDataUrl = async (url: string) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Impossible de charger l'image.");
-  const blob = await response.blob();
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("Impossible de lire l'image."));
-    reader.readAsDataURL(blob);
-  });
-};
 
 type ProfileHeaderCachePayload = {
   userId: string;
@@ -241,6 +270,7 @@ export function ProfileTabs({
   const tabsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const scrollByTabRef = useRef<Record<ProfileTabId, number>>({ plus: 0, me: 0 });
   const restoreAfterTabChangeRef = useRef(false);
+  const processedModifyIdRef = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<ProfileTabId>(parseProfileTab(initialTab));
   const [headerData, setHeaderData] = useState<ProfileHeaderData>({
@@ -253,6 +283,8 @@ export function ProfileTabs({
   const hasWarmHeaderDataRef = useRef(false);
   const [gamificationData, setGamificationData] = useState<ProfileGamificationData>(DEFAULT_GAMIFICATION_DATA);
   const [isLoadingGamification, setIsLoadingGamification] = useState(true);
+  const [onboardingProcess, setOnboardingProcess] = useState<string | null>(null);
+  const shouldGuideProfileCompletion = onboardingProcess === "profile";
   useEffect(() => {
     const cached = readWarmProfileHeaderCache();
     if (!cached) return;
@@ -286,9 +318,14 @@ export function ProfileTabs({
       return;
     }
 
-    const [{ data: userProfileRow, error: userProfileError }, { data: onboardingRow }] = await Promise.all([
+    const [
+      { data: userProfileRow, error: userProfileError },
+      { data: onboardingRow },
+      { data: identityVerificationRow, error: identityVerificationError },
+    ] = await Promise.all([
       supabase.from("user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
       supabase.from("onboarding_sessions").select("status").eq("user_id", user.id).maybeSingle(),
+      supabase.from("user_identity_verifications").select("verification_status").eq("user_id", user.id).maybeSingle(),
     ]);
 
     if (userProfileError) {
@@ -301,19 +338,13 @@ export function ProfileTabs({
     const fromDb = getProfileHeaderFromRow(rawRow);
     let resolvedAvatarUrl = fromDb.avatarUrl ?? null;
     if (typeof fromDb.profilePhotoPath === "string" && fromDb.profilePhotoPath.length > 0) {
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from("bucket_focus")
-        .createSignedUrl(fromDb.profilePhotoPath, 60 * 60);
-      if (!signedError && signedData?.signedUrl) {
-        resolvedAvatarUrl = signedData.signedUrl;
+      resolvedAvatarUrl = null;
+      if (/^https?:\/\//i.test(fromDb.profilePhotoPath)) {
+        resolvedAvatarUrl = fromDb.profilePhotoPath;
       } else {
-        const { data: downloadData, error: downloadError } = await supabase.storage.from("bucket_focus").download(fromDb.profilePhotoPath);
-        if (!downloadError && downloadData) {
-          resolvedAvatarUrl = URL.createObjectURL(downloadData);
-        } else {
-          const { data: publicData } = supabase.storage.from("bucket_focus").getPublicUrl(fromDb.profilePhotoPath);
-          resolvedAvatarUrl = publicData?.publicUrl || resolvedAvatarUrl;
-        }
+        resolvedAvatarUrl = await createSignedUrlForStoragePath(supabase, fromDb.profilePhotoPath, 60 * 60, {
+          explicitBucket: "bucket_focus",
+        });
       }
     }
     const completionFromDb = fromDb.completionScore;
@@ -333,11 +364,6 @@ export function ProfileTabs({
       completionScore,
     };
 
-    const { data: identityVerificationRow, error: identityVerificationError } = await supabase
-      .from("user_identity_verifications")
-      .select("verification_status")
-      .eq("user_id", user.id)
-      .maybeSingle();
     if (identityVerificationError) {
     } else if (identityVerificationRow) {
       const identityKycStatus = getKycStatusFromVerificationRow(identityVerificationRow as Record<string, unknown>);
@@ -353,6 +379,27 @@ export function ProfileTabs({
   useEffect(() => {
     void fetchHeaderData();
   }, [fetchHeaderData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseBrowserClient() as any;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("users")
+        .select("onboarding_process")
+        .eq("id", user.id)
+        .maybeSingle();
+      const userRow = data as { onboarding_process?: string | null } | null;
+      if (!cancelled) setOnboardingProcess(userRow?.onboarding_process ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -468,26 +515,22 @@ export function ProfileTabs({
       return;
     }
 
-    try {
-      const dataUrl = await urlToDataUrl(headerData.avatarUrl);
-      const draftId = crypto.randomUUID();
-      savePhotoModifyDraft({
-        id: draftId,
-        source: "profile",
-        returnPath: `/profile?tab=${activeTab}`,
-        dataUrl,
-        originalStoragePath: headerData.profilePhotoPath ?? undefined,
-        fileName: "profile-photo.jpg",
-        mimeType: "image/jpeg",
-        aspect: "square",
-        offset: headerData.avatarTransform.offset,
-        zoom: headerData.avatarTransform.zoom,
-        status: "pending",
-      });
-      router.push(`/modify?id=${encodeURIComponent(draftId)}`);
-    } catch {
-      router.push(`/profile/complete?tab=${activeTab}`);
-    }
+    const draftId = crypto.randomUUID();
+    savePhotoModifyDraft({
+      id: draftId,
+      source: "profile",
+      returnPath: `/profile?tab=${activeTab}`,
+      dataUrl: headerData.avatarUrl,
+      originalStoragePath: headerData.profilePhotoPath ?? undefined,
+      fileName: "profile-photo.jpg",
+      mimeType: "image/jpeg",
+      aspect: "square",
+      offset: headerData.avatarTransform.offset,
+      zoom: headerData.avatarTransform.zoom,
+      status: "pending",
+      isRemoteSource: true,
+    });
+    router.push(`/modify?id=${encodeURIComponent(draftId)}`);
   }, [activeTab, headerData.avatarTransform.offset, headerData.avatarTransform.zoom, headerData.avatarUrl, headerData.profilePhotoPath, router]);
 
   useEffect(() => {
@@ -506,8 +549,10 @@ export function ProfileTabs({
   useEffect(() => {
     const modifiedId = searchParams.get("photoModifyId");
     if (!modifiedId) return;
+    if (processedModifyIdRef.current === modifiedId) return;
     const draft = readPhotoModifyDraft(modifiedId);
     if (!draft || draft.source !== "profile") return;
+    processedModifyIdRef.current = modifiedId;
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete("photoModifyId");
@@ -523,33 +568,52 @@ export function ProfileTabs({
 
     void (async () => {
       const supabase = createSupabaseBrowserClient() as any;
-      const { error: profileError } = await supabase.rpc("update_user_profile_public", {
-        p_profile_json: {
-          photos: {
-            profile_photo_selected: true,
-            profile_photo_name: draft.fileName,
-            profile_photo_path: draft.originalStoragePath ?? headerData.profilePhotoPath,
-            profile_photo_transform: {
-              offset: { x: draft.offset.x, y: draft.offset.y },
-              zoom: draft.zoom,
-              aspect: "square",
+      const previousHeaderData = headerData;
+      const optimisticPath = draft.originalStoragePath ?? headerData.profilePhotoPath ?? null;
+      setHeaderData((current) => ({
+        ...current,
+        avatarUrl: draft.dataUrl || current.avatarUrl,
+        profilePhotoPath: optimisticPath,
+        avatarTransform: {
+          offset: { x: draft.offset.x, y: draft.offset.y },
+          zoom: draft.zoom,
+        },
+      }));
+      setIsLoadingHeader(false);
+
+      const { error: profileError } = await measureClientPhotoPerf("photo.profileRpc", () =>
+        supabase.rpc("update_user_profile_public", {
+          p_profile_json: {
+            photos: {
+              profile_photo_selected: true,
+              profile_photo_name: draft.fileName,
+              profile_photo_path: optimisticPath,
+              profile_photo_transform: {
+                offset: { x: draft.offset.x, y: draft.offset.y },
+                zoom: draft.zoom,
+                aspect: "square",
+              },
             },
           },
-        },
-        p_request_id: crypto.randomUUID(),
-      });
+          p_request_id: crypto.randomUUID(),
+        }),
+        { source: "profile" },
+      );
 
       removePhotoModifyDraft(modifiedId);
       router.replace(nextUrl, { scroll: false });
 
       if (profileError) {
+        setHeaderData(previousHeaderData);
         setHeaderError(profileError.message);
         return;
       }
 
-      await fetchHeaderData({ forceRefresh: true });
+      await measureClientPhotoPerf("photo.profileHeaderRefetch", () => fetchHeaderData({ forceRefresh: true }), {
+        source: "profile",
+      });
     })();
-  }, [fetchHeaderData, headerData.profilePhotoPath, pathname, router, searchParams]);
+  }, [fetchHeaderData, headerData, pathname, router, searchParams]);
 
   useEffect(() => {
     if (!restoreAfterTabChangeRef.current) return;
@@ -648,7 +712,11 @@ export function ProfileTabs({
         {!isLoadingHeader && headerData.kycStatus !== "verified" ? (
           <Link href="/profile/kyc?tab=me" className="block">
             <CardBase className="flex items-center gap-3">
-              <ShieldCheck className={headerData.kycStatus === "rejected" ? "text-[#E44D3E]" : "text-zinc-500"} />
+              {headerData.kycStatus === "rejected" ? (
+                <BadgeCheck className="text-[#E44D3E]" />
+              ) : (
+                <ShieldCheck className="text-zinc-500" />
+              )}
               <div>
                 <p className="text-xl font-semibold text-zinc-900">
                   {headerData.kycStatus === "rejected" ? "Vérification refusée" : "Vérification d'identité"}
@@ -671,7 +739,13 @@ export function ProfileTabs({
                 <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
                   <div className="w-5 shrink-0 snap-normal" aria-hidden />
                   {meProfileHeroRows.map((row) => (
-                    <div key={row.id} className="w-[min(90vw,420px)] max-w-[420px] shrink-0 snap-start">
+                    <div
+                      key={row.id}
+                      className={cn(
+                        "w-[min(90vw,420px)] max-w-[420px] shrink-0 snap-start",
+                        shouldGuideProfileCompletion && isProfileCompletionHeroRow(row) && "segna-guidance-shimmer-active",
+                      )}
+                    >
                       <CmsFrameItem row={row} layoutMode="stack" />
                     </div>
                   ))}
@@ -679,7 +753,14 @@ export function ProfileTabs({
               </div>
             ) : (
               <div className="flex justify-center">
-                <div className="w-full max-w-[420px]">
+                <div
+                  className={cn(
+                    "w-full max-w-[420px]",
+                    shouldGuideProfileCompletion &&
+                      isProfileCompletionHeroRow(meProfileHeroRows[0]) &&
+                      "segna-guidance-shimmer-active",
+                  )}
+                >
                   <CmsFrameItem row={meProfileHeroRows[0]} layoutMode="stack" />
                 </div>
               </div>
@@ -717,7 +798,10 @@ export function ProfileTabs({
             </p>
             <Link
               href="/profile/complete?tab=me"
-              className="inline-flex mt-4 h-11 min-w-[170px] items-center justify-center rounded-full border border-zinc-500 px-5 text-base font-semibold text-zinc-900 transition hover:bg-zinc-50"
+              className={cn(
+                "segna-guidance-shimmer-target mt-4 inline-flex h-11 min-w-[170px] items-center justify-center rounded-full border border-zinc-500 px-5 text-base font-semibold text-zinc-900 transition hover:bg-zinc-50",
+                shouldGuideProfileCompletion && "segna-guidance-shimmer-active",
+              )}
             >
               Modifie ton profil
             </Link>

@@ -38,9 +38,40 @@ export type StorageSignClient = {
         path: string,
         expiresIn: number,
       ) => Promise<{ data?: { signedUrl?: string } | null; error?: { message?: string } | null }>;
+      createSignedUrls?: (
+        paths: string[],
+        expiresIn: number,
+      ) => Promise<{
+        data?: Array<{ signedUrl?: string; path?: string | null; error?: string | null } | null> | null;
+        error?: { message?: string } | null;
+      }>;
     };
   };
 };
+
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+function cacheKey(bucket: string, path: string) {
+  return `${bucket}:${path}`;
+}
+
+function readCachedSignedUrl(bucket: string, path: string) {
+  const cached = signedUrlCache.get(cacheKey(bucket, path));
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    signedUrlCache.delete(cacheKey(bucket, path));
+    return null;
+  }
+  return cached.url;
+}
+
+function writeCachedSignedUrl(bucket: string, path: string, url: string, expiresIn: number) {
+  const safetyWindowMs = Math.min(60_000, Math.max(0, expiresIn * 100));
+  signedUrlCache.set(cacheKey(bucket, path), {
+    url,
+    expiresAt: Date.now() + expiresIn * 1000 - safetyWindowMs,
+  });
+}
 
 /**
  * Résout une URL signée pour un chemin stocké en base (ou renvoie l’URL http(s) telle quelle).
@@ -58,8 +89,13 @@ export async function createSignedUrlForStoragePath(
   const explicit = normalizeExplicitBucket(options?.explicitBucket ?? null);
   const buckets = explicit ? ([explicit] as const) : orderedBucketsForStoragePath(objectPath);
   if (buckets.length === 1) {
+    const cached = readCachedSignedUrl(buckets[0], objectPath);
+    if (cached) return cached;
     const { data, error } = await supabase.storage.from(buckets[0]).createSignedUrl(objectPath, expiresIn);
-    if (!error && data?.signedUrl) return data.signedUrl;
+    if (!error && data?.signedUrl) {
+      writeCachedSignedUrl(buckets[0], objectPath, data.signedUrl, expiresIn);
+      return data.signedUrl;
+    }
     return null;
   }
   const results = await Promise.all(
@@ -67,7 +103,83 @@ export async function createSignedUrlForStoragePath(
   );
   for (let i = 0; i < buckets.length; i++) {
     const { data, error } = results[i];
-    if (!error && data?.signedUrl) return data.signedUrl;
+    if (!error && data?.signedUrl) {
+      writeCachedSignedUrl(buckets[i], objectPath, data.signedUrl, expiresIn);
+      return data.signedUrl;
+    }
   }
   return null;
+}
+
+export async function createSignedUrlsForStoragePaths(
+  supabase: StorageSignClient,
+  rawPaths: string[],
+  expiresIn: number,
+  options?: { explicitBucket?: string | null },
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const explicit = normalizeExplicitBucket(options?.explicitBucket ?? null);
+  const grouped = new Map<string, Array<{ raw: string; objectPath: string }>>();
+  const fallbackRawPaths: string[] = [];
+
+  for (const raw of [...new Set(rawPaths.map((p) => p.trim()).filter(Boolean))]) {
+    if (/^https?:\/\//i.test(raw)) {
+      out.set(raw, raw);
+      continue;
+    }
+
+    const objectPath = normalizeStorageObjectPath(raw);
+    if (!objectPath) continue;
+    const buckets = explicit ? ([explicit] as const) : orderedBucketsForStoragePath(objectPath);
+
+    if (buckets.length !== 1) {
+      fallbackRawPaths.push(raw);
+      continue;
+    }
+
+    const cached = readCachedSignedUrl(buckets[0], objectPath);
+    if (cached) {
+      out.set(raw, cached);
+      continue;
+    }
+
+    const rows = grouped.get(buckets[0]) ?? [];
+    rows.push({ raw, objectPath });
+    grouped.set(buckets[0], rows);
+  }
+
+  await Promise.all(
+    [...grouped.entries()].map(async ([bucketId, rows]) => {
+      const bucket = supabase.storage.from(bucketId);
+      const createSignedUrls = bucket.createSignedUrls;
+      if (!createSignedUrls) {
+        fallbackRawPaths.push(...rows.map((row) => row.raw));
+        return;
+      }
+
+      const paths = rows.map((row) => row.objectPath);
+      const { data, error } = await createSignedUrls.call(bucket, paths, expiresIn);
+      if (error || !Array.isArray(data)) {
+        fallbackRawPaths.push(...rows.map((row) => row.raw));
+        return;
+      }
+
+      data.forEach((entry, index) => {
+        const row = rows[index];
+        const signedUrl = entry?.signedUrl;
+        if (!signedUrl) return;
+        writeCachedSignedUrl(bucketId, row.objectPath, signedUrl, expiresIn);
+        out.set(row.raw, signedUrl);
+      });
+    }),
+  );
+
+  await Promise.all(
+    fallbackRawPaths.map(async (raw) => {
+      const signed = await createSignedUrlForStoragePath(supabase, raw, expiresIn, options);
+      if (signed) out.set(raw, signed);
+    }),
+  );
+
+  return out;
 }

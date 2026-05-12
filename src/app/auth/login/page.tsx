@@ -38,7 +38,7 @@ function LoginPageContent() {
       showStepTracker={false}
       persistProgressOnNext={false}
       centeredAuthLayout
-      centeredAuthSectionGapClassName="gap-y-20 md:gap-y-10"
+      centeredAuthSectionGapClassName="gap-y-[clamp(1.5rem,4.5dvh,4rem)] md:gap-y-10"
       appViewportOuterClassName={AUTH_BG}
       appViewportClassName={AUTH_BG}
       headerAccessoryTopRight={

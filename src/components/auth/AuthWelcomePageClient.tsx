@@ -120,7 +120,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   const supabase = createSupabaseBrowserClient();
   const [isContinuing, setIsContinuing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [collageReady, setCollageReady] = useState(() => uniqueSignedCollageUrls(initialCollageFrames).length === 0);
+  const [collageReady, setCollageReady] = useState(true);
 
   useEffect(() => {
     const url = window.location.href;

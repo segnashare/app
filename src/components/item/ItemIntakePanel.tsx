@@ -54,7 +54,6 @@ function EvaluationCountdown({ startedAtMs }: { startedAtMs: number }) {
       aria-live="polite"
       aria-atomic="true"
     >
-      <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Sous 24 h</span>
       <span
         role="timer"
         className="font-mono text-[17px] font-semibold tabular-nums text-zinc-900 sm:text-[18px]"

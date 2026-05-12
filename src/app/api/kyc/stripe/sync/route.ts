@@ -79,6 +79,17 @@ export async function POST() {
       return NextResponse.json({ message: updateError.message }, { status: 500 });
     }
 
+    if (verificationStatus === "verified") {
+      const { error: onboardingUpdateError } = await admin
+        .from("users")
+        .update({ onboarding_process: "panier" })
+        .eq("id", user.id)
+        .eq("onboarding_process", "kyc");
+      if (onboardingUpdateError) {
+        return NextResponse.json({ message: onboardingUpdateError.message }, { status: 500 });
+      }
+    }
+
     return NextResponse.json({
       verificationStatus,
       stripeStatus: session.status,

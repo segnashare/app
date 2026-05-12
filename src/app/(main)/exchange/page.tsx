@@ -10,7 +10,6 @@ import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLends
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
-import { InAppOnboardingProfileSheet } from "@/components/onboarding/InAppOnboardingProfileSheet";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
@@ -41,17 +40,17 @@ import {
 } from "@/lib/cms/echange-section-order";
 import { fetchEchangeSectionOrder } from "@/lib/cms/fetch-echange-section-order";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import {
   effectiveCatalogSortRank,
   lendPipelineRank,
   needsItemIntakeUi,
   normalizeItemIntakeEmbed,
 } from "@/lib/items/item-intake-ui";
-import { refreshStripeSubscriptionForUser } from "@/lib/stripe/subscription-state";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
-import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
 
 function toMembershipLabel(roles: string[]): "Guest" | "Membre +" | "Membre X" {
   const normalized = roles.map((role) => role.trim().toLowerCase());
@@ -186,26 +185,20 @@ const EXCHANGE_NATIVE_SECTION_KEYS = new Set([
 ]);
 
 export default async function ExchangePage() {
+  const perf = createPerfTracker("page:/exchange");
   const supabase = (await createSupabaseServerClient()) as any;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await perf.measure("auth.getUser", getCurrentAuthUser);
 
   if (!user) {
     return null;
   }
 
   const userId = user.id as string;
-  try {
-    const admin = createSupabaseAdminClient() as any;
-    await refreshStripeSubscriptionForUser(admin, userId);
-  } catch {
-    /* Stripe indisponible ou clé absente : état DB inchangé (webhooks en prod). */
-  }
 
   const [membershipStateRes, subscriptionRowRes, rolesRes, walletRes, activeCartRes, lendsRes, ongoingRes, historyRes, intakeBannersRes] =
-    await Promise.all([
-    supabase.rpc("get_current_membership_state"),
+    (await Promise.all([
+    perf.measure("membership.state", () => supabase.rpc("get_current_membership_state")),
+    perf.measure("subscription.latest", () =>
     supabase
       .from("user_subscriptions")
       .select("plan_code,status")
@@ -214,13 +207,17 @@ export default async function ExchangePage() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase.from("user_roles").select("role").eq("user_id", userId),
+    ),
+    perf.measure("roles.read", () => supabase.from("user_roles").select("role").eq("user_id", userId)),
+    perf.measure("wallet.read", () =>
     supabase
       .from("user_wallets")
       .select("balance_points, balance_consumption_points, balance_exchange_points")
       .eq("user_id", userId)
       .is("deleted_at", null)
       .maybeSingle(),
+    ),
+    perf.measure("cart.active", () =>
     supabase
       .from("carts")
       .select("id,status,updated_at")
@@ -230,6 +227,8 @@ export default async function ExchangePage() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    ),
+    perf.measure("lends.read", () =>
     supabase
       .from("items")
       .select(
@@ -240,6 +239,8 @@ export default async function ExchangePage() {
       .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
       .limit(8),
+    ),
+    perf.measure("orders.ongoing", () =>
     supabase
       .from("carts")
       .select("id,status,created_at,updated_at")
@@ -248,6 +249,8 @@ export default async function ExchangePage() {
       .eq("status", "confirmed")
       .order("updated_at", { ascending: false })
       .limit(50),
+    ),
+    perf.measure("orders.history", () =>
     supabase
       .from("carts")
       .select("id,status,created_at,updated_at")
@@ -256,6 +259,8 @@ export default async function ExchangePage() {
       .in("status", ["archived", "canceled"])
       .order("updated_at", { ascending: false })
       .limit(50),
+    ),
+    perf.measure("intake.banners", () =>
     supabase
       .from("items")
       .select(
@@ -266,7 +271,8 @@ export default async function ExchangePage() {
       .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
       .limit(50),
-  ]);
+    ),
+  ])) as any[];
 
   const roles: string[] = (rolesRes.data ?? []).map((entry: { role?: string | null }) => entry.role ?? "").filter(Boolean);
   const membershipLabelFromRpc = toMembershipLabelFromBilling((membershipStateRes.data ?? null) as MembershipState | null);
@@ -298,16 +304,16 @@ export default async function ExchangePage() {
   let walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
   /** Ré-applique le crédit mensuel consommation (idempotent) si la migration / webhook n’a pas encore tourné. */
   if (stripeSubscriptionGrantsWallet) {
-    await supabase.rpc("billing_upsert_monthly_entitlement", {
+    await perf.measure("billing.entitlementUpsert", () => supabase.rpc("billing_upsert_monthly_entitlement", {
       p_user_id: userId,
       p_plan_code: subPlan,
-    });
-    const { data: walletAfter } = await supabase
+    }));
+    const { data: walletAfter } = (await perf.measure("wallet.refreshAfterEntitlement", () => supabase
       .from("user_wallets")
       .select("balance_points, balance_consumption_points, balance_exchange_points")
       .eq("user_id", userId)
       .is("deleted_at", null)
-      .maybeSingle();
+      .maybeSingle())) as any;
     walletPoints = parseUserWalletPointsRow(walletAfter as Record<string, unknown>);
   }
 
@@ -316,10 +322,12 @@ export default async function ExchangePage() {
   const activeCart = activeCartRes.data as { id: string; status: string } | null;
   const activeCartId = activeCart?.id ?? null;
 
-  let cartLines = await fetchActiveCartLinesForUser(supabase, userId);
+  let cartLines = await perf.measure("cart.lines", () => fetchActiveCartLinesForUser(supabase, userId));
   const itemIdsForComp = [...new Set(cartLines.map((l) => l.itemId))];
   if (itemIdsForComp.length > 0) {
-    const compRes = await supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIdsForComp });
+    const compRes = (await perf.measure("cart.competition", () =>
+      supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIdsForComp }),
+    )) as any;
     if (compRes.error == null) {
       cartLines = mergeCompetitionIntoCartLines(cartLines, compRes.data);
     }
@@ -415,17 +423,13 @@ export default async function ExchangePage() {
     ),
   );
 
-  await Promise.all(
-    uniquePaths.map(async (path: string) => {
-      if (isHttpUrl(path)) {
-        signedPhotoByPath.set(path, path);
-        return;
-      }
-
-      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-      if (signed) signedPhotoByPath.set(path, signed);
-    }),
+  const signedLendPhotos = await perf.measure("storage.lendPhotos", () =>
+    createSignedUrlsForStoragePaths(supabase, uniquePaths, 60 * 60 * 24),
   );
+  for (const path of uniquePaths) {
+    const signed = isHttpUrl(path) ? path : signedLendPhotos.get(path);
+    if (signed) signedPhotoByPath.set(path, signed);
+  }
 
   const sortedRawLends = [...rawLends].sort((a, b) => {
     const pa = lendPipelineRank(a.itemStatus, a.intake);
@@ -549,25 +553,25 @@ export default async function ExchangePage() {
 
   const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
 
-  const [thumbUrlsByCartId, outboundShipRes, returnShipRes] = await Promise.all([
-    fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds),
+  const [thumbUrlsByCartId, outboundShipRes, returnShipRes] = (await Promise.all([
+    perf.measure("orders.thumbs", () => fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds)),
     orderCardCartIds.length > 0
-      ? supabase
+      ? perf.measure("shipments.outbound", () => supabase
           .from("shipments")
           .select("cart_id,status,updated_at")
           .in("cart_id", orderCardCartIds)
           .eq("context", "cart_outbound")
-          .is("deleted_at", null)
+          .is("deleted_at", null))
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
     orderCardCartIds.length > 0
-      ? supabase
+      ? perf.measure("shipments.return", () => supabase
           .from("shipments")
           .select("cart_id,status,updated_at")
           .in("cart_id", orderCardCartIds)
           .eq("context", "cart_return")
-          .is("deleted_at", null)
+          .is("deleted_at", null))
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
-  ]);
+  ])) as any[];
 
   const outboundShipmentByCartId = new Map<string, { status: string; updated_at: string }>();
   if (outboundShipRes.error == null && Array.isArray(outboundShipRes.data)) {
@@ -670,24 +674,24 @@ export default async function ExchangePage() {
 
   const memberSubscriber = membershipLabel === "Membre +" || membershipLabel === "Membre X";
 
-  const echangeSectionOrder = await fetchEchangeSectionOrder(supabase);
+  const echangeSectionOrder = await perf.measure("cms.exchange.order", () => fetchEchangeSectionOrder(supabase));
   const cmsKeysToResolve = [...new Set(echangeSectionOrder.filter((k) => !EXCHANGE_NATIVE_SECTION_KEYS.has(k)))];
   const cmsSectionsByKey: Record<string, { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay }> = {};
   await Promise.all(
     cmsKeysToResolve.map(async (sectionKey) => {
       const [frames, display] = await Promise.all([
-        fetchCmsSectionFramesResolved(supabase, sectionKey),
-        fetchCmsSectionPublishedDisplay(supabase, sectionKey),
+        perf.measure(`cms.${sectionKey}.frames`, () => fetchCmsSectionFramesResolved(supabase, sectionKey)),
+        perf.measure(`cms.${sectionKey}.display`, () => fetchCmsSectionPublishedDisplay(supabase, sectionKey)),
       ]);
       cmsSectionsByKey[sectionKey] = { frames, display };
     }),
   );
 
   const [emptyCartFrames, emptyCartDisplay, emptyLendsFrames, emptyLendsDisplay] = await Promise.all([
-    fetchCmsSectionFramesResolved(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY),
-    fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY),
-    fetchCmsSectionFramesResolved(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY),
-    fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY),
+    perf.measure("cms.emptyCart.frames", () => fetchCmsSectionFramesResolved(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY)),
+    perf.measure("cms.emptyCart.display", () => fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_CART_EMPTY_CMS_SECTION_KEY)),
+    perf.measure("cms.emptyLends.frames", () => fetchCmsSectionFramesResolved(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY)),
+    perf.measure("cms.emptyLends.display", () => fetchCmsSectionPublishedDisplay(supabase, EXCHANGE_LENDS_EMPTY_CMS_SECTION_KEY)),
   ]);
   const emptyCartCms: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } = {
     frames: emptyCartFrames,
@@ -700,11 +704,13 @@ export default async function ExchangePage() {
   const emptyCartItemIds = collectCmsShopItemIdsFromFrameRows(emptyCartFrames);
   const emptyLendsItemIds = collectCmsShopItemIdsFromFrameRows(emptyLendsFrames);
   const [emptyCartCmsCatalogItems, emptyLendsCmsCatalogItems] = await Promise.all([
-    emptyCartItemIds.length > 0 ? fetchShopCatalogItemsByIds(supabase, emptyCartItemIds) : Promise.resolve([]),
-    emptyLendsItemIds.length > 0 ? fetchShopCatalogItemsByIds(supabase, emptyLendsItemIds) : Promise.resolve([]),
+    emptyCartItemIds.length > 0 ? perf.measure("cms.emptyCart.items", () => fetchShopCatalogItemsByIds(supabase, emptyCartItemIds)) : Promise.resolve([]),
+    emptyLendsItemIds.length > 0 ? perf.measure("cms.emptyLends.items", () => fetchShopCatalogItemsByIds(supabase, emptyLendsItemIds)) : Promise.resolve([]),
   ]);
 
-  const outboundShipmentSummary = await fetchLatestConfirmedCartOutboundShipmentSummary(supabase, userId);
+  const outboundShipmentSummary = await perf.measure("shipments.outboundSummary", () =>
+    fetchLatestConfirmedCartOutboundShipmentSummary(supabase, userId),
+  );
   const showOutboundCallout =
     outboundShipmentSummary != null && outboundShipmentSummary.status.toLowerCase() !== "closed";
 
@@ -721,19 +727,22 @@ export default async function ExchangePage() {
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
   const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
 
-  const { data: exchangeOnboardingRowRaw } = await supabase
-    .from("users")
-    .select("onboarding_process")
-    .eq("id", userId)
-    .maybeSingle();
-  const exchangeOnboardingRow = exchangeOnboardingRowRaw as {
-    onboarding_process?: string | null;
-  } | null;
-  const showProfileInAppOnboarding = exchangeOnboardingRow?.onboarding_process === "profile";
+  const exchangeOnboardingRow = await perf.measure("users.appState", () => getCurrentUserAppState(userId));
+  const showProfileInAppOnboarding = exchangeOnboardingRow.onboarding_process === "profile";
+  const showKycInAppOnboarding = exchangeOnboardingRow.onboarding_process === "kyc";
+  const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
+  const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
+  const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  perf.log({
+    lends: lends.length,
+    cartLines: cartLines.length,
+    orders: orderCardCartIds.length,
+    cmsSections: cmsKeysToResolve.length,
+  });
 
   return (
     <>
-      <ExchangeLendsDetailPrefetch itemIds={lends.map((l) => l.id)} />
+      <ExchangeLendsDetailPrefetch itemIds={lends.slice(0, 4).map((l) => l.id)} />
       <div className="sticky top-0 z-30 bg-white">
         <ExchangeHeader
           membershipLabel={membershipLabel}
@@ -742,6 +751,7 @@ export default async function ExchangePage() {
           balanceExchangePoints={walletPoints.exchange}
           activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
+          guideOfferOnboarding={showOfferInAppOnboarding}
         />
         {showMergeShippingBanner ? (
           <div className="px-5 pb-2">
@@ -757,6 +767,10 @@ export default async function ExchangePage() {
         <ExchangeHeaderAlertStack
           intakeItems={exchangeIntakeBannerItems}
           outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}
+          showProfileOnboarding={showProfileInAppOnboarding}
+          showKycOnboarding={showKycInAppOnboarding}
+          showCartOnboarding={showCartInAppOnboarding}
+          showExchangeOnboarding={showExchangeInAppOnboarding}
           uberRelayFallback={uberRelayFallback}
         />
       </div>
@@ -785,6 +799,7 @@ export default async function ExchangePage() {
                     availablePoints={availablePoints}
                     emptyCartCms={emptyCartCms}
                     emptyCartCmsCatalogItems={emptyCartCmsCatalogItems}
+                    guideCartOnboarding={showCartInAppOnboarding}
                   />
                 );
               case "exchange_system_lends":
@@ -801,6 +816,7 @@ export default async function ExchangePage() {
                     }
                     emptyLendsCms={emptyLendsCms}
                     emptyLendsCmsCatalogItems={emptyLendsCmsCatalogItems}
+                    guideExchangeOnboarding={showExchangeInAppOnboarding}
                   />
                 );
               case "exchange_system_history":
@@ -821,14 +837,20 @@ export default async function ExchangePage() {
                 ) {
                   return null;
                 }
-                return <ExchangeDynamicCmsSection key={sectionKey} sectionKey={sectionKey} cms={cms} />;
+                return (
+                  <ExchangeDynamicCmsSection
+                    key={sectionKey}
+                    sectionKey={sectionKey}
+                    cms={cms}
+                    guideOfferOnboarding={showOfferInAppOnboarding}
+                  />
+                );
               }
             }
           })}
         </div>
         <ExchangeEmptyFill />
       </MainContent>
-      {showProfileInAppOnboarding ? <InAppOnboardingProfileSheet initiallyVisible /> : null}
     </>
   );
 }

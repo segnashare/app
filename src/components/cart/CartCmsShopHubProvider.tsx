@@ -8,7 +8,7 @@ import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { createSupabaseBrowserClient, isSupabaseAuthLockAbortError } from "@/lib/supabase/client";
-import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import { CartShopHubUiProvider, type CartShopHubUiValue } from "@/components/cart/CartShopHubUiContext";
@@ -38,7 +38,7 @@ type CartCmsShopHubProviderProps = {
 
 export function CartCmsShopHubProvider({ catalogItems, onCartMutation, children }: CartCmsShopHubProviderProps) {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { itemIds: localCartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
 
   const itemById = useMemo(() => {
@@ -57,28 +57,22 @@ export function CartCmsShopHubProvider({ catalogItems, onCartMutation, children 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rows = await Promise.all(
-        catalogItems.map(async (item) => {
-          if (coverResolvedRef.current.has(item.id)) return null;
-          const path = getFirstPhotoStoragePath(item.photos);
-          if (!path) {
-            coverResolvedRef.current.add(item.id);
-            return null;
-          }
-          try {
-            const url = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-            if (!url) return null;
-            return [item.id, url] as const;
-          } catch {
-            return null;
-          }
-        }),
-      );
+      const pathByItemId = new Map<string, string>();
+      for (const item of catalogItems) {
+        if (coverResolvedRef.current.has(item.id)) continue;
+        const path = getFirstPhotoStoragePath(item.photos);
+        if (!path) {
+          coverResolvedRef.current.add(item.id);
+          continue;
+        }
+        pathByItemId.set(item.id, path);
+      }
+      const signedByPath = await createSignedUrlsForStoragePaths(supabase, [...pathByItemId.values()], 60 * 60 * 24);
       if (cancelled) return;
       const updates: Record<string, string> = {};
-      for (const row of rows) {
-        if (!row) continue;
-        const [id, url] = row;
+      for (const [id, path] of pathByItemId) {
+        const url = signedByPath.get(path);
+        if (!url) continue;
         updates[id] = url;
         coverResolvedRef.current.add(id);
       }

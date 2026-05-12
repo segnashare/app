@@ -48,6 +48,8 @@ type PackageSegnaXLandingClientProps = {
   planQuery?: "x" | "credits";
   /** SegnaX (`plan=x`) : abonnement réservé aux comptes avec KYC validé (sinon redirection profil). */
   identityVerifiedForSubscription?: boolean;
+  /** Onboarding offer : affiche la frame bonus de crédits offerts. */
+  showOfferOnboarding?: boolean;
 };
 
 const KYC_SUBSCRIPTION_HREF = "/profile/kyc?tab=me";
@@ -62,6 +64,7 @@ export function PackageSegnaXLandingClient({
   content,
   planQuery = "x",
   identityVerifiedForSubscription = true,
+  showOfferOnboarding = false,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
   const isCreditsLanding = planQuery === "credits";
@@ -82,20 +85,25 @@ export function PackageSegnaXLandingClient({
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(() =>
     defaultSelectedTierIndex(planQuery === "credits" ? creditPackOfferTiers() : content.offerTiers),
   );
+  const [selectedFreeCredits, setSelectedFreeCredits] = useState(showOfferOnboarding);
 
   const selectedCheckout = useMemo(() => {
+    if (selectedFreeCredits) return null;
     const tier = offerTiers[selectedOfferIndex];
     return tier?.checkoutPlanCode ?? content.fallbackCheckoutPlanCode;
-  }, [content.fallbackCheckoutPlanCode, offerTiers, selectedOfferIndex]);
+  }, [content.fallbackCheckoutPlanCode, offerTiers, selectedFreeCredits, selectedOfferIndex]);
 
   const selectedCreditPack: CreditPackAmount | null = useMemo(() => {
-    if (!isCreditsLanding) return null;
+    if (!isCreditsLanding || selectedFreeCredits) return null;
     return CREDIT_PACK_AMOUNTS[selectedOfferIndex] ?? null;
-  }, [isCreditsLanding, selectedOfferIndex]);
+  }, [isCreditsLanding, selectedFreeCredits, selectedOfferIndex]);
 
   const primaryCtaLabel = useMemo(() => {
+    if (selectedFreeCredits) {
+      return "Profiter des crédits gratuits";
+    }
     if (subscriptionBlockedByKyc) {
-      return "Vérifier mon identité (KYC)";
+      return "Vérifier d'abord mon identité";
     }
     if (isCreditsLanding) {
       const pack = CREDIT_PACK_AMOUNTS[selectedOfferIndex];
@@ -109,7 +117,7 @@ export function PackageSegnaXLandingClient({
     const fallback = content.ctaLabel?.trim();
     if (fallback) return fallback;
     return "Continuer vers le paiement";
-  }, [content.ctaLabel, isCreditsLanding, offerTiers, selectedOfferIndex, subscriptionBlockedByKyc]);
+  }, [content.ctaLabel, isCreditsLanding, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc]);
 
   const handleSubscriptionCheckout = async () => {
     if (subscriptionBlockedByKyc) {
@@ -142,6 +150,24 @@ export function PackageSegnaXLandingClient({
     }
   };
 
+  const handleClaimFreeCredits = async () => {
+    if (isCheckoutLoading) return;
+    setIsCheckoutLoading(true);
+    try {
+      const response = await fetch("/api/onboarding/offer/claim", { method: "POST" });
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.message ?? "Impossible de créditer le wallet.");
+      }
+      router.push("/exchange");
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Impossible de créditer le wallet.";
+      window.alert(message);
+      setIsCheckoutLoading(false);
+    }
+  };
+
   const handleCreditsCheckout = async () => {
     if (isCheckoutLoading || !selectedCreditPack) return;
     setIsCheckoutLoading(true);
@@ -164,6 +190,7 @@ export function PackageSegnaXLandingClient({
   };
 
   const handlePrimaryCta = () => {
+    if (selectedFreeCredits) return void handleClaimFreeCredits();
     if (isCreditsLanding) return void handleCreditsCheckout();
     return void handleSubscriptionCheckout();
   };
@@ -190,38 +217,26 @@ export function PackageSegnaXLandingClient({
       </header>
 
       <div className={cn("mx-auto flex w-full max-w-[430px] flex-1 flex-col px-5 pb-6")}>
-        {subscriptionBlockedByKyc ? (
-          <div
-            className={cn(
-              montserrat.className,
-              "mt-3 rounded-2xl border border-amber-200/90 bg-amber-50 px-4 py-3.5 text-[13px] leading-snug text-amber-950",
-            )}
-            role="status"
-          >
-            <p className="font-semibold text-amber-950">Vérification d’identité requise</p>
-            <p className="mt-1.5 text-[13px] text-amber-900/90">
-              L’abonnement SegnaX n’est disponible qu’après validation du KYC (pièce d’identité).
-            </p>
-            <button
-              type="button"
-              onClick={() => router.push(KYC_SUBSCRIPTION_HREF)}
-              className="mt-2.5 text-left text-[14px] font-semibold text-amber-950 underline underline-offset-2"
-            >
-              Aller à la vérification d’identité
-            </button>
-          </div>
-        ) : null}
         <section className="mt-2">
           {/* Même motif que ProfileTabs / rails catalogue : –mx-5 + scroll-pl/pr + spacer w-5 (snap-normal) pour que snap-mandatory ne « mange » pas l’inset gauche). */}
           <div className="-mx-5 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-pl-5 scroll-pr-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
               <div className="w-5 shrink-0 snap-normal" aria-hidden />
+              {showOfferOnboarding ? (
+                <OfferOnboardingCreditFrame
+                  selected={selectedFreeCredits}
+                  onSelect={() => setSelectedFreeCredits(true)}
+                />
+              ) : null}
               {offerTiers.map((tier, idx) => (
                 <OfferTierCard
                   key={`${tier.badge}-${idx}`}
                   tier={tier}
-                  selected={selectedOfferIndex === idx}
-                  onSelect={() => setSelectedOfferIndex(idx)}
+                  selected={!selectedFreeCredits && selectedOfferIndex === idx}
+                  onSelect={() => {
+                    setSelectedFreeCredits(false);
+                    setSelectedOfferIndex(idx);
+                  }}
                   highlightAsFeatured={isCreditsLanding ? tier.featured : isNouveauOfferTier(tier)}
                   creditPackCard={isCreditsLanding}
                 />
@@ -284,6 +299,33 @@ export function PackageSegnaXLandingClient({
 
 function isNouveauOfferTier(tier: SubscriptionOfferTier): boolean {
   return tier.badge.trim().toLowerCase() === "nouveau";
+}
+
+function OfferOnboardingCreditFrame({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  return (
+    <div
+      className={cn(
+        montserrat.className,
+        "box-border flex w-[min(260px,78vw)] shrink-0 snap-start flex-col overflow-hidden rounded-2xl border-2 border-zinc-950 bg-white text-center shadow-sm transition-[box-shadow,ring] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-zinc-950 has-[:focus-visible]:ring-offset-2",
+        selected ? "shadow-[0_0_0_3px_rgb(24_24_27),0_8px_24px_-4px_rgb(0_0_0/0.12)]" : "hover:shadow-md",
+      )}
+    >
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={onSelect}
+        className="flex min-h-0 min-w-0 flex-1 flex-col border-0 bg-transparent p-0 text-center text-inherit shadow-none outline-none ring-0 appearance-none hover:bg-transparent focus-visible:outline-none"
+      >
+        <div className="segna-guidance-shimmer-active segna-guidance-shimmer-target flex min-h-[40px] w-full items-center justify-center bg-zinc-950 px-3 py-2.5 text-[12px] font-semibold leading-tight text-white">
+          Crédits offerts
+        </div>
+        <div className="flex min-h-[104px] flex-1 flex-col items-center justify-center bg-white px-5 py-5 text-center">
+          <p className="text-[28px] font-extrabold leading-none tracking-tight text-zinc-950">50</p>
+          <p className="mt-2 text-[17px] font-bold leading-snug text-zinc-950">crédits offerts</p>
+        </div>
+      </button>
+    </div>
+  );
 }
 
 function OfferTierCard({

@@ -6,33 +6,63 @@ import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frame
 import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { fetchBoutiqueHubSectionOrder } from "@/lib/cms/fetch-boutique-hub-section-order";
 import { SHOP_HUB_SECTION_KEYS } from "@/lib/cms/shop-hub-sections";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import { loadFauxProfileLenders } from "@/lib/shop/load-faux-profile-lenders";
 import { padFeaturedLendersToNine } from "@/lib/shop/placeholder-lenders";
 import { buildShopDepartmentHubRail } from "@/lib/shop/shop-department-categories";
+import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
+import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default async function ShopPage() {
-  const supabase = await createSupabaseServerClient();
+const SEGNA_COLLECTION_SHOP_HREF = "/shop/collection-segna";
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+function isCollectionSegnaFrame(row: CmsFrameRow): boolean {
+  const payload = row.payload ?? {};
+  if (payload.target_url?.trim() === "/segna-collection") return true;
+  return [payload.title, payload.header, payload.label, payload.subtitle].some(
+    (value) =>
+      typeof value === "string" &&
+      ["collection segna", "propriété segna", "propriete segna"].includes(value.trim().toLowerCase()),
+  );
+}
+
+function withCollectionSegnaTarget(rows: CmsFrameRow[]): CmsFrameRow[] {
+  return rows.map((row) =>
+    isCollectionSegnaFrame(row)
+      ? {
+          ...row,
+          payload: {
+            ...row.payload,
+            target_url: SEGNA_COLLECTION_SHOP_HREF,
+          },
+        }
+      : row,
+  );
+}
+
+function withCollectionSegnaTargetBundle(bundle: CmsCatalogSectionBundle): CmsCatalogSectionBundle {
+  return {
+    ...bundle,
+    frames: withCollectionSegnaTarget(bundle.frames),
+  };
+}
+
+export default async function ShopPage() {
+  const perf = createPerfTracker("page:/shop");
+  const supabase = await createSupabaseServerClient();
+  const { user } = await perf.measure("auth.getUser", getCurrentAuthUser);
   if (!user) {
     return null;
   }
 
-  const { data: userState } = await supabase
-    .from("users")
-    .select("onboarding_mode")
-    .eq("id", user.id)
-    .maybeSingle<{ onboarding_mode?: string | null }>();
-
-  const isDemoMode = userState?.onboarding_mode === "demo";
+  const userState = await perf.measure("users.appState", () => getCurrentUserAppState(user.id));
+  const isDemoMode = userState.onboarding_mode === "demo";
+  const guideCartOnboarding = userState.onboarding_process === "panier";
   const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
-  const catalogDb = (demoAdmin ?? supabase) as any;
+  const catalogDb = demoAdmin ?? supabase;
   const catalogSb = catalogDb as unknown as {
     rpc: (
       name: string,
@@ -63,27 +93,31 @@ export default async function ShopPage() {
     cmsHubFrench,
     boutiqueHubSectionOrder,
   ] = await Promise.all([
-    catalogSb.rpc("get_shop_catalog_items", { p_limit: 160 }),
-    catalogSb.rpc("get_shop_most_liked_items", { p_limit: 10 }),
-    catalogSb.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
-    catalogSb.from("sizes").select("id,label").order("label", { ascending: true }),
-    catalogSb.from("item_brands").select("id,label").order("label", { ascending: true }),
-    catalogSb.from("item_couleurs").select("id,label").order("label", { ascending: true }),
-    catalogSb.from("item_materiaux").select("id,label").order("label", { ascending: true }),
-    supabase
-      .from("item_favorites")
-      .select("item_id")
-      .eq("user_id", user.id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-    fetchCmsSectionFramesResolved(supabase, "shop_home_capsules"),
-    fetchCmsSectionPublishedDisplay(supabase, "shop_home_capsules"),
-    fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.discover),
-    fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.categories),
-    fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.preferredBrands),
-    fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.deals),
-    fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.french),
-    fetchBoutiqueHubSectionOrder(supabase),
+    perf.measure("rpc.get_shop_catalog_items", () => catalogSb.rpc("get_shop_catalog_items", { p_limit: 96 })),
+    perf.measure("rpc.get_shop_most_liked_items", () => catalogSb.rpc("get_shop_most_liked_items", { p_limit: 10 })),
+    perf.measure("filters.categories", () =>
+      catalogSb.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
+    ),
+    perf.measure("filters.sizes", () => catalogSb.from("sizes").select("id,label").order("label", { ascending: true })),
+    perf.measure("filters.brands", () => catalogSb.from("item_brands").select("id,label").order("label", { ascending: true })),
+    perf.measure("filters.colors", () => catalogSb.from("item_couleurs").select("id,label").order("label", { ascending: true })),
+    perf.measure("filters.materials", () => catalogSb.from("item_materiaux").select("id,label").order("label", { ascending: true })),
+    perf.measure("favorites.initial", () =>
+      supabase
+        .from("item_favorites")
+        .select("item_id")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false }),
+    ),
+    perf.measure("cms.shop_home_capsules.frames", () => fetchCmsSectionFramesResolved(supabase, "shop_home_capsules")),
+    perf.measure("cms.shop_home_capsules.display", () => fetchCmsSectionPublishedDisplay(supabase, "shop_home_capsules")),
+    perf.measure("cms.hub.discover", () => fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.discover)),
+    perf.measure("cms.hub.categories", () => fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.categories)),
+    perf.measure("cms.hub.preferredBrands", () => fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.preferredBrands)),
+    perf.measure("cms.hub.deals", () => fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.deals)),
+    perf.measure("cms.hub.french", () => fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.french)),
+    perf.measure("cms.hub.order", () => fetchBoutiqueHubSectionOrder(supabase)),
   ]);
 
   if (process.env.SEGNA_DEBUG_CMS === "1") {
@@ -106,13 +140,14 @@ export default async function ShopPage() {
 
   const catalogPayload = (catalogResFinal.data ?? { items: [] }) as { items?: ShopCatalogItem[] };
   const initialItems = Array.isArray(catalogPayload.items) ? catalogPayload.items : [];
+  const cmsShopFramesWithTargets = withCollectionSegnaTarget(cmsShopFrames);
 
   const hubBundles: Record<string, CmsCatalogSectionBundle | undefined> = {
-    discover: cmsHubDiscover,
-    categories: cmsHubCategories,
-    preferredBrands: cmsHubPreferredBrands,
-    deals: cmsHubDeals,
-    french: cmsHubFrench,
+    discover: withCollectionSegnaTargetBundle(cmsHubDiscover),
+    categories: withCollectionSegnaTargetBundle(cmsHubCategories),
+    preferredBrands: withCollectionSegnaTargetBundle(cmsHubPreferredBrands),
+    deals: withCollectionSegnaTargetBundle(cmsHubDeals),
+    french: withCollectionSegnaTargetBundle(cmsHubFrench),
   };
 
   const hubReferencedItemIds = new Set<string>();
@@ -126,7 +161,7 @@ export default async function ShopPage() {
 
   const inInitialCatalog = new Set(initialItems.map((i) => i.id));
   const idsToFetchForHub = [...hubReferencedItemIds].filter((id) => !inInitialCatalog.has(id));
-  const hubExtraItems = await fetchShopCatalogItemsByIds(catalogDb, idsToFetchForHub);
+  const hubExtraItems = await perf.measure("hub.extraItems", () => fetchShopCatalogItemsByIds(catalogDb, idsToFetchForHub));
   const initialItemsForShop = [...initialItems];
   for (const it of hubExtraItems) {
     if (!inInitialCatalog.has(it.id)) {
@@ -147,6 +182,10 @@ export default async function ShopPage() {
   const featuredLendersFromAssets = loadFauxProfileLenders();
   const featuredLendersPadded = padFeaturedLendersToNine(featuredLendersFromAssets);
   const featuredLenderSectionItemIds: string[] = [];
+  perf.log({
+    initialItems: initialItemsForShop.length,
+    cmsHubRefs: hubReferencedItemIds.size,
+  });
 
   return (
     <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
@@ -161,16 +200,17 @@ export default async function ShopPage() {
         materials={mapFilterRows(matResFinal.data)}
         featuredLenders={featuredLendersPadded}
         featuredLenderSectionItemIds={featuredLenderSectionItemIds}
-        initialCmsShopFrames={cmsShopFrames}
+        initialCmsShopFrames={cmsShopFramesWithTargets}
         shopHomeCapsulesSectionDisplay={shopHomeCapsulesDisplay}
         initialShopHubSections={{
-          discover: cmsHubDiscover,
-          categories: cmsHubCategories,
-          preferredBrands: cmsHubPreferredBrands,
-          deals: cmsHubDeals,
-          french: cmsHubFrench,
+          discover: hubBundles.discover,
+          categories: hubBundles.categories,
+          preferredBrands: hubBundles.preferredBrands,
+          deals: hubBundles.deals,
+          french: hubBundles.french,
         }}
         boutiqueHubSectionOrder={boutiqueHubSectionOrder}
+        guideCartOnboarding={guideCartOnboarding}
       />
     </MainContent>
   );

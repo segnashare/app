@@ -66,6 +66,7 @@ type ExchangeLendsSectionProps = {
   /** Rail CMS lorsque `lends` est vide (`exchange_lends_empty`), comme panier vide dans Panier actif. */
   emptyLendsCms?: { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay } | null;
   emptyLendsCmsCatalogItems?: ShopCatalogItem[];
+  guideExchangeOnboarding?: boolean;
 };
 
 export function ExchangeLendsSection({
@@ -75,6 +76,7 @@ export function ExchangeLendsSection({
   promoAdRows = [],
   emptyLendsCms = null,
   emptyLendsCmsCatalogItems = [],
+  guideExchangeOnboarding = false,
   ..._quotaProps
 }: ExchangeLendsSectionProps) {
   void _quotaProps;
@@ -116,7 +118,11 @@ export function ExchangeLendsSection({
         {lends.length === 0 ? (
           <div className="space-y-3">
             {emptyLendsCms && emptyLendsCms.frames.length > 0 ? (
-              <ExchangeLendsEmptyCmsBlock cms={emptyLendsCms} catalogItems={emptyLendsCmsCatalogItems} />
+              <ExchangeLendsEmptyCmsBlock
+                cms={emptyLendsCms}
+                catalogItems={emptyLendsCmsCatalogItems}
+                guideExchangeOnboarding={guideExchangeOnboarding}
+              />
             ) : null}
           </div>
         ) : null}
@@ -190,7 +196,10 @@ export function ExchangeLendsSection({
         <div className="flex justify-end rounded-xl py-0.5">
           <Link
             href="/items/new?fresh=1"
-            className="inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900"
+            className={cn(
+              "segna-guidance-shimmer-target inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900",
+              guideExchangeOnboarding && "segna-guidance-shimmer-active",
+            )}
           >
             <Plus className="h-4 w-4" strokeWidth={2.5} />
             Proposer une pièce
