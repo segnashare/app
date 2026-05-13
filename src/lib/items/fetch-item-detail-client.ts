@@ -49,6 +49,41 @@ async function resolveStoragePreviewUrl(supabase: any, storagePath: string, phot
   );
 }
 
+async function fetchArchivedExchangeCountForItem(supabase: any, itemId: string): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc("get_item_exchange_count", { p_item_id: itemId });
+    if (error) return 0;
+    return Math.max(0, Math.floor(Number(data ?? 0)));
+  } catch {
+    return 0;
+  }
+}
+
+type FeedbackRatingSummary = {
+  average: number | null;
+  count: number;
+};
+
+async function fetchItemFeedbackSummary(supabase: any, itemId: string): Promise<FeedbackRatingSummary> {
+  try {
+    const { data, error } = await supabase.rpc("get_feedback_rating_summary", {
+      p_target_type: "item",
+      p_item_id: itemId,
+      p_target_user_id: null,
+    });
+    if (error || !data || typeof data !== "object") return { average: null, count: 0 };
+    const payload = data as { average?: number | string | null; count?: number | string | null };
+    const average = Number(payload.average);
+    const count = Math.max(0, Math.floor(Number(payload.count ?? 0)));
+    return {
+      average: Number.isFinite(average) && count > 0 ? average : null,
+      count,
+    };
+  } catch {
+    return { average: null, count: 0 };
+  }
+}
+
 export type ItemIntakeSnapshot = {
   listing_stage: string | null;
   fulfillment_stage: string | null;
@@ -110,7 +145,17 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
   const materialsId = row.item_materiaux_id as string | null;
   const colorId = row.item_couleur_id as string | null;
 
-  const [categoryRes, brandRes, sizeRes, materialsRes, colorRes, conditionRes] = await Promise.all([
+  const [
+    categoryRes,
+    brandRes,
+    sizeRes,
+    materialsRes,
+    colorRes,
+    conditionRes,
+    likesRes,
+    exchangeCount,
+    itemRatingSummary,
+  ] = await Promise.all([
     categoryId ? supabase.from("item_categories").select("name").eq("id", categoryId).maybeSingle() : { data: null },
     brandId ? supabase.from("item_brands").select("label,slug").eq("id", brandId).maybeSingle() : { data: null },
     sizeId ? supabase.from("sizes").select("label").eq("id", sizeId).maybeSingle() : { data: null },
@@ -124,10 +169,18 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("item_favorites")
+      .select("id", { count: "exact", head: true })
+      .eq("item_id", itemId)
+      .is("deleted_at", null),
+    fetchArchivedExchangeCountForItem(supabase, itemId),
+    fetchItemFeedbackSummary(supabase, itemId),
   ]);
 
   const conditionScore = (conditionRes.data as { condition_score?: string } | null)?.condition_score ?? null;
   const conditionLabel = conditionScore ? CONDITION_SCORE_TO_LABEL[conditionScore] ?? conditionScore : "—";
+  const likeCount = typeof likesRes.count === "number" ? likesRes.count : 0;
 
   const categoryLabel = (categoryRes.data as { name?: string } | null)?.name ?? "—";
   const customBrand = typeof row.item_custom_brand_label === "string" ? row.item_custom_brand_label.trim() : "";
@@ -219,6 +272,10 @@ export async function fetchItemDetailDataForOwner(itemId: string): Promise<Fetch
       intake,
       infoCard: {
         pricePoints: row.price_points != null ? Number(row.price_points) : null,
+        likeCount,
+        exchangeCount,
+        itemRatingAverage: itemRatingSummary.average,
+        itemRatingCount: itemRatingSummary.count,
         ratingValue: "5.0",
         ratingStars: 5,
         size: sizeLabel,

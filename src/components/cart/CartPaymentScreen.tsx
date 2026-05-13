@@ -15,6 +15,7 @@ import {
   readCheckoutDeliveryInstructions,
   readCheckoutHomeSpeed,
   readCheckoutRelaySelection,
+  writeCheckoutDeliveryAddress,
   writeCheckoutDeliveryChannel,
   writeCheckoutDeliveryInstructions,
   writeCheckoutHomeSpeed,
@@ -96,7 +97,16 @@ type CartPaymentScreenProps = {
   includedShippingForfaitLine?: string;
   /** Retour Stripe `/api/stripe/cart/sync` en erreur (débit wallet ou confirmation panier). */
   postStripeSyncError?: { reason: string; detail?: string } | null;
+  /** Adresse du profil, utilisée comme valeur par défaut tant que le checkout n'a pas sa propre adresse. */
+  initialProfileDeliveryAddress?: CheckoutDeliveryAddress | null;
 };
+
+function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
+  const source = [address?.label, address?.city, address?.relativeCity]
+    .filter((part): part is string => typeof part === "string")
+    .join(" ");
+  return source.match(/\b\d{5}\b/)?.[0] ?? "";
+}
 
 export function CartPaymentScreen({
   initialLines,
@@ -109,6 +119,7 @@ export function CartPaymentScreen({
   includedOrdersLimitThisMonth = 0,
   includedShippingForfaitLine,
   postStripeSyncError = null,
+  initialProfileDeliveryAddress = null,
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
@@ -135,13 +146,24 @@ export function CartPaymentScreen({
   const [uberQuoteErrorCode, setUberQuoteErrorCode] = useState<string | null>(null);
   const [uberQuoteErrorDetail, setUberQuoteErrorDetail] = useState<string | null>(null);
   const uberQuoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const defaultRelayPostalCode = useMemo(
+    () => extractPostalCodeFromAddress(initialProfileDeliveryAddress),
+    [initialProfileDeliveryAddress],
+  );
 
   const refreshCheckoutLocalState = useCallback(() => {
-    setDeliveryAddress(readCheckoutDeliveryAddress());
+    const savedDeliveryAddress = readCheckoutDeliveryAddress();
+    const nextDeliveryAddress = savedDeliveryAddress ?? initialProfileDeliveryAddress;
+    setDeliveryAddress(nextDeliveryAddress);
+    if (!savedDeliveryAddress && nextDeliveryAddress) {
+      writeCheckoutDeliveryAddress(nextDeliveryAddress);
+    }
     setInstructionsDraft(readCheckoutDeliveryInstructions());
     setInstructionsSaved(readCheckoutDeliveryInstructions());
-    setSelectedRelay(readCheckoutRelaySelection());
-  }, []);
+    const savedRelaySelection = readCheckoutRelaySelection();
+    setSelectedRelay(savedRelaySelection);
+    setRelayPostal((current) => current || savedRelaySelection?.postalCode || defaultRelayPostalCode);
+  }, [defaultRelayPostalCode, initialProfileDeliveryAddress]);
 
   useEffect(() => {
     refreshCheckoutLocalState();
@@ -294,7 +316,10 @@ export function CartPaymentScreen({
     uberQuote
       ? `${String(uberQuote.id ?? "")}|${String(uberQuote.duration ?? "")}`
       : "";
-  const uberArrivalBaseTimeMs = useMemo(() => Date.now(), [uberArrivalKey]);
+  const uberArrivalBaseTimeMs = useMemo(() => {
+    void uberArrivalKey;
+    return Date.now();
+  }, [uberArrivalKey]);
   const uberArrivalLine = useMemo(
     () =>
       uberArrivalKey

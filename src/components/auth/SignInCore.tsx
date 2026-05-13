@@ -199,7 +199,7 @@ export function SignInCore({
       router.replace("/onboarding");
       return;
     }
-    const targetPath = await resolvePostSignInPath(user.id);
+    const targetPath = memberEntry ? "/shop" : await resolvePostSignInPath(user.id);
     router.replace(targetPath);
   });
 
@@ -209,8 +209,7 @@ export function SignInCore({
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) return;
-    const targetPath = await resolvePostSignInPath(user.id);
-    router.replace(targetPath);
+    router.replace("/shop");
   };
 
   const handleSignOutMemberEntry = async () => {

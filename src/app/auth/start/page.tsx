@@ -23,19 +23,5 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
     redirect("/auth/login?from=member");
   }
 
-  const { data } = await supabase
-    .from("onboarding_sessions")
-    .select("current_step, status")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (data?.status === "completed") {
-    redirect("/shop");
-  }
-
-  if (data?.current_step?.startsWith("/onboarding/")) {
-    redirect(data.current_step);
-  }
-
-  redirect("/onboarding/1");
+  redirect("/shop");
 }

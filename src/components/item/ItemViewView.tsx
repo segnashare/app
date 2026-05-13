@@ -227,7 +227,11 @@ export function ItemViewView({
             sizeLabel={infoCard.size}
           />
         ) : (
-          <ItemMemberSection data={memberData} isLoading={memberLoading} />
+          <ItemMemberSection
+            data={memberData}
+            isLoading={memberLoading}
+            profileHref={ownerUserId ? `/membre/${ownerUserId}` : null}
+          />
         )}
 
         {/* 7. Photos restantes (4, 5, 6) */}

@@ -51,23 +51,30 @@ export type StorageSignClient = {
 
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
-function cacheKey(bucket: string, path: string) {
-  return `${bucket}:${path}`;
+function storageClientCacheScope(supabase: StorageSignClient) {
+  const client = supabase as StorageSignClient & { supabaseUrl?: string; storageUrl?: string };
+  const scope = client.supabaseUrl?.trim() || client.storageUrl?.trim() || "default";
+  return scope.replace(/\/+$/, "");
 }
 
-function readCachedSignedUrl(bucket: string, path: string) {
-  const cached = signedUrlCache.get(cacheKey(bucket, path));
+function cacheKey(supabase: StorageSignClient, bucket: string, path: string) {
+  return `${storageClientCacheScope(supabase)}:${bucket}:${path}`;
+}
+
+function readCachedSignedUrl(supabase: StorageSignClient, bucket: string, path: string) {
+  const key = cacheKey(supabase, bucket, path);
+  const cached = signedUrlCache.get(key);
   if (!cached) return null;
   if (cached.expiresAt <= Date.now()) {
-    signedUrlCache.delete(cacheKey(bucket, path));
+    signedUrlCache.delete(key);
     return null;
   }
   return cached.url;
 }
 
-function writeCachedSignedUrl(bucket: string, path: string, url: string, expiresIn: number) {
+function writeCachedSignedUrl(supabase: StorageSignClient, bucket: string, path: string, url: string, expiresIn: number) {
   const safetyWindowMs = Math.min(60_000, Math.max(0, expiresIn * 100));
-  signedUrlCache.set(cacheKey(bucket, path), {
+  signedUrlCache.set(cacheKey(supabase, bucket, path), {
     url,
     expiresAt: Date.now() + expiresIn * 1000 - safetyWindowMs,
   });
@@ -89,11 +96,11 @@ export async function createSignedUrlForStoragePath(
   const explicit = normalizeExplicitBucket(options?.explicitBucket ?? null);
   const buckets = explicit ? ([explicit] as const) : orderedBucketsForStoragePath(objectPath);
   if (buckets.length === 1) {
-    const cached = readCachedSignedUrl(buckets[0], objectPath);
+    const cached = readCachedSignedUrl(supabase, buckets[0], objectPath);
     if (cached) return cached;
     const { data, error } = await supabase.storage.from(buckets[0]).createSignedUrl(objectPath, expiresIn);
     if (!error && data?.signedUrl) {
-      writeCachedSignedUrl(buckets[0], objectPath, data.signedUrl, expiresIn);
+      writeCachedSignedUrl(supabase, buckets[0], objectPath, data.signedUrl, expiresIn);
       return data.signedUrl;
     }
     return null;
@@ -104,7 +111,7 @@ export async function createSignedUrlForStoragePath(
   for (let i = 0; i < buckets.length; i++) {
     const { data, error } = results[i];
     if (!error && data?.signedUrl) {
-      writeCachedSignedUrl(buckets[i], objectPath, data.signedUrl, expiresIn);
+      writeCachedSignedUrl(supabase, buckets[i], objectPath, data.signedUrl, expiresIn);
       return data.signedUrl;
     }
   }
@@ -137,7 +144,7 @@ export async function createSignedUrlsForStoragePaths(
       continue;
     }
 
-    const cached = readCachedSignedUrl(buckets[0], objectPath);
+    const cached = readCachedSignedUrl(supabase, buckets[0], objectPath);
     if (cached) {
       out.set(raw, cached);
       continue;
@@ -168,7 +175,7 @@ export async function createSignedUrlsForStoragePaths(
         const row = rows[index];
         const signedUrl = entry?.signedUrl;
         if (!signedUrl) return;
-        writeCachedSignedUrl(bucketId, row.objectPath, signedUrl, expiresIn);
+        writeCachedSignedUrl(supabase, bucketId, row.objectPath, signedUrl, expiresIn);
         out.set(row.raw, signedUrl);
       });
     }),

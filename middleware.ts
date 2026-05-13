@@ -26,6 +26,11 @@ const PROTECTED_PREFIXES = [
   "/items",
   "/membre",
 ];
+const API_MIDDLEWARE_BYPASS_PREFIXES = [
+  "/api/internal/",
+  "/api/stripe/webhook",
+  "/api/uber-direct/webhook",
+] as const;
 const ONBOARDING_PATHS = [
   "/onboarding/1",
   "/onboarding/phone",
@@ -75,7 +80,9 @@ function getOnboardingPathFromIndex(index: number) {
   return ONBOARDING_PATHS[clamped];
 }
 
-function isAllowedOnboardingJump(_requestedPath: string, _reachedPath: string) {
+function isAllowedOnboardingJump(requestedPath: string, reachedPath: string) {
+  void requestedPath;
+  void reachedPath;
   return false;
 }
 
@@ -110,6 +117,7 @@ function isMutationMethod(method: string) {
 }
 
 function middlewareShouldRun(pathname: string) {
+  if (API_MIDDLEWARE_BYPASS_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return false;
   return isPublicRoute(pathname) || isProtectedRoute(pathname) || pathname.startsWith("/api");
 }
 

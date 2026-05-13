@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { AuthOAuthButtons } from "@/components/auth/AuthOAuthButtons";
 import { SignInCore, type SignInFooterState } from "@/components/auth/SignInCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
@@ -24,6 +25,7 @@ function LoginPageContent() {
   });
   const searchParams = useSearchParams();
   const memberEntry = searchParams.get("from") === "member";
+  const oauthErrorCode = searchParams.get("oauth_error");
 
   const handleFooterStateChange = useCallback((state: SignInFooterState) => {
     setFooterState(state);
@@ -77,13 +79,16 @@ function LoginPageContent() {
         </div>
       }
       mainLayout={
-        <SignInCore
-          formId="signin-form"
-          onCanContinueChange={setCanContinue}
-          onSubmittingChange={setIsSubmitting}
-          onFooterStateChange={handleFooterStateChange}
-          memberEntry={memberEntry}
-        />
+        <div className="flex w-full flex-col items-center gap-5">
+          <SignInCore
+            formId="signin-form"
+            onCanContinueChange={setCanContinue}
+            onSubmittingChange={setIsSubmitting}
+            onFooterStateChange={handleFooterStateChange}
+            memberEntry={memberEntry}
+          />
+          <AuthOAuthButtons intent="member" errorCode={oauthErrorCode} />
+        </div>
       }
       footerRightSlot={
         <div className="flex w-full max-w-[320px] flex-col items-center gap-2">

@@ -5,6 +5,8 @@ export const INTAKE_META_COMPLEMENT_MESSAGE = "complement_member_message";
 export const INTAKE_META_EVALUATION_STARTED_AT = "evaluation_started_at";
 /** Synthèse IA alimentée par n8n pour affichage sur la page evaluation. */
 export const INTAKE_META_AI_EVALUATION_SUMMARY = "ai_evaluation_summary";
+/** Révision prix IA : conserve l'analyse initiale, remplace seulement prix + explication membre. */
+export const INTAKE_META_AI_PRICE_REVALUATION = "ai_price_revaluation";
 
 export type IntakeAiEvaluationSummary = {
   suggested_range?: {
@@ -16,7 +18,35 @@ export type IntakeAiEvaluationSummary = {
   segna_offer?: number;
   positioning?: string;
   rationale?: string;
+  example_items?: IntakeEvaluationExampleGroups;
+  comparison_items?: IntakeEvaluationExampleItem[];
 };
+
+export type IntakeAiPriceRevaluation = {
+  segna_offer?: number;
+  rationale?: string;
+  positioning?: string;
+};
+
+export type IntakeEvaluationExampleItem = {
+  sort_index?: number;
+  id?: string | number;
+  title?: string;
+  url?: string;
+  price?: number;
+  currency?: string;
+  brand?: string;
+  size?: string;
+  condition?: string;
+  colour?: string;
+  favouriteCount?: number;
+  isSold?: boolean;
+  country?: string;
+  preview_image?: string;
+  photo_count?: number;
+};
+
+export type IntakeEvaluationExampleGroups = Record<string, IntakeEvaluationExampleItem[]>;
 
 export function readIntakeMetaString(metadata: unknown, key: string): string | null {
   if (!metadata || typeof metadata !== "object") return null;
@@ -91,6 +121,72 @@ function mergeSuggestedRange(
   };
 }
 
+function readExampleString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readExampleBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readEvaluationExampleItem(value: unknown): IntakeEvaluationExampleItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const sortIndex = firstDefinedNumber(raw.sort_index);
+  const price = firstDefinedNumber(raw.price);
+  const favouriteCount = firstDefinedNumber(raw.favouriteCount);
+  const photoCount = firstDefinedNumber(raw.photo_count);
+  const title = readExampleString(raw.title);
+  const url = readExampleString(raw.url);
+  const currency = readExampleString(raw.currency);
+  const brand = readExampleString(raw.brand);
+  const size = readExampleString(raw.size);
+  const condition = readExampleString(raw.condition);
+  const colour = readExampleString(raw.colour);
+  const isSold = readExampleBoolean(raw.isSold);
+  const country = readExampleString(raw.country);
+  const previewImage = readExampleString(raw.preview_image);
+
+  const item: IntakeEvaluationExampleItem = {
+    ...(sortIndex != null ? { sort_index: sortIndex } : {}),
+    ...(typeof raw.id === "number" || typeof raw.id === "string" ? { id: raw.id } : {}),
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+    ...(price != null ? { price } : {}),
+    ...(currency ? { currency } : {}),
+    ...(brand ? { brand } : {}),
+    ...(size ? { size } : {}),
+    ...(condition ? { condition } : {}),
+    ...(colour ? { colour } : {}),
+    ...(favouriteCount != null ? { favouriteCount } : {}),
+    ...(isSold != null ? { isSold } : {}),
+    ...(country ? { country } : {}),
+    ...(previewImage ? { preview_image: previewImage } : {}),
+    ...(photoCount != null ? { photo_count: photoCount } : {}),
+  };
+
+  const hasRenderableValue = Boolean(item.title || item.url || item.preview_image || item.price != null || item.id != null);
+  return hasRenderableValue ? item : null;
+}
+
+function readEvaluationExampleList(value: unknown): IntakeEvaluationExampleItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value.map(readEvaluationExampleItem).filter((item): item is IntakeEvaluationExampleItem => item != null);
+  return list.length > 0
+    ? [...list].sort((a, b) => (a.sort_index ?? Number.MAX_SAFE_INTEGER) - (b.sort_index ?? Number.MAX_SAFE_INTEGER))
+    : undefined;
+}
+
+function readEvaluationExampleGroups(value: unknown): IntakeEvaluationExampleGroups | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: IntakeEvaluationExampleGroups = {};
+  for (const [key, rawList] of Object.entries(value as Record<string, unknown>)) {
+    const list = readEvaluationExampleList(rawList);
+    if (list?.length) out[key] = list;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function readIntakeAiEvaluationSummary(metadata: unknown): IntakeAiEvaluationSummary | null {
   if (!metadata || typeof metadata !== "object") return null;
   const raw = (metadata as Record<string, unknown>)[INTAKE_META_AI_EVALUATION_SUMMARY];
@@ -142,6 +238,8 @@ export function readIntakeAiEvaluationSummary(metadata: unknown): IntakeAiEvalua
       ? value.member_explanation.trim()
       : undefined) ??
     (typeof value.explanation === "string" && value.explanation.trim() ? value.explanation.trim() : undefined);
+  const exampleItems = readEvaluationExampleGroups(value.example_items);
+  const comparisonItems = readEvaluationExampleList(value.comparison_items);
 
   let mergedLow = low;
   let mergedMedian = median;
@@ -164,7 +262,7 @@ export function readIntakeAiEvaluationSummary(metadata: unknown): IntakeAiEvalua
   );
   const hasSuggested = rangeMerged.low != null || rangeMerged.median != null || rangeMerged.high != null;
   const hasAny =
-    hasSuggested || mergedSegna != null || positioning != null || rationale != null;
+    hasSuggested || mergedSegna != null || positioning != null || rationale != null || exampleItems != null || comparisonItems != null;
   if (!hasAny) return null;
 
   return {
@@ -178,6 +276,59 @@ export function readIntakeAiEvaluationSummary(metadata: unknown): IntakeAiEvalua
     ...(mergedSegna != null ? { segna_offer: mergedSegna } : {}),
     ...(positioning ? { positioning } : {}),
     ...(rationale ? { rationale } : {}),
+    ...(exampleItems ? { example_items: exampleItems } : {}),
+    ...(comparisonItems ? { comparison_items: comparisonItems } : {}),
+  };
+}
+
+export function readIntakeAiPriceRevaluation(metadata: unknown): IntakeAiPriceRevaluation | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = (metadata as Record<string, unknown>)[INTAKE_META_AI_PRICE_REVALUATION];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const summary = value.summary && typeof value.summary === "object" && !Array.isArray(value.summary)
+    ? (value.summary as Record<string, unknown>)
+    : null;
+  const segnaOffer = firstDefinedNumber(
+    value.segna_offer,
+    value.adjusted_segna_price,
+    value.segna_price_points,
+    summary?.segna_offer,
+    summary?.adjusted_segna_price,
+  );
+  const rationale =
+    (typeof value.member_explanation === "string" && value.member_explanation.trim()
+      ? value.member_explanation.trim()
+      : undefined) ??
+    (typeof summary?.member_explanation === "string" && summary.member_explanation.trim()
+      ? summary.member_explanation.trim()
+      : undefined) ??
+    (typeof value.rationale === "string" && value.rationale.trim() ? value.rationale.trim() : undefined) ??
+    (typeof summary?.rationale === "string" && summary.rationale.trim() ? summary.rationale.trim() : undefined) ??
+    (typeof value.explanation === "string" && value.explanation.trim() ? value.explanation.trim() : undefined) ??
+    (typeof summary?.explanation === "string" && summary.explanation.trim() ? summary.explanation.trim() : undefined) ??
+    (typeof value.adjustment_reason === "string" && value.adjustment_reason.trim()
+      ? value.adjustment_reason.trim()
+      : undefined);
+  const positioning =
+    (typeof value.positioning === "string" && value.positioning.trim()
+      ? value.positioning.trim()
+      : undefined) ??
+    (typeof summary?.positioning === "string" && summary.positioning.trim()
+      ? summary.positioning.trim()
+      : undefined) ??
+    (typeof value.positionning === "string" && value.positionning.trim()
+      ? value.positionning.trim()
+      : undefined) ??
+    (typeof summary?.positionning === "string" && summary.positionning.trim()
+      ? summary.positionning.trim()
+      : undefined);
+
+  if (segnaOffer == null && !rationale && !positioning) return null;
+  return {
+    ...(segnaOffer != null ? { segna_offer: segnaOffer } : {}),
+    ...(rationale ? { rationale } : {}),
+    ...(positioning ? { positioning } : {}),
   };
 }
 

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
+import { AuthOAuthButtons } from "@/components/auth/AuthOAuthButtons";
 import { SignUpEmailCore, type SignUpEmailAuthErrorState } from "@/components/auth/SignUpEmailCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
@@ -14,7 +16,7 @@ const montserrat = segnaMontserrat;
 
 const AUTH_BG = "bg-white";
 
-export default function SignUpEmailPage() {
+function SignUpEmailPageContent() {
   const [canContinue, setCanContinue] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authErrors, setAuthErrors] = useState<SignUpEmailAuthErrorState>({
@@ -22,6 +24,8 @@ export default function SignUpEmailPage() {
     submit: null,
     showLoginLink: false,
   });
+  const searchParams = useSearchParams();
+  const oauthErrorCode = searchParams.get("oauth_error");
 
   const handleAuthErrorStateChange = useCallback((state: SignUpEmailAuthErrorState) => {
     setAuthErrors(state);
@@ -78,12 +82,15 @@ export default function SignUpEmailPage() {
         </div>
       }
       mainLayout={
-        <SignUpEmailCore
-          formId="signup-email-form"
-          onCanContinueChange={setCanContinue}
-          onAuthErrorStateChange={handleAuthErrorStateChange}
-          onSubmittingChange={handleSubmittingChange}
-        />
+        <div className="flex w-full flex-col items-center gap-5">
+          <SignUpEmailCore
+            formId="signup-email-form"
+            onCanContinueChange={setCanContinue}
+            onAuthErrorStateChange={handleAuthErrorStateChange}
+            onSubmittingChange={handleSubmittingChange}
+          />
+          <AuthOAuthButtons intent="signup" errorCode={oauthErrorCode} />
+        </div>
       }
       footerRightSlot={
         <div className="flex w-full max-w-[320px] flex-col items-center gap-2">
@@ -130,5 +137,17 @@ export default function SignUpEmailPage() {
         </div>
       }
     />
+  );
+}
+
+export default function SignUpEmailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[100dvh] items-center justify-center bg-white text-zinc-600">Chargement…</div>
+      }
+    >
+      <SignUpEmailPageContent />
+    </Suspense>
   );
 }

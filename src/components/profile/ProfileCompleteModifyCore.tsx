@@ -1,7 +1,6 @@
 "use client";
 
-import { CheckCircle2, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
-import Link from "next/link";
+import { GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, TouchEvent } from "react";
@@ -63,15 +62,8 @@ type ProfileRowItem = {
   visibilityKey?: string;
 };
 
-type ContactSnapshot = {
-  phoneLabel: string;
-  emailLabel: string;
-  phoneVerified: boolean;
-  emailVerified: boolean;
-};
-
 const LOOK_STAGE_RATIO = 3 / 4;
-const MODIFY_CACHE_KEY = "segna:profile-complete:modify-cache:v1";
+const MODIFY_CACHE_KEY = "segna:profile-complete:modify-cache:v3";
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 
 /** Préserve `tab` et `from=settings` pour les retours depuis /profile/edit, insights, etc. */
@@ -153,7 +145,7 @@ function getUserPreferenceSection(row: Record<string, unknown>, section: string)
       ? preferenceRaw.visibility
       : typeof sectionRaw.visibility === "boolean"
         ? sectionRaw.visibility
-        : true;
+        : false;
   return { value, customText, visible };
 }
 
@@ -214,16 +206,6 @@ function toPreferenceDisplay(value: unknown, customText: unknown) {
   }
   if (custom) return custom;
   return "À compléter";
-}
-
-function formatPhoneDisplayE164(e164: string): string {
-  const d = e164.replace(/\D/g, "");
-  if (d.startsWith("33") && d.length >= 11) {
-    const national = d.slice(2);
-    if (national.length === 9) return `+33 0${national}`;
-    return `+33 ${national}`;
-  }
-  return e164.trim() || "";
 }
 
 const clampPercent = (value: unknown) => {
@@ -410,7 +392,7 @@ function AnswerSlot({
         disabled={!hasPrompt}
         className={cn(
           montserratItalic.className,
-          "mt-1 min-h-[34px] w-full resize-none bg-transparent pr-10 text-[18px] italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none placeholder:text-[#c2c2c2] disabled:cursor-not-allowed disabled:text-zinc-400",
+          "mt-1 min-h-[34px] w-full resize-none overflow-hidden bg-transparent pr-10 text-[18px] italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none placeholder:text-[#c2c2c2] disabled:cursor-not-allowed disabled:text-zinc-400",
         )}
       />
       <button
@@ -487,7 +469,6 @@ export function ProfileCompleteModifyCore({
   /** Dernier `profile_data` chargé : pour que le % prévisualisé utilise la même règle « réseaux » que `user_profiles.score`. */
   const [completionPreviewProfileData, setCompletionPreviewProfileData] = useState<Record<string, unknown> | null>(null);
   const [infoVisibilityMap, setInfoVisibilityMap] = useState<Record<string, boolean>>({});
-  const [contactSnapshot, setContactSnapshot] = useState<ContactSnapshot | null>(null);
   const [supportsHover, setSupportsHover] = useState(true);
   const [hoveredLookIndex, setHoveredLookIndex] = useState<number | null>(null);
   const [draggingLookIndex, setDraggingLookIndex] = useState<number | null>(null);
@@ -547,7 +528,6 @@ export function ProfileCompleteModifyCore({
   const hydrateFromDatabase = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
       setIsHydrating(true);
-      setContactSnapshot(null);
     }
     setErrorMessage(null);
 
@@ -591,7 +571,7 @@ export function ProfileCompleteModifyCore({
       profileId
         ? supabase.from("user_profile_sizes").select("category, size_id").eq("user_profile_id", profileId)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("users").select("first_name,last_name,phone").eq("id", user.id).maybeSingle(),
+      supabase.from("users").select("first_name,last_name").eq("id", user.id).maybeSingle(),
       (supabase.rpc as unknown as (fn: string) => Promise<{ data?: Record<string, unknown> | null; error?: { message: string } | null }>)(
         "get_user_preferences_payload",
       ),
@@ -802,29 +782,16 @@ export function ProfileCompleteModifyCore({
 
     const prefRows: ProfileRowItem[] = HINGE_PREF_SECTIONS.map((section) => {
       const prefEntry = getUserPreferenceSection(userPreferencesRow, section);
-      const isVisible = prefEntry.visible;
       return {
         id: section,
         label: HINGE_PREF_LABELS[section],
         value: toPreferenceDisplay(prefEntry.value, prefEntry.customText),
-        visibility: isVisible ? "visible" : "hidden",
+        visibility: "hidden",
         visibilityMode: "preference",
         visibilitySection: section,
       };
     });
     setPreferenceItems(prefRows);
-
-    const profilePhoneE164 = typeof profileData.phone_e164 === "string" ? profileData.phone_e164.trim() : "";
-    const publicPhone = typeof usersRow.phone === "string" ? usersRow.phone.trim() : "";
-    const authPhone = typeof user.phone === "string" ? user.phone.trim() : "";
-    const resolvedPhone = authPhone || publicPhone || profilePhoneE164;
-    const emailLabel = typeof user.email === "string" && user.email.trim().length > 0 ? user.email.trim() : "—";
-    setContactSnapshot({
-      phoneLabel: resolvedPhone ? formatPhoneDisplayE164(resolvedPhone) : "—",
-      emailLabel,
-      phoneVerified: Boolean(user.phone_confirmed_at),
-      emailVerified: Boolean(user.email_confirmed_at),
-    });
 
     setIsHydrating(false);
   }, [resolveStoragePaths, searchParams, supabase]);
@@ -1402,7 +1369,6 @@ export function ProfileCompleteModifyCore({
   const currentReturnPath = buildProfileCompleteReturnPath(pathname, searchParams);
   const getEditPath = (field: string) => `/profile/edit?field=${encodeURIComponent(field)}&returnPath=${encodeURIComponent(currentReturnPath)}`;
   const getReseauxPath = () => `/profile/reseaux?returnPath=${encodeURIComponent(currentReturnPath)}`;
-  const getEditContactPath = () => `/profile/edit-contact?returnPath=${encodeURIComponent(currentReturnPath)}`;
 
   const renderProfileRows = (items: ProfileRowItem[]) => (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
@@ -1590,90 +1556,9 @@ export function ProfileCompleteModifyCore({
         <p className={cn(montserrat.className, "text-[14px] font-semibold leading-none text-zinc-600")}>Ajoute 1 à 3 photos</p>
       </section>
 
-      <section className="space-y-3">
-        <p className="text-[18px] font-semibold text-zinc-400">Mes insights</p>
-        <div className="space-y-3">
-          <AnswerSlot
-            prompt={prompt0}
-            response={response0}
-            placeholder="Partage ton inspi"
-            onChangeResponse={setResponse0}
-            onOpenPrompt={() => openPromptPicker(0)}
-            onClearPrompt={() => clearInsightSlot(0)}
-            canClearPrompt={prompt0.trim().length > 0}
-            hasError={showInsightsValidationError && (prompt0.trim().length > 0) !== (response0.trim().length > 0)}
-          />
-          <AnswerSlot
-            prompt={prompt1}
-            response={response1}
-            placeholder="Partage ton style"
-            onChangeResponse={setResponse1}
-            onOpenPrompt={() => openPromptPicker(1)}
-            onClearPrompt={() => clearInsightSlot(1)}
-            canClearPrompt={prompt1.trim().length > 0}
-            hasError={showInsightsValidationError && (prompt1.trim().length > 0) !== (response1.trim().length > 0)}
-          />
-          <AnswerSlot
-            prompt={prompt2}
-            response={response2}
-            placeholder="Partage ton univers"
-            onChangeResponse={setResponse2}
-            onOpenPrompt={() => openPromptPicker(2)}
-            onClearPrompt={() => clearInsightSlot(2)}
-            canClearPrompt={prompt2.trim().length > 0}
-            hasError={showInsightsValidationError && (prompt2.trim().length > 0) !== (response2.trim().length > 0)}
-          />
-        </div>
-        {showInsightsValidationError && !insightsAreComplete ? (
-          <p className={cn(montserrat.className, "text-[14px] font-semibold text-[#E44D3E]")}>
-            {missingInsightsCount} insight{missingInsightsCount > 1 ? "s" : ""} incomplet{missingInsightsCount > 1 ? "s" : ""}
-          </p>
-        ) : null}
-        {isSavingAnswers ? <p className={cn(montserrat.className, "text-[12px] text-zinc-500")}>Sauvegarde des insights...</p> : null}
-      </section>
-
-      {!isHydrating && contactSnapshot ? (
-        <section className="space-y-2">
-          <p className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-400")}>Téléphone & e-mail</p>
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
-              <p className={cn(montserrat.className, "min-w-0 flex-1 truncate text-[18px] font-semibold text-zinc-900")}>
-                {contactSnapshot.phoneLabel}
-              </p>
-              <div className="flex shrink-0 items-center gap-2">
-                {contactSnapshot.phoneVerified ? (
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="Téléphone vérifié" />
-                ) : null}
-                <Link href={getEditContactPath()} className={cn(montserrat.className, "text-[15px] font-semibold text-zinc-900")}>
-                  Modifier
-                </Link>
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <p className={cn(montserrat.className, "min-w-0 flex-1 truncate text-[18px] font-semibold text-zinc-900")}>
-                {contactSnapshot.emailLabel}
-              </p>
-              <div className="flex shrink-0 items-center gap-2">
-                {contactSnapshot.emailVerified ? (
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="E-mail vérifié" />
-                ) : null}
-                <Link href={getEditContactPath()} className={cn(montserrat.className, "text-[15px] font-semibold text-zinc-900")}>
-                  Modifier
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       <section className="space-y-2">
         <p className="text-[18px] font-semibold text-zinc-400">Mes infos</p>
         {renderProfileRows(infoItems)}
-      </section>
-
-      <section className="space-y-2">
-        <p className="text-[18px] font-semibold text-zinc-400">Mon style</p>
-        {renderProfileRows(styleItems)}
       </section>
 
       <section className="space-y-2">

@@ -41,13 +41,12 @@ function formatCountdownHms(remainingMs: number): string {
 
 function EvaluationCountdown({ startedAtMs }: { startedAtMs: number }) {
   const deadlineMs = startedAtMs + EVALUATION_WINDOW_MS;
-  const [nowMs, setNowMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    setNowMs(Date.now());
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  const label = nowMs == null ? "--:--:--" : formatCountdownHms(Math.max(0, deadlineMs - nowMs));
+  const label = formatCountdownHms(Math.max(0, deadlineMs - nowMs));
   return (
     <div
       className={cn(montserrat.className, "flex shrink-0 flex-col items-end gap-0.5 text-right")}
@@ -113,6 +112,8 @@ export type ItemIntakePanelProps = {
   onPipelineUpdated: () => void;
   /** Sur la page analyse : pas de lien « Voir l'analyse », offre + refus/accept ici. */
   placement: "item" | "evaluation";
+  /** Après « Compris » : masque ce statut pour la session courante. */
+  onEvaluationAcknowledged?: () => void;
   /** Pile Échange : après « Compris » / « Fermer » pour passer à la carte suivante. */
   onExchangeStackAdvance?: () => void;
   /** Pile Échange : croix en-tête — masque la carte (session) sans action métier. */
@@ -128,6 +129,7 @@ export function ItemIntakePanel({
   offerPricePoints,
   onPipelineUpdated,
   placement,
+  onEvaluationAcknowledged,
   onExchangeStackAdvance,
   onStackDismiss,
 }: ItemIntakePanelProps) {
@@ -137,6 +139,7 @@ export function ItemIntakePanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
+  const [isDeletingRefusedItem, setIsDeletingRefusedItem] = useState(false);
 
   const refusalText =
     readIntakeMetaString(intakeMetadata, INTAKE_META_REFUSAL_MESSAGE) ??
@@ -189,7 +192,7 @@ export function ItemIntakePanel({
     }
     const { error } = await supabase
       .from("items")
-      .update({ status: "draft_deleted" })
+      .update({ status: "refused" })
       .eq("id", itemId)
       .eq("owner_user_id", user.id)
       .is("deleted_at", null);
@@ -233,6 +236,48 @@ export function ItemIntakePanel({
     router.push(`/items/${itemId}`);
   }, [itemId, onPipelineUpdated, router]);
 
+  const handleDeleteRefusedItem = useCallback(async () => {
+    if (isDeletingRefusedItem) return;
+    setActionError(null);
+    setIsDeletingRefusedItem(true);
+    const supabase = createSupabaseBrowserClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      setIsDeletingRefusedItem(false);
+      setActionError("Session invalide.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("items")
+      .update({ status: "draft_deleted" })
+      .eq("id", itemId)
+      .eq("owner_user_id", user.id)
+      .is("deleted_at", null);
+
+    setIsDeletingRefusedItem(false);
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+
+    try {
+      const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");
+      if (activeDraftId === itemId) {
+        window.sessionStorage.removeItem("segna:new-item:active-draft-id");
+        window.sessionStorage.removeItem("segna:new-item:slots-draft");
+        window.sessionStorage.removeItem("segna:new-item:text-draft");
+      }
+    } catch {
+      // no-op
+    }
+
+    router.push("/exchange");
+  }, [isDeletingRefusedItem, itemId, router]);
+
   if (!visible) return null;
 
   if (listingStage === "evaluation") {
@@ -249,6 +294,7 @@ export function ItemIntakePanel({
           <button
             type="button"
             onClick={() => {
+              onEvaluationAcknowledged?.();
               onExchangeStackAdvance?.();
               setUserMinimized(true);
             }}
@@ -436,25 +482,45 @@ export function ItemIntakePanel({
   }
 
   if (listingStage === "refused") {
+    const isExchangeStackCard = Boolean(onStackDismiss);
+
     return (
       <IntakePanelLayout
-        title="Cette pièce ne correspond pas"
+        title="Refus de pièce"
         titleId="intake-title-refused"
         titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
         footer={
-          <button
-            type="button"
-            onClick={() => router.push("/exchange")}
-            className={cn(
-              montserrat.className,
-              "h-11 w-full rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
-            )}
-          >
-            Retour à l&apos;échange
-          </button>
+          isExchangeStackCard ? (
+            <Link
+              href={`/items/${itemId}`}
+              className={cn(
+                montserrat.className,
+                "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
+              )}
+            >
+              En savoir plus
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleDeleteRefusedItem()}
+              disabled={isDeletingRefusedItem}
+              className={cn(
+                montserrat.className,
+                "h-11 w-full rounded-full bg-zinc-900 text-[14px] font-semibold text-white disabled:opacity-60 sm:w-auto sm:min-w-[200px]",
+              )}
+            >
+              {isDeletingRefusedItem ? "Suppression…" : "Supprimer l'item"}
+            </button>
+          )
         }
       >
-        <p>{refusalText}</p>
+        <p>
+          {isExchangeStackCard
+            ? "Votre pièce ne correspond pas aux critères de la collection Segna"
+            : refusalText}
+        </p>
+        {!isExchangeStackCard && actionError ? <p className="mt-2 text-[12px] text-[#E44D3E]">{actionError}</p> : null}
       </IntakePanelLayout>
     );
   }

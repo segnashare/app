@@ -44,6 +44,72 @@ function cleanDisplayValue(value: unknown): string {
   return trimmed;
 }
 
+function formatDisplayNameFallback(firstName: unknown, lastName: unknown): string | null {
+  const first = cleanDisplayValue(firstName);
+  const last = cleanDisplayValue(lastName);
+  if (!first && !last) return null;
+  if (!last) return first;
+  if (!first) return last;
+  return `${first} ${last.charAt(0).toUpperCase()}.`;
+}
+
+function shortLocationLabel(...values: unknown[]): string | null {
+  for (const value of values) {
+    const cleaned = cleanDisplayValue(value);
+    if (!cleaned) continue;
+    const arrondissement = cleaned.match(/\b\d{1,2}(?:er|e|ème)?\s*(?:arr\.?|arrondissement)\b/i);
+    if (arrondissement) {
+      const cityMatch = cleaned.match(/\bParis\b/i);
+      return cityMatch ? `Paris ${arrondissement[0]}` : arrondissement[0];
+    }
+    const firstSegment = cleaned.split(",")[0]?.trim();
+    if (!firstSegment) continue;
+    const withoutPostalCode = firstSegment.replace(/\b\d{5}\b/g, "").trim();
+    return withoutPostalCode || firstSegment;
+  }
+  return null;
+}
+
+function formatRatingAverage(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return value.toFixed(1);
+}
+
+type FeedbackRatingSummary = {
+  average: number | null;
+  count: number;
+};
+
+async function fetchUserFeedbackSummary(supabase: any, userId: string): Promise<FeedbackRatingSummary> {
+  try {
+    const { data, error } = await supabase.rpc("get_feedback_rating_summary", {
+      p_target_type: "user",
+      p_item_id: null,
+      p_target_user_id: userId,
+    });
+    if (error || !data || typeof data !== "object") return { average: null, count: 0 };
+    const payload = data as { average?: number | string | null; count?: number | string | null };
+    const average = Number(payload.average);
+    const count = Math.max(0, Math.floor(Number(payload.count ?? 0)));
+    return {
+      average: Number.isFinite(average) && count > 0 ? average : null,
+      count,
+    };
+  } catch {
+    return { average: null, count: 0 };
+  }
+}
+
+async function fetchUserExchangeCount(supabase: any, userId: string): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc("get_user_exchange_count", { p_user_id: userId });
+    if (error) return 0;
+    return Math.max(0, Math.floor(Number(data ?? 0)));
+  } catch {
+    return 0;
+  }
+}
+
 function compactLookSlots<T>(slots: Array<T | null>): Array<T | null> {
   const filled = slots.filter((slot): slot is T => slot != null);
   const compacted: Array<T | null> = [...filled];
@@ -73,14 +139,20 @@ function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null
         ...cache.infoCard,
         age: cleanDisplayValue(cache.infoCard.age) || null,
         profession: cleanDisplayValue(cache.infoCard.profession) || null,
+        ratingValue: null,
+        ratingCount: 0,
+        ratingStars: 0,
+        exchangeCount: 0,
         displayName: displayName ?? cache.infoCard.displayName ?? null,
       }
     : {
         age: age || null,
-        ratingValue: "5.0",
-        ratingStars: 5,
+        ratingValue: null,
+        ratingCount: 0,
+        ratingStars: 0,
         levelIcon: "🌱",
         levelNumber: 1,
+        exchangeCount: 0,
         smoking: true,
         alcohol: true,
         sport: false,
@@ -209,7 +281,11 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
         data: { user: authUser },
       } = await supabase.auth.getUser();
       if (authUser?.id) {
-        const { data: pr } = await supabase.from("user_profiles").select("profile_data").eq("user_id", authUser.id).maybeSingle();
+        const [{ data: pr }, userRatingSummary, exchangeCount] = await Promise.all([
+          supabase.from("user_profiles").select("profile_data").eq("user_id", authUser.id).maybeSingle(),
+          fetchUserFeedbackSummary(supabase, authUser.id),
+          fetchUserExchangeCount(supabase, authUser.id),
+        ]);
         const profileData = ((pr as { profile_data?: Record<string, unknown> } | null)?.profile_data ?? {}) as Record<string, unknown>;
         const social = readSocialHandlesFromProfileData(profileData);
         const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
@@ -218,6 +294,10 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
           ...merged,
           infoCard: {
             ...merged.infoCard,
+            ratingValue: formatRatingAverage(userRatingSummary.average),
+            ratingCount: userRatingSummary.count,
+            ratingStars: userRatingSummary.average != null ? Math.round(userRatingSummary.average) : 0,
+            exchangeCount,
             socialSectionVisible,
             instagramHandle: social.instagram || null,
             tiktokHandle: social.tiktok || null,
@@ -253,11 +333,18 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       setIsLoading(false);
       return;
     }
-    const { data: row, error } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("user_id", targetUserId)
-      .maybeSingle();
+    const [{ data: row, error }, { data: usersRow }] = await Promise.all([
+      supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("user_id", targetUserId)
+        .maybeSingle(),
+      supabase
+        .from("users")
+        .select("first_name,last_name")
+        .eq("id", targetUserId)
+        .maybeSingle(),
+    ]);
 
     if (error || !row) {
       setData(null);
@@ -403,15 +490,30 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
     const ageStr = toDisplay(profileRow.age ?? profileData.age);
     const workStr = toDisplay(profileData.work);
+    const cityLabel = shortLocationLabel(
+      profileRow.city,
+      profileData.city,
+      profileData.arrondissement,
+      profileData.location_label,
+      profileData.locationLabel,
+      profileData.location,
+    );
     const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
     const socialSectionVisible = infoVisibilityRaw.reseaux !== false;
     const social = readSocialHandlesFromProfileData(profileData);
-    const displayName = (profileRow.display_name ?? profileData.display_name) as string | null;
+    const displayName =
+      cleanDisplayValue(profileRow.display_name ?? profileData.display_name) ||
+      formatDisplayNameFallback(
+        (usersRow as { first_name?: string | null; last_name?: string | null } | null)?.first_name,
+        (usersRow as { first_name?: string | null; last_name?: string | null } | null)?.last_name,
+      );
 
     let levelIcon = "🌱";
-    const [stateRes, levelsRes] = await Promise.all([
+    const [stateRes, levelsRes, userRatingSummary, exchangeCount] = await Promise.all([
       supabase.from("xp_user_state").select("current_level").eq("user_id", targetUserId).maybeSingle(),
       supabase.from("xp_levels").select("level_no,icon").order("level_no", { ascending: true }),
+      fetchUserFeedbackSummary(supabase, targetUserId),
+      fetchUserExchangeCount(supabase, targetUserId),
     ]);
     const currentLevel = Number(stateRes.data?.current_level ?? 1) || 1;
     const levels = (levelsRes.data ?? []) as Array<{ level_no: number; icon?: string | null }>;
@@ -422,15 +524,17 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
     const infoCard: ProfileViewInfoCardData = {
       age: ageStr || null,
-      ratingValue: "5.0",
-      ratingStars: 5,
+      ratingValue: formatRatingAverage(userRatingSummary.average),
+      ratingCount: userRatingSummary.count,
+      ratingStars: userRatingSummary.average != null ? Math.round(userRatingSummary.average) : 0,
       levelIcon,
       levelNumber: currentLevel,
+      exchangeCount,
       smoking: true,
       alcohol: true,
       sport: false,
       night: true,
-      city: null,
+      city: cityLabel,
       profession: workStr || null,
       socialSectionVisible,
       instagramHandle: social.instagram || null,
@@ -438,7 +542,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       pinterestHandle: social.pinterest || null,
       threadsHandle: social.threads || null,
       reseauxSummary: formatReseauxSummaryOrNull(profileData),
-      displayName: displayName?.trim() || null,
+      displayName: displayName || null,
     };
 
     const infoItems = [
@@ -456,7 +560,7 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       insights: answers,
       lentPieces: [],
       instagramUsername: social.instagram || null,
-      locationLabel: null,
+      locationLabel: cityLabel,
       statsValue: null,
     });
     setIsLoading(false);

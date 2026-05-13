@@ -55,6 +55,26 @@ function isLendPhysicallyVerified(intake?: { listing_stage: string; fulfillment_
   return ls === "validated" && fs === "verified";
 }
 
+function isEvaluationRefused(
+  status: string,
+  intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
+): boolean {
+  const normalized = status.trim().toLowerCase();
+  const listingStage = intake?.listing_stage?.toLowerCase() ?? "";
+  const fulfillmentStage = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  if (listingStage === "validated" && fulfillmentStage === "refused") return false;
+  return normalized === "refused" || normalized === "draft_deleted" || listingStage === "refused";
+}
+
+function isLogisticsRefused(
+  status: string,
+  intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
+): boolean {
+  const listingStage = intake?.listing_stage?.toLowerCase() ?? "";
+  const fulfillmentStage = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  return listingStage === "validated" && fulfillmentStage === "refused";
+}
+
 function getStatusLabel(
   status: string,
   intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
@@ -68,7 +88,11 @@ function getStatusLabel(
     return "Récupération en cours";
   }
 
-  if (normalized === "refused" || intakeFulfillmentStage === "refused") {
+  if (isEvaluationRefused(status, intake)) {
+    return "Refusé";
+  }
+
+  if (isLogisticsRefused(status, intake) || intakeFulfillmentStage === "refused") {
     return "Refus contrôle";
   }
 
@@ -126,7 +150,11 @@ function statusPillClassName(
 
   if (normalized === "retired") return "bg-amber-100 text-amber-900";
 
-  if (normalized === "refused" || intakeFulfillmentStage === "refused") {
+  if (isEvaluationRefused(status, intake)) {
+    return "bg-[#E44D3E] text-white";
+  }
+
+  if (isLogisticsRefused(status, intake) || intakeFulfillmentStage === "refused") {
     return "bg-rose-100 text-rose-900";
   }
 
@@ -178,12 +206,20 @@ function splitNameAndBrand(name: string): { title: string; brand: string | null 
 
 function isDraftLike(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
   const normalized = status.trim().toLowerCase();
+  const listingStage = intake?.listing_stage?.trim().toLowerCase() ?? "";
   if (normalized === "listed") return false;
+  if (listingStage && listingStage !== "draft") return false;
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated" && intake.fulfillment_stage === "verified") return false;
     return true;
   }
   return false;
+}
+
+function canEditEvaluationDraft(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
+  const normalized = status.trim().toLowerCase();
+  const listingStage = intake?.listing_stage?.trim().toLowerCase() ?? "";
+  return (normalized === "draft" || normalized === "brouillon") && (listingStage === "evaluation" || listingStage === "evaluated");
 }
 
 function isFulfillmentShipping(intake?: { listing_stage: string; fulfillment_stage: string | null } | null) {
@@ -205,12 +241,15 @@ export function ExchangeLendItemRow({
   creditKind,
 }: ExchangeLendItemRowProps) {
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient() as any;
+  const supabase = createSupabaseBrowserClient();
   const { title, brand: brandFromName } = splitNameAndBrand(name);
   const brand = brandProp ?? brandFromName;
+  const evaluationRefused = isEvaluationRefused(itemStatus, intake);
   const showEditDelete = isDraftLike(itemStatus, intake);
+  const showEvaluationEdit = canEditEvaluationDraft(itemStatus, intake);
   const shippingQuickAction = isFulfillmentShipping(intake);
   const showPriceRow =
+    !evaluationRefused &&
     currentValue != null &&
     Number.isFinite(currentValue) &&
     currentValue > 0 &&
@@ -235,6 +274,7 @@ export function ExchangeLendItemRow({
     const { error } = await supabase
       .from("items")
       .update({
+        ...(evaluationRefused ? { status: "draft_deleted" as const } : {}),
         deleted_at: new Date().toISOString(),
       })
       .eq("id", id)
@@ -258,20 +298,55 @@ export function ExchangeLendItemRow({
   if (isDeleted) return null;
 
   return (
-    <article className="relative grid w-full grid-cols-[100px_minmax(0,50%)_auto] items-center gap-1 py-2">
-      <Link
-        href={`/items/${id}`}
-        aria-label={`Voir la pièce ${title}`}
-        className="absolute inset-0 z-0"
-        onPointerEnter={() => {
-          void prefetchLendItemDetailIfNeeded(id);
-        }}
-        onTouchStart={() => {
-          void prefetchLendItemDetailIfNeeded(id);
-        }}
-      />
+    <article
+      className={cn(
+        "relative grid w-full grid-cols-[100px_minmax(0,50%)_auto] items-center gap-1 py-2",
+      )}
+    >
+      {evaluationRefused ? (
+        <div
+          className="pointer-events-auto absolute inset-y-0 left-1/2 z-[15] w-screen -translate-x-1/2 bg-zinc-900/38 backdrop-blur-md backdrop-saturate-125"
+          aria-hidden
+        />
+      ) : null}
+      {evaluationRefused ? (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 px-4 text-center">
+          <p className="max-w-[min(100%,22rem)] truncate text-[18px] font-semibold italic leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+            {title}
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              href={`/items/${id}`}
+              className="inline-flex h-11 min-w-[128px] items-center justify-center whitespace-nowrap rounded-full bg-white px-5 text-center text-[14px] font-semibold text-zinc-950 shadow-sm transition active:scale-[0.98]"
+            >
+              Voir refus
+            </Link>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="inline-flex h-11 min-w-[158px] items-center justify-center whitespace-nowrap rounded-full bg-zinc-950 px-5 text-center text-[14px] font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-50"
+            >
+              {isDeleting ? "Suppression…" : "Supprimer l'item"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {!evaluationRefused ? (
+        <Link
+          href={`/items/${id}`}
+          aria-label={`Voir la pièce ${title}`}
+          className="absolute inset-0 z-0"
+          onPointerEnter={() => {
+            void prefetchLendItemDetailIfNeeded(id);
+          }}
+          onTouchStart={() => {
+            void prefetchLendItemDetailIfNeeded(id);
+          }}
+        />
+      ) : null}
 
-      <div className="pointer-events-none relative z-10 flex items-center">
+      <div className={cn("pointer-events-none relative flex items-center", !evaluationRefused && "z-10")}>
         {photoUrl ? (
           <RemoteCoverThumb photoUrl={photoUrl} photoPosition={photoPosition} frameClassName="aspect-square w-[100px] shrink-0 rounded-md" />
         ) : (
@@ -281,49 +356,61 @@ export function ExchangeLendItemRow({
         )}
       </div>
 
-      <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
+      <div className={cn("pointer-events-none relative flex min-w-0 flex-1 items-center justify-start px-1", !evaluationRefused && "z-10")}>
         <div className="min-w-0 flex-1">
-          <p className="text-[18px] font-semibold italic leading-[1.15] text-zinc-900 break-words">
-            {title}
-          </p>
-          {brand ? <span className="font-semibold text-[16px] not-italic"> ({brand})</span> : null}
-          {description ? <p className="mt-1 text-[13px] leading-[1.3] text-zinc-500 break-words">{description}</p> : null}
-          {showPriceRow && currentValue != null ? (
-            <p
-              className={cn(
-                "mt-1 text-[15px] tracking-tight",
-                priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
-              )}
-            >
-              <SegnaPointsUnitDisplay
-                points={currentValue}
-                creditKind={creditKind}
-                numberClassName={cn(
-                  "text-[15px] tabular-nums",
+          <div>
+            <p className="text-[18px] font-semibold italic leading-[1.15] text-zinc-900 break-words">
+              {title}
+            </p>
+            {brand ? <span className="font-semibold text-[16px] not-italic"> ({brand})</span> : null}
+            {description ? <p className="mt-1 text-[13px] leading-[1.3] text-zinc-500 break-words">{description}</p> : null}
+            {showPriceRow && currentValue != null ? (
+              <p
+                className={cn(
+                  "mt-1 text-[15px] tracking-tight",
                   priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
                 )}
-              />
-            </p>
+              >
+                <SegnaPointsUnitDisplay
+                  points={currentValue}
+                  creditKind={creditKind}
+                  numberClassName={cn(
+                    "text-[15px] tabular-nums",
+                    priceVerifiedLook ? "font-semibold text-zinc-900" : "font-medium text-zinc-500",
+                  )}
+                />
+              </p>
+            ) : null}
+          </div>
+          {!evaluationRefused ? (
+            <span
+              className={cn(
+                "relative z-20 mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold",
+                statusPillClassName(itemStatus, intake),
+              )}
+            >
+              {getStatusLabel(itemStatus, intake)}
+            </span>
           ) : null}
-          <span
-            className={cn(
-              "mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold",
-              statusPillClassName(itemStatus, intake),
-            )}
-          >
-            {getStatusLabel(itemStatus, intake)}
-          </span>
         </div>
       </div>
 
-      <div className="relative z-20 flex items-center justify-end gap-1 pr-0">
-        {shippingQuickAction ? (
+      <div className="relative z-30 flex items-center justify-end gap-1 pr-0">
+        {evaluationRefused ? null : shippingQuickAction ? (
           <Link
             href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(id, intake?.metadata)}`}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
             aria-label="Page expédition — bordereau et suivi"
           >
             <Package className="h-5 w-5" aria-hidden />
+          </Link>
+        ) : showEvaluationEdit ? (
+          <Link
+            href={`/items/new?itemId=${encodeURIComponent(id)}&from=item`}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+            aria-label="Modifier l'item"
+          >
+            <Pencil className="h-5 w-5" />
           </Link>
         ) : showEditDelete ? (
           <>

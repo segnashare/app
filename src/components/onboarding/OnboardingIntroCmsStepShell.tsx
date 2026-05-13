@@ -182,15 +182,6 @@ export function OnboardingIntroCmsStepShell({
         )}
         aria-hidden={showBlockingLoader}
       >
-        {showBackgroundStack ? (
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-[clamp(6.75rem,14dvh,9rem)] top-[clamp(10.75rem,26dvh,13rem)] z-0 flex items-center justify-center overflow-hidden bg-transparent px-5 sm:px-7 md:inset-0 md:px-10 lg:px-14"
-            aria-hidden
-          >
-            <OnboardingIntroImageStack frames={frames} />
-          </div>
-        ) : null}
-
         <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col bg-transparent pb-8 pt-[max(4.5rem,calc(env(safe-area-inset-top)+1.35rem))]">
           <div
             className={cn(
@@ -206,7 +197,11 @@ export function OnboardingIntroCmsStepShell({
             {title}
           </div>
 
-          {isGridIntro ? (
+          {showBackgroundStack ? (
+            <div className="relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col items-center justify-center px-5 py-[clamp(1.5rem,5dvh,3rem)] sm:px-7 md:max-w-[min(100%,760px)] md:px-10 lg:px-14">
+              <OnboardingIntroImageStack frames={frames} />
+            </div>
+          ) : isGridIntro ? (
             <div className="relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col justify-center py-3 sm:py-5">
               <OnboardingIntroImageGrid frames={frames} />
             </div>

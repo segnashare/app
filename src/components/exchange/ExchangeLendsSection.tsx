@@ -18,8 +18,10 @@ import { cn } from "@/lib/utils/cn";
 
 /** Aligné sur le tri de `exchange/page.tsx` (mêmes rangs que `lendPipelineRank`). */
 function lendPipelineRankForSection(l: LendItem): number {
+  const st = l.itemStatus.toLowerCase();
   const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
   const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
+  if (st === "refused" || st === "draft_deleted" || ls === "refused" || fs === "refused") return -1;
   if (ls === "validated") {
     if (fs === "verified") return 0;
     if (fs === "in_verification") return 1;

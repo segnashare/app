@@ -6,7 +6,7 @@ import { computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
 import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
-import { fetchActiveCartLinesForUser, fetchActiveCartSummaryForUser } from "@/lib/cart/fetch-active-cart-lines";
+import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import {
   confirmCartPaidWalletOnly,
@@ -110,8 +110,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = (await createSupabaseServerClient()) as any;
-    const admin = createSupabaseAdminClient() as any;
+    const supabase = await createSupabaseServerClient();
+    const admin = createSupabaseAdminClient();
     const {
       data: { user },
       error: userError,
@@ -125,13 +125,16 @@ export async function POST(request: Request) {
     const membershipLabel = await resolveMembershipLabel(supabase, userId);
     const isGuest = membershipLabel === "Guest";
 
-    const cartSummary = await fetchActiveCartSummaryForUser(supabase, userId);
-    const canPay = cartSummary.status === "checkout_pending";
-    if (!canPay || !cartSummary.cartId) {
+    const activeCart = await fetchActiveCartForUser(
+      supabase as unknown as Parameters<typeof fetchActiveCartForUser>[0],
+      userId,
+    );
+    const canPay = activeCart.status === "checkout_pending";
+    if (!canPay || !activeCart.cartId) {
       return NextResponse.json({ message: "Panier non éligible au paiement." }, { status: 400 });
     }
 
-    const linesBase = await fetchActiveCartLinesForUser(supabase, userId);
+    const linesBase = activeCart.lines;
     if (linesBase.length === 0) {
       return NextResponse.json({ message: "Panier vide." }, { status: 400 });
     }
@@ -237,8 +240,15 @@ export async function POST(request: Request) {
           : "";
 
       try {
-        await debitCartWalletOnly(admin, userId, cartSummary.cartId, creditsKind);
-        await confirmCartPaidWalletOnly(admin, userId, cartSummary.cartId, deliveryChannel, relayMeta, deliveryLine1Meta);
+        await debitCartWalletOnly(admin as unknown as Parameters<typeof debitCartWalletOnly>[0], userId, activeCart.cartId, creditsKind);
+        await confirmCartPaidWalletOnly(
+          admin as unknown as Parameters<typeof confirmCartPaidWalletOnly>[0],
+          userId,
+          activeCart.cartId,
+          deliveryChannel,
+          relayMeta,
+          deliveryLine1Meta,
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : "wallet_checkout_failed";
         console.error("[stripe/cart/checkout] wallet-only cart completion failed", msg);
@@ -355,7 +365,7 @@ export async function POST(request: Request) {
       metadata: {
         checkout_kind: "cart_order",
         user_id: userId,
-        cart_id: cartSummary.cartId,
+        cart_id: activeCart.cartId,
         item_count: String(itemCount),
         delivery_channel: deliveryChannel,
         home_speed: homeSpeedBilling === "uber_direct" ? "uber_direct" : "standard",

@@ -11,8 +11,19 @@ const montserrat = segnaMontserrat;
 
 import { EvaluationPriceHeatStrip } from "@/components/item/EvaluationPriceHeatStrip";
 import { SectionBlock } from "@/components/layout/SectionBlock";
+import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
-import { readIntakeAiEvaluationSummary } from "@/lib/items/intake-metadata";
+import {
+  SEGNA_DIALOG_SHEET_CLASS,
+  segnaDialogBodyClass,
+  segnaDialogTitleClass,
+} from "@/components/ui/SegnaAppDialog";
+import {
+  readIntakeAiPriceRevaluation,
+  readIntakeAiEvaluationSummary,
+  type IntakeAiEvaluationSummary,
+  type IntakeEvaluationExampleItem,
+} from "@/lib/items/intake-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -23,6 +34,86 @@ type IntakeSnap = {
   metadata: unknown;
   updated_at: string | null;
 };
+
+const EXAMPLE_GROUP_LABELS: Record<string, string> = {
+  q1: "Fourchette basse",
+  median: "Prix médian",
+  q3: "Fourchette haute",
+};
+
+function formatExamplePrice(item: IntakeEvaluationExampleItem): string | null {
+  if (item.price == null || !Number.isFinite(item.price)) return null;
+  try {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: item.currency || "EUR",
+      maximumFractionDigits: Number.isInteger(item.price) ? 0 : 2,
+    }).format(item.price);
+  } catch {
+    return `${item.price} ${item.currency ?? "EUR"}`;
+  }
+}
+
+function getExampleGroups(summary: IntakeAiEvaluationSummary | null) {
+  if (!summary) return [];
+  const source = summary.example_items;
+  if (source && Object.keys(source).length > 0) {
+    const orderedKeys = [
+      ...["q1", "median", "q3"].filter((key) => Array.isArray(source[key]) && source[key].length > 0),
+      ...Object.keys(source).filter((key) => !["q1", "median", "q3"].includes(key)),
+    ];
+    return orderedKeys.map((key) => ({
+      key,
+      label: EXAMPLE_GROUP_LABELS[key] ?? key,
+      items: source[key],
+    }));
+  }
+  if (summary.comparison_items?.length) {
+    return [{ key: "comparison_items", label: "Comparables", items: summary.comparison_items }];
+  }
+  return [];
+}
+
+function EvaluationExampleCard({ item }: { item: IntakeEvaluationExampleItem }) {
+  const price = formatExamplePrice(item);
+  const meta = [item.brand, item.size ? `T. ${item.size}` : null, item.condition].filter(Boolean).join(" · ");
+  const content = (
+    <>
+      {item.preview_image ? (
+        <ImageCoverWithSkeleton
+          src={item.preview_image}
+          alt={item.title ? `Aperçu ${item.title}` : "Aperçu item comparable"}
+          className="aspect-[4/5] w-full rounded-xl"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex aspect-[4/5] w-full items-center justify-center rounded-xl bg-zinc-100 px-3 text-center text-[12px] font-semibold text-zinc-400">
+          Pas d&apos;image
+        </div>
+      )}
+      <div className="mt-2 min-w-0 space-y-1">
+        {price ? <p className="text-[14px] font-bold leading-tight text-zinc-950">{price}</p> : null}
+        <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-zinc-800">
+          {item.title || "Item comparable"}
+        </p>
+        {meta ? <p className="line-clamp-2 text-[11px] font-medium leading-snug text-zinc-500">{meta}</p> : null}
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+          {item.country ? <span>{item.country}</span> : null}
+          {item.favouriteCount != null ? <span>{item.favouriteCount} favoris</span> : null}
+        </p>
+      </div>
+    </>
+  );
+
+  const className = "block w-[132px] shrink-0 rounded-2xl border border-zinc-100 bg-white p-2 shadow-sm";
+  return item.url ? (
+    <a href={item.url} target="_blank" rel="noreferrer" className={className}>
+      {content}
+    </a>
+  ) : (
+    <div className={className}>{content}</div>
+  );
+}
 
 export default function ItemEvaluationAnalysisPage() {
   const params = useParams();
@@ -39,6 +130,7 @@ export default function ItemEvaluationAnalysisPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
+  const [valorisationExplainOpen, setValorisationExplainOpen] = useState(false);
 
   const headerRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(80);
@@ -93,12 +185,18 @@ export default function ItemEvaluationAnalysisPage() {
   }, [itemId]);
 
   useEffect(() => {
-    void fetchData();
+    const timeoutId = window.setTimeout(() => {
+      void fetchData();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [fetchData]);
 
   useEffect(() => {
-    setRefuseHold(false);
-    setActionError(null);
+    const timeoutId = window.setTimeout(() => {
+      setRefuseHold(false);
+      setActionError(null);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [itemId, intake?.listing_stage]);
 
   useLayoutEffect(() => {
@@ -144,7 +242,7 @@ export default function ItemEvaluationAnalysisPage() {
     }
     const { error } = await supabase
       .from("items")
-      .update({ status: "draft_deleted" })
+      .update({ status: "refused" })
       .eq("id", itemId)
       .eq("owner_user_id", user.id)
       .is("deleted_at", null);
@@ -221,7 +319,7 @@ export default function ItemEvaluationAnalysisPage() {
   }
 
   if (errorMessage) {
-    const errHeading = title.trim() ? `Evaluation ${title.trim()}` : "Evaluation";
+    const errHeading = title.trim() ? `Évaluation : ${title.trim()}` : "Évaluation";
     return (
       <main className={cn(montserrat.className, "min-h-[100dvh] bg-zinc-100")}>
         <header
@@ -264,29 +362,45 @@ export default function ItemEvaluationAnalysisPage() {
 
   const ls = intake?.listing_stage;
   const evaluationSummary = readIntakeAiEvaluationSummary(intake?.metadata);
+  const priceRevaluation = readIntakeAiPriceRevaluation(intake?.metadata);
+  const hasPriceReview = priceRevaluation != null;
+  const evaluationExampleGroups = getExampleGroups(evaluationSummary);
+  const hasExampleGroups = evaluationExampleGroups.length > 0;
   const proposedPtsRounded =
     pricePoints != null && Number.isFinite(Number(pricePoints)) ? Math.round(Number(pricePoints)) : null;
   const showMemberProposalPending =
     ls === "validation_pending" && proposedPtsRounded != null && proposedPtsRounded > 0;
+  /** Padding bas : hors proposition en attente ; sinon réserve gérée par un bloc blanc (évite la bande grise zinc). */
+  const contentBottomPadding = showMemberProposalPending ? "" : "pb-10";
+  const footerOverlapSpacerClass =
+    showMemberProposalPending && (refuseHold ? "min-h-[13rem]" : "min-h-[7.25rem]");
 
-  const bottomPad = showMemberProposalPending ? (refuseHold ? "pb-[13rem]" : "pb-[7.25rem]") : "pb-10";
+  const finalSegnaOffer = hasPriceReview
+    ? (priceRevaluation.segna_offer ?? proposedPtsRounded ?? evaluationSummary?.segna_offer)
+    : proposedPtsRounded != null && proposedPtsRounded > 0
+      ? proposedPtsRounded
+      : evaluationSummary?.segna_offer;
+  const finalRationale = hasPriceReview ? priceRevaluation.rationale : evaluationSummary?.rationale;
+  const finalPositioning =
+    hasPriceReview && priceRevaluation?.positioning
+      ? priceRevaluation.positioning
+      : evaluationSummary?.positioning;
 
   const hasHeatData =
     !!evaluationSummary &&
     (evaluationSummary.suggested_range?.low != null ||
       evaluationSummary.suggested_range?.median != null ||
       evaluationSummary.suggested_range?.high != null ||
-      evaluationSummary.segna_offer != null ||
-      (showMemberProposalPending && proposedPtsRounded != null));
+      finalSegnaOffer != null);
 
   const hasAnalysisText =
-    !!evaluationSummary && !!(evaluationSummary.positioning || evaluationSummary.rationale);
+    !!evaluationSummary && !!(finalPositioning || finalRationale);
 
   const showAnalysisEmpty =
-    !!evaluationSummary && !hasHeatData && !hasAnalysisText;
+    !!evaluationSummary && !hasHeatData && !hasAnalysisText && !hasExampleGroups;
 
   const itemTitleForHeading = title.trim() ? title.trim() : null;
-  const evaluationPageHeading = itemTitleForHeading ? `Evaluation ${itemTitleForHeading}` : "Evaluation";
+  const evaluationPageHeading = itemTitleForHeading ? `Évaluation : ${itemTitleForHeading}` : "Évaluation";
 
   const showAnalysisSectionBody =
     !!evaluationSummary && (hasHeatData || hasAnalysisText);
@@ -316,23 +430,25 @@ export default function ItemEvaluationAnalysisPage() {
       </header>
 
       <div
-        className={cn("relative z-0 flex flex-col space-y-[4.5px]", bottomPad)}
+        className={cn("relative z-0 flex flex-col space-y-[4.5px]", contentBottomPadding)}
         style={{ paddingTop: headerHeight }}
       >
         {showMemberProposalPending ? (
           <section className="w-full bg-white px-5 pb-5 pt-0">
             <div className="space-y-3">
-              <p
-                className={cn(
-                  segnaPlayfairDisplay.className,
-                  "text-[2rem] font-medium leading-none tracking-tight text-zinc-900",
-                )}
-              >
+              <p className="text-[2rem] font-semibold leading-none tracking-tight text-zinc-900">
                 {proposedPtsRounded}{" "}
                 <span className="text-[1.15rem] font-semibold text-zinc-500">pts</span>
               </p>
               <p className="text-[14px] leading-relaxed text-zinc-600">
-                Segna te propose cette valorisation pour l&apos;entrée au catalogue.
+                Segna te propose cette valorisation pour l&apos;entrée au catalogue.{" "}
+                <button
+                  type="button"
+                  onClick={() => setValorisationExplainOpen(true)}
+                  className="font-semibold text-blue-600 underline decoration-blue-500/35 underline-offset-[0.18em] transition hover:text-blue-700 hover:decoration-blue-600/50"
+                >
+                  En savoir plus
+                </button>
               </p>
             </div>
           </section>
@@ -351,21 +467,47 @@ export default function ItemEvaluationAnalysisPage() {
                   low={evaluationSummary.suggested_range?.low}
                   median={evaluationSummary.suggested_range?.median}
                   high={evaluationSummary.suggested_range?.high}
-                  segnaOffer={evaluationSummary.segna_offer}
-                  proposedPoints={showMemberProposalPending ? proposedPtsRounded : null}
+                  segnaOffer={finalSegnaOffer}
                 />
               ) : null}
-              {evaluationSummary?.positioning ? (
+              {finalPositioning ? (
                 <p className="rounded-2xl bg-zinc-50 px-4 py-3 text-[13px] text-zinc-700">
                   <span className="font-semibold text-zinc-900">Positionnement : </span>
-                  <span className="capitalize">{evaluationSummary.positioning}</span>
+                  <span className="capitalize">{finalPositioning}</span>
                 </p>
               ) : null}
-              {evaluationSummary?.rationale ? (
+              {finalRationale ? (
                 <p className="text-[15px] leading-[1.65] text-zinc-700 whitespace-pre-line">
-                  {evaluationSummary.rationale}
+                  {finalRationale}
                 </p>
               ) : null}
+            </div>
+          </SectionBlock>
+        ) : null}
+
+        {hasExampleGroups ? (
+          <SectionBlock
+            title="Exemples comparables"
+            className="w-full bg-white px-5 py-4"
+            titleClassName={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}
+          >
+            <div className="space-y-5">
+              {evaluationExampleGroups.map((group) => (
+                <div key={group.key} className="min-w-0">
+                  <div className="mb-2 flex items-baseline justify-between gap-3">
+                    <h3 className="text-[14px] font-bold text-zinc-900">{group.label}</h3>
+                    <span className="text-[11px] font-semibold text-zinc-400">{group.items.length} exemples</span>
+                  </div>
+                  <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    {group.items.map((item, index) => (
+                      <EvaluationExampleCard
+                        key={`${group.key}-${item.id ?? item.url ?? index}`}
+                        item={item}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </SectionBlock>
         ) : null}
@@ -380,6 +522,13 @@ export default function ItemEvaluationAnalysisPage() {
               Aucune synthèse d&apos;analyse reçue pour le moment.
             </p>
           </SectionBlock>
+        ) : null}
+
+        {footerOverlapSpacerClass ? (
+          <div
+            className={cn("w-full shrink-0 bg-white -mt-[4.5px]", footerOverlapSpacerClass)}
+            aria-hidden
+          />
         ) : null}
       </div>
 
@@ -447,6 +596,79 @@ export default function ItemEvaluationAnalysisPage() {
             )}
           </div>
         </footer>
+      ) : null}
+
+      {valorisationExplainOpen ? (
+        <div
+          className="fixed inset-0 z-[70] flex flex-col justify-end bg-black/40"
+          onClick={() => setValorisationExplainOpen(false)}
+        >
+          <div className={SEGNA_DIALOG_SHEET_CLASS} onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
+            <h2 className={segnaDialogTitleClass()}>À quoi correspond cette évaluation ?</h2>
+
+            <h3 className={cn(montserrat.className, "mt-5 text-[15px] font-bold leading-snug text-zinc-900")}>
+              Deux valeurs pour ta pièce
+            </h3>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
+              Cette évaluation se compose de{" "}
+              <strong className="font-semibold text-zinc-900">deux éléments</strong>&nbsp;:
+            </p>
+            <ul className={cn(segnaDialogBodyClass(), "mt-2 list-disc space-y-2 pl-5")}>
+              <li>
+                <strong className="font-semibold text-zinc-900">la valeur de remplacement</strong>, qui sert de
+                base à la <strong className="font-semibold text-zinc-900">garantie Segna</strong> en cas de perte ou
+                de dommage important sur ta pièce&nbsp;;
+              </li>
+              <li>
+                <strong className="font-semibold text-zinc-900">la valeur d&apos;échange d&apos;entrée</strong>,
+                exprimée en <strong className="font-semibold text-zinc-900">points</strong>, qui correspond à ce que
+                ta pièce &quot;vaut&quot; dans le{" "}
+                <strong className="font-semibold text-zinc-900">catalogue</strong> pour calculer ta capacité à
+                emprunter d&apos;autres articles.
+              </li>
+            </ul>
+
+            <h3 className={cn(montserrat.className, "mt-5 text-[15px] font-bold leading-snug text-zinc-900")}>
+              Une garantie en cas de problème
+            </h3>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
+              <strong className="font-semibold text-zinc-900">La valeur de remplacement</strong> est une{" "}
+              <strong className="font-semibold text-zinc-900">référence stable</strong>&nbsp;: si ta pièce est{" "}
+              <strong className="font-semibold text-zinc-900">perdue</strong> ou{" "}
+              <strong className="font-semibold text-zinc-900">déclarée irréparable</strong>, Segna s&apos;appuie sur
+              cette estimation pour te proposer une{" "}
+              <strong className="font-semibold text-zinc-900">compensation</strong> selon les{" "}
+              <a
+                href="https://www.segnashare.com/conditions-location"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2 transition hover:text-blue-700"
+              >
+                conditions générales de location
+              </a>
+              , afin que tu ne sois pas lésée.
+            </p>
+
+            <h3 className={cn(montserrat.className, "mt-5 text-[15px] font-bold leading-snug text-zinc-900")}>
+              Une valeur d&apos;échange qui vit avec le dressing
+            </h3>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
+              <strong className="font-semibold text-zinc-900">La valeur d&apos;échange d&apos;entrée</strong> peut
+              ensuite <strong className="font-semibold text-zinc-900">évoluer dans le temps</strong> en fonction de la
+              demande pour ta pièce, de la saison ou de l&apos;évolution de son état, pour refléter au mieux sa place
+              réelle dans le <strong className="font-semibold text-zinc-900">dressing partagé</strong>.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setValorisationExplainOpen(false)}
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+            >
+              OK
+            </button>
+          </div>
+        </div>
       ) : null}
     </main>
   );

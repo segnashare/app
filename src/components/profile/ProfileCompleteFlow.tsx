@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ProfileCompleteHeader, type ProfileCompleteMode } from "@/components/profile/ProfileCompleteHeader";
 import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteModifyCore";
@@ -153,10 +153,6 @@ export function ProfileCompleteFlow({
     showOnboardingProfileHelp && requirements != null ? getOnboardingProfileHelpCopy(requirements) : null;
   const profileRequirementsReady = requirements != null ? getOnboardingProfileHelpCopy(requirements).ready : false;
   const doneDisabled = !profileRequirementsReady;
-
-  useEffect(() => {
-    if (mode === "view") setPreviewScore(null);
-  }, [mode]);
 
   const handleDone = async () => {
     if (mode === "edit" && !insightsAreComplete) {

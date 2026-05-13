@@ -175,7 +175,7 @@ export function OnboardingScreenShell({
                 centeredAuthBelowHeader
                   ? cn(
                       "justify-start pt-4",
-                      centeredAuthSectionGapClassName ?? "gap-y-[clamp(8rem,4vh,2.75rem)]",
+                      centeredAuthSectionGapClassName ?? "gap-y-[clamp(1.5rem,4vh,2.75rem)]",
                     )
                   : "justify-center gap-8 pt-10 -translate-y-[min(10vh,88px)] md:-translate-y-[min(12vh,104px)]",
                 showDebugFrames && themeClassNames.onboarding.shell.debugCadreContenu,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { BadgeCheck } from "lucide-react";
 import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
@@ -26,9 +27,10 @@ type ItemMemberSectionProps = {
   data: ItemMemberSectionData | null;
   isLoading?: boolean;
   className?: string;
+  profileHref?: string | null;
 };
 
-export function ItemMemberSection({ data, isLoading, className }: ItemMemberSectionProps) {
+export function ItemMemberSection({ data, isLoading, className, profileHref = null }: ItemMemberSectionProps) {
   if (isLoading) {
     return (
       <div
@@ -60,13 +62,8 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
     );
   }
 
-  return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm",
-          className,
-        )}
-    >
+  const content = (
+    <>
       <div className="flex items-center gap-1.5">
         <h3 className={cn(playfairDisplay.className, "text-[24px] font-extrabold text-zinc-900 tracking-tight")}>{data.displayName}</h3>
         <BadgeCheck
@@ -94,6 +91,30 @@ export function ItemMemberSection({ data, isLoading, className }: ItemMemberSect
           ))}
         </div>
       ) : null}
+    </>
+  );
+
+  const shellClassName = cn(
+    "overflow-hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm",
+    profileHref && "block cursor-pointer transition active:scale-[0.995]",
+    className,
+  );
+
+  if (profileHref) {
+    return (
+      <Link
+        href={profileHref}
+        className={shellClassName}
+        aria-label={`Voir le profil de ${data.displayName}`}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className={shellClassName}>
+      {content}
     </div>
   );
 }

@@ -12,6 +12,26 @@ type EvaluationSummary = {
   segna_offer?: number;
   positioning?: string;
   rationale?: string;
+  example_items?: Record<string, EvaluationExampleItem[]>;
+  comparison_items?: EvaluationExampleItem[];
+};
+
+type EvaluationExampleItem = {
+  sort_index?: number;
+  id?: string | number;
+  title?: string;
+  url?: string;
+  price?: number;
+  currency?: string;
+  brand?: string;
+  size?: string;
+  condition?: string;
+  colour?: string;
+  favouriteCount?: number;
+  isSold?: boolean;
+  country?: string;
+  preview_image?: string;
+  photo_count?: number;
 };
 
 function asFiniteNumberLoose(value: unknown): number | null {
@@ -31,6 +51,62 @@ function firstNumber(...candidates: unknown[]): number | null {
   return null;
 }
 
+function sanitizeExampleItem(value: unknown): EvaluationExampleItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const sortIndex = firstNumber(raw.sort_index);
+  const price = firstNumber(raw.price);
+  const favouriteCount = firstNumber(raw.favouriteCount);
+  const photoCount = firstNumber(raw.photo_count);
+  const title = asNonEmptyString(raw.title);
+  const url = asNonEmptyString(raw.url);
+  const previewImage = asNonEmptyString(raw.preview_image);
+  const currency = asNonEmptyString(raw.currency);
+  const brand = asNonEmptyString(raw.brand);
+  const size = asNonEmptyString(raw.size);
+  const condition = asNonEmptyString(raw.condition);
+  const colour = asNonEmptyString(raw.colour);
+  const country = asNonEmptyString(raw.country);
+
+  const item: EvaluationExampleItem = {
+    ...(sortIndex != null ? { sort_index: sortIndex } : {}),
+    ...(typeof raw.id === "number" || typeof raw.id === "string" ? { id: raw.id } : {}),
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+    ...(price != null ? { price } : {}),
+    ...(currency ? { currency } : {}),
+    ...(brand ? { brand } : {}),
+    ...(size ? { size } : {}),
+    ...(condition ? { condition } : {}),
+    ...(colour ? { colour } : {}),
+    ...(favouriteCount != null ? { favouriteCount } : {}),
+    ...(typeof raw.isSold === "boolean" ? { isSold: raw.isSold } : {}),
+    ...(country ? { country } : {}),
+    ...(previewImage ? { preview_image: previewImage } : {}),
+    ...(photoCount != null ? { photo_count: photoCount } : {}),
+  };
+
+  return title || url || previewImage || price != null || item.id != null ? item : null;
+}
+
+function sanitizeExampleList(value: unknown): EvaluationExampleItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value.map(sanitizeExampleItem).filter((item): item is EvaluationExampleItem => item != null);
+  return list.length > 0
+    ? [...list].sort((a, b) => (a.sort_index ?? Number.MAX_SAFE_INTEGER) - (b.sort_index ?? Number.MAX_SAFE_INTEGER))
+    : undefined;
+}
+
+function sanitizeExampleGroups(value: unknown): Record<string, EvaluationExampleItem[]> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, EvaluationExampleItem[]> = {};
+  for (const [key, rawList] of Object.entries(value as Record<string, unknown>)) {
+    const list = sanitizeExampleList(rawList);
+    if (list?.length) out[key] = list;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function sanitizeEvaluationSummary(value: unknown): EvaluationSummary | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -45,28 +121,28 @@ function sanitizeEvaluationSummary(value: unknown): EvaluationSummary | null {
       ? (marketRef as Record<string, unknown>)
       : null;
 
-  let low = firstNumber(
+  const low = firstNumber(
     suggestedRec?.low,
     marketRefRec?.low,
     raw.low,
     raw.fourchette_basse,
     raw.range_low,
   );
-  let median = firstNumber(
+  const median = firstNumber(
     suggestedRec?.median,
     marketRefRec?.median,
     raw.median,
     raw.mediane,
     raw.median_price,
   );
-  let high = firstNumber(
+  const high = firstNumber(
     suggestedRec?.high,
     marketRefRec?.high,
     raw.high,
     raw.fourchette_haute,
     raw.range_high,
   );
-  let segnaOffer = firstNumber(
+  const segnaOffer = firstNumber(
     raw.segna_offer,
     raw.valorisation_segna,
     raw.valorisationSegna,
@@ -79,13 +155,17 @@ function sanitizeEvaluationSummary(value: unknown): EvaluationSummary | null {
     asNonEmptyString(raw.rationale) ??
     asNonEmptyString(raw.member_explanation) ??
     asNonEmptyString(raw.explanation);
+  const exampleItems = sanitizeExampleGroups(raw.example_items);
+  const comparisonItems = sanitizeExampleList(raw.comparison_items);
 
   const hasSuggestedRange = low != null || median != null || high != null;
   const hasCore =
     hasSuggestedRange ||
     segnaOffer != null ||
     positioning != null ||
-    rationale != null;
+    rationale != null ||
+    exampleItems != null ||
+    comparisonItems != null;
 
   if (!hasCore) return null;
 
@@ -100,6 +180,8 @@ function sanitizeEvaluationSummary(value: unknown): EvaluationSummary | null {
     ...(segnaOffer != null ? { segna_offer: segnaOffer } : {}),
     ...(positioning ? { positioning } : {}),
     ...(rationale ? { rationale } : {}),
+    ...(exampleItems ? { example_items: exampleItems } : {}),
+    ...(comparisonItems ? { comparison_items: comparisonItems } : {}),
   };
 }
 
@@ -118,12 +200,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 
-  let body: Record<string, unknown>;
+  let parsedBody: unknown;
   try {
-    body = (await request.json()) as Record<string, unknown>;
+    parsedBody = await request.json();
   } catch {
     return NextResponse.json({ ok: false as const, error: "invalid_json" }, { status: 400 });
   }
+
+  const bodyCandidate = Array.isArray(parsedBody) ? parsedBody[0] : parsedBody;
+  if (!bodyCandidate || typeof bodyCandidate !== "object" || Array.isArray(bodyCandidate)) {
+    return NextResponse.json({ ok: false as const, error: "invalid_payload" }, { status: 400 });
+  }
+  const body = bodyCandidate as Record<string, unknown>;
 
   const itemId = asNonEmptyString(body.item_id);
   if (!itemId) {
@@ -142,7 +230,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "invalid_summary_payload" }, { status: 400 });
   }
 
-  const admin = createSupabaseAdminClient() as any;
+  const admin = createSupabaseAdminClient();
   const { data: intake, error: selectError } = await admin
     .from("item_intake")
     .select("metadata")

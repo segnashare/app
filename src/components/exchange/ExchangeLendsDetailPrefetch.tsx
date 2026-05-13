@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
 
 type Props = {
-  /** Tous les ids affichés dans « Prêts » (tous statuts). */
+  /** Petit sous-ensemble eligible au prechargement automatique. */
   itemIds: string[];
 };
 
@@ -19,9 +19,32 @@ export function ExchangeLendsDetailPrefetch({ itemIds }: Props) {
   useEffect(() => {
     if (!signature) return;
     const unique = [...new Set(signature.split(",").map((id) => id.trim()).filter(Boolean))];
-    void Promise.all(unique.map((id) => prefetchLendItemDetailIfNeeded(id))).catch(() => {
-      // silencieux : échec réseau géré au clic sur la fiche
-    });
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (connection?.saveData) return;
+
+    let cancelled = false;
+    const requestIdle =
+      window.requestIdleCallback ??
+      ((callback: IdleRequestCallback) =>
+        window.setTimeout(() => callback({ didTimeout: true, timeRemaining: () => 0 }), 900));
+    const cancelIdle = window.cancelIdleCallback ?? window.clearTimeout;
+
+    const idleHandle = requestIdle(
+      () => {
+        void (async () => {
+          for (const id of unique) {
+            if (cancelled || document.visibilityState !== "visible") return;
+            await prefetchLendItemDetailIfNeeded(id).catch(() => null);
+          }
+        })();
+      },
+      { timeout: 2500 },
+    );
+
+    return () => {
+      cancelled = true;
+      cancelIdle(idleHandle);
+    };
   }, [signature]);
 
   return null;

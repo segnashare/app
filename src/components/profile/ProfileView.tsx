@@ -43,10 +43,12 @@ export type ProfileViewLentPiece = {
 
 export type ProfileViewInfoCardData = {
   age: string | null;
-  ratingValue?: string | number;
+  ratingValue?: string | number | null;
+  ratingCount?: number;
   ratingStars?: number;
   levelIcon?: string | null;
   levelNumber?: number;
+  exchangeCount?: number;
   smoking?: boolean;
   alcohol?: boolean;
   sport?: boolean;

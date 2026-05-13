@@ -198,17 +198,8 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
       return;
     }
 
-    const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/1",
-      p_progress_json: { checkpoint: "/auth" },
-      p_request_id: crypto.randomUUID(),
-    });
     setIsContinuing(false);
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    router.replace("/onboarding/1");
+    router.replace("/shop");
   };
 
   const collageFrames = initialCollageFrames;

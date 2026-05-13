@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Briefcase, Cigarette, Dumbbell, Moon, Wine } from "lucide-react";
+import { Briefcase, Cigarette, Dumbbell, MapPin, Moon, Repeat2, Star, Wine } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
@@ -23,10 +23,12 @@ const INSTAGRAM_ICON_PATH = "/ressources/icons/instagram.svg";
 
 export type ProfileInfoCardData = {
   age: string | null;
-  ratingValue?: string | number;
+  ratingValue?: string | number | null;
+  ratingCount?: number;
   ratingStars?: number;
   levelIcon?: string | null;
   levelNumber?: number;
+  exchangeCount?: number;
   smoking?: boolean;
   alcohol?: boolean;
   sport?: boolean;
@@ -48,20 +50,7 @@ type ProfileInfoCardProps = {
   className?: string;
 };
 
-const RATING_STARS = 5;
-const STAR_ICON_PATH = "/ressources/icons/star.svg";
 const CAKE_ICON_PATH = "/ressources/icons/cake.svg";
-
-function StarIcon({ filled }: { filled: boolean }) {
-  return (
-    <img
-      src={STAR_ICON_PATH}
-      alt=""
-      className={cn("h-[18px] w-[18px] shrink-0", filled ? "opacity-100" : "opacity-30")}
-      aria-hidden
-    />
-  );
-}
 
 export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
   const scrollItems: Array<{ key: string; content: React.ReactNode }> = [];
@@ -78,22 +67,6 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
     });
   }
 
-  const stars = Math.min(RATING_STARS, Math.max(0, data.ratingStars ?? 5));
-  const ratingDisplay = data.ratingValue ?? "5.0";
-  scrollItems.push({
-    key: "rating",
-    content: (
-      <div className="flex items-center gap-2">
-        <span className={cn(montserrat.className, "font-bold text-zinc-900")}>{String(ratingDisplay)}</span>
-        <div className="flex items-center gap-0.5">
-          {Array.from({ length: RATING_STARS }, (_, i) => (
-            <StarIcon key={i} filled={i < stars} />
-          ))}
-        </div>
-      </div>
-    ),
-  });
-
   const levelNum = data.levelNumber ?? 1;
   if (data.levelIcon || levelNum > 0) {
     scrollItems.push({
@@ -106,6 +79,17 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
       ),
     });
   }
+
+  const exchangeCount = Math.max(0, Math.floor(Number(data.exchangeCount ?? 0)));
+  scrollItems.push({
+    key: "exchanges",
+    content: (
+      <span className={cn(montserrat.className, "flex items-center gap-2 font-semibold text-zinc-900")}>
+        <Repeat2 className="h-5 w-5" strokeWidth={2} aria-hidden />
+        <span>{exchangeCount}</span>
+      </span>
+    ),
+  });
 
   scrollItems.push({
     key: "smoking",
@@ -171,6 +155,13 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
             <Briefcase className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
             <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.profession}</span>
           </div>
+        </div>
+      ) : null}
+
+      {data.city ? (
+        <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
+          <MapPin className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
+          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>{data.city}</span>
         </div>
       ) : null}
 
@@ -249,6 +240,15 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
             );
           })()
         : null}
+      {data.ratingValue != null && String(data.ratingValue).trim() !== "" && Math.max(0, Math.floor(Number(data.ratingCount ?? 0))) > 0 ? (
+        <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
+          <Star className="h-6 w-6 shrink-0 fill-zinc-900 text-zinc-900" strokeWidth={2} />
+          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>
+            {String(data.ratingValue)}/5 · {Math.max(0, Math.floor(Number(data.ratingCount ?? 0)))}{" "}
+            {Math.max(0, Math.floor(Number(data.ratingCount ?? 0))) > 1 ? "notes" : "note"}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

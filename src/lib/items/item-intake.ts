@@ -27,7 +27,13 @@ export async function setItemIntakeListingStage(
   }
 
   if (existing?.item_id) {
-    const { error } = await client.from("item_intake").update({ listing_stage: listingStage }).eq("item_id", itemId);
+    const { error } = await client
+      .from("item_intake")
+      .update({
+        listing_stage: listingStage,
+        deleted_at: null,
+      })
+      .eq("item_id", itemId);
     if (error) return { ok: false, message: error.message };
     return { ok: true };
   }

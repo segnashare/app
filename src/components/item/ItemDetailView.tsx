@@ -19,6 +19,11 @@ import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
+  intakeSessionAckKey,
+  readIntakeSessionAckSet,
+  writeIntakeSessionAckSet,
+} from "@/lib/items/intake-session-ack";
+import {
   invalidateLendItemDetailCache,
   primeLendItemDetailCache,
   readLendItemDetailCache,
@@ -159,15 +164,18 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   const [recoveryConfirmOpen, setRecoveryConfirmOpen] = useState(false);
   const [recoverySubmitting, setRecoverySubmitting] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [intakeAck, setIntakeAck] = useState<Set<string>>(() => readIntakeSessionAckSet());
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const itemIdRef = useRef<string | null>(null);
   itemIdRef.current = itemId;
 
   const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   useEffect(() => {
-    const supabase = createSupabaseBrowserClient() as any;
-    void supabase.auth.getUser().then((res: { data: { user?: { id: string } | null } }) => {
+    const supabase = createSupabaseBrowserClient();
+    void supabase.auth.getUser().then((res) => {
       setAuthUserId(res.data.user?.id ?? null);
+      setAuthResolved(true);
     });
   }, []);
 
@@ -217,6 +225,10 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     const q = qs.toString();
     router.replace(q ? `${path}?${q}` : path, { scroll: false });
   }, [itemId, pathname, router, searchParams, verificationPending]);
+
+  useEffect(() => {
+    setIntakeAck(readIntakeSessionAckSet());
+  }, []);
 
   useEffect(() => {
     if (!itemId) {
@@ -282,6 +294,15 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     setIsLoading(false);
   }, [itemId]);
 
+  const acknowledgeIntakeForSession = useCallback((ackItemId: string, listingStage: string) => {
+    setIntakeAck((prev) => {
+      const next = new Set(prev);
+      next.add(intakeSessionAckKey(ackItemId, listingStage));
+      writeIntakeSessionAckSet(next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
@@ -300,8 +321,17 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
 
   const isOwner = Boolean(authUserId && data && data.ownerUserId === authUserId);
   const showHeaderActions = data ? canEditDraftItem(data.status) && isOwner : false;
+  const intakeAckSessionKey =
+    itemId && data?.intake?.listing_stage
+      ? intakeSessionAckKey(itemId, data.intake.listing_stage)
+      : null;
+  const intakeListingStage = data?.intake?.listing_stage?.trim().toLowerCase() ?? "";
+  const isRefusedIntake = intakeListingStage === "refused";
+  const intakeHiddenForSession = !isRefusedIntake && intakeAckSessionKey != null && intakeAck.has(intakeAckSessionKey);
   const showIntakeStrip = Boolean(
-    data?.intake && needsItemIntakeUi(data.intake.listing_stage, data.intake.fulfillment_stage),
+    data?.intake &&
+      !intakeHiddenForSession &&
+      needsItemIntakeUi(data.intake.listing_stage, data.intake.fulfillment_stage),
   );
   const intakeFloatingCard = data?.intake?.listing_stage === "validation_pending";
   const showLogisticsRefusalModal = Boolean(
@@ -376,7 +406,9 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     if (!itemId || isDeleting) return;
     setDeleteError(null);
     setIsDeleting(true);
-    const supabase = createSupabaseBrowserClient() as any;
+    const listingStage = data?.intake?.listing_stage?.trim().toLowerCase() ?? "";
+    const isOfferRefusal = listingStage === "validation_pending";
+    const supabase = createSupabaseBrowserClient();
     const {
       data: { user },
       error: userError,
@@ -388,7 +420,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     }
     const { error } = await supabase
       .from("items")
-      .update({ status: "draft_deleted" })
+      .update({ status: isOfferRefusal ? "refused" : "draft_deleted" })
       .eq("id", itemId)
       .eq("owner_user_id", user.id)
       .is("deleted_at", null);
@@ -397,10 +429,12 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
       setDeleteError(error.message);
       return;
     }
-    const intakeRes = await setItemIntakeListingStage(supabase, itemId, "refused");
-    if (!intakeRes.ok) {
-      setDeleteError(intakeRes.message);
-      return;
+    if (isOfferRefusal) {
+      const intakeRes = await setItemIntakeListingStage(supabase, itemId, "refused");
+      if (!intakeRes.ok) {
+        setDeleteError(intakeRes.message);
+        return;
+      }
     }
     try {
       const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");
@@ -526,6 +560,8 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     );
   }
 
+  const deleteModalIsOfferRefusal = data.intake?.listing_stage?.trim().toLowerCase() === "validation_pending";
+
   return (
     <main className="min-h-[100dvh] bg-white">
       <header
@@ -589,7 +625,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
                         setDeleteModalOpen(true);
                       }}
                     >
-                      Supprimer
+                      {deleteModalIsOfferRefusal ? "Refuser l'offre" : "Supprimer"}
                     </button>
                   </li>
                 </ul>
@@ -621,12 +657,22 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
                 intakeUpdatedAt={data.intake.updated_at}
                 offerPricePoints={data.infoCard.pricePoints}
                 placement="item"
+                onEvaluationAcknowledged={() => {
+                  const listingStage = data.intake?.listing_stage;
+                  if (!itemId || !listingStage) return;
+                  acknowledgeIntakeForSession(itemId, listingStage);
+                }}
                 onPipelineUpdated={() => void fetchData()}
               />
             </div>
           ) : (
             <div className="mx-auto w-full max-w-[460px]">
-              <div className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_4px_20px_-6px_rgba(0,0,0,0.12)] ring-1 ring-black/[0.04]">
+              <div
+                className={cn(
+                  "overflow-hidden rounded-2xl border shadow-[0_4px_20px_-6px_rgba(0,0,0,0.12)] ring-1",
+                  "border-zinc-200/90 bg-white ring-black/[0.04]",
+                )}
+              >
                 <ItemIntakePanel
                   key={`${data.intake.listing_stage}-${data.intake.fulfillment_stage ?? ""}`}
                   itemId={itemId}
@@ -636,6 +682,11 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
                   intakeUpdatedAt={data.intake.updated_at}
                   offerPricePoints={data.infoCard.pricePoints}
                   placement="item"
+                  onEvaluationAcknowledged={() => {
+                    const listingStage = data.intake?.listing_stage;
+                    if (!itemId || !listingStage) return;
+                    acknowledgeIntakeForSession(itemId, listingStage);
+                  }}
                   onPipelineUpdated={() => void fetchData()}
                 />
               </div>
@@ -729,7 +780,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
           slots={data.slots}
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
-          hideFrameLikeButtons={fromCart || !isOwner}
+          hideFrameLikeButtons={fromCart || !authResolved || isOwner}
           segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
         />
       </div>
@@ -738,10 +789,12 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
           <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[430px]")} role="dialog" aria-modal="true" aria-labelledby="item-delete-title">
             <h2 id="item-delete-title" className={segnaDialogTitleClass()}>
-              Supprimer cette pièce ?
+              {deleteModalIsOfferRefusal ? "Refuser cette offre ?" : "Supprimer cette pièce ?"}
             </h2>
             <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              Elle sera retirée de ton espace. Tu pourras créer une nouvelle fiche plus tard si besoin.
+              {deleteModalIsOfferRefusal
+                ? "La pièce restera visible dans tes prêts avec le statut Refusé. Tu pourras ensuite la supprimer définitivement."
+                : "Elle sera retirée de ton espace. Tu pourras créer une nouvelle fiche plus tard si besoin."}
             </p>
             {deleteError ? <p className="mt-2 text-sm text-[#E44D3E]">{deleteError}</p> : null}
             <div className="mt-5 grid gap-2">
@@ -762,7 +815,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
                 disabled={isDeleting}
                 className="h-11 rounded-xl bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-60"
               >
-                {isDeleting ? "Suppression…" : "Supprimer"}
+                {isDeleting ? "Traitement…" : deleteModalIsOfferRefusal ? "Confirmer le refus" : "Supprimer"}
               </button>
             </div>
           </div>

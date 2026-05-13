@@ -5,7 +5,6 @@ import { Pencil, Repeat2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   SEGNA_DIALOG_CARD_CLASS,
@@ -49,9 +48,6 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
 
     setIsDeleting(false);
     if (error) return;
-
-    const intakeRes = await setItemIntakeListingStage(supabase, id, "refused");
-    if (!intakeRes.ok) return;
 
     try {
       const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");

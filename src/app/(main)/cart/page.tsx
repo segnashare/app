@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartScreen } from "@/components/cart/CartScreen";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
-import { fetchActiveCartLinesForUser, fetchActiveCartSummaryForUser } from "@/lib/cart/fetch-active-cart-lines";
+import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { collectCmsShopItemIdsFromSectionsByKey } from "@/lib/cms/collect-cms-shop-item-ids";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
@@ -89,17 +89,16 @@ export default async function CartPage() {
   const panierSectionOrder = await perf.measure("cms.panier.order", () => fetchPanierSectionOrder(supabase));
   const needsShopSystemForYou = panierSectionOrder.includes("shop_system_for_you");
 
-  const [cartLinesBase, cartSummary, catalogForYouRes] = (await Promise.all([
-    perf.measure("cart.lines", () => fetchActiveCartLinesForUser(supabase, userId)),
-    perf.measure("cart.summary", () => fetchActiveCartSummaryForUser(supabase, userId)),
+  const [activeCart, catalogForYouRes] = (await Promise.all([
+    perf.measure("cart.active", () => fetchActiveCartForUser(supabase, userId)),
     needsShopSystemForYou
       ? perf.measure("rpc.get_shop_catalog_items", () => catalogSb.rpc("get_shop_catalog_items", { p_limit: 96 }))
       : Promise.resolve({ data: { items: [] }, error: null }),
   ])) as [
-    Awaited<ReturnType<typeof fetchActiveCartLinesForUser>>,
-    Awaited<ReturnType<typeof fetchActiveCartSummaryForUser>>,
+    Awaited<ReturnType<typeof fetchActiveCartForUser>>,
     { data: unknown; error: { message?: string } | null },
   ];
+  const cartLinesBase = activeCart.lines;
 
   const cartForYouPayload = (catalogForYouRes.data ?? { items: [] }) as { items?: ShopCatalogItem[] };
   const cartShopSystemForYouItems = Array.isArray(cartForYouPayload.items) ? cartForYouPayload.items : [];
@@ -142,8 +141,8 @@ export default async function CartPage() {
     <main className="flex w-full flex-col bg-zinc-100">
       <CartScreen
         initialLines={cartLines}
-        activeCartId={cartSummary.cartId}
-        cartStatus={cartSummary.status}
+        activeCartId={activeCart.cartId}
+        cartStatus={activeCart.status}
         membershipLabel={membershipLabel}
         availablePoints={availablePoints}
         balanceConsumptionPoints={isDemoMode ? demoWalletPoints.consumption : walletPoints.consumption}

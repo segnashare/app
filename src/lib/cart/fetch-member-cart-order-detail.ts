@@ -2,7 +2,7 @@ import { isHttpUrl, resolveItemPhotoData } from "@/lib/cart/fetch-active-cart-li
 import { buildMemberOrderTimeline } from "@/lib/cart/build-member-order-timeline";
 import type { OrderTimelineEntry } from "@/lib/cart/build-member-order-timeline";
 import {
-  createSignedUrlForStoragePath,
+  createSignedUrlsForStoragePaths,
   type StorageSignClient,
 } from "@/lib/supabase/storage-resolve-signed-url";
 import { fetchCartCheckoutPaymentDetail } from "@/lib/stripe/fetch-cart-checkout-payment-detail";
@@ -10,9 +10,18 @@ import { cartOrderStripeInvoiceJsonToEuroDetail } from "@/lib/stripe/upsert-cart
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- client query builder
+type QueryResult = { data: unknown; error?: { message?: string } | null };
+type QueryBuilderLike = PromiseLike<QueryResult> & {
+  eq: (column: string, value: unknown) => QueryBuilderLike;
+  is: (column: string, value: unknown) => QueryBuilderLike;
+  filter: (column: string, operator: string, value: unknown) => QueryBuilderLike;
+  order: (column: string, options?: { ascending?: boolean }) => QueryBuilderLike;
+  limit: (count: number) => QueryBuilderLike;
+  maybeSingle: () => PromiseLike<QueryResult>;
+};
+type TableBuilderLike = { select: (columns: string) => QueryBuilderLike };
 type SupabaseLike = {
-  from: (t: string) => any;
+  from: (table: string) => TableBuilderLike;
   rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
 };
 
@@ -286,12 +295,8 @@ export async function fetchMemberCartOrderDetail(
     const photoData = resolveItemPhotoData(item?.photos ?? null);
     if (photoData.path && !isHttpUrl(photoData.path)) pathsToSign.add(photoData.path);
   }
-  await Promise.all(
-    [...pathsToSign].map(async (path) => {
-      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-      if (signed) signedPhotoByPath.set(path, signed);
-    }),
-  );
+  const signedUrls = await createSignedUrlsForStoragePaths(supabase, [...pathsToSign], 60 * 60 * 24);
+  signedUrls.forEach((signed, path) => signedPhotoByPath.set(path, signed));
 
   const lines: MemberCartOrderLine[] = rawLines.map((row) => {
     const item = row.items;

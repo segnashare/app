@@ -52,7 +52,7 @@ export function lendPipelineRank(
   const st = itemStatus.toLowerCase();
   const ls = intake?.listing_stage?.toLowerCase() ?? "";
   const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
-  if (st === "refused" || fs === "refused") return -1;
+  if (st === "refused" || st === "draft_deleted" || ls === "refused" || fs === "refused") return -1;
   if (ls === "validated") {
     if (fs === "verified") return 0;
     if (fs === "in_verification") return 1;
@@ -70,9 +70,9 @@ export function effectiveCatalogSortRank(
   intake: { listing_stage: string; fulfillment_stage: string | null } | null,
 ): number {
   const key = itemStatus.toLowerCase();
-  const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
-  if (key === "refused" || fs === "refused") return -1;
   const ls = intake?.listing_stage?.toLowerCase() ?? "";
+  const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  if (key === "refused" || key === "draft_deleted" || ls === "refused" || fs === "refused") return -1;
   if (ls === "validated" && fs === "verified") return statusSortOrder.available;
   return statusSortOrder[key] ?? 3;
 }

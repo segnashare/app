@@ -25,7 +25,6 @@ import {
 } from "@/lib/cart/member-return-shipment-copy";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
-import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import {
@@ -45,7 +44,6 @@ import {
   effectiveCatalogSortRank,
   lendPipelineRank,
   needsItemIntakeUi,
-  normalizeItemIntakeEmbed,
 } from "@/lib/items/item-intake-ui";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -236,7 +234,7 @@ export default async function ExchangePage() {
       )
       .eq("owner_user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
+      .in("status", ["draft", "draft_deleted", "listed", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
       .limit(8),
     ),
@@ -262,15 +260,16 @@ export default async function ExchangePage() {
     ),
     perf.measure("intake.banners", () =>
     supabase
-      .from("items")
+      .from("item_intake")
       .select(
-        "id,price_points,status, item_intake(listing_stage, fulfillment_stage, updated_at, metadata)",
+        "item_id,listing_stage,fulfillment_stage,updated_at,metadata, items!inner(id,price_points,status,owner_user_id,deleted_at)",
       )
-      .eq("owner_user_id", userId)
-      .is("deleted_at", null)
-      .in("status", ["draft", "listed", "available", "in_cart", "reserved", "refused", "retired"])
+      .eq("items.owner_user_id", userId)
+      .is("items.deleted_at", null)
+      .in("items.status", ["draft", "draft_deleted", "listed", "available", "in_cart", "reserved", "refused", "retired"])
+      .in("listing_stage", ["evaluation", "evaluated", "validation_pending", "refused", "validated"])
       .order("updated_at", { ascending: false })
-      .limit(50),
+      .limit(100),
     ),
   ])) as any[];
 
@@ -471,10 +470,23 @@ export default async function ExchangePage() {
     .map((l) => l.id);
 
   type IntakeBannerSourceRow = {
-    id: string;
-    price_points: number | null;
-    status: string | null;
-    item_intake: unknown;
+    item_id: string;
+    listing_stage: string | null;
+    fulfillment_stage: string | null;
+    updated_at: string | null;
+    metadata: unknown;
+    items:
+      | {
+          id?: string | null;
+          price_points?: number | null;
+          status?: string | null;
+        }
+      | {
+          id?: string | null;
+          price_points?: number | null;
+          status?: string | null;
+        }[]
+      | null;
   };
 
   const intakeBannerRows =
@@ -493,17 +505,19 @@ export default async function ExchangePage() {
   };
 
   const intakeBannerCandidates: IntakeBannerCandidate[] = intakeBannerRows
-    .map((item) => {
-      const intake = normalizeItemIntakeEmbed(item.item_intake);
-      if (!intake || !needsItemIntakeUi(intake.listing_stage, intake.fulfillment_stage)) return null;
+    .map((row) => {
+      const item = Array.isArray(row.items) ? row.items[0] : row.items;
+      const listingStage = row.listing_stage ?? "";
+      const fulfillmentStage = row.fulfillment_stage ?? null;
+      if (!needsItemIntakeUi(listingStage, fulfillmentStage)) return null;
       return {
-        id: item.id,
-        itemStatus: item.status ?? "inconnu",
-        listingStage: intake.listing_stage,
-        fulfillmentStage: intake.fulfillment_stage,
-        metadata: intake.metadata,
-        updatedAt: intake.updated_at ?? null,
-        pricePoints: item.price_points == null ? null : Number(item.price_points),
+        id: item?.id ?? row.item_id,
+        itemStatus: item?.status ?? "inconnu",
+        listingStage,
+        fulfillmentStage,
+        metadata: row.metadata,
+        updatedAt: row.updated_at ?? null,
+        pricePoints: item?.price_points == null ? null : Number(item.price_points),
       };
     })
     .filter((x): x is IntakeBannerCandidate => x != null);
@@ -733,6 +747,18 @@ export default async function ExchangePage() {
   const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
   const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  const eagerLendDetailPrefetchIds = lends
+    .filter((l) => {
+      const st = l.itemStatus.toLowerCase();
+      const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
+      const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
+      if (st === "refused" || st === "draft_deleted") return false;
+      if (ls === "evaluation" || ls === "evaluated" || ls === "validation_pending" || ls === "refused") return false;
+      if (ls === "validated" && fs !== "verified") return false;
+      return true;
+    })
+    .slice(0, 2)
+    .map((l) => l.id);
   perf.log({
     lends: lends.length,
     cartLines: cartLines.length,
@@ -742,7 +768,7 @@ export default async function ExchangePage() {
 
   return (
     <>
-      <ExchangeLendsDetailPrefetch itemIds={lends.slice(0, 4).map((l) => l.id)} />
+      <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
       <div className="sticky top-0 z-30 bg-white">
         <ExchangeHeader
           membershipLabel={membershipLabel}

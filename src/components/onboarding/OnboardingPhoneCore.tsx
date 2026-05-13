@@ -11,6 +11,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = segnaMontserrat;
+const DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164 = "+33781774735";
 
 type PhoneFormValues = {
   phoneLocal: string;
@@ -106,6 +107,7 @@ export function OnboardingPhoneCore({
   const onSubmit = handleSubmit(async ({ phoneLocal }) => {
     setErrorMessage(null);
     const normalizedPhone = `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
+    const isDuplicatePhoneException = normalizedPhone === DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164;
 
     const {
       data: { user },
@@ -124,8 +126,28 @@ export function OnboardingPhoneCore({
       setErrorMessage(phoneAvailErr.message ?? "Impossible de vérifier le numéro.");
       return;
     }
-    if (phoneOk !== true) {
+    if (phoneOk !== true && !isDuplicatePhoneException) {
       setErrorMessage("Ce numéro de téléphone est déjà utilisé par un autre compte.");
+      return;
+    }
+
+    if (isDuplicatePhoneException) {
+      const { error } = await supabase.rpc("upsert_onboarding_progress", {
+        p_current_step: "/onboarding/name",
+        p_progress_json: {
+          checkpoint: "/onboarding/phone",
+          duplicate_phone_exception: true,
+          skipped_phone: true,
+        },
+        p_request_id: crypto.randomUUID(),
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+
+      router.push("/onboarding/name");
       return;
     }
 

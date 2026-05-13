@@ -3,7 +3,7 @@ import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import type { CartLineStatus } from "@/lib/cart/cart-line-status";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import {
-  createSignedUrlForStoragePath,
+  createSignedUrlsForStoragePaths,
   type StorageSignClient,
 } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -93,13 +93,24 @@ type ItemRow = {
   item_brands?: { label?: string | null } | null;
 };
 
-type CartFetchSupabase = { from: (t: string) => any } & StorageSignClient;
+type QueryResult = { data: unknown; error?: { message?: string } | null };
+type QueryBuilderLike = PromiseLike<QueryResult> & {
+  eq: (column: string, value: unknown) => QueryBuilderLike;
+  is: (column: string, value: unknown) => QueryBuilderLike;
+  in: (column: string, values: readonly unknown[]) => QueryBuilderLike;
+  order: (column: string, options?: { ascending?: boolean }) => QueryBuilderLike;
+  limit: (count: number) => QueryBuilderLike;
+  maybeSingle: () => PromiseLike<QueryResult>;
+};
+type TableBuilderLike = { select: (columns: string) => QueryBuilderLike };
+type CartFetchSupabase = { from: (table: string) => TableBuilderLike } & StorageSignClient;
+type ActiveCartSummary = { cartId: string | null; status: string | null };
+type ActiveCartRow = { id: string; status: string };
 
-/** Panier actif / réservé (même logique que les lignes). */
-export async function fetchActiveCartSummaryForUser(
+async function fetchActiveCartRowForUser(
   supabase: CartFetchSupabase,
   userId: string,
-): Promise<{ cartId: string | null; status: string | null }> {
+): Promise<ActiveCartRow | null> {
   const activeCartRes = await supabase
     .from("carts")
     .select("id,status,updated_at")
@@ -110,40 +121,28 @@ export async function fetchActiveCartSummaryForUser(
     .limit(1)
     .maybeSingle();
 
-  const row = activeCartRes.data as { id: string; status: string } | null;
-  if (!row?.id) return { cartId: null, status: null };
-  return { cartId: row.id, status: row.status };
+  const row = activeCartRes.data as ActiveCartRow | null;
+  return row?.id ? row : null;
 }
 
-/** Lignes panier actif pour /cart et /cart/payment. */
-export async function fetchActiveCartLinesForUser(
+async function fetchCartLinesForActiveCart(
   supabase: CartFetchSupabase,
-  userId: string,
+  cartId: string,
 ): Promise<CartLineRowData[]> {
-  const activeCartRes = await supabase
-    .from("carts")
-    .select("id,status,updated_at")
-    .eq("user_id", userId)
+  const cartItemsRes = await supabase
+    .from("cart_items")
+    .select("id,item_id,status,created_at")
+    .eq("cart_id", cartId)
     .is("deleted_at", null)
-    .in("status", [...CART_STATUSES_OPEN])
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
 
-  const activeCart = activeCartRes.data as { id: string; status: string } | null;
-  if (!activeCart?.id) return [];
-
-  const [cartItemsRes, itemRowsRes] = await Promise.all([
-    supabase
-      .from("cart_items")
-      .select("id,item_id,status,created_at")
-      .eq("cart_id", activeCart.id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true }),
-    supabase.from("cart_items").select("item_id").eq("cart_id", activeCart.id).is("deleted_at", null),
-  ]);
-
-  const itemIds = (itemRowsRes.data ?? []).map((row: { item_id?: string | null }) => row.item_id).filter(Boolean) as string[];
+  const cartItems = (cartItemsRes.data ?? []) as {
+    id: string;
+    item_id: string;
+    status: string | null;
+    created_at?: string;
+  }[];
+  const itemIds = [...new Set(cartItems.map((row) => row.item_id).filter(Boolean))];
   let itemsMap = new Map<string, ItemRow>();
 
   if (itemIds.length > 0) {
@@ -151,25 +150,20 @@ export async function fetchActiveCartLinesForUser(
       .from("items")
       .select("id,title,description,price_points,status,photos,item_custom_brand_label,item_brands(label)")
       .in("id", itemIds);
-    itemsMap = new Map((itemsRes.data ?? []).map((item: ItemRow) => [item.id, item]));
+    itemsMap = new Map(((itemsRes.data ?? []) as ItemRow[]).map((item) => [item.id, item]));
   }
 
   const signedPhotoByPath = new Map<string, string>();
   const pathsToSign = new Set<string>();
-  for (const line of cartItemsRes.data ?? []) {
-    const row = line as { item_id: string };
+  for (const row of cartItems) {
     const item = itemsMap.get(row.item_id);
     const photoData = resolveItemPhotoData(item?.photos ?? null);
     if (photoData.path && !isHttpUrl(photoData.path)) pathsToSign.add(photoData.path);
   }
-  await Promise.all(
-    [...pathsToSign].map(async (path) => {
-      const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
-      if (signed) signedPhotoByPath.set(path, signed);
-    }),
-  );
+  const signedUrls = await createSignedUrlsForStoragePaths(supabase, [...pathsToSign], 60 * 60 * 24);
+  signedUrls.forEach((signed, path) => signedPhotoByPath.set(path, signed));
 
-  const rows = (cartItemsRes.data ?? []).map((line: { id: string; item_id: string; status: string | null; created_at?: string }) => {
+  const rows = cartItems.map((line) => {
     const item = itemsMap.get(line.item_id);
     const photoData = resolveItemPhotoData(item?.photos ?? null);
     const rawPath = photoData.path;
@@ -193,4 +187,35 @@ export async function fetchActiveCartLinesForUser(
   });
 
   return sortCartLinesByPriceAsc(rows);
+}
+
+/** Panier actif / réservé (même logique que les lignes). */
+export async function fetchActiveCartSummaryForUser(
+  supabase: CartFetchSupabase,
+  userId: string,
+): Promise<ActiveCartSummary> {
+  const row = await fetchActiveCartRowForUser(supabase, userId);
+  if (!row) return { cartId: null, status: null };
+  return { cartId: row.id, status: row.status };
+}
+
+/** Lignes panier actif pour /cart et /cart/payment. */
+export async function fetchActiveCartLinesForUser(
+  supabase: CartFetchSupabase,
+  userId: string,
+): Promise<CartLineRowData[]> {
+  const activeCart = await fetchActiveCartRowForUser(supabase, userId);
+  if (!activeCart) return [];
+  return fetchCartLinesForActiveCart(supabase, activeCart.id);
+}
+
+/** Résumé + lignes en une seule lecture du panier actif. */
+export async function fetchActiveCartForUser(
+  supabase: CartFetchSupabase,
+  userId: string,
+): Promise<ActiveCartSummary & { lines: CartLineRowData[] }> {
+  const activeCart = await fetchActiveCartRowForUser(supabase, userId);
+  if (!activeCart) return { cartId: null, status: null, lines: [] };
+  const lines = await fetchCartLinesForActiveCart(supabase, activeCart.id);
+  return { cartId: activeCart.id, status: activeCart.status, lines };
 }

@@ -33,7 +33,7 @@ export function MemberProfileById({ userId }: { userId: string }) {
     return () => ro.disconnect();
   }, [data?.infoCard.displayName, isLoading]);
 
-  const title = data?.infoCard.displayName?.trim() || "Profil";
+  const title = data?.infoCard.displayName?.trim() || "Membre";
 
   return (
     <main className="min-h-[100dvh] bg-white">
@@ -56,7 +56,7 @@ export function MemberProfileById({ userId }: { userId: string }) {
             <h1
               className={cn(
                 playfairDisplay.className,
-                "mx-12 max-w-[min(100%,280px)] truncate text-center text-[20px] font-extrabold italic text-zinc-900 sm:max-w-[min(100%,340px)]",
+                "mx-12 max-w-[calc(100%-96px)] break-words text-center text-[20px] font-extrabold italic leading-tight text-zinc-900",
               )}
             >
               {title}

@@ -170,7 +170,7 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   acceptable: "Acceptable",
   degrade: "Dégradé",
 };
-const ITEM_STAGE_RATIO = 1;
+const ITEM_STAGE_RATIO = 3 / 4;
 
 const getImageRatio = (dataUrl: string) =>
   new Promise<number>((resolve) => {
@@ -1409,16 +1409,6 @@ export default function NewItemPage() {
       return;
     }
 
-    const rowWasUpdated = Array.isArray(updatedRows) && updatedRows.length > 0;
-    if (rowWasUpdated) {
-      const intakeErr = await setItemIntakeListingStage(supabase, itemIdToDelete, "refused");
-      if (!intakeErr.ok) {
-        setIsDeletingDraft(false);
-        setErrorMessage(intakeErr.message);
-        return;
-      }
-    }
-
     setIsDeletingDraft(false);
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
@@ -1550,8 +1540,8 @@ export default function NewItemPage() {
 
   return (
     <main className="mx-auto min-h-[100dvh] w-full max-w-[430px] bg-white pb-24">
-      <header className="sticky top-0 z-20 bg-white pt-5">
-        <div className="border-b border-zinc-200 px-4 pb-4">
+      <header className="fixed left-1/2 top-0 z-50 w-full max-w-[430px] -translate-x-1/2 bg-white pt-5">
+        <div className="px-4 pb-4">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center">
             <button type="button" onClick={() => setShowCancelModal(true)} className="justify-self-start px-2 text-[20px] font-bold text-zinc-900">
               Annuler
@@ -1610,7 +1600,7 @@ export default function NewItemPage() {
         </div>
       </header>
 
-      <div className="px-6">
+      <div className="px-6 pt-[128px]">
       <form id={formId} onSubmit={isEditValidationMode ? onFinish : onSubmit} className="contents">
         <div className="space-y-20">
         {mode === "view" ? (
@@ -1732,7 +1722,7 @@ export default function NewItemPage() {
                     openPickerForSlot(index);
                   }}
                   className={cn(
-                    "group relative aspect-square overflow-visible rounded-2xl border-2 border-dashed transition",
+                    "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
                     index < 4 ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
                     dragOverIndex === index ? "border-zinc-900 bg-zinc-100" : "",
                     slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
@@ -1781,7 +1771,7 @@ export default function NewItemPage() {
                         event.stopPropagation();
                         clearSlot(index);
                       }}
-                      className="absolute -left-[7px] -top-[7px] z-20 inline-flex h-[19px] w-[19px] items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 shadow-sm opacity-100 transition-opacity duration-150 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
+                      className="absolute -left-[7px] -top-[7px] z-[1] inline-flex h-[19px] w-[19px] items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 shadow-sm opacity-100 transition-opacity duration-150 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
                       aria-label={`Supprimer la photo ${index + 1}`}
                     >
                       <X size={11} strokeWidth={2.8} />
@@ -1802,7 +1792,7 @@ export default function NewItemPage() {
               rows={4}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="Décris la pièce: coupe, matière, occasion, défauts éventuels..."
+              placeholder="Cette description aide à l’évaluation : collection, rareté, spécificités, matière, défauts..."
               className={cn(
                 montserratItalic.className,
                 "w-full resize-none rounded-xl border border-zinc-200 px-3 py-3 text-[18px] italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none placeholder:text-[#c2c2c2] focus:border-zinc-300",

@@ -17,10 +17,14 @@ import {
   outboundCalloutDismissStorageKey,
 } from "./ExchangeOutboundShipmentCallout";
 import { ExchangeUberRelayFallbackBanner } from "./ExchangeUberRelayFallbackBanner";
+import {
+  intakeSessionAckKey,
+  readIntakeSessionAckSet,
+  writeIntakeSessionAckSet,
+} from "@/lib/items/intake-session-ack";
 
 export type { ExchangeIntakeBannerItem } from "./exchange-intake-banner-types";
 
-const INTAKE_STACK_ACK_KEY = "segna:exchange:intake-stack-ack";
 /** Décalage entre cartes : léger décalage pour lire la pile, sans révéler le contenu (silhouettes). */
 const STACK_PEEK_PX = 8;
 const STACK_SCALE_STEP = 0.008;
@@ -28,31 +32,6 @@ const STACK_SCALE_STEP = 0.008;
 const STACK_MIN_FRONT_HEIGHT_PX = 196;
 /** Avant mesure ResizeObserver : proche du plancher pour limiter le vide sous la pile au 1er paint. */
 const STACK_PRE_MEASURE_FALLBACK_PX = Math.ceil(STACK_MIN_FRONT_HEIGHT_PX + STACK_PEEK_PX * 3);
-
-function intakeAckKey(itemId: string, listingStage: string): string {
-  return `${itemId}:${listingStage}`;
-}
-
-function readIntakeAckSet(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.sessionStorage.getItem(INTAKE_STACK_ACK_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((x): x is string => typeof x === "string"));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeIntakeAckSet(next: Set<string>): void {
-  try {
-    window.sessionStorage.setItem(INTAKE_STACK_ACK_KEY, JSON.stringify([...next]));
-  } catch {
-    // no-op
-  }
-}
 
 function readOutboundHidden(summary: OutboundShipmentSummary | null): boolean {
   if (!summary || typeof window === "undefined") return false;
@@ -114,11 +93,11 @@ export function ExchangeHeaderAlertStack({
   uberRelayFallback?: boolean;
 }) {
   const router = useRouter();
-  const [intakeAck, setIntakeAck] = useState<Set<string>>(() => new Set());
+  const [intakeAck, setIntakeAck] = useState<Set<string>>(() => readIntakeSessionAckSet());
   const [outboundHidden, setOutboundHidden] = useState(false);
 
   useEffect(() => {
-    setIntakeAck(readIntakeAckSet());
+    setIntakeAck(readIntakeSessionAckSet());
   }, []);
 
   useEffect(() => {
@@ -130,7 +109,7 @@ export function ExchangeHeaderAlertStack({
   }, [outboundSummary?.cartId, outboundSummary?.status]);
 
   const visibleIntakes = useMemo(
-    () => intakeItems.filter((item) => !intakeAck.has(intakeAckKey(item.id, item.listingStage))),
+    () => intakeItems.filter((item) => !intakeAck.has(intakeSessionAckKey(item.id, item.listingStage))),
     [intakeItems, intakeAck],
   );
 
@@ -157,8 +136,8 @@ export function ExchangeHeaderAlertStack({
   const persistIntakeAck = useCallback((itemId: string, listingStage: string) => {
     setIntakeAck((prev) => {
       const next = new Set(prev);
-      next.add(intakeAckKey(itemId, listingStage));
-      writeIntakeAckSet(next);
+      next.add(intakeSessionAckKey(itemId, listingStage));
+      writeIntakeSessionAckSet(next);
       return next;
     });
   }, []);
@@ -171,7 +150,7 @@ export function ExchangeHeaderAlertStack({
     if (first.kind === "onboarding-cart") return "onboarding:cart";
     if (first.kind === "onboarding-exchange") return "onboarding:exchange";
     return first.kind === "intake"
-      ? `in:${intakeAckKey(first.item.id, first.item.listingStage)}`
+      ? `in:${intakeSessionAckKey(first.item.id, first.item.listingStage)}`
       : `out:${first.summary.cartId}:${first.summary.status}`;
   }, [layers]);
 
@@ -333,7 +312,7 @@ export function ExchangeHeaderAlertStack({
 
             return (
               <div
-                key={intakeAckKey(item.id, item.listingStage)}
+                key={intakeSessionAckKey(item.id, item.listingStage)}
                 className="absolute left-0 right-0 top-0 origin-top will-change-transform"
                 style={{
                   transform: `translateY(${translateY}px) scale(${scale})`,

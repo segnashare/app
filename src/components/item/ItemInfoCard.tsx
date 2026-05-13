@@ -1,14 +1,12 @@
 "use client";
 
-import { Package, Tag } from "lucide-react";
+import { Heart, Package, Repeat2, Star, Tag } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
 import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
-const STAR_ICON_PATH = "/ressources/icons/star.svg";
-const RATING_STARS = 5;
 
 const COLOR_LABEL_TO_HEX: Record<string, string> = {
   noir: "#000000",
@@ -48,6 +46,10 @@ function getColorHexFromLabel(label: string): string {
 
 export type ItemInfoCardData = {
   pricePoints: number | null;
+  likeCount?: number;
+  exchangeCount?: number;
+  itemRatingAverage?: number | null;
+  itemRatingCount?: number;
   ratingValue?: string | number;
   ratingStars?: number;
   size: string;
@@ -62,20 +64,14 @@ type ItemInfoCardProps = {
   className?: string;
 };
 
-function StarIcon({ filled }: { filled: boolean }) {
-  return (
-    <img
-      src={STAR_ICON_PATH}
-      alt=""
-      className={cn("h-[18px] w-[18px] shrink-0", filled ? "opacity-100" : "opacity-30")}
-      aria-hidden
-    />
-  );
-}
-
 export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
-  const stars = Math.min(RATING_STARS, Math.max(0, data.ratingStars ?? 5));
-  const ratingDisplay = data.ratingValue ?? "5.0";
+  const likeCount = Math.max(0, Math.floor(Number(data.likeCount ?? 0)));
+  const exchangeCount = Math.max(0, Math.floor(Number(data.exchangeCount ?? 0)));
+  const itemRatingAverage =
+    typeof data.itemRatingAverage === "number" && Number.isFinite(data.itemRatingAverage)
+      ? Math.max(0, Math.min(5, data.itemRatingAverage))
+      : null;
+  const itemRatingCount = Math.max(0, Math.floor(Number(data.itemRatingCount ?? 0)));
 
   const firstLineItems: Array<{ key: string; content: React.ReactNode }> = [];
 
@@ -84,8 +80,14 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     key: "price",
     content: (
       <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
-        {data.pricePoints != null ? data.pricePoints : "—"}
-        <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-5 w-auto max-w-[4.25rem] shrink-0 object-contain" aria-hidden />
+        {data.pricePoints != null ? (
+          <>
+            {data.pricePoints}
+            <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-5 w-auto max-w-[4.25rem] shrink-0 object-contain" aria-hidden />
+          </>
+        ) : (
+          "En cours d’évaluation"
+        )}
       </span>
     ),
   });
@@ -106,17 +108,13 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     });
   }
 
-  // 3. Avis (note + étoiles)
+  // 3. Likes
   firstLineItems.push({
-    key: "rating",
+    key: "likes",
     content: (
       <div className="flex items-center gap-2">
-        <span className={cn(montserrat.className, "font-bold text-zinc-900")}>{String(ratingDisplay)}</span>
-        <div className="flex items-center gap-0.5">
-          {Array.from({ length: RATING_STARS }, (_, i) => (
-            <StarIcon key={i} filled={i < stars} />
-          ))}
-        </div>
+        <span className={cn(montserrat.className, "font-bold text-zinc-900")}>{likeCount}</span>
+        <Heart className="h-5 w-5 text-zinc-900" strokeWidth={2.2} aria-hidden />
       </div>
     ),
   });
@@ -131,7 +129,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
       content: (
         <span className="flex items-center gap-2">
           <span
-            className="inline-block h-4 w-4 shrink-0 rounded-full border border-zinc-300"
+            className="inline-block h-4 w-4 shrink-0 rounded-full border-2 border-zinc-300"
             style={isGradient ? { background: hex } : { backgroundColor: hex }}
             title={displayLabel}
             aria-hidden
@@ -179,13 +177,32 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
         </div>
       ) : null}
 
-      {/* Ligne 3 : État (à la place de profession) */}
-      <div className="flex items-center gap-4 border-t border-zinc-100 pt-4 pb-2">
+      {/* Ligne 3 : État */}
+      <div className="flex items-center gap-4 border-t border-zinc-100 py-4">
         <Package className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
         <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>
           {data.condition && data.condition !== "-" ? data.condition : "—"}
         </span>
       </div>
+
+      {/* Ligne 4 : Historique d'échanges */}
+      {exchangeCount > 0 ? (
+        <div className="flex items-center gap-4 border-t border-zinc-100 pt-4 pb-2">
+          <Repeat2 className="h-6 w-6 shrink-0 text-black" strokeWidth={2} />
+          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>
+            {exchangeCount} {exchangeCount > 1 ? "échanges faits" : "échange fait"}
+          </span>
+        </div>
+      ) : null}
+
+      {itemRatingAverage != null && itemRatingCount > 0 ? (
+        <div className="flex items-center gap-4 border-t border-zinc-100 pt-4 pb-2">
+          <Star className="h-6 w-6 shrink-0 fill-zinc-900 text-zinc-900" strokeWidth={2} />
+          <span className={cn(montserrat.className, "font-semibold text-zinc-900")}>
+            {itemRatingAverage.toFixed(1)}/5 · {itemRatingCount} {itemRatingCount > 1 ? "notes" : "note"}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
