@@ -24,7 +24,7 @@ type AdminClientWithTable = AdminClient & {
 
 /**
  * Débite le wallet du montant total échange du panier (somme des `price_points` en base).
- * À exécuter après `wallet_credit_purchase` du complément Stripe pour que le solde soit suffisant.
+ * Après `wallet_credit_purchase` du complément € (seau consommation), le solde total couvre le panier.
  */
 export async function debitCartExchangeWalletFromStripeSession(
   admin: AdminClient,

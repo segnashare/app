@@ -82,3 +82,39 @@ export async function resolveMembershipLabel(supabase: unknown, userId: string):
 
   return toMembershipLabelFromRoles(roles);
 }
+
+/**
+ * Même logique que `resolveMembershipLabel`, sans `get_current_membership_state()` (inutilisable avec le client
+ * service role : `auth.uid()` est null). S’appuie sur `user_subscriptions` puis `user_roles`.
+ */
+export async function resolveMembershipLabelForServiceRole(supabase: unknown, userId: string): Promise<MembershipLabel> {
+  const client = supabase as MembershipSupabaseClient;
+  const [subscriptionRowRes, rolesRes] = await Promise.all([
+    client
+      .from("user_subscriptions")
+      .select("plan_code,status")
+      .eq("user_id", userId)
+      .eq("provider", "stripe")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    client.from("user_roles").select("role").eq("user_id", userId),
+  ]);
+
+  const roles: string[] = ((rolesRes.data as Array<{ role?: string | null }> | null) ?? [])
+    .map((entry) => entry.role ?? "")
+    .filter(Boolean);
+  const subRow = subscriptionRowRes.data as { plan_code?: string | null; status?: string | null } | null;
+  const membershipLabelFromSubscriptionTable =
+    subscriptionRowRes.error == null && subRow
+      ? toMembershipLabelFromBilling({
+          plan_code: subRow.plan_code ?? null,
+          subscription_status: subRow.status ?? null,
+        })
+      : ("Guest" as const);
+
+  if (membershipLabelFromSubscriptionTable !== "Guest") return membershipLabelFromSubscriptionTable;
+  if (subscriptionRowRes.error == null && subRow != null) return "Guest";
+
+  return toMembershipLabelFromRoles(roles);
+}

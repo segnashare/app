@@ -11,14 +11,14 @@ type SegnaPointsUnitDisplayProps = {
   className?: string;
   numberClassName?: string;
   /**
-   * `label` : consommation → icône Segna ; échange → libellé « crédits d'échange ».
+   * `label` : consommation → icône Segna ; échange → libellé « crédits ».
    * `icon` : toujours chiffre + `icons/segna.svg` (détail commande / total).
    */
   unitDisplay?: "label" | "icon";
 };
 
 /**
- * Montant + icône Segna (consommation), ou montant + libellé « crédits d'échange ».
+ * Montant + icône Segna (consommation), ou montant + libellé « crédits ».
  */
 export function SegnaPointsUnitDisplay({
   points,
@@ -32,7 +32,7 @@ export function SegnaPointsUnitDisplay({
   const unitLabel = walletCreditKindLabel(creditKind);
   const showConsumptionIcon = creditKind === "consumption";
   const consumptionAriaLabel = `${formatted} ${n === 1 ? "point" : "points"} Segna de consommation`;
-  const exchangeAriaLabel = `${formatted} ${n === 1 ? "crédit" : "crédits"} d'échange`;
+  const exchangeAriaLabel = `${formatted} ${n === 1 ? "crédit" : "crédits"}`;
   const iconMode = unitDisplay === "icon";
 
   return (

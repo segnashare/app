@@ -4,7 +4,7 @@ import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 export type WalletCreditKind = "consumption" | "exchange";
 
 export function walletCreditKindLabel(kind: WalletCreditKind): string {
-  return kind === "consumption" ? "crédits de consommation" : "crédits d'échange";
+  return kind === "consumption" ? "crédits de consommation" : "crédits";
 }
 
 /**
@@ -16,8 +16,8 @@ export function walletCreditKindForMembership(_label: MembershipLabel): WalletCr
 }
 
 /**
- * Packs crédits « Obtenir plus » (checkout `/api/stripe/credits/checkout`) : crédits de consommation,
- * utilisables sur le dressing partagé — distincts des compléments panier / échange (`walletCreditKindForMembership`).
+ * Packs crédits « Obtenir plus » (`/api/stripe/credits/checkout`) et complément wallet payé au checkout panier
+ * (`stripe:cart_order_wallet:*`) : crédits Segna (consommation).
  */
 export function walletCreditKindForBillingSubscription(
   _planCode: string | null | undefined,

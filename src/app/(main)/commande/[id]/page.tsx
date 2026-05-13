@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CommandeDetailView } from "@/components/commande/CommandeDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
-import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
+import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -42,8 +42,8 @@ export default async function CommandeDetailPage({ params }: PageProps) {
   }
 
   const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
-  const deliveredAtMs =
-    shipSt === "delivered" && detail.shipment?.updatedAt ? Date.parse(detail.shipment.updatedAt) : Number.NaN;
+  const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(detail.shipment?.deliveredAt, detail.shipment?.updatedAt);
+  const deliveredAtMs = shipSt === "delivered" && borrowAnchorIso ? Date.parse(borrowAnchorIso) : Number.NaN;
   const returnDeadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
   const msUntilReturnDeadline = Number.isFinite(returnDeadlineMs) ? returnDeadlineMs - Date.now() : Number.NaN;
   const mustUseReturnPage =

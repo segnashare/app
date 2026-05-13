@@ -3,8 +3,7 @@ import type Stripe from "stripe";
 export type StripeMappedPlanCode = "guest" | "segna_plus" | "segna_x";
 
 /**
- * Après synchro Stripe : si l’utilisateur a un abonnement prêteur actif, passe en `shipping`
- * les `item_intake` en `awaiting_subscription` ou `pre_subscribe_eligible` (proposition).
+ * Après synchro Stripe : appelle encore la RPC (no-op côté base) pour compat ; le prêt ne dépend plus d’un stade « abonnement ».
  */
 export async function promotePendingLenderIntakesAfterStripeSubscription(
   admin: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> },

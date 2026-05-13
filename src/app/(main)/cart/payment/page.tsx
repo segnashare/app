@@ -89,7 +89,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
       ? formatIncludedShippingForfaitLine(membershipLabel, includedOrdersLimitThisMonth)
       : undefined;
 
-  const activeCart = await fetchActiveCartForUser(supabase, userId);
+  const activeCart = await fetchActiveCartForUser(supabase as never, userId);
   const canPay = activeCart.status === "checkout_pending";
   if (!canPay) {
     redirect("/cart");

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { EmpruntDetailView } from "@/components/emprunt/EmpruntDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
-import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
+import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -50,7 +50,8 @@ export default async function EmpruntPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  const deliveredAtMs = detail.shipment?.updatedAt ? Date.parse(detail.shipment.updatedAt) : Number.NaN;
+  const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(detail.shipment?.deliveredAt, detail.shipment?.updatedAt);
+  const deliveredAtMs = borrowAnchorIso ? Date.parse(borrowAnchorIso) : Number.NaN;
   const returnDeadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
   const mustUseReturnPage =
     isActiveMemberReturnPhase(detail.returnShipment?.status) &&

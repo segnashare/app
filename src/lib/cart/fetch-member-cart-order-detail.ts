@@ -53,6 +53,8 @@ export type MemberCartOrderShipment = {
   status: string;
   createdAt: string;
   updatedAt: string;
+  /** Réception aller (`shipments.delivered_at`) — base des délais d’emprunt ; null avant migration / si jamais livré. */
+  deliveredAt: string | null;
   /** Renseigné au passage pending → ready (back-office). */
   readyAt: string | null;
   trackingNumber: string | null;
@@ -331,6 +333,7 @@ export async function fetchMemberCartOrderDetail(
 
   const shipment: MemberCartOrderShipment | null = (() => {
     if (!shipRow || typeof shipRow.status !== "string") return null;
+    const da = shipRow.delivered_at;
     const ra = shipRow.ready_at;
     const tn = shipRow.tracking_number;
     const mtu = shipRow.member_tracking_url;
@@ -357,6 +360,7 @@ export async function fetchMemberCartOrderDetail(
       status: shipRow.status,
       createdAt: String(shipRow.created_at ?? ""),
       updatedAt: String(shipRow.updated_at ?? ""),
+      deliveredAt: typeof da === "string" && da.trim() ? da.trim() : null,
       readyAt: typeof ra === "string" && ra.trim() ? ra.trim() : null,
       trackingNumber: typeof tn === "string" && tn.trim() ? tn.trim() : null,
       outboundProviderCode: provCode,
@@ -394,7 +398,12 @@ export async function fetchMemberCartOrderDetail(
     cart.created_at,
     historyRows,
     shipment
-      ? { created_at: shipment.createdAt, updated_at: shipment.updatedAt, status: shipment.status }
+      ? {
+          created_at: shipment.createdAt,
+          updated_at: shipment.updatedAt,
+          status: shipment.status,
+          delivered_at: shipment.deliveredAt,
+        }
       : null,
   );
 

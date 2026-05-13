@@ -5,10 +5,11 @@ import {
   confirmCartPaidFromStripeSession,
   debitCartExchangeWalletFromStripeSession,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
+import { walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
 /**
  * Retour utilisateur après Checkout commande panier.
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
     const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
     const missing = Number.isFinite(missingRaw) ? Math.trunc(missingRaw) : 0;
     if (missing > 0) {
-      const creditKind = normalizeWalletCreditKind(session.metadata?.exchange_credits_kind ?? undefined);
+      const creditKind = walletCreditKindForBillingSubscription(null, null);
       const { error: rpcError } = await admin.rpc("wallet_credit_purchase", {
         p_user_id: user.id,
         p_amount_points: missing,
@@ -93,6 +94,15 @@ export async function GET(request: Request) {
       return NextResponse.redirect(
         new URL(`/cart/payment?checkout=error&reason=cart_confirm_failed${devDetail(msg)}`, url.origin),
       );
+    }
+
+    const cartIdForNotify = session.metadata?.cart_id?.trim();
+    if (cartIdForNotify) {
+      try {
+        await notifyCartOrderPaidAfterConfirmation(admin, { userId: user.id, cartId: cartIdForNotify });
+      } catch (e) {
+        console.error("[stripe/cart/sync] notifyCartOrderPaidAfterConfirmation", e);
+      }
     }
 
     return NextResponse.redirect(new URL("/exchange?cart=success", url.origin));

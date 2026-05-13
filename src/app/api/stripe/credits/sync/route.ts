@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
+import { notifyWalletCreditsPurchased } from "@/lib/notifications/checkout-notifications";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeWalletCreditKind, type WalletCreditKind } from "@/lib/wallet/credit-kind";
@@ -69,6 +70,16 @@ export async function GET(request: Request) {
     });
     if (rpcError) {
       return NextResponse.redirect(new URL("/profile?tab=plus&credits=error&reason=rpc_failed", url.origin));
+    }
+
+    try {
+      await notifyWalletCreditsPurchased(admin, {
+        userId: user.id,
+        stripeCheckoutSessionId: session.id,
+        creditsAmount,
+      });
+    } catch (e) {
+      console.error("[stripe/credits/sync] notifyWalletCreditsPurchased", e);
     }
 
     return NextResponse.redirect(

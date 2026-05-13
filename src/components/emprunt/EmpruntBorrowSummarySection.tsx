@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils/cn";
 
 type EmpruntBorrowSummarySectionProps = {
   cartId: string;
-  /** Heure de livraison aller (`shipments.updated_at`) pour le décompte d’emprunt. */
+  /** Instant de réception aller pour le décompte : `delivered_at` (prioritaire) ou `updated_at`. */
   deliveredAtIso: string | null;
   returnCommitmentMet?: boolean;
   membershipLabel: SegnaBorrowMembershipLabel;

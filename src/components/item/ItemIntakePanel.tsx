@@ -155,12 +155,7 @@ export function ItemIntakePanel({
     listingStage === "validated" &&
     fulfillmentStage != null &&
     fulfillmentStage !== "verified" &&
-    fulfillmentStage !== "refused" &&
-    fulfillmentStage !== "pre_subscribe_eligible";
-
-  /** Parcours « proposition avant abonnement » : panneau dédié (pile Échange / fiche). */
-  const awaitingLenderPlanUi =
-    listingStage === "validated" && fulfillmentStage === "pre_subscribe_eligible";
+    fulfillmentStage !== "refused";
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;
@@ -171,8 +166,7 @@ export function ItemIntakePanel({
     listingStage === "evaluation" ||
     listingStage === "validation_pending" ||
     listingStage === "evaluated" ||
-    listingStage === "refused" ||
-    awaitingLenderPlanUi;
+    listingStage === "refused";
 
   const visible = pipelineVisible && (!canMinimize || !userMinimized);
 
@@ -323,8 +317,8 @@ export function ItemIntakePanel({
     if (placement === "item") {
       const phrase =
         pts != null
-          ? `Proposition à ${pts} points — ouvre l'analyse pour répondre.`
-          : "Segna te fait une proposition — ouvre l'analyse pour répondre.";
+          ? `Proposition à ${pts} points, ouvre l'analyse pour répondre.`
+          : "Segna te fait une proposition, ouvre l'analyse pour répondre.";
       return (
         <div
           role="region"
@@ -525,44 +519,6 @@ export function ItemIntakePanel({
     );
   }
 
-  if (listingStage === "validated" && fulfillmentStage === "pre_subscribe_eligible") {
-    return (
-      <IntakePanelLayout
-        title="Pièce éligible (proposition)"
-        titleId="intake-title-pre-subscribe"
-        titleRight={mergeIntakeTitleRight(onStackDismiss, undefined)}
-        footer={
-          <>
-            <Link
-              href="/package"
-              className={cn(
-                montserrat.className,
-                "flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 text-[14px] font-semibold text-white sm:w-auto sm:min-w-[200px]",
-              )}
-            >
-              Voir les formules
-            </Link>
-            <button
-              type="button"
-              onClick={() => router.push("/exchange")}
-              className={cn(
-                montserrat.className,
-                "h-10 text-[14px] font-semibold text-zinc-500 underline-offset-2 hover:underline sm:px-3",
-              )}
-            >
-              Retour à l&apos;échange
-            </button>
-          </>
-        }
-      >
-        <p>
-          Ton annonce a été validée et évaluée. Pour ce parcours « proposition », suis les étapes dans « Prêts » ou
-          contacte le support si tu bloques sur l&apos;expédition.
-        </p>
-      </IntakePanelLayout>
-    );
-  }
-
   if (isLogisticsRefused) {
     const note = readLogisticsRefusalNote(intakeMetadata);
     return (
@@ -575,25 +531,39 @@ export function ItemIntakePanel({
         )}
       >
         {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
-        <div className={onStackDismiss ? "pr-10" : undefined}>
-          <SegnaDialogTitleRow id="intake-logistics-refused-title" title="Pièce non conforme — refus logistique" />
-        <p className={segnaDialogBodyClass()}>
-          La pièce ne correspond pas à l&apos;annonce ou aux critères après réception. Un retour peut être mis en
-          place (frais à ta charge sauf indication contraire). Consulte la page dédiée pour le motif et les prochaines
-          étapes.
-        </p>
-        {note ? (
-          <p className={segnaDialogBodyClass()}>
-            <span className="font-semibold text-zinc-900">Motif : </span>
-            {note}
+        <div className="flex w-full min-w-0 flex-col gap-3">
+          {onStackDismiss ? (
+            <div className="pr-10">
+              <SegnaDialogTitleRow
+                id="intake-logistics-refused-title"
+                title="Pièce non conforme — refus logistique"
+                className="w-full"
+              />
+            </div>
+          ) : (
+            <SegnaDialogTitleRow
+              id="intake-logistics-refused-title"
+              title="Pièce non conforme — refus logistique"
+              className="w-full"
+            />
+          )}
+          <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>
+            La pièce ne correspond pas à l&apos;annonce ou aux critères après réception. Un retour peut être mis en
+            place (frais à ta charge sauf indication contraire). Consulte la page dédiée pour le motif et les prochaines
+            étapes.
           </p>
-        ) : null}
-        <Link
-          href={`/items/${itemId}/refus-logistique`}
-          className="flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-[13px] font-semibold text-white shadow-sm"
-        >
-          Page refus &amp; suite à donner
-        </Link>
+          {note ? (
+            <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>
+              <span className="font-semibold text-zinc-900">Motif : </span>
+              {note}
+            </p>
+          ) : null}
+          <Link
+            href={`/items/${itemId}/refus-logistique`}
+            className="flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 px-5 text-[13px] font-semibold text-white shadow-sm"
+          >
+            Page refus &amp; suite à donner
+          </Link>
         </div>
       </div>
     );
@@ -606,21 +576,27 @@ export function ItemIntakePanel({
         aria-labelledby="intake-shipping-title"
         className={cn(
           montserrat.className,
-          "relative mx-auto w-full max-w-[460px] space-y-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm",
+          "relative mx-auto flex w-full max-w-[460px] flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm",
         )}
       >
         {onStackDismiss ? <SegnaDialogDismissButton onClick={onStackDismiss} /> : null}
-        <div className={onStackDismiss ? "space-y-3 pr-10" : "space-y-3"}>
-          <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" />
-        <p className={segnaDialogBodyClass()}>
-          Retrouve le bordereau et le suivi sur la page dédiée.
-        </p>
-        <Link
-          href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, intakeMetadata)}`}
-          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
-        >
-          Bordereau d&apos;envoi
-        </Link>
+        <div className="flex w-full min-w-0 flex-col gap-3">
+          {onStackDismiss ? (
+            <div className="pr-10">
+              <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" className="w-full" />
+            </div>
+          ) : (
+            <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" className="w-full" />
+          )}
+          <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>
+            Retrouve le bordereau et le suivi sur la page dédiée.
+          </p>
+          <Link
+            href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, intakeMetadata)}`}
+            className="flex h-11 w-full min-w-0 items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
+          >
+            Bordereau d&apos;envoi
+          </Link>
         </div>
       </div>
     );

@@ -9,7 +9,12 @@ import {
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
+import {
+  notifyCartOrderPaidAfterConfirmation,
+  notifyWalletCreditsPurchased,
+} from "@/lib/notifications/checkout-notifications";
+import { notifySegnaXSubscriptionWelcomeIfApplicable } from "@/lib/notifications/subscription-notifications";
+import { normalizeWalletCreditKind, walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
 async function resolveUserIdFromCustomer(admin: any, stripeCustomerId: string): Promise<string | null> {
   const { data: customerRow } = await admin
@@ -30,7 +35,8 @@ async function applyCartOrderWalletFromCheckout(admin: any, session: Stripe.Chec
   const missing = Number.isFinite(missingRaw) ? Math.trunc(missingRaw) : 0;
   if (missing <= 0) return true;
 
-  const creditKind = normalizeWalletCreditKind(session.metadata?.exchange_credits_kind ?? undefined);
+  /** Complément payé en € au checkout panier : mêmes crédits que l’achat pack → consommation (Segna), pas l’échange. */
+  const creditKind = walletCreditKindForBillingSubscription(null, null);
 
   const { error: creditRpcError } = await admin.rpc("wallet_credit_purchase", {
     p_user_id: userId,
@@ -95,14 +101,46 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
 
       await upsertBillingCustomer(admin, userId, stripeCustomerId, session.metadata ?? {});
 
-      await applyWalletCreditFromCheckout(admin, session, userId);
+      const creditsPurchaseApplied = await applyWalletCreditFromCheckout(admin, session, userId);
       await applyCartOrderWalletFromCheckout(admin, session, userId);
       await debitCartExchangeWalletFromStripeSession(admin, session, userId);
       await confirmCartPaidFromStripeSession(admin, session, userId);
 
+      if (session.metadata?.checkout_kind === "cart_order") {
+        const cartId = session.metadata?.cart_id?.trim();
+        if (cartId) {
+          try {
+            await notifyCartOrderPaidAfterConfirmation(admin, { userId, cartId });
+          } catch (e) {
+            console.error("[stripe/webhook] notifyCartOrderPaidAfterConfirmation", e);
+          }
+        }
+      }
+
+      if (creditsPurchaseApplied) {
+        const creditsAmountRaw = Number(session.metadata?.credits_amount ?? 0);
+        const creditsAmount = Number.isFinite(creditsAmountRaw) ? Math.trunc(creditsAmountRaw) : 0;
+        if (creditsAmount > 0) {
+          try {
+            await notifyWalletCreditsPurchased(admin, {
+              userId,
+              stripeCheckoutSessionId: session.id,
+              creditsAmount,
+            });
+          } catch (e) {
+            console.error("[stripe/webhook] notifyWalletCreditsPurchased", e);
+          }
+        }
+      }
+
       if (typeof session.subscription === "string") {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);
         await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+        try {
+          await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
+        } catch (e) {
+          console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (checkout.session)", e);
+        }
       }
 
       return "processed";
@@ -123,6 +161,11 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
 
       await upsertBillingCustomer(admin, userId, stripeCustomerId, subscription.metadata ?? {});
       await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+      try {
+        await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
+      } catch (e) {
+        console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (subscription event)", e);
+      }
       return "processed";
     }
 

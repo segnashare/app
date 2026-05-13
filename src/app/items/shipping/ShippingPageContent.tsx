@@ -12,7 +12,7 @@ type GateState = "checking" | "ok" | "reject";
 
 /**
  * Même logique que la carte « Préparer ton envoi » (`ItemIntakePanel`) : bordereau / suivi tant que la pièce
- * n’est pas vérifiée catalogue, refusée ou en parcours « proposition avant abonnement ».
+ * n’est pas vérifiée catalogue ou refusée logistique.
  */
 function intakeAllowsShippingBordereauPage(listingStage: string, fulfillmentStage: string | null | undefined): boolean {
   const ls = String(listingStage ?? "").trim().toLowerCase();
@@ -21,8 +21,8 @@ function intakeAllowsShippingBordereauPage(listingStage: string, fulfillmentStag
     return true;
   }
   const fs = String(fulfillmentStage).trim().toLowerCase();
-  if (fs === "verified" || fs === "refused" || fs === "pre_subscribe_eligible") return false;
-  return fs === "shipping" || fs === "awaiting_subscription" || fs === "in_verification";
+  if (fs === "verified" || fs === "refused") return false;
+  return fs === "shipping" || fs === "in_verification";
 }
 
 export function ShippingPageContent() {

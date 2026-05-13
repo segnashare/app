@@ -8,6 +8,7 @@ import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHel
 import { RetourPhaseHeroSection } from "@/components/retour/RetourPhaseHeroSection";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { getMemberReturnPageUi } from "@/lib/cart/member-return-page-ui";
+import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -29,7 +30,10 @@ export function RetourDetailView({ detail, membershipLabel }: RetourDetailViewPr
     trackingNumber: rs?.trackingNumber ?? null,
     labelUrl: rs?.labelUrl ?? null,
     updatedAtIso: rs?.updatedAt ?? null,
-    outboundDeliveredAtIso: detail.shipment?.updatedAt ?? null,
+    outboundDeliveredAtIso: resolveOutboundBorrowDeliveredAtIso(
+      detail.shipment?.deliveredAt,
+      detail.shipment?.updatedAt,
+    ),
     membershipLabel,
   });
 

@@ -30,7 +30,7 @@ type Ctx = {
   trackingNumber: string | null;
   labelUrl: string | null;
   updatedAtIso: string | null;
-  /** Livraison aller (`shipments.updated_at`) — pour l’accroche « retourne avant le … ». */
+  /** Livraison aller : `shipments.delivered_at` si présent, sinon `updated_at` (legacy). */
   outboundDeliveredAtIso?: string | null;
   membershipLabel?: MembershipLabel;
 };

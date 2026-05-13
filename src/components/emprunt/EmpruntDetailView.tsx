@@ -7,7 +7,7 @@ import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowS
 import { EmpruntBorrowCountdown } from "@/components/emprunt/EmpruntBorrowCountdown";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
-import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
@@ -28,6 +28,10 @@ function formatEuros(n: number): string {
 export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailViewProps) {
   const creditKind = detail.walletCreditKind;
   const returnCommitmentMet = isCartReturnCommitmentMet(detail.returnShipment?.status);
+  const borrowDeliveredAtIso = resolveOutboundBorrowDeliveredAtIso(
+    detail.shipment?.deliveredAt,
+    detail.shipment?.updatedAt,
+  );
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
@@ -48,9 +52,9 @@ export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailView
           <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
             Emprunt en cours
           </h1>
-          {detail.shipment?.updatedAt ? (
+          {borrowDeliveredAtIso ? (
             <EmpruntBorrowCountdown
-              deliveredAtIso={detail.shipment.updatedAt}
+              deliveredAtIso={borrowDeliveredAtIso}
               orderNumberCompact={detail.orderNumberCompact}
               membershipLabel={membershipLabel}
             />
@@ -64,7 +68,7 @@ export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailView
 
       <EmpruntBorrowSummarySection
         cartId={detail.cartId}
-        deliveredAtIso={detail.shipment?.updatedAt ?? null}
+        deliveredAtIso={borrowDeliveredAtIso}
         returnCommitmentMet={returnCommitmentMet}
         membershipLabel={membershipLabel}
       />

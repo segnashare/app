@@ -2,13 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-import { computeBorrowDeadlineMs, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
-
-const MS_PER_DAY = 86_400_000;
-const MS_PER_HOUR = 3_600_000;
-const MS_PER_MINUTE = 60_000;
-/** À partir de ce délai restant : message « Plus que … avant retour (jj/mm) ». */
-const URGENT_LAST_DAYS_MS = 3 * MS_PER_DAY;
+import {
+  BORROW_MS_PER_DAY,
+  computeBorrowDeadlineMs,
+  formatBorrowLastHoursCountdown,
+  type SegnaBorrowMembershipLabel,
+} from "@/lib/emprunt/borrow-period";
 
 type EmpruntBorrowCountdownProps = {
   deliveredAtIso: string;
@@ -41,20 +40,6 @@ function formatDeadlineLong(deadlineMs: number): string {
   return raw.replace(/^\p{L}/u, (c) => c.toUpperCase());
 }
 
-/** Texte « Plus que X » (j., h, min). */
-function formatPlusQueDuration(remaining: number): string {
-  const d = Math.floor(remaining / MS_PER_DAY);
-  const h = Math.floor((remaining % MS_PER_DAY) / MS_PER_HOUR);
-  const m = Math.floor((remaining % MS_PER_HOUR) / MS_PER_MINUTE);
-  if (d >= 1) {
-    return h > 0 ? `${d} j. ${h} h` : `${d} j.`;
-  }
-  if (h >= 1) {
-    return m > 0 ? `${h} h ${m} min` : `${h} h`;
-  }
-  return `${m} min`;
-}
-
 function elapsedBorrowIntro(membershipLabel: SegnaBorrowMembershipLabel): string {
   if (membershipLabel === "Guest") {
     return "Les 10 jours après livraison sont écoulés";
@@ -63,7 +48,7 @@ function elapsedBorrowIntro(membershipLabel: SegnaBorrowMembershipLabel): string
 }
 
 /**
- * Date limite de retour (10 j. pour non-abonnés, +1 mois calendaire pour abonnés depuis livré) ; sous 3 j. restants : urgent.
+ * Date limite de retour ; décompte horaire uniquement dans les **dernières 24 h** (aligné sur le bloc « Gère ton panier »).
  */
 export function EmpruntBorrowCountdown({
   deliveredAtIso,
@@ -75,11 +60,13 @@ export function EmpruntBorrowCountdown({
   const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
 
   const [now, setNow] = useState(() => Date.now());
+  const remainingForTick = Number.isFinite(deadlineMs) ? clampRemaining(deadlineMs, now) : 0;
+  const inLast24h = remainingForTick > 0 && remainingForTick <= BORROW_MS_PER_DAY;
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    const id = window.setInterval(() => setNow(Date.now()), inLast24h ? 1000 : 60_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [inLast24h]);
 
   const lineClass = "text-[15px] font-normal leading-snug text-zinc-500";
 
@@ -95,8 +82,6 @@ export function EmpruntBorrowCountdown({
   const ddmm = formatDeadlineDdMm(deadlineMs);
   const longDate = formatDeadlineLong(deadlineMs);
 
-  const urgent = remaining > 0 && remaining <= URGENT_LAST_DAYS_MS;
-
   if (returnCommitmentMet) {
     return (
       <p className={`mt-4 ${lineClass}`}>
@@ -107,17 +92,18 @@ export function EmpruntBorrowCountdown({
   }
 
   return (
-    <p className={`mt-4 ${lineClass}`} aria-live={urgent ? "polite" : undefined}>
+    <p className={`mt-4 ${lineClass}`} aria-live={inLast24h ? "off" : "polite"}>
       {remaining <= 0 ? (
         <>
           {elapsedBorrowIntro(membershipLabel)} — date limite de retour : {longDate} ({ddmm}) · Commande{" "}
           {orderNumberCompact}. Pense à organiser ton retour depuis la section ci-dessous lorsque le flux sera
           disponible.
         </>
-      ) : remaining <= URGENT_LAST_DAYS_MS ? (
+      ) : remaining <= BORROW_MS_PER_DAY ? (
         <>
-          Plus que {formatPlusQueDuration(remaining)} avant retour ({ddmm}) — date limite : {longDate} · Commande{" "}
-          {orderNumberCompact}
+          Plus que{" "}
+          <span className="tabular-nums">{formatBorrowLastHoursCountdown(remaining)}</span> avant retour ({ddmm}) —
+          date limite : {longDate} · Commande {orderNumberCompact}
         </>
       ) : (
         <>

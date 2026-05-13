@@ -56,7 +56,7 @@ export function lendPipelineRank(
   if (ls === "validated") {
     if (fs === "verified") return 0;
     if (fs === "in_verification") return 1;
-    if (fs === "shipping" || fs === "pre_subscribe_eligible" || fs === "awaiting_subscription" || fs === "") return 2;
+    if (fs === "shipping" || fs === "") return 2;
   }
   if (ls === "validation_pending") return 3;
   if (ls === "evaluated") return 4;

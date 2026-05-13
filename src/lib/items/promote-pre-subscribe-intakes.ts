@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Après activation d’un abonnement prêteur (côté client) : passe en `shipping` les intakes
- * `awaiting_subscription` et `pre_subscribe_eligible` (parcours proposition) pour l’utilisateur courant.
- * Les webhooks Stripe appellent `promote_pre_subscribe_intakes_to_shipping_for_user` en service_role.
+ * RPC historique : la base ne dépend plus d’un passage par abonnement pour l’expédition.
  */
 export async function promotePreSubscribeIntakesToShipping(supabase: SupabaseClient) {
   const { data, error } = await supabase.rpc("promote_pre_subscribe_intakes_to_shipping");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
 import { ItemIntakePanel } from "@/components/item/ItemIntakePanel";
@@ -18,8 +18,12 @@ import {
 } from "./ExchangeOutboundShipmentCallout";
 import { ExchangeUberRelayFallbackBanner } from "./ExchangeUberRelayFallbackBanner";
 import {
+  getIntakeSessionAckServerStoreSnapshot,
+  getIntakeSessionAckStoreSnapshot,
   intakeSessionAckKey,
+  parseIntakeSessionAckStoreSnapshot,
   readIntakeSessionAckSet,
+  subscribeIntakeSessionAck,
   writeIntakeSessionAckSet,
 } from "@/lib/items/intake-session-ack";
 
@@ -93,12 +97,16 @@ export function ExchangeHeaderAlertStack({
   uberRelayFallback?: boolean;
 }) {
   const router = useRouter();
-  const [intakeAck, setIntakeAck] = useState<Set<string>>(() => readIntakeSessionAckSet());
+  const intakeAckSnapshot = useSyncExternalStore(
+    subscribeIntakeSessionAck,
+    getIntakeSessionAckStoreSnapshot,
+    getIntakeSessionAckServerStoreSnapshot,
+  );
+  const intakeAck = useMemo(
+    () => parseIntakeSessionAckStoreSnapshot(intakeAckSnapshot),
+    [intakeAckSnapshot],
+  );
   const [outboundHidden, setOutboundHidden] = useState(false);
-
-  useEffect(() => {
-    setIntakeAck(readIntakeSessionAckSet());
-  }, []);
 
   useEffect(() => {
     if (!outboundSummary) {
@@ -134,12 +142,9 @@ export function ExchangeHeaderAlertStack({
   ]);
 
   const persistIntakeAck = useCallback((itemId: string, listingStage: string) => {
-    setIntakeAck((prev) => {
-      const next = new Set(prev);
-      next.add(intakeSessionAckKey(itemId, listingStage));
-      writeIntakeSessionAckSet(next);
-      return next;
-    });
+    const next = new Set(readIntakeSessionAckSet());
+    next.add(intakeSessionAckKey(itemId, listingStage));
+    writeIntakeSessionAckSet(next);
   }, []);
 
   const frontLayerKey = useMemo(() => {
@@ -321,7 +326,7 @@ export function ExchangeHeaderAlertStack({
                 aria-hidden={!isFront}
               >
                 {isFront ? (
-                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
+                  <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "w-full bg-white")}>
                     <ItemIntakePanel
                       itemId={item.id}
                       listingStage={item.listingStage}

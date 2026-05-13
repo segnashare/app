@@ -98,8 +98,7 @@ function getStatusLabel(
 
   // Pipeline validée + contrôle OK : si la pièce est déjà `available` en DB, c’est le statut catalogue (bleu), pas l’étape « Vérifiée ».
   if (intakeListingStage === "validated") {
-    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "Éligible (validation)";
-    if (intakeFulfillmentStage === "awaiting_subscription" || intakeFulfillmentStage === "shipping") {
+    if (intakeFulfillmentStage === "shipping") {
       return "Expédition";
     }
     if (intakeFulfillmentStage === "in_verification") return "Vérification";
@@ -117,8 +116,7 @@ function getStatusLabel(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
-      if (fs === "pre_subscribe_eligible") return "Éligible (validation)";
-      if (fs === "awaiting_subscription" || fs === "shipping") return "Expédition";
+      if (fs === "shipping") return "Expédition";
       if (fs === "in_verification") return "Vérification";
       if (fs === "verified") {
         const st = status.trim().toLowerCase();
@@ -160,8 +158,7 @@ function statusPillClassName(
 
   // Priorité affichage sur la pipeline (fulfillment).
   if (intakeListingStage === "validated") {
-    if (intakeFulfillmentStage === "pre_subscribe_eligible") return "bg-violet-100 text-violet-900";
-    if (intakeFulfillmentStage === "awaiting_subscription" || intakeFulfillmentStage === "shipping") {
+    if (intakeFulfillmentStage === "shipping") {
       return "bg-blue-100 text-blue-700";
     }
     if (intakeFulfillmentStage === "in_verification") return "bg-amber-100 text-amber-900";
@@ -177,8 +174,7 @@ function statusPillClassName(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
-      if (fs === "pre_subscribe_eligible") return "bg-violet-100 text-violet-900";
-      if (fs === "awaiting_subscription" || fs === "shipping") return "bg-blue-100 text-blue-700";
+      if (fs === "shipping") return "bg-blue-100 text-blue-700";
       if (fs === "in_verification") return "bg-amber-100 text-amber-900";
       if (fs === "verified") {
         const st = status.trim().toLowerCase();

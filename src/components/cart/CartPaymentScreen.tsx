@@ -392,8 +392,26 @@ export function CartPaymentScreen({
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
   const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
 
+  const relayPostalNorm = relayPostal.replace(/\D/g, "").slice(0, 5);
+  const selectionPostalNorm = (selectedRelay?.postalCode ?? "").replace(/\D/g, "").slice(0, 5);
+  /** CP saisi = CP du point choisi (évite un relais « fantôme » issu du stockage alors que l’utilisateur a changé de CP). */
+  const relayPostalMatchesSelection =
+    selectedRelay != null &&
+    relayPostalNorm.length === 5 &&
+    relayPostalNorm === selectionPostalNorm;
+  /**
+   * Si une liste de résultats est affichée, le point choisi doit en faire partie (recherche actuelle).
+   * Liste vide : OK si relais + CP déjà alignés (retour sur la page sans relancer la recherche).
+   */
+  const relayPickMatchesVisibleResults =
+    relayPoints.length === 0
+      ? true
+      : selectedRelay != null && relayPoints.some((p) => p.code === selectedRelay.code);
+
   const deliveryReady =
-    deliveryChannel === "relay" ? selectedRelay != null : deliveryAddress != null;
+    deliveryChannel === "relay"
+      ? relayPostalMatchesSelection && relayPickMatchesVisibleResults
+      : deliveryAddress != null;
 
   const startStripeCheckout = useCallback(async () => {
     setStripeCheckoutError(null);
@@ -483,6 +501,8 @@ export function CartPaymentScreen({
       if (!res.ok) {
         setRelaySearchError(userFacingRelaySearchError(res.status, j.error));
         setRelayPoints([]);
+        setSelectedRelay(null);
+        writeCheckoutRelaySelection(null);
         return;
       }
       const raw = Array.isArray(j.points) ? j.points : [];
@@ -495,10 +515,20 @@ export function CartPaymentScreen({
       setRelayPoints(list);
       if (list.length === 0) {
         setRelaySearchError(j.hint ?? "Aucun point relais pour ce code postal.");
+        setSelectedRelay(null);
+        writeCheckoutRelaySelection(null);
+      } else {
+        setSelectedRelay((cur) => {
+          if (cur && list.some((x) => x.code === cur.code)) return cur;
+          writeCheckoutRelaySelection(null);
+          return null;
+        });
       }
     } catch {
       setRelaySearchError("Recherche impossible. Réessaie dans un instant.");
       setRelayPoints([]);
+      setSelectedRelay(null);
+      writeCheckoutRelaySelection(null);
     } finally {
       setRelayLoading(false);
     }

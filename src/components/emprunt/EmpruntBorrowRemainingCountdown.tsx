@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 
-import { BORROW_PERIOD_DAYS_GUEST, computeBorrowDeadlineMs, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import {
+  BORROW_MS_PER_DAY,
+  BORROW_PERIOD_DAYS_GUEST,
+  borrowRemainingDaysDisplayed,
+  computeBorrowDeadlineMs,
+  formatBorrowLastHoursCountdown,
+  type SegnaBorrowMembershipLabel,
+} from "@/lib/emprunt/borrow-period";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
-const MS_PER_DAY = 86_400_000;
 /** Gris corps (réf. maquette ~#555). */
 const BODY_GRAY = "text-[#555555]";
 
@@ -20,10 +26,6 @@ function clampRemaining(deadlineMs: number, now: number): number {
   return Math.max(0, deadlineMs - now);
 }
 
-function fullDaysRemaining(remainingMs: number): number {
-  return Math.floor(remainingMs / MS_PER_DAY);
-}
-
 function borrowIntroCopy(membershipLabel: SegnaBorrowMembershipLabel): string {
   if (membershipLabel === "Guest") {
     return `Emprunt de ${BORROW_PERIOD_DAYS_GUEST} jours à partir de la livraison.`;
@@ -31,7 +33,7 @@ function borrowIntroCopy(membershipLabel: SegnaBorrowMembershipLabel): string {
   return `Emprunt d'un mois à partir de la livraison.`;
 }
 
-/** Décompte en jours entiers uniquement. */
+/** Décompte : jours au plafond tant qu’il reste > 24 h ; compteur h/min/s le jour J. */
 export function EmpruntBorrowRemainingCountdown({
   deliveredAtIso,
   returnCommitmentMet,
@@ -41,11 +43,15 @@ export function EmpruntBorrowRemainingCountdown({
   const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
 
   const [now, setNow] = useState(() => Date.now());
+  const remainingForTick = Number.isFinite(deadlineMs)
+    ? clampRemaining(deadlineMs, now)
+    : 0;
+  const useFastTick = remainingForTick > 0 && remainingForTick <= BORROW_MS_PER_DAY;
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    const id = window.setInterval(() => setNow(Date.now()), useFastTick ? 1000 : 60_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [useFastTick]);
 
   const body = cn(
     segnaMontserrat.className,
@@ -67,28 +73,31 @@ export function EmpruntBorrowRemainingCountdown({
   }
 
   const remaining = clampRemaining(deadlineMs, now);
-  const days = fullDaysRemaining(remaining);
+  const days = borrowRemainingDaysDisplayed(remaining);
 
   const elapsedLabel =
     membershipLabel === "Guest"
       ? `Les ${BORROW_PERIOD_DAYS_GUEST} jours d'emprunt sont écoulés`
       : `La période d'emprunt d'un mois est écoulée`;
 
+  const lastDayCountdown = formatBorrowLastHoursCountdown(remaining);
+
   return (
-    <div aria-live="polite">
+    <div aria-live={useFastTick ? "off" : "polite"}>
       {remaining <= 0 ? (
         <p className={body}>
           {elapsedLabel} — pense à{" "}
           <span className="font-bold text-black">retourner ton panier</span> ci-dessous.
         </p>
-      ) : days >= 1 ? (
+      ) : remaining <= BORROW_MS_PER_DAY ? (
         <p className={body}>
-          Il te reste <span className="font-bold text-black">{days}&nbsp;jour{days > 1 ? "s" : ""}</span>{" "}
-          d&apos;emprunt.
+          Fin de l&apos;emprunt dans{" "}
+          <span className="font-bold text-black tabular-nums">{lastDayCountdown}</span>.
         </p>
       ) : (
         <p className={body}>
-          Il te reste <span className="font-bold text-black">moins d&apos;un jour</span> d&apos;emprunt.
+          Il te reste <span className="font-bold text-black">{days}&nbsp;jour{days > 1 ? "s" : ""}</span>{" "}
+          d&apos;emprunt.
         </p>
       )}
     </div>

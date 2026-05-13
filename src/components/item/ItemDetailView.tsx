@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronLeft, MoreVertical } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
@@ -19,8 +19,12 @@ import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
+  getIntakeSessionAckServerStoreSnapshot,
+  getIntakeSessionAckStoreSnapshot,
   intakeSessionAckKey,
+  parseIntakeSessionAckStoreSnapshot,
   readIntakeSessionAckSet,
+  subscribeIntakeSessionAck,
   writeIntakeSessionAckSet,
 } from "@/lib/items/intake-session-ack";
 import {
@@ -164,7 +168,15 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   const [recoveryConfirmOpen, setRecoveryConfirmOpen] = useState(false);
   const [recoverySubmitting, setRecoverySubmitting] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const [intakeAck, setIntakeAck] = useState<Set<string>>(() => readIntakeSessionAckSet());
+  const intakeAckSnapshot = useSyncExternalStore(
+    subscribeIntakeSessionAck,
+    getIntakeSessionAckStoreSnapshot,
+    getIntakeSessionAckServerStoreSnapshot,
+  );
+  const intakeAck = useMemo(
+    () => parseIntakeSessionAckStoreSnapshot(intakeAckSnapshot),
+    [intakeAckSnapshot],
+  );
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const itemIdRef = useRef<string | null>(null);
   itemIdRef.current = itemId;
@@ -225,10 +237,6 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     const q = qs.toString();
     router.replace(q ? `${path}?${q}` : path, { scroll: false });
   }, [itemId, pathname, router, searchParams, verificationPending]);
-
-  useEffect(() => {
-    setIntakeAck(readIntakeSessionAckSet());
-  }, []);
 
   useEffect(() => {
     if (!itemId) {
@@ -295,12 +303,9 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   }, [itemId]);
 
   const acknowledgeIntakeForSession = useCallback((ackItemId: string, listingStage: string) => {
-    setIntakeAck((prev) => {
-      const next = new Set(prev);
-      next.add(intakeSessionAckKey(ackItemId, listingStage));
-      writeIntakeSessionAckSet(next);
-      return next;
-    });
+    const next = new Set(readIntakeSessionAckSet());
+    next.add(intakeSessionAckKey(ackItemId, listingStage));
+    writeIntakeSessionAckSet(next);
   }, []);
 
   useEffect(() => {

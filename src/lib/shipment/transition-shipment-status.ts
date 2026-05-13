@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { notifyShipmentLifecycleAfterTransition } from "@/lib/notifications/lifecycle-shipment-notify";
+
 export type TransitionShipmentStatusParams = {
   shipmentId: string;
   ifCurrentStatus: string;
@@ -44,5 +46,16 @@ export async function transitionShipmentStatus(
   if (error) {
     return { ok: false, error: error.message };
   }
-  return parseTransitionShipmentStatusResult(data);
+  const parsed = parseTransitionShipmentStatusResult(data);
+  if (parsed.ok) {
+    void notifyShipmentLifecycleAfterTransition(admin, {
+      shipmentId: params.shipmentId,
+      fromStatus: params.ifCurrentStatus,
+      toStatus: params.toStatus,
+      source: params.source,
+    }).catch((e) => {
+      console.error("[transition_shipment_status] lifecycle notify", e);
+    });
+  }
+  return parsed;
 }

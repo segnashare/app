@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { CartScreen } from "@/components/cart/CartScreen";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
+import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { collectCmsShopItemIdsFromSectionsByKey } from "@/lib/cms/collect-cms-shop-item-ids";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
@@ -89,15 +90,16 @@ export default async function CartPage() {
   const panierSectionOrder = await perf.measure("cms.panier.order", () => fetchPanierSectionOrder(supabase));
   const needsShopSystemForYou = panierSectionOrder.includes("shop_system_for_you");
 
-  const [activeCart, catalogForYouRes] = (await Promise.all([
-    perf.measure("cart.active", () => fetchActiveCartForUser(supabase, userId)),
+  const tuple = (await Promise.all([
+    perf.measure("cart.active", () => fetchActiveCartForUser(supabase as never, userId)),
     needsShopSystemForYou
       ? perf.measure("rpc.get_shop_catalog_items", () => catalogSb.rpc("get_shop_catalog_items", { p_limit: 96 }))
       : Promise.resolve({ data: { items: [] }, error: null }),
-  ])) as [
-    Awaited<ReturnType<typeof fetchActiveCartForUser>>,
+  ])) as unknown as [
+    { cartId: string | null; status: string | null; lines: CartLineRowData[] },
     { data: unknown; error: { message?: string } | null },
   ];
+  const [activeCart, catalogForYouRes] = tuple;
   const cartLinesBase = activeCart.lines;
 
   const cartForYouPayload = (catalogForYouRes.data ?? { items: [] }) as { items?: ShopCatalogItem[] };

@@ -14,7 +14,7 @@ import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines"
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
-import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
+import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import {
   getMemberOutboundShipmentPhaseCopy,
   getOutboundShipmentDeliverySubtitle,
@@ -465,7 +465,7 @@ export default async function ExchangePage() {
     .filter((l) => {
       const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
       const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
-      return ls === "validated" && (fs === "shipping" || fs === "awaiting_subscription" || fs === "");
+      return ls === "validated" && (fs === "shipping" || fs === "");
     })
     .map((l) => l.id);
 
@@ -572,11 +572,14 @@ export default async function ExchangePage() {
     orderCardCartIds.length > 0
       ? perf.measure("shipments.outbound", () => supabase
           .from("shipments")
-          .select("cart_id,status,updated_at")
+          .select("cart_id,status,updated_at,delivered_at")
           .in("cart_id", orderCardCartIds)
           .eq("context", "cart_outbound")
           .is("deleted_at", null))
-      : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
+      : Promise.resolve({
+          data: [] as { cart_id: string; status: string; updated_at: string; delivered_at: string | null }[],
+          error: null,
+        }),
     orderCardCartIds.length > 0
       ? perf.measure("shipments.return", () => supabase
           .from("shipments")
@@ -587,13 +590,29 @@ export default async function ExchangePage() {
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
   ])) as any[];
 
-  const outboundShipmentByCartId = new Map<string, { status: string; updated_at: string }>();
+  const outboundShipmentByCartId = new Map<
+    string,
+    { status: string; updated_at: string; delivered_at: string | null }
+  >();
   if (outboundShipRes.error == null && Array.isArray(outboundShipRes.data)) {
-    for (const row of outboundShipRes.data as { cart_id: string; status: string; updated_at: string }[]) {
+    for (const row of outboundShipRes.data as {
+      cart_id: string;
+      status: string;
+      updated_at: string;
+      delivered_at: string | null;
+    }[]) {
       const cartId = row.cart_id;
       const prev = outboundShipmentByCartId.get(cartId);
-      if (!prev || new Date(row.updated_at) > new Date(prev.updated_at)) {
-        outboundShipmentByCartId.set(cartId, { status: row.status, updated_at: row.updated_at });
+      const anchorMs = Date.parse(resolveOutboundBorrowDeliveredAtIso(row.delivered_at, row.updated_at) ?? "");
+      const prevAnchorMs = prev
+        ? Date.parse(resolveOutboundBorrowDeliveredAtIso(prev.delivered_at, prev.updated_at) ?? "")
+        : Number.NaN;
+      if (!prev || (!Number.isNaN(anchorMs) && (Number.isNaN(prevAnchorMs) || anchorMs > prevAnchorMs))) {
+        outboundShipmentByCartId.set(cartId, {
+          status: row.status,
+          updated_at: row.updated_at,
+          delivered_at: row.delivered_at,
+        });
       }
     }
   }
@@ -628,7 +647,9 @@ export default async function ExchangePage() {
     const forceReturnNow = (() => {
       if (!ret || !ship) return false;
       if (String(ship.status).toLowerCase() !== "delivered") return false;
-      const deliveredAtMs = Date.parse(ship.updated_at);
+      const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at);
+      if (!borrowAnchorIso) return false;
+      const deliveredAtMs = Date.parse(borrowAnchorIso);
       const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
       if (!Number.isFinite(deadlineMs)) return false;
       return deadlineMs - Date.now() <= RETURN_ENFORCE_WINDOW_MS;
@@ -657,7 +678,11 @@ export default async function ExchangePage() {
       };
     }
     const phase = getMemberOutboundShipmentPhaseCopy(ship.status);
-    const deliveryLabel = getOutboundShipmentDeliverySubtitle(ship.status, ship.updated_at, fmtOrderDate);
+    const deliveryLabel = getOutboundShipmentDeliverySubtitle(
+      ship.status,
+      resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at) ?? ship.updated_at,
+      fmtOrderDate,
+    );
     const st = ship.status.toLowerCase();
     const detailHref = st === "delivered" ? (`/exchange/emprunt/${order.id}` as const) : undefined;
     return {

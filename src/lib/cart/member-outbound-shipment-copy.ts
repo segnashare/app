@@ -20,13 +20,13 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
       };
     case "dropped_in":
       return {
-        title: "Colis déposé",
-        detail: "Segna a déposé le colis chez le partenaire d’expédition (point relais ou prise en charge).",
+        title: "Colis en transit",
+        detail: "Ton colis est pris en charge par le partenaire (transport vers le point relais). Suis l’envoi via le partenaire ; tu seras informée quand le retrait sera possible.",
       };
     case "dropped_out":
       return {
-        title: "Ton dépôt relais est enregistré",
-        detail: "Tu as déposé le colis retour au point relais — engagement de délai respecté.",
+        title: "Colis disponible au relais",
+        detail: "Tu peux retirer ton colis au point relais — suivi et consignes dans l’app (lien partenaire).",
       };
     case "in_transit_in":
       return {
@@ -40,7 +40,7 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
       };
     case "delivered":
       return {
-        title: "Reçu",
+        title: "Réception de commande",
         detail: "Le transporteur confirme la réception du colis. Vérifie tes pièces et signale un souci depuis l’app si besoin.",
       };
     case "closed":
@@ -62,15 +62,16 @@ export function isOutboundShipmentInTransit(status: string): boolean {
 /**
  * Texte secondaire « livraison » sous la carte commande.
  * Aucune ligne tant que l’expédition n’est pas en transit (ou livrée / close).
+ * @param receptionAtIso Date affichée pour « Réception effective » : `delivered_at` ou repli `updated_at`.
  */
 export function getOutboundShipmentDeliverySubtitle(
   status: string,
-  updatedAtIso: string,
+  receptionAtIso: string,
   formatDate: (iso: string) => string,
 ): string | null {
   const s = status.toLowerCase();
   if (s === "delivered" || s === "closed") {
-    return `Réception effective le ${formatDate(updatedAtIso)}`;
+    return `Réception effective le ${formatDate(receptionAtIso)}`;
   }
   if (isOutboundShipmentInTransit(s)) {
     return getMemberOutboundShipmentPhaseCopy(status).detail;

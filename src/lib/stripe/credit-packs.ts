@@ -8,13 +8,14 @@ export function isCreditPackAmount(value: unknown): value is CreditPackAmount {
 
 /**
  * Libellés écran `/package?plan=credits`.
- * Bandeau = crédits ; corps = réduction affichée puis prix (prix TTC alignés sur Stripe `STRIPE_PRICE_CREDITS_*`).
+ * Bandeau = crédits ; corps = prix unitaire (€ / crédit) puis prix TTC (`STRIPE_PRICE_CREDITS_*`).
  */
 export const CREDIT_PACK_DISPLAY: Record<
   CreditPackAmount,
   {
     headerTitle: string;
-    discountLine: string;
+    /** Prix TTC du pack en centimes d’euro (aligné Stripe / `priceLine`). */
+    priceCentsTotal: number;
     priceLine: string;
     /** Sous le prix : accroche palier (souple / choisi / avantageux). */
     tagline: string;
@@ -23,23 +24,35 @@ export const CREDIT_PACK_DISPLAY: Record<
 > = {
   200: {
     headerTitle: "200 crédits",
-    discountLine: "(10%)",
+    priceCentsTotal: 1799,
     priceLine: "17,99 €",
     tagline: "Le plus souple",
     featured: false,
   },
   500: {
     headerTitle: "500 crédits",
-    discountLine: "(-30%)",
+    priceCentsTotal: 3499,
     priceLine: "34,99 €",
     tagline: "Le plus choisi",
     featured: true,
   },
   1000: {
     headerTitle: "1000 crédits",
-    discountLine: "(-50%)",
+    priceCentsTotal: 4999,
     priceLine: "49,99 €",
     tagline: "Le plus avantageux",
     featured: false,
   },
 };
+
+const euroPerCreditFormatter = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Libellé carte pack : `0,09€/crédit` (prix TTC d’un crédit, virgule décimale). */
+export function creditPackUnitEuroPerCreditLabel(amount: CreditPackAmount): string {
+  const { priceCentsTotal } = CREDIT_PACK_DISPLAY[amount];
+  const eurosPerCredit = priceCentsTotal / amount / 100;
+  return `${euroPerCreditFormatter.format(eurosPerCredit)}€/crédit`;
+}

@@ -11,6 +11,27 @@ const serverEnvSchema = z.object({
   SUPABASE_DEMO_URL: z.url().optional(),
   SUPABASE_DEMO_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_DEMO_SECRET_KEY: z.string().min(1).optional(),
+  /** Resend (e-mails transactionnels). Si absent, les envois e-mail sont ignorés. */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  /** Ex. `commandes@domain.tld` ou `Segna <commandes@domain.tld>`. */
+  RESEND_FROM_EMAIL: z.string().min(3).optional(),
+  /** Twilio (SMS). Si SID/token absents, les SMS sont ignorés. */
+  TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+  TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+  /** Base URL absolue pour assets e-mail (logo), ex. `https://app.segnashare.com`. */
+  SEGNA_EMAIL_PUBLIC_BASE_URL: z.string().optional(),
+  /** Optionnel : utiliser un Messaging Service (recommandé prod). */
+  TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+  /** Expéditeur SMS E.164 si pas de Messaging Service. */
+  TWILIO_FROM_NUMBER: z.string().min(1).optional(),
+  /** Si `1`, les notifications en `email+phone` envoient aussi un SMS (alertes délai / retard). */
+  SEGNA_NOTIFY_SMS_ALERTS: z.string().optional(),
+  /** Route cron `GET /api/cron/member-lifecycle-reminders` : `Authorization: Bearer …` */
+  SEGNA_CRON_SECRET: z.string().optional(),
+  /** Webhooks internes `POST /api/internal/member-lifecycle/notify` (étapes pièce depuis n8n / backoffice). */
+  SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: z.string().optional(),
+  /** Optionnel : `POST /api/internal/shipment-lifecycle-notify` ; sinon réutilisation de `SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET`. */
+  SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET: z.string().optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
@@ -43,6 +64,17 @@ export function getServerEnv(): ServerEnv {
     SUPABASE_DEMO_URL: process.env.SUPABASE_DEMO_URL,
     SUPABASE_DEMO_SERVICE_ROLE_KEY: process.env.SUPABASE_DEMO_SERVICE_ROLE_KEY,
     SUPABASE_DEMO_SECRET_KEY: process.env.SUPABASE_DEMO_SECRET_KEY,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
+    TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
+    TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
+    TWILIO_FROM_NUMBER: process.env.TWILIO_FROM_NUMBER,
+    SEGNA_EMAIL_PUBLIC_BASE_URL: process.env.SEGNA_EMAIL_PUBLIC_BASE_URL,
+    SEGNA_NOTIFY_SMS_ALERTS: process.env.SEGNA_NOTIFY_SMS_ALERTS,
+    SEGNA_CRON_SECRET: process.env.SEGNA_CRON_SECRET,
+    SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET,
+    SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET,
   });
 
   cachedServerEnv = {

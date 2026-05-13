@@ -12,6 +12,7 @@ import {
   confirmCartPaidWalletOnly,
   debitCartWalletOnly,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
 import { readUberDirectConfig } from "@/lib/uber-direct/config";
@@ -21,7 +22,7 @@ import { computeExchangeRoundTripShippingCents } from "@/lib/shipping/exchange-s
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
-import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
+import { walletCreditKindForBillingSubscription, walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 
 type DeliveryChannel = "relay" | "home";
@@ -258,6 +259,12 @@ export async function POST(request: Request) {
         );
       }
 
+      try {
+        await notifyCartOrderPaidAfterConfirmation(admin, { userId, cartId: activeCart.cartId });
+      } catch (e) {
+        console.error("[stripe/cart/checkout] notifyCartOrderPaidAfterConfirmation", e);
+      }
+
       return NextResponse.json({ url: `${config.returnUrlBase}/exchange?cart=success` });
     }
 
@@ -292,7 +299,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const creditsKind = walletCreditKindForMembership(membershipLabel);
+    const stripeWalletTopupKind = walletCreditKindForBillingSubscription(null, null);
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
 
     if (creditsCents > 0) {
@@ -302,7 +309,7 @@ export async function POST(request: Request) {
           currency: "eur",
           unit_amount: creditsCents,
           product_data: {
-            name: "Complément crédits d'échange",
+            name: "Complément crédits Segna",
             description: `${missingExchangeMods} unité(s) au-delà du solde`,
           },
         },
@@ -380,7 +387,8 @@ export async function POST(request: Request) {
         delivery_instructions:
           deliveryChannel === "home" && deliveryInstructions ? deliveryInstructions.slice(0, 450) : "",
         missing_exchange_mods: String(missingExchangeMods),
-        exchange_credits_kind: creditsKind,
+        /** Historique : clé Stripe « exchange_credits_kind » ; valeur = seau wallet du complément € (consommation). */
+        exchange_credits_kind: stripeWalletTopupKind,
         credits_line_cents: String(creditsCents),
         // HT — mêmes champs qu’historique `shipping_cents` / `service_cents`.
         shipping_cents: String(shippingHtCents),

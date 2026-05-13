@@ -41,7 +41,7 @@ const DEFAULT_WALLET_INFO_COPY: WalletInfoSegment[][] = [
     { text: "Pour valider un panier, tu peux combiner tes " },
     { text: "Crédits d’échange", strong: true },
     { text: " (gagnés en prêtant tes pièces) et tes " },
-    { text: "Crédits SegnaX", strong: true },
+    { text: "Crédits Segna", strong: true },
     { text: " (achetés ou gagnés dans l’app)." },
   ],
   [
@@ -50,7 +50,7 @@ const DEFAULT_WALLET_INFO_COPY: WalletInfoSegment[][] = [
     { text: " te sont " },
     { text: "rendus", strong: true },
     { text: " sur ton wallet, alors que tes " },
-    { text: "Crédits SegnaX", strong: true },
+    { text: "Crédits Segna", strong: true },
     { text: " sont " },
     { text: "définitivement consommés", strong: true },
     { text: "." },
@@ -141,10 +141,10 @@ export function WalletPanel({
             <div className="space-y-1.5 border-t border-zinc-200/80 pt-2">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="flex min-w-0 shrink items-center gap-1.5 text-zinc-600">
-                  <span>Crédits SegnaX</span>
+                  <span>Crédits Segna</span>
                   <button
                     type="button"
-                    aria-label="Informations sur les crédits SegnaX"
+                    aria-label="Informations sur les crédits Segna"
                     aria-expanded={openInfo === "segna-x"}
                     onClick={() => setOpenInfo((current) => (current === "segna-x" ? null : "segna-x"))}
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-zinc-950 transition active:opacity-60"

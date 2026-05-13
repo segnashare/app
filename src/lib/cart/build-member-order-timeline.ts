@@ -25,7 +25,13 @@ function historyLabel(toStatus: string, reason: string | null): string | null {
 
 type HistoryRow = { created_at: string; to_status: string; reason: string | null };
 
-type ShipmentSlice = { created_at: string; updated_at: string; status: string };
+type ShipmentSlice = {
+  created_at: string;
+  updated_at: string;
+  status: string;
+  /** Réception aller ; si présent, horodatage de l’étape « livré » sur la frise. */
+  delivered_at?: string | null;
+};
 
 /**
  * Frise type « détails livraison » : événements triés (panier, historique statuts, expédition).
@@ -53,10 +59,17 @@ export function buildMemberOrderTimeline(
 
   if (shipment) {
     const cMs = Date.parse(shipment.created_at);
-    const uMs = Date.parse(shipment.updated_at);
     if (!Number.isNaN(cMs)) {
       events.push({ t: cMs, label: "Prise en charge logistique" });
     }
+    const stLc = shipment.status.toLowerCase();
+    const deliveredIso =
+      (stLc === "delivered" || stLc === "closed") &&
+      typeof shipment.delivered_at === "string" &&
+      shipment.delivered_at.trim()
+        ? shipment.delivered_at.trim()
+        : shipment.updated_at;
+    const uMs = Date.parse(deliveredIso);
     if (!Number.isNaN(uMs)) {
       const phase = getMemberOutboundShipmentPhaseCopy(shipment.status);
       events.push({ t: uMs, label: phase.title });

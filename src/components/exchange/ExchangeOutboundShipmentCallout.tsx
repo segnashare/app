@@ -10,7 +10,6 @@ import {
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
-import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -66,123 +65,79 @@ export function ExchangeOutboundShipmentCallout({
   if (st === "closed" || !ready || !visible) return null;
 
   const delivered = st === "delivered";
-  const isUber =
-    isUberCartOutboundShipment({
-      outboundProviderCode: summary.outboundProviderCode,
-      memberTrackingUrl: summary.memberTrackingUrl,
-      trackingNumber: summary.trackingNumber,
-    }) ||
-    checkoutMetaIndicatesUberDirect(summary.checkoutDeliveryChannel, summary.checkoutHomeSpeed);
-  const trackingUrl = isUber
-    ? summary.memberTrackingUrl
-    : summary.trackingNumber != null
-      ? buildMondialRelayTrackingUrl(summary.trackingNumber)
-      : null;
-  const trackingLinkLabel = isUber ? "Voir le suivi Uber" : "Suivre sur Mondial Relay";
-  const returnActive = isActiveMemberReturnPhase(summary.returnShipmentStatus);
-  const ctaHref = delivered
-    ? returnActive
-      ? `/exchange/retour/${summary.cartId}`
-      : `/exchange/emprunt/${summary.cartId}`
-    : `/commande/${summary.cartId}`;
-  const ctaLabel = delivered ? (returnActive ? "Voir mon retour" : "Voir mon emprunt") : "Voir ma commande";
+  const showTracking = !delivered && st !== "ready" && Boolean(summary.trackingNumber);
+  const isUber = showTracking
+    ? isUberCartOutboundShipment({
+        outboundProviderCode: summary.outboundProviderCode,
+        memberTrackingUrl: summary.memberTrackingUrl,
+        trackingNumber: summary.trackingNumber,
+      }) ||
+      checkoutMetaIndicatesUberDirect(summary.checkoutDeliveryChannel, summary.checkoutHomeSpeed)
+    : false;
+  const trackingUrl = showTracking
+    ? isUber
+      ? summary.memberTrackingUrl
+      : summary.trackingNumber != null
+        ? buildMondialRelayTrackingUrl(summary.trackingNumber)
+        : null
+    : null;
+
+  const ctaHref = `/commande/${summary.cartId}`;
+  const ctaLabel = delivered ? "Vérifie ta commande" : "Voir ma commande";
 
   const card = (
     <div
       className={cn(
-        "relative rounded-2xl p-4 backdrop-blur-[2px]",
-        delivered
-          ? "border border-emerald-300/90 bg-emerald-100/65 shadow-[0_8px_30px_rgba(16,185,129,0.12)]"
-          : "border border-zinc-300/90 bg-zinc-50/90 shadow-[0_8px_30px_rgba(24,24,27,0.08)]",
+        "relative rounded-2xl border border-zinc-300/90 bg-zinc-50/90 p-4 shadow-[0_8px_30px_rgba(24,24,27,0.08)] backdrop-blur-[2px]",
         embedded && !stackInteractive && "pointer-events-none select-none",
       )}
       role="status"
       aria-live="polite"
     >
-        <button
-          type="button"
-          onClick={dismiss}
+      <button
+        type="button"
+        onClick={dismiss}
+        className="absolute right-2 top-2 z-[1] inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-800 transition hover:bg-zinc-200/70"
+        aria-label="Fermer"
+      >
+        <X className="h-5 w-5" strokeWidth={2.25} />
+      </button>
+
+      <div className="min-w-0 pr-10">
+        <h2
           className={cn(
-            "absolute right-2 top-2 z-[1] inline-flex h-10 w-10 items-center justify-center rounded-full transition",
-            delivered
-              ? "text-emerald-950 hover:bg-emerald-200/50"
-              : "text-zinc-800 hover:bg-zinc-200/70",
-          )}
-          aria-label="Fermer"
-        >
-          <X className="h-5 w-5" strokeWidth={2.25} />
-        </button>
-
-        {/* Décalage à droite seulement pour le texte (croix), pas le CTA — marges latérales symétriques pour le bouton */}
-        <div className="min-w-0 pr-10">
-          {delivered ? (
-            <p className="text-[15px] font-semibold text-emerald-950">{copy.title}</p>
-          ) : (
-            <h2
-              className={cn(
-                "text-[22px] font-bold leading-tight text-zinc-900",
-                segnaPlayfairDisplay.className,
-                SEGNA_SECTION_TITLE_CLASSNAME,
-              )}
-            >
-              {copy.title}
-            </h2>
-          )}
-
-          <p
-            className={cn(
-              "mt-1.5 text-sm leading-snug",
-              delivered ? "text-emerald-900/90" : "text-[14px] font-medium text-zinc-600",
-            )}
-          >
-            {copy.detail}
-          </p>
-
-          {st !== "ready" && summary.trackingNumber ? (
-            <div
-              className={cn(
-                "mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[14px] leading-snug",
-                delivered ? "text-emerald-900/90" : "text-zinc-700",
-              )}
-            >
-              <span className={delivered ? "text-emerald-800/90" : "text-zinc-600"}>Suivi</span>
-              <span
-                className={cn("font-mono text-[15px] font-semibold", delivered ? "text-emerald-950" : "text-zinc-900")}
-              >
-                {summary.trackingNumber}
-              </span>
-              {trackingUrl ? (
-                <>
-                  <span className={delivered ? "text-emerald-700/70" : "text-zinc-400"} aria-hidden>
-                    ·
-                  </span>
-                  <a
-                    href={trackingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                      "font-bold underline underline-offset-2",
-                      delivered ? "text-emerald-950" : "text-zinc-900",
-                    )}
-                  >
-                    {trackingLinkLabel}
-                  </a>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <Link
-          href={ctaHref}
-          onClick={dismiss}
-          className={cn(
-            "mt-3 flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-bold text-white",
-            delivered ? "bg-emerald-900" : "bg-zinc-950 hover:bg-zinc-900",
+            "text-[22px] font-bold leading-tight text-zinc-900",
+            segnaPlayfairDisplay.className,
+            SEGNA_SECTION_TITLE_CLASSNAME,
           )}
         >
-          {ctaLabel}
-        </Link>
+          {copy.title}
+        </h2>
+
+        <p className="mt-1.5 text-[14px] font-medium leading-snug text-zinc-600">{copy.detail}</p>
+      </div>
+
+      {showTracking && trackingUrl ? (
+        <a
+          href={trackingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 flex w-full items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-sm hover:bg-zinc-50"
+        >
+          Voir le suivi
+        </a>
+      ) : null}
+
+      <Link
+        href={ctaHref}
+        onClick={dismiss}
+        className={cn(
+          "flex w-full items-center justify-center rounded-full bg-zinc-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-zinc-900",
+          showTracking && trackingUrl ? "mt-3" : "mt-4",
+        )}
+      >
+        {ctaLabel}
+      </Link>
     </div>
   );
 

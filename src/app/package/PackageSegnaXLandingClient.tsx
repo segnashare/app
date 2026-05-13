@@ -5,7 +5,12 @@ import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
-import { CREDIT_PACK_AMOUNTS, CREDIT_PACK_DISPLAY, type CreditPackAmount } from "@/lib/stripe/credit-packs";
+import {
+  CREDIT_PACK_AMOUNTS,
+  CREDIT_PACK_DISPLAY,
+  creditPackUnitEuroPerCreditLabel,
+  type CreditPackAmount,
+} from "@/lib/stripe/credit-packs";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -32,7 +37,7 @@ function creditPackOfferTiers(): SubscriptionOfferTier[] {
     const d = CREDIT_PACK_DISPLAY[pack];
     return {
       badge: d.headerTitle,
-      title: d.discountLine,
+      title: creditPackUnitEuroPerCreditLabel(pack),
       subtitle: "",
       priceLine: d.priceLine,
       microLine: d.tagline,
@@ -340,7 +345,7 @@ function OfferTierCard({
   onSelect: () => void;
   /** Abonnement : pastille « Nouveau » ; packs crédits : palier mis en avant (ex. 500). */
   highlightAsFeatured: boolean;
-  /** Packs crédits : bandeau = volume de crédits, corps = réduction puis prix puis accroche. */
+  /** Packs crédits : bandeau = volume de crédits, corps = prix unitaire (€/crédit) puis prix puis accroche. */
   creditPackCard?: boolean;
 }) {
   /** Packs crédits : tout en noir (zinc-950) ; le gris zinc-500 reste pour l’abonnement « Nouveau » / palier mis en avant. */

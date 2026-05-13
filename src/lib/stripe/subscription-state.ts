@@ -14,7 +14,7 @@ function unixToIso(value: number | null | undefined): string | null {
   return new Date(value * 1000).toISOString();
 }
 
-async function getMappedPlanCodeFromSubscription(admin: any, subscription: Stripe.Subscription): Promise<PlanCode> {
+export async function getMappedPlanCodeFromSubscription(admin: any, subscription: Stripe.Subscription): Promise<PlanCode> {
   const stripePriceId = subscription.items.data[0]?.price?.id ?? null;
 
   if (stripePriceId) {
