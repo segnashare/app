@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { getServerEnv } from "@/lib/config/env";
+import { getCronRouteBearerSecret } from "@/lib/config/env";
 import { dispatchReferrerBonusSmsForReferredUser } from "@/lib/referral/referrer-bonus-notify";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Secours : envoie les SMS « bonus parrain » manqués (idempotence par `referrals.id`).
- * Planifier avec `Authorization: Bearer ${SEGNA_CRON_SECRET}` (ex. toutes les 15 min).
+ * Planifier avec le même Bearer que les autres crons (`SEGNA_CRON_SECRET` ou `CRON_SECRET` Vercel).
  */
 export async function GET(request: Request) {
-  const { SEGNA_CRON_SECRET } = getServerEnv();
-  const expected = SEGNA_CRON_SECRET?.trim() ?? "";
+  const expected = getCronRouteBearerSecret();
   if (!expected) {
     return NextResponse.json({ ok: false as const, error: "cron_secret_not_configured" }, { status: 503 });
   }

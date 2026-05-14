@@ -26,8 +26,10 @@ const serverEnvSchema = z.object({
   TWILIO_FROM_NUMBER: z.string().min(1).optional(),
   /** Si `1`, les notifications en `email+phone` envoient aussi un SMS (alertes délai / retard). */
   SEGNA_NOTIFY_SMS_ALERTS: z.string().optional(),
-  /** Route cron `GET /api/cron/member-lifecycle-reminders` : `Authorization: Bearer …` */
+  /** Route cron `GET /api/cron/*` : `Authorization: Bearer …` (prioritaire sur CRON_SECRET). */
   SEGNA_CRON_SECRET: z.string().optional(),
+  /** Vercel Cron envoie `Authorization: Bearer $CRON_SECRET` si la variable est définie sur le projet. */
+  CRON_SECRET: z.string().optional(),
   /** Webhooks internes `POST /api/internal/member-lifecycle/notify` (étapes pièce depuis n8n / backoffice). */
   SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: z.string().optional(),
   /** Optionnel : `POST /api/internal/shipment-lifecycle-notify` ; sinon réutilisation de `SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET`. */
@@ -73,6 +75,7 @@ export function getServerEnv(): ServerEnv {
     SEGNA_EMAIL_PUBLIC_BASE_URL: process.env.SEGNA_EMAIL_PUBLIC_BASE_URL,
     SEGNA_NOTIFY_SMS_ALERTS: process.env.SEGNA_NOTIFY_SMS_ALERTS,
     SEGNA_CRON_SECRET: process.env.SEGNA_CRON_SECRET,
+    CRON_SECRET: process.env.CRON_SECRET,
     SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET,
     SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET,
   });
@@ -86,4 +89,10 @@ export function getServerEnv(): ServerEnv {
   };
 
   return cachedServerEnv;
+}
+
+/** Bearer attendu sur `GET /api/cron/*` : `SEGNA_CRON_SECRET`, sinon `CRON_SECRET` (Vercel Cron). */
+export function getCronRouteBearerSecret(): string {
+  const e = getServerEnv();
+  return (e.SEGNA_CRON_SECRET?.trim() || e.CRON_SECRET?.trim() || "");
 }
