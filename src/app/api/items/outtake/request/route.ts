@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const READY_STATUSES = new Set(["available", "listed"]);
+const READY_STATUSES = new Set(["available"]);
 
 export async function POST(request: Request) {
   const ct = request.headers.get("content-type") ?? "";

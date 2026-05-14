@@ -35,7 +35,7 @@ export default async function ItemRetourExpeditionPage({ params }: PageProps) {
   const outMeta = outtake?.metadata ?? {};
   const existingLabelUrl = typeof outMeta.return_label_url === "string" ? outMeta.return_label_url : null;
   const existingTracking = typeof outMeta.return_tracking_number === "string" ? outMeta.return_tracking_number : null;
-  const canShipNow = status === "retired" || status === "available" || status === "listed";
+  const canShipNow = status === "retired" || status === "available";
   const canCancelReturn = Boolean(outtake && !outtake.deletedAt && outtake.stage === "return_open");
 
   return (

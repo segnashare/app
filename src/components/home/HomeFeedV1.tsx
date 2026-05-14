@@ -18,7 +18,7 @@ type FeedItemCard = {
   title: string;
   description: string;
   pricePoints: number | null;
-  status: "listed" | "available";
+  status: string;
   ownerUserId: string;
   ownerDisplayName: string | null;
   rawPhotos: unknown;
@@ -101,17 +101,9 @@ function getImageRatioFromUrl(url: string) {
   });
 }
 
-function FeedProfileVisualization({
-  profileUserId,
-  displayName,
-  onLikeFrame,
-}: {
-  profileUserId: string;
-  displayName: string;
-  onLikeFrame?: () => void;
-}) {
+function FeedProfileVisualization({ profileUserId, displayName }: { profileUserId: string; displayName: string }) {
   const { data, isLoading } = useProfileViewData(profileUserId, displayName);
-  return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} onLikeFrame={onLikeFrame} />;
+  return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} />;
 }
 
 export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, initialAdBanner }: HomeFeedV1Props) {
@@ -299,7 +291,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           title?: string | null;
           description?: string | null;
           price_points?: number | null;
-          status?: "listed" | "available" | null;
+          status?: string | null;
           photos?: unknown;
           category_label?: string | null;
           categorie?: string | null;
@@ -601,7 +593,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
             {[currentCard.age ? `${currentCard.age} ans` : null, currentCard.city].filter(Boolean).join(" · ") || "Profil membre"}
           </p>
           <div className="bg-white">
-            <FeedProfileVisualization profileUserId={currentCard.id} displayName={currentCard.displayName} onLikeFrame={handleLikeFromFrame} />
+            <FeedProfileVisualization profileUserId={currentCard.id} displayName={currentCard.displayName} />
           </div>
         </div>
       )}

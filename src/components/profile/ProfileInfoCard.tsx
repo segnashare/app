@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Briefcase, Cigarette, Dumbbell, MapPin, Moon, Repeat2, Star, Wine } from "lucide-react";
+import { Fragment, type ReactNode } from "react";
+import { Briefcase, MapPin, Repeat2, Star } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
@@ -29,10 +29,6 @@ export type ProfileInfoCardData = {
   levelIcon?: string | null;
   levelNumber?: number;
   exchangeCount?: number;
-  smoking?: boolean;
-  alcohol?: boolean;
-  sport?: boolean;
-  night?: boolean;
   city: string | null;
   profession: string | null;
   socialSectionVisible?: boolean;
@@ -53,7 +49,7 @@ type ProfileInfoCardProps = {
 const CAKE_ICON_PATH = "/ressources/icons/cake.svg";
 
 export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
-  const scrollItems: Array<{ key: string; content: React.ReactNode }> = [];
+  const scrollItems: Array<{ key: string; content: ReactNode }> = [];
 
   if (data.age) {
     scrollItems.push({
@@ -91,42 +87,6 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
     ),
   });
 
-  scrollItems.push({
-    key: "smoking",
-    content: (
-      <span className={cn("flex items-center gap-1", data.smoking ? "text-zinc-700" : "text-zinc-300")} title={data.smoking ? "Fume" : "Ne fume pas"}>
-        <Cigarette className="h-5 w-5" strokeWidth={2} />
-      </span>
-    ),
-  });
-
-  scrollItems.push({
-    key: "alcohol",
-    content: (
-      <span className={cn("flex items-center gap-1", data.alcohol ? "text-zinc-700" : "text-zinc-300")} title={data.alcohol ? "Alcool" : "Pas d'alcool"}>
-        <Wine className="h-5 w-5" strokeWidth={2} />
-      </span>
-    ),
-  });
-
-  scrollItems.push({
-    key: "sport",
-    content: (
-      <span className={cn("flex items-center gap-1", data.sport ? "text-zinc-700" : "text-zinc-300")} title={data.sport ? "Sport" : "Pas de sport"}>
-        <Dumbbell className="h-5 w-5" strokeWidth={2} />
-      </span>
-    ),
-  });
-
-  scrollItems.push({
-    key: "night",
-    content: (
-      <span className={cn("flex items-center gap-1", data.night ? "text-zinc-700" : "text-zinc-300")} title={data.night ? "Vie nocturne" : "Pas de vie nocturne"}>
-        <Moon className="h-5 w-5" strokeWidth={2} />
-      </span>
-    ),
-  });
-
   return (
     <div
       className={cn(
@@ -134,16 +94,18 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
         className,
       )}
     >
-      {/* Ligne 1 : éléments scrollables horizontalement avec séparateurs */}
-      <div className="overflow-x-auto overflow-y-hidden pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-w-max items-center">
+      {/* Ligne 1 : trois zones équilibrées sur la largeur (séparateurs entre colonnes) */}
+      <div className="w-full min-w-0 pb-4">
+        <div className="flex w-full items-stretch">
           {scrollItems.map((item, index) => (
-            <span key={item.key} className="flex items-center">
+            <Fragment key={item.key}>
               {index > 0 ? (
-                <span className="mx-4 w-px shrink-0 self-stretch bg-zinc-200" aria-hidden />
+                <span className="mx-3 w-px shrink-0 self-stretch bg-zinc-200 sm:mx-4" aria-hidden />
               ) : null}
-              <span className="shrink-0">{item.content}</span>
-            </span>
+              <div className="flex min-w-0 flex-1 items-center justify-center">
+                <span className="shrink-0">{item.content}</span>
+              </div>
+            </Fragment>
           ))}
         </div>
       </div>

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BadgeCheck, ShieldCheck, Settings } from "lucide-react";
+import { BadgeCheck, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CmsFrameItem, CmsLinkCardCtaToneProvider } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
 import { CommunityBadgesGrid } from "@/components/community/CommunityBadgesGrid";
 import { CommunityShareActions } from "@/components/community/CommunityShareActions";
+import { GoogleReviewCta } from "@/components/reviews/GoogleReviewCta";
+import { TrustpilotReviewCta } from "@/components/reviews/TrustpilotReviewCta";
 import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySummary";
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
@@ -24,6 +26,10 @@ const PROFILE_TABS = [
   { id: "me", label: "Mon profil" },
 ] as const;
 
+/** Coquille commune pour les deux liens d’avis (même hauteur, même style « bouton »). */
+const PROFILE_REVIEW_CARD_SHELL =
+  "flex h-14 w-full min-w-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200 bg-white px-1.5 shadow-sm transition hover:border-zinc-300 hover:shadow-md sm:px-2";
+
 type ProfileTabId = (typeof PROFILE_TABS)[number]["id"];
 
 type ProfileTabsProps = {
@@ -33,6 +39,8 @@ type ProfileTabsProps = {
   initialPlusTabCmsFrames?: CmsFrameRow[];
   /** CMS — onglet Mon profil : frames `profile_plus_hero` (page Autre dans le BO), même format que « Obtenir plus ». */
   initialMeTabProfileHeroFrames?: CmsFrameRow[];
+  /** CMS — bannière du bloc parrainage (`shop_link_card`, section `profile_referral_banner`, page Autre BO). */
+  initialReferralBannerFrames?: CmsFrameRow[];
   /** Code parrainage (table `referrals_codes`) — affiché sous les cartes « Obtenir plus ». */
   initialReferralCode?: string | null;
 };
@@ -92,6 +100,12 @@ const DEFAULT_GAMIFICATION_DATA: ProfileGamificationData = {
   progressPercent: 0,
   badges: [],
 };
+
+/**
+ * Streak, confiance et grille de badges (onglet « Obtenir plus »). Les données gamification
+ * continuent d’être chargées en arrière-plan ; passer à `true` pour réafficher avant refonte.
+ */
+const PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS = false;
 
 const TAB_SET = new Set<ProfileTabId>(PROFILE_TABS.map((tab) => tab.id));
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
@@ -261,6 +275,7 @@ export function ProfileTabs({
   initialDisplayName,
   initialPlusTabCmsFrames = [],
   initialMeTabProfileHeroFrames = [],
+  initialReferralBannerFrames = [],
   initialReferralCode = null,
 }: ProfileTabsProps) {
   const router = useRouter();
@@ -665,6 +680,11 @@ export function ProfileTabs({
     [initialMeTabProfileHeroFrames],
   );
 
+  const referralBannerRow = useMemo(
+    () => initialReferralBannerFrames.find((row) => row.frame_type === "shop_link_card") ?? null,
+    [initialReferralBannerFrames],
+  );
+
   const panelContent = useMemo(() => {
     if (activeTab === "plus") {
       return (
@@ -692,17 +712,15 @@ export function ProfileTabs({
               </div>
             </CmsLinkCardCtaToneProvider>
           ) : null}
-          <section className="space-y-3">
-            <CardBase className="space-y-3">
-              <CommunityShareActions referralCode={initialReferralCode} />
-            </CardBase>
-            <CardBase className="space-y-2">
-              <p className="text-sm text-zinc-500">Ton code</p>
-              <p className="inline-flex w-fit rounded-lg bg-[#F8F1EC] px-3 py-2 text-base font-semibold text-[#5E3023]">
-                {initialReferralCode ?? "Code indisponible"}
-              </p>
-            </CardBase>
-          </section>
+          <CommunityShareActions referralCode={initialReferralCode} referralBannerRow={referralBannerRow} />
+          <div className="grid w-full min-w-0 grid-cols-2 items-stretch gap-2.5">
+            <div className={PROFILE_REVIEW_CARD_SHELL}>
+              <TrustpilotReviewCta variant="inset" className="min-h-0" />
+            </div>
+            <div className={PROFILE_REVIEW_CARD_SHELL}>
+              <GoogleReviewCta variant="inset" className="min-h-0" />
+            </div>
+          </div>
         </div>
       );
     }
@@ -712,11 +730,9 @@ export function ProfileTabs({
         {!isLoadingHeader && headerData.kycStatus !== "verified" ? (
           <Link href="/profile/kyc?tab=me" className="block">
             <CardBase className="flex items-center gap-3">
-              {headerData.kycStatus === "rejected" ? (
-                <BadgeCheck className="text-[#E44D3E]" />
-              ) : (
-                <ShieldCheck className="text-zinc-500" />
-              )}
+              <BadgeCheck
+                className={headerData.kycStatus === "rejected" ? "text-[#E44D3E]" : "text-zinc-500"}
+              />
               <div>
                 <p className="text-xl font-semibold text-zinc-900">
                   {headerData.kycStatus === "rejected" ? "Vérification refusée" : "Vérification d'identité"}
@@ -810,30 +826,46 @@ export function ProfileTabs({
 
         {isLoadingGamification ? (
           <CardBase className="space-y-3 animate-pulse" aria-hidden>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="h-20 rounded-xl bg-zinc-100" />
-              <div className="h-20 rounded-xl bg-zinc-100" />
-            </div>
-            <div className="h-24 rounded-xl bg-zinc-100" />
-            <div className="h-28 rounded-xl bg-zinc-100" />
+            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="h-20 rounded-xl bg-zinc-100" />
+                  <div className="h-20 rounded-xl bg-zinc-100" />
+                </div>
+                <div className="h-24 rounded-xl bg-zinc-100" />
+                <div className="h-28 rounded-xl bg-zinc-100" />
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-between gap-3">
+                  <div className="h-5 w-44 rounded bg-zinc-100" />
+                  <div className="h-4 w-14 shrink-0 rounded bg-zinc-100" />
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-zinc-100" />
+                <div className="h-4 w-full max-w-[92%] rounded bg-zinc-100" />
+              </div>
+            )}
           </CardBase>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
-              <CardBase className="space-y-1">
-                <p className="text-sm text-zinc-500">Day streak</p>
-                <p className="text-xl font-semibold text-zinc-900">{gamificationData.dayStreak} jours</p>
-              </CardBase>
-              <CardBase className="space-y-1">
-                <p className="text-sm text-zinc-500">Confiance</p>
-                <p className="text-xl text-[#D4A017]">★★★★★</p>
-              </CardBase>
-            </div>
+            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
+              <div className="grid grid-cols-2 gap-3">
+                <CardBase className="space-y-1">
+                  <p className="text-sm text-zinc-500">Day streak</p>
+                  <p className="text-xl font-semibold text-zinc-900">{gamificationData.dayStreak} jours</p>
+                </CardBase>
+                <CardBase className="space-y-1">
+                  <p className="text-sm text-zinc-500">Confiance</p>
+                  <p className="text-xl text-[#D4A017]">★★★★★</p>
+                </CardBase>
+              </div>
+            ) : null}
 
             <CardBase className="space-y-3">
               <div className="flex items-baseline justify-between gap-3">
                 <p className="text-base font-semibold text-zinc-900">
-                  Niveau {gamificationData.currentLevelNo} - {gamificationData.currentRank}
+                  Niveau {gamificationData.currentLevelNo} -{" "}
+                  <span className="font-semibold italic">{gamificationData.currentRank}</span>
                 </p>
                 <p className="text-sm font-medium text-zinc-600">{gamificationData.totalXp} XP</p>
               </div>
@@ -841,15 +873,22 @@ export function ProfileTabs({
                 <div className="h-full rounded-full bg-zinc-900 transition-all" style={{ width: `${gamificationData.progressPercent}%` }} />
               </div>
               <p className="text-sm text-zinc-600">
-                {gamificationData.nextRank
-                  ? `${gamificationData.remainingToNext} XP restants pour atteindre ${gamificationData.nextRank}.`
-                  : "Palier maximum atteint."}
+                {gamificationData.nextRank ? (
+                  <>
+                    {gamificationData.remainingToNext} XP restants pour atteindre{" "}
+                    <span className="italic">{gamificationData.nextRank}</span>.
+                  </>
+                ) : (
+                  "Palier maximum atteint."
+                )}
               </p>
             </CardBase>
 
-            <CardBase className="space-y-3">
-              <CommunityBadgesGrid badges={gamificationData.badges} />
-            </CardBase>
+            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
+              <CardBase className="space-y-3">
+                <CommunityBadgesGrid badges={gamificationData.badges} />
+              </CardBase>
+            ) : null}
           </>
         )}
       </div>
@@ -861,6 +900,7 @@ export function ProfileTabs({
     headerData.kycStatus,
     initialPlusTabCmsFrames,
     initialReferralCode,
+    referralBannerRow,
     isLoadingGamification,
     isLoadingHeader,
     meProfileHeroRows,

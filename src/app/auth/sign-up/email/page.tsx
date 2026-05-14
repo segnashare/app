@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { AuthOAuthButtons } from "@/components/auth/AuthOAuthButtons";
@@ -11,6 +11,7 @@ import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
+import { persistReferralCodeFromSearchParam } from "@/lib/referral/referralInviteStorage";
 
 const montserrat = segnaMontserrat;
 
@@ -26,6 +27,10 @@ function SignUpEmailPageContent() {
   });
   const searchParams = useSearchParams();
   const oauthErrorCode = searchParams.get("oauth_error");
+
+  useEffect(() => {
+    persistReferralCodeFromSearchParam(searchParams.get("ref"));
+  }, [searchParams]);
 
   const handleAuthErrorStateChange = useCallback((state: SignUpEmailAuthErrorState) => {
     setAuthErrors(state);

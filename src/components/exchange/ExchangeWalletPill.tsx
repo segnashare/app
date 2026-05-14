@@ -15,8 +15,6 @@ type ExchangeWalletPillProps = {
   balanceConsumptionPoints: number;
   /** Solde crédits d'échange (persisté `balance_exchange_points`). */
   balanceExchangePoints: number;
-  /** Somme des points des lignes du panier actif, ou null si aucun panier. */
-  activeCartCostPoints: number | null;
   hasReachedLendingCap: boolean;
   /** Total panier > capacité emprunt : pastille contrastée (sans rouge ni animation). */
   cartExceedsWallet?: boolean;
@@ -30,7 +28,6 @@ export function ExchangeWalletPill({
   availablePoints,
   balanceConsumptionPoints,
   balanceExchangePoints,
-  activeCartCostPoints,
   hasReachedLendingCap,
   cartExceedsWallet = false,
   onWalletPanelOpenChange,
@@ -42,10 +39,7 @@ export function ExchangeWalletPill({
     onWalletPanelOpenChange?.(walletModalOpen);
   }, [walletModalOpen, onWalletPanelOpenChange]);
 
-  const hasActiveCart = activeCartCostPoints !== null;
-  const walletPillLabel = hasActiveCart
-    ? `${activeCartCostPoints} / ${availablePoints}`
-    : `${availablePoints}`;
+  const walletPillLabel = `${availablePoints}`;
 
   const walletState = useMemo(() => {
     if (membershipLabel === "Guest") return "guest";

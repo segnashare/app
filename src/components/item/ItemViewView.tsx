@@ -72,7 +72,7 @@ type ItemViewViewProps = {
   frameActionVariant?: "heart" | "plus";
   frameActionActive?: boolean;
   forceDarkFrameAction?: boolean;
-  /** Masque les boutons cœur (ex. vue panier / catalogue sans interaction feed). */
+  /** Masque les boutons cœur / action sur les photos (true par défaut ; le feed passe false pour liker / panier). */
   hideFrameLikeButtons?: boolean;
   /**
    * Frames CMS section `segna_stock_property` (Propriété Segna). Si défini (ex. SSR fiche pièce), pas de chargement client.
@@ -104,7 +104,7 @@ export function ItemViewView({
   frameActionVariant = "heart",
   frameActionActive = false,
   forceDarkFrameAction = false,
-  hideFrameLikeButtons = false,
+  hideFrameLikeButtons = true,
   segnaStockPropertyCmsFrames,
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});

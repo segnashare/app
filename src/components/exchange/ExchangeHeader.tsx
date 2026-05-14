@@ -62,7 +62,6 @@ export function ExchangeHeader({
           availablePoints={availablePoints}
           balanceConsumptionPoints={balanceConsumptionPoints}
           balanceExchangePoints={balanceExchangePoints}
-          activeCartCostPoints={activeCartCostPoints}
           hasReachedLendingCap={hasReachedLendingCap}
           cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
           className={cn(guideOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target")}
@@ -81,8 +80,8 @@ export function ExchangeHeader({
               <div className="mt-2 space-y-2 text-sm text-zinc-600">
                 <p>Tu es en mode Guest : tu peux emprunter et utiliser tes crédits d&apos;échange.</p>
                 <p>
-                  Avec une adhésion SegnaX, tu débloques 500 crédits SegnaX inclus et 2 échanges mensuels inclus
-                  (gratuits).
+                  Avec une adhésion SegnaX, tu débloques <strong className="font-bold text-zinc-900">500 crédits SegnaX</strong>{" "}
+                  inclus et <strong className="font-bold text-zinc-900">2 échanges mensuels</strong> inclus (gratuits).
                 </p>
               </div>
             ) : subscriberMembershipDescription ? (

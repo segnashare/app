@@ -1,5 +1,6 @@
 import PackagePageLegacy from "@/app/package/PackagePageLegacy";
 import { PackageSegnaXLandingClient } from "@/app/package/PackageSegnaXLandingClient";
+import { fetchPlanEntitlementComparisonLimits } from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { parseSubscriptionPlanLandingPayload } from "@/lib/cms/subscription-plan-landing";
 import { getCurrentUserAppState } from "@/lib/auth/current-user-server";
@@ -39,12 +40,16 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
       }
     }
 
+    const planEntitlementComparisonLimits =
+      plan === "x" ? await fetchPlanEntitlementComparisonLimits() : undefined;
+
     return (
       <PackageSegnaXLandingClient
         content={content}
         planQuery={planQuery}
         identityVerifiedForSubscription={identityVerifiedForSubscription}
         showOfferOnboarding={showOfferOnboarding}
+        planEntitlementComparisonLimits={planEntitlementComparisonLimits}
       />
     );
   }

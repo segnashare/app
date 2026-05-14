@@ -332,7 +332,6 @@ export function CartScreen({
               availablePoints={availablePoints}
               balanceConsumptionPoints={balanceConsumptionPoints}
               balanceExchangePoints={balanceExchangePoints}
-              activeCartCostPoints={activeCartCostPointsForUi}
               hasReachedLendingCap={hasReachedLendingCap}
               cartExceedsWallet={cartExceedsWallet}
               onWalletPanelOpenChange={setWalletPanelOpen}

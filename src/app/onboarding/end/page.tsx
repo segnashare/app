@@ -33,6 +33,9 @@ export default function OnboardingEndPage() {
       setErrorMessage(error.message);
       return;
     }
+
+    void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
+
     router.push("/shop");
   };
 

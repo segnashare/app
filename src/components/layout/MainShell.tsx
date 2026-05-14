@@ -5,11 +5,14 @@ import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
+import { ReferrerBonusModal, type ReferrerBonusModalPayload } from "@/components/referral/ReferrerBonusModal";
+import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
 import { cn } from "@/lib/utils/cn";
 
 type InAppOnboardingIntroGate = {
   userId: string;
   lastSignInAt: string | null;
+  referralInvite: ReferralInviteIntroKind;
 };
 
 type MainShellProps = {
@@ -17,6 +20,7 @@ type MainShellProps = {
   isDemoMode?: boolean;
   inAppOnboardingIntro?: InAppOnboardingIntroGate | null;
   inAppOnboardingRewardUserId?: string | null;
+  referrerBonusModal?: ReferrerBonusModalPayload | null;
 };
 
 export function MainShell({
@@ -24,6 +28,7 @@ export function MainShell({
   isDemoMode = false,
   inAppOnboardingIntro = null,
   inAppOnboardingRewardUserId = null,
+  referrerBonusModal = null,
 }: MainShellProps) {
   return (
     <div className="min-h-[100dvh] bg-zinc-100 text-zinc-900">
@@ -42,9 +47,11 @@ export function MainShell({
         <InAppOnboardingIntroModal
           userId={inAppOnboardingIntro.userId}
           lastSignInAt={inAppOnboardingIntro.lastSignInAt}
+          referralInvite={inAppOnboardingIntro.referralInvite}
         />
       ) : null}
       {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal userId={inAppOnboardingRewardUserId} /> : null}
+      {referrerBonusModal ? <ReferrerBonusModal payload={referrerBonusModal} /> : null}
     </div>
   );
 }

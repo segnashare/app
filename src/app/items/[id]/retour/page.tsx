@@ -30,7 +30,7 @@ export default async function ItemRetourPage({ params }: PageProps) {
   if (!row) redirect("/exchange");
 
   const status = String(row.status ?? "");
-  const readyForReturn = status === "available" || status === "listed";
+  const readyForReturn = status === "available";
   const outtake = parseItemOuttakeSnapshot(row.item_outtake as unknown);
   if (outtake && !outtake.deletedAt && outtake.stage === "in_transit") {
     redirect(`/items/${encodeURIComponent(itemId)}/retour/expedition`);
@@ -54,7 +54,7 @@ export default async function ItemRetourPage({ params }: PageProps) {
         <p className="text-sm font-medium text-zinc-900">{(row.title as string | null)?.trim() || "Ta pièce"}</p>
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
           <p className="text-sm leading-relaxed text-zinc-700">
-            Cette page permet d’exiger un retour de ta pièce. Si elle est <strong>available/listed</strong>, le retour est
+            Cette page permet d’exiger un retour de ta pièce. Si elle est <strong>available</strong>, le retour est
             activé rapidement. Sinon, ta demande reste en attente tant que la pièce n’est pas revenue à un état prêt au
             retour.
           </p>

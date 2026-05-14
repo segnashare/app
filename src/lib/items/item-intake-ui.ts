@@ -39,7 +39,6 @@ export function normalizeItemIntakeEmbed(rawIntake: unknown): {
 const statusSortOrder: Record<string, number> = {
   available: 0,
   in_cart: 0,
-  listed: 1,
   draft: 3,
   reserved: 3,
 };
@@ -64,12 +63,13 @@ export function lendPipelineRank(
   return 6;
 }
 
-/** verified = disponible au catalogue : même rang de tri que `available`, pas `listed`. */
+/** verified = disponible au catalogue : même rang de tri que `available`. */
 export function effectiveCatalogSortRank(
   itemStatus: string,
   intake: { listing_stage: string; fulfillment_stage: string | null } | null,
 ): number {
-  const key = itemStatus.toLowerCase();
+  const raw = itemStatus.toLowerCase();
+  const key = raw === "listed" ? "available" : raw;
   const ls = intake?.listing_stage?.toLowerCase() ?? "";
   const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
   if (key === "refused" || key === "draft_deleted" || ls === "refused" || fs === "refused") return -1;

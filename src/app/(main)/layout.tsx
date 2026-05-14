@@ -18,7 +18,11 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
 
   const inAppOnboardingIntro =
     userState.onboarding_process === "intro"
-      ? { userId: user.id, lastSignInAt: user.last_sign_in_at ?? null }
+      ? {
+          userId: user.id,
+          lastSignInAt: user.last_sign_in_at ?? null,
+          referralInvite: userState.referralInviteForIntro,
+        }
       : null;
   const inAppOnboardingRewardUserId = userState.onboarding_process === "reward" ? user.id : null;
 
@@ -29,6 +33,7 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
       isDemoMode={isDemoMode}
       inAppOnboardingIntro={inAppOnboardingIntro}
       inAppOnboardingRewardUserId={inAppOnboardingRewardUserId}
+      referrerBonusModal={userState.referrerBonusModal}
     >
       {children}
     </MainShell>

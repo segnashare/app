@@ -21,7 +21,7 @@ type InitialFeedCard =
       id: string;
       title: string;
       description: string;
-      status: "listed" | "available";
+      status: string;
       pricePoints: number | null;
       ownerUserId: string;
       ownerDisplayName: string | null;
@@ -84,7 +84,7 @@ export default async function HomePageV1Archived() {
       title?: string | null;
       description?: string | null;
       price_points?: number | null;
-      status?: "listed" | "available" | null;
+          status?: string | null;
       item_id?: string | null;
       profile_user_id?: string | null;
       owner_user_id?: string | null;

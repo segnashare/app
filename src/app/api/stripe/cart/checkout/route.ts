@@ -5,6 +5,10 @@ import type { CheckoutDeliveryAddress, CheckoutRelaySelection } from "@/lib/cart
 import { computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
 import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
+import {
+  computeCartCheckoutRoundTripShippingHtCents,
+} from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -124,7 +128,6 @@ export async function POST(request: Request) {
 
     const userId = user.id as string;
     const membershipLabel = await resolveMembershipLabel(supabase, userId);
-    const isGuest = membershipLabel === "Guest";
 
     const activeCart = await fetchActiveCartForUser(
       supabase as unknown as Parameters<typeof fetchActiveCartForUser>[0],
@@ -172,20 +175,23 @@ export async function POST(request: Request) {
     const creditsCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
 
     const outboundMode = deliveryChannel === "relay" ? "relay" : "home";
-    const gridShipping = computeExchangeRoundTripShippingCents(itemCount, outboundMode);
+    const relayRoundTrip = computeExchangeRoundTripShippingCents(itemCount, "relay");
+    const currentRoundTrip = computeExchangeRoundTripShippingCents(itemCount, outboundMode);
+
     const { data: membershipState } = await supabase.rpc("get_current_membership_state");
     const remainingIncludedOrders = parseRemainingIncludedOrdersThisMonth(membershipState);
-    /** Livraisons incluses : plafonds `billing_plan_entitlement_limits.included_orders_limit` vs `orders_used`. */
-    const waiveRoundTripShippingHt = !isGuest && remainingIncludedOrders > 0;
-    /** Plus de surtaxe Segna pour Uber : aller facturé = devis API `delivery_quotes` + retour barème relais. */
-    const priorityCents = 0;
+    const includedExchangeShipping = resolveIncludedExchangeShippingKind({
+      membershipLabel,
+      remainingIncludedOrdersThisMonth: remainingIncludedOrders,
+    });
 
-    let billedRoundTripHtCents = waiveRoundTripShippingHt ? 0 : gridShipping.subtotalCents;
-    if (
-      !waiveRoundTripShippingHt &&
+    const needsUberQuote =
       deliveryChannel === "home" &&
-      homeSpeedBilling === "uber_direct"
-    ) {
+      homeSpeedBilling === "uber_direct" &&
+      includedExchangeShipping !== "member_all_modes";
+
+    let uberFeeCents: number | null = null;
+    if (needsUberQuote) {
       if (!deliveryAddress) {
         return NextResponse.json(
           { message: "Adresse de livraison requise pour Uber Direct." },
@@ -214,15 +220,38 @@ export async function POST(request: Request) {
           { status: 502 },
         );
       }
-      const uberFeeCents = uberQuoteFeeCentsFromRaw(quote);
-      if (uberFeeCents == null) {
+      const parsed = uberQuoteFeeCentsFromRaw(quote);
+      if (parsed == null) {
         return NextResponse.json(
           { message: "Réponse Uber inattendue (tarif). Réessaie dans un instant." },
           { status: 502 },
         );
       }
-      billedRoundTripHtCents = uberFeeCents + gridShipping.returnRelayCents;
+      uberFeeCents = parsed;
     }
+
+    let billedRoundTripHtCents: number;
+    try {
+      billedRoundTripHtCents = computeCartCheckoutRoundTripShippingHtCents({
+        itemCount,
+        deliveryChannel,
+        homeSpeedBilling,
+        includedKind: includedExchangeShipping,
+        relayRoundTrip,
+        currentRoundTrip,
+        uberOutboundHtCents: uberFeeCents,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "shipping_ht_failed";
+      console.error("[stripe/cart/checkout] shipping ht cents", msg);
+      return NextResponse.json(
+        { message: "Impossible de calculer les frais de livraison pour cette combinaison." },
+        { status: 400 },
+      );
+    }
+
+    /** Plus de surtaxe Segna pour Uber : aller facturé = devis API `delivery_quotes` + retour barème relais. */
+    const priorityCents = 0;
 
     const shippingHtCents = billedRoundTripHtCents + priorityCents;
     const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
@@ -395,7 +424,9 @@ export async function POST(request: Request) {
         service_cents: String(serviceHtCents),
         shipping_ht_cents: String(shippingHtCents),
         shipping_ttc_cents: String(fees.shippingTtcCents),
-        shipping_round_trip_waived: waiveRoundTripShippingHt ? "true" : "false",
+        shipping_round_trip_waived:
+          remainingIncludedOrders > 0 && billedRoundTripHtCents === 0 ? "true" : "false",
+        shipping_included_kind: String(includedExchangeShipping),
         remaining_included_orders_at_checkout: String(remainingIncludedOrders),
         round_trip_shipping_ht_cents_if_billed: String(billedRoundTripHtCents),
         priority_cents: String(priorityCents),

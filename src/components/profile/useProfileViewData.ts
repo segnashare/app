@@ -9,7 +9,6 @@ import { readSocialHandlesFromProfileData } from "@/lib/profile/social-handles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import type {
-  ProfileViewBrand,
   ProfileViewData,
   ProfileViewInfoCardData,
   ProfileViewInfoItem,
@@ -153,10 +152,6 @@ function buildInfoCardFromCache(cache: CachedPayload, displayName: string | null
         levelIcon: "🌱",
         levelNumber: 1,
         exchangeCount: 0,
-        smoking: true,
-        alcohol: true,
-        sport: false,
-        night: true,
         city: null,
         profession: profession || null,
         socialSectionVisible: true,
@@ -180,12 +175,6 @@ function cacheToProfileViewData(cache: CachedPayload, displayName?: string | nul
     }))
     .filter((item) => item.value.length > 0);
 
-  const brandsItem = cache.styleItems?.find((s) => s.id === "brands");
-  const brandsLabel = cleanDisplayValue(brandsItem?.value);
-  const brands: ProfileViewBrand[] = brandsLabel
-    ? brandsLabel.split(",").map((label) => ({ id: "", label: cleanDisplayValue(label), logoUrl: null })).filter((b) => b.label)
-    : [];
-
   const answers = cache.answers ?? {
     prompt0: "",
     prompt1: "",
@@ -208,7 +197,6 @@ function cacheToProfileViewData(cache: CachedPayload, displayName?: string | nul
     infoCard: buildInfoCardFromCache(cache, displayName ?? null, cityFromDb ?? null),
     looksSlots: compactLookSlots(cache.looksSlots.map(toLookSlot)),
     infoItems,
-    brands,
     insights,
     lentPieces: [],
     instagramUsername: null,
@@ -236,46 +224,17 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     setIsLoading(false);
     const supabase = createSupabaseBrowserClient() as any;
     let cityFromDb: string | null = null;
-    let brandsFromDb: ProfileViewBrand[] = [];
     try {
       const { data: user } = await supabase.auth.getUser();
       if (user?.user?.id) {
-        const [cityRes, profileRes] = await Promise.all([
-          supabase.from("user_profiles").select("city").eq("user_id", user.user.id).maybeSingle(),
-          supabase.from("user_profiles").select("id").eq("user_id", user.user.id).maybeSingle(),
-        ]);
-        cityFromDb = (cityRes.data as { city?: string } | null)?.city?.trim() ?? null;
-        const profileId = (profileRes.data as { id?: string } | null)?.id;
-        if (profileId) {
-          const { data: brandsRows } = await supabase
-            .from("user_profile_brands")
-            .select("brand_id")
-            .eq("user_profile_id", profileId)
-            .order("rank", { ascending: true });
-          const ids = (brandsRows ?? []).map((r: { brand_id?: string }) => r.brand_id).filter((id: string | undefined): id is string => Boolean(id));
-          if (ids.length > 0) {
-            const { data: brandItems } = await supabase.from("item_brands").select("id,label,logo_path").in("id", ids);
-            const orderMap = new Map<string, number>(ids.map((id: string, i: number) => [id, i]));
-            const items = (brandItems ?? []) as Array<{ id: string; label: string | null; logo_path?: string | null }>;
-            const brandLogosBucket = supabase.storage.from("brand_logos");
-            brandsFromDb = items
-              .sort((a, b) => Number(orderMap.get(a.id) ?? 0) - Number(orderMap.get(b.id) ?? 0))
-              .map((b) => {
-                const logoPath = typeof b.logo_path === "string" && b.logo_path.trim() ? b.logo_path.trim() : null;
-                const logoUrl = logoPath ? brandLogosBucket.getPublicUrl(logoPath).data.publicUrl : null;
-                return { id: b.id, label: b.label ?? "", logoUrl };
-              });
-          }
-        }
+        const { data: cityRes } = await supabase.from("user_profiles").select("city").eq("user_id", user.user.id).maybeSingle();
+        cityFromDb = (cityRes as { city?: string } | null)?.city?.trim() ?? null;
       }
     } catch {
       // ignore
     }
     const viewData = cacheToProfileViewData(cache, displayName ?? null, cityFromDb);
-    let merged = {
-      ...viewData,
-      brands: brandsFromDb.length > 0 ? brandsFromDb : viewData.brands,
-    };
+    let merged = { ...viewData };
     try {
       const {
         data: { user: authUser },
@@ -354,7 +313,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
 
     const profileRow = (row ?? {}) as Record<string, unknown>;
     const profileData = (profileRow.profile_data ?? {}) as Record<string, unknown>;
-    const profileId = typeof profileRow.id === "string" ? profileRow.id : null;
 
     const profilePath = parseUserProfilePhotoPath(profileRow);
     const photosObj = (profileRow.photos ?? {}) as Record<string, unknown>;
@@ -460,32 +418,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     };
     const answers = parseAnswers();
 
-    let brands: ProfileViewBrand[] = [];
-    if (profileId) {
-      const { data: brandsRows } = await supabase
-        .from("user_profile_brands")
-        .select("brand_id")
-        .eq("user_profile_id", profileId)
-        .order("rank", { ascending: true });
-      const ids = (brandsRows ?? []).map((r: { brand_id?: string }) => r.brand_id).filter((id: string | undefined): id is string => Boolean(id));
-      if (ids.length > 0) {
-        const { data: brandItems } = await supabase
-          .from("item_brands")
-          .select("id,label,logo_path")
-          .in("id", ids);
-        const orderMap = new Map<string, number>(ids.map((id: string, i: number) => [id, i]));
-        const items = (brandItems ?? []) as Array<{ id: string; label: string | null; logo_path?: string | null }>;
-        const brandLogosBucket = supabase.storage.from("brand_logos");
-        brands = items
-          .sort((a, b) => Number(orderMap.get(a.id) ?? 0) - Number(orderMap.get(b.id) ?? 0))
-          .map((b) => {
-            const logoPath = typeof b.logo_path === "string" && b.logo_path.trim() ? b.logo_path.trim() : null;
-            const logoUrl = logoPath ? brandLogosBucket.getPublicUrl(logoPath).data.publicUrl : null;
-            return { id: b.id, label: b.label ?? "", logoUrl };
-          });
-      }
-    }
-
     const toDisplay = cleanDisplayValue;
 
     const ageStr = toDisplay(profileRow.age ?? profileData.age);
@@ -530,10 +462,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       levelIcon,
       levelNumber: currentLevel,
       exchangeCount,
-      smoking: true,
-      alcohol: true,
-      sport: false,
-      night: true,
       city: cityLabel,
       profession: workStr || null,
       socialSectionVisible,
@@ -556,7 +484,6 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
       infoCard,
       looksSlots,
       infoItems,
-      brands,
       insights: answers,
       lentPieces: [],
       instagramUsername: social.instagram || null,

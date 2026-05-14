@@ -220,6 +220,15 @@ export function OnboardingPhoneVerifyCore({
         return;
       }
 
+      const rpcUntyped = (fn: string, args?: Record<string, unknown>) =>
+        (supabase.rpc as unknown as (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => Promise<{ data?: unknown; error?: { message?: string } | null }>)(fn, args);
+
+      await rpcUntyped("qualify_pending_referral", { p_request_id: crypto.randomUUID() });
+      void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
+
       router.push("/onboarding/name");
     } finally {
       setIsSubmitting(false);

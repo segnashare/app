@@ -209,5 +209,67 @@ body:has(.segna-lock-document-scroll) {
     animation: none;
     opacity: 0;
   }
+
+  .referral-silver-frame-outer,
+  .referral-intro-silver-outer {
+    animation: none;
+  }
 }
 
+/* Profil — carte parrainage : liseré argenté animé (1 px) autour de la frame. */
+@keyframes referral-silver-border-shift {
+  0%,
+  100% {
+    background-position: 8% 45%;
+  }
+  50% {
+    background-position: 92% 55%;
+  }
+}
+
+.referral-silver-frame-outer {
+  padding: 1px;
+  border-radius: 1.5rem;
+  background-image: linear-gradient(
+    105deg,
+    #b9b9c2 0%,
+    #e4e4e9 18%,
+    #fafafa 32%,
+    #ffffff 42%,
+    #d4d4da 52%,
+    #f4f4f6 68%,
+    #c4c4ce 82%,
+    #a8a8b5 100%
+  );
+  background-size: 280% 280%;
+  background-repeat: no-repeat;
+  animation: referral-silver-border-shift 4.8s ease-in-out infinite;
+}
+
+.referral-silver-frame-inner {
+  border-radius: calc(1.5rem - 1px);
+}
+
+/* Intro in-app : sous-cadre parrainage (liseré argenté, rayon type rounded-2xl). */
+.referral-intro-silver-outer {
+  padding: 1px;
+  border-radius: 1rem;
+  background-image: linear-gradient(
+    105deg,
+    #b9b9c2 0%,
+    #e4e4e9 18%,
+    #fafafa 32%,
+    #ffffff 42%,
+    #d4d4da 52%,
+    #f4f4f6 68%,
+    #c4c4ce 82%,
+    #a8a8b5 100%
+  );
+  background-size: 280% 280%;
+  background-repeat: no-repeat;
+  animation: referral-silver-border-shift 4.8s ease-in-out infinite;
+}
+
+.referral-intro-silver-inner {
+  border-radius: calc(1rem - 1px);
+}

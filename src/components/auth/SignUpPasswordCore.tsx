@@ -13,6 +13,7 @@ const playfairDisplay = segnaPlayfairDisplay;
 import { Input } from "@/components/ui/Input";
 import { signUpPasswordSchema } from "@/features/auth/lib/schemas";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { clearReferralInviteClient, readReferralCodeForBootstrap } from "@/lib/referral/referralInviteStorage";
 import { cn } from "@/lib/utils/cn";
 
 export type SignUpPasswordFooterState = {
@@ -103,6 +104,7 @@ export function SignUpPasswordCore({
       }
 
       const requestId = crypto.randomUUID();
+      const referralCode = readReferralCodeForBootstrap();
 
       const bootstrapResult = await rpcUntyped("bootstrap_user_after_signup", {
         p_first_name: null,
@@ -110,11 +112,14 @@ export function SignUpPasswordCore({
         p_locale: null,
         p_timezone: null,
         p_request_id: requestId,
+        p_referral_code: referralCode,
       });
       if (bootstrapResult?.error) {
         setErrorMessage(bootstrapResult.error.message ?? "Impossible d'initialiser ton compte.");
         return;
       }
+
+      clearReferralInviteClient();
 
       const progressResult = await rpcUntyped("upsert_onboarding_progress", {
         p_current_step: "/onboarding/1",
@@ -126,6 +131,7 @@ export function SignUpPasswordCore({
         return;
       }
 
+      router.prefetch("/onboarding/1");
       router.replace("/onboarding/1");
     },
     () => {

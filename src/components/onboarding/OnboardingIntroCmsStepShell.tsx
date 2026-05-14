@@ -14,9 +14,9 @@ import { OnboardingIntroImageGrid } from "@/components/onboarding/OnboardingIntr
 import { OnboardingIntroImageStack } from "@/components/onboarding/OnboardingIntroImageStack";
 import { OnboardingProgressPills } from "@/components/onboarding/OnboardingProgressPills";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
-import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
+import { preloadOnboardingIntroCollageUrls } from "@/lib/onboarding/preload-onboarding-intro-images";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -28,13 +28,15 @@ const OnboardingIntroImageCarousel = dynamic(
   { ssr: false },
 );
 
-/** Même logique que l’écran /auth : évite d’afficher le contenu tant que les visuels CMS ne sont pas prêts. */
+/** Timeout de secours si le réseau bloque (log dev uniquement). */
 const ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS = 12_000;
 
 export type OnboardingIntroSectionKey = "onboarding_1_intro" | "onboarding_2_intro" | "onboarding_3_intro";
 
 export type OnboardingIntroCmsStepShellProps = {
   sectionKey: OnboardingIntroSectionKey;
+  /** Frames CMS déjà résolues côté serveur (URLs signées) — évite un aller-retour + effondrement de layout. */
+  initialCmsFrames?: CmsFrameRow[];
   trackerStep: string;
   /** Index 0–2 pour les 3 pastilles (aligné sur /onboarding/1 … /3). */
   pillActiveIndex: 0 | 1 | 2;
@@ -46,8 +48,35 @@ export type OnboardingIntroCmsStepShellProps = {
   onContinue: () => void | Promise<void>;
 };
 
+function stackRowsFromSectionRows(rows: CmsFrameRow[]): CmsFrameRow[] {
+  return rows.filter((r) => r.frame_type === "onboarding_stack_image");
+}
+
+function collageSignedUrlsFromStack(stack: CmsFrameRow[]): string[] {
+  return [
+    ...new Set(
+      stack
+        .map((r) => r.payload?.collage_image?.signed_url)
+        .filter((u): u is string => typeof u === "string" && u.length > 0),
+    ),
+  ];
+}
+
+function initialCarouselBgHex(sectionKey: OnboardingIntroSectionKey, rows: CmsFrameRow[] | undefined): string {
+  if (sectionKey !== "onboarding_3_intro" || rows === undefined) return "#ffffff";
+  const stack = stackRowsFromSectionRows(rows);
+  if (stack.length === 0) return "#ffffff";
+  const firstRow = [...stack].sort((a, b) => a.sort_order - b.sort_order)[0];
+  return normalizeSlideBackgroundHex(firstRow.payload.slide_background_hex, "#ffffff");
+}
+
+/** Hauteur de secours si les frames CMS manquent (évite flex-1 à 0 + CTA collé en bas). */
+const STACK_VISUAL_MIN_H = "min-h-[min(48dvh,440px)]";
+const CAROUSEL_VISUAL_MIN_H = "min-h-[min(36dvh,280px)]";
+
 export function OnboardingIntroCmsStepShell({
   sectionKey,
+  initialCmsFrames,
   trackerStep,
   pillActiveIndex,
   title,
@@ -56,17 +85,20 @@ export function OnboardingIntroCmsStepShell({
   errorMessage,
   onContinue,
 }: OnboardingIntroCmsStepShellProps) {
-  const [frames, setFrames] = useState<CmsFrameRow[]>([]);
-  const [visualsReady, setVisualsReady] = useState(true);
+  const [frames, setFrames] = useState<CmsFrameRow[]>(() =>
+    initialCmsFrames !== undefined ? stackRowsFromSectionRows(initialCmsFrames) : [],
+  );
   const isGridIntro = sectionKey === "onboarding_2_intro";
   const isCarouselIntro = sectionKey === "onboarding_3_intro";
-  const [carouselBgHex, setCarouselBgHex] = useState("#ffffff");
+  const isStackIntro = !isGridIntro && !isCarouselIntro;
+  const [carouselBgHex, setCarouselBgHex] = useState(() => initialCarouselBgHex(sectionKey, initialCmsFrames));
 
   const applyCarouselVisual = useCallback((state: OnboardingCarouselVisualState) => {
     setCarouselBgHex((prev) => (prev === state.backgroundHex ? prev : state.backgroundHex));
   }, []);
 
   const carouselSurfaceLight = isCarouselIntro && isLightBackgroundHex(carouselBgHex);
+  const showCarouselChrome = isCarouselIntro && frames.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -74,64 +106,47 @@ export function OnboardingIntroCmsStepShell({
     const supabase = createSupabaseBrowserClient();
 
     void (async () => {
-      const rows = await fetchCmsSectionFramesResolved(supabase, sectionKey);
-      const stack = rows.filter((r) => r.frame_type === "onboarding_stack_image");
+      let rows: CmsFrameRow[];
+      if (initialCmsFrames !== undefined) {
+        rows = initialCmsFrames;
+      } else {
+        rows = await fetchCmsSectionFramesResolved(supabase, sectionKey);
+      }
       if (cancelled) return;
-      setFrames(stack);
+
+      const stack = stackRowsFromSectionRows(rows);
+
       if (sectionKey === "onboarding_3_intro" && stack.length > 0) {
         const firstRow = [...stack].sort((a, b) => a.sort_order - b.sort_order)[0];
         setCarouselBgHex(normalizeSlideBackgroundHex(firstRow.payload.slide_background_hex, "#ffffff"));
       }
 
-      const urls = [
-        ...new Set(
-          stack
-            .map((r) => r.payload?.collage_image?.signed_url)
-            .filter((u): u is string => typeof u === "string" && u.length > 0),
-        ),
-      ];
+      /** Mise à jour immédiate : grille / pile gardent leur cadrage (placeholders) pendant le préchargement. */
+      setFrames(stack);
 
-      if (urls.length === 0) {
-        setVisualsReady(true);
-        return;
-      }
+      const urls = collageSignedUrlsFromStack(stack);
+      if (urls.length === 0) return;
 
-      const t0 = performance.now();
       timeoutId = window.setTimeout(() => {
-        if (!cancelled) {
-          setVisualsReady(true);
-          if (process.env.NODE_ENV === "development") {
-            console.warn("[onboarding-intro] préchargement visuels — timeout", {
-              sectionKey,
-              timeoutMs: ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS,
-            });
-          }
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[onboarding-intro] préchargement visuels — timeout", {
+            sectionKey,
+            timeoutMs: ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS,
+          });
         }
       }, ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS);
 
       try {
-        await Promise.all(
-          urls.map(
-            (href) =>
-              new Promise<void>((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve();
-                img.onerror = () => resolve();
-                img.src = href;
-              }),
-          ),
-        );
+        await preloadOnboardingIntroCollageUrls(urls);
       } finally {
         if (timeoutId) window.clearTimeout(timeoutId);
       }
 
       if (cancelled) return;
-      setVisualsReady(true);
       if (process.env.NODE_ENV === "development") {
         console.info("[onboarding-intro] préchargement visuels terminé", {
           sectionKey,
           imageCount: urls.length,
-          ms: Math.round(performance.now() - t0),
         });
       }
     })();
@@ -140,47 +155,29 @@ export function OnboardingIntroCmsStepShell({
       cancelled = true;
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [sectionKey]);
+  }, [sectionKey, initialCmsFrames]);
 
-  const showBackgroundStack = !isGridIntro && !isCarouselIntro && frames.length > 0;
-  const showBlockingLoader = !visualsReady;
+  const stackVisualShellClass =
+    "relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col items-center justify-center px-5 py-[clamp(1.5rem,5dvh,3rem)] sm:px-7 md:max-w-[min(100%,760px)] md:px-10 lg:px-14";
 
   return (
     <AppViewport
       fillHeight
       fillHeightWideAtMd
-      outerClassName={cn(
-        isCarouselIntro && !showBlockingLoader ? "min-h-dvh" : "bg-white",
-      )}
-      outerStyle={isCarouselIntro && !showBlockingLoader ? { backgroundColor: carouselBgHex } : undefined}
+      outerClassName={cn(showCarouselChrome ? "min-h-dvh" : "bg-white")}
+      outerStyle={showCarouselChrome ? { backgroundColor: carouselBgHex } : undefined}
       className={cn(
         "flex min-h-0 w-full flex-col justify-start px-0 py-0",
-        isCarouselIntro && !showBlockingLoader ? "bg-transparent" : "bg-white",
+        showCarouselChrome ? "bg-transparent" : "bg-white",
       )}
     >
       <OnboardingStepTracker currentStep={trackerStep} />
 
-      {showBlockingLoader ? (
-        <div
-          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 bg-white px-6"
-          role="status"
-          aria-live="polite"
-          aria-label="Chargement des visuels"
-        >
-          <AuthRingDotSpinner variant="onLight" dotCount={6} filledDots={6} spinning aria-label="Chargement" />
-          <p className={cn(montserrat.className, "text-center text-[15px] font-semibold text-zinc-500")}>
-            Chargement…
-          </p>
-        </div>
-      ) : null}
-
       <div
         className={cn(
-          showBlockingLoader && "hidden",
           "relative flex min-h-0 min-w-0 flex-1 flex-col",
           isCarouselIntro ? "overflow-x-visible bg-transparent" : "overflow-x-hidden bg-white",
         )}
-        aria-hidden={showBlockingLoader}
       >
         <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col bg-transparent pb-8 pt-[max(4.5rem,calc(env(safe-area-inset-top)+1.35rem))]">
           <div
@@ -197,17 +194,19 @@ export function OnboardingIntroCmsStepShell({
             {title}
           </div>
 
-          {showBackgroundStack ? (
-            <div className="relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col items-center justify-center px-5 py-[clamp(1.5rem,5dvh,3rem)] sm:px-7 md:max-w-[min(100%,760px)] md:px-10 lg:px-14">
-              <OnboardingIntroImageStack frames={frames} />
+          {isStackIntro ? (
+            <div className={cn(stackVisualShellClass, frames.length === 0 && STACK_VISUAL_MIN_H)}>
+              {frames.length > 0 ? <OnboardingIntroImageStack frames={frames} /> : null}
             </div>
           ) : isGridIntro ? (
             <div className="relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col justify-center py-3 sm:py-5">
               <OnboardingIntroImageGrid frames={frames} />
             </div>
           ) : isCarouselIntro ? (
-            <div className="relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col py-2">
-              <OnboardingIntroImageCarousel frames={frames} onCarouselVisualUpdate={applyCarouselVisual} />
+            <div className={cn("relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col py-2", frames.length === 0 && CAROUSEL_VISUAL_MIN_H)}>
+              {frames.length > 0 ? (
+                <OnboardingIntroImageCarousel frames={frames} onCarouselVisualUpdate={applyCarouselVisual} />
+              ) : null}
             </div>
           ) : (
             <div className="min-h-0 flex-1" aria-hidden />

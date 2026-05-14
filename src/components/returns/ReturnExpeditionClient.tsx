@@ -89,7 +89,7 @@ export function ReturnExpeditionClient({ itemId, canShipNow, existingLabelUrl, e
     <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4">
       {!canShipNow ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Le retour sera activé dès que la pièce repasse en <strong>available/listed</strong>.
+          Le retour sera activé dès que la pièce repasse en <strong>available</strong>.
         </p>
       ) : null}
 

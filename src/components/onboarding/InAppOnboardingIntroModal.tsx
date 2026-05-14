@@ -10,6 +10,7 @@ import {
   segnaDialogMontserrat,
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
+import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   isIntroSnoozedForAuthSession,
@@ -20,9 +21,15 @@ import { cn } from "@/lib/utils/cn";
 type InAppOnboardingIntroModalProps = {
   userId: string;
   lastSignInAt: string | null;
+  /** Parrainage : crédits visibles seulement une fois `qualified` ; `pending` = code capturé, avant validation. */
+  referralInvite?: ReferralInviteIntroKind;
 };
 
-export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboardingIntroModalProps) {
+export function InAppOnboardingIntroModal({
+  userId,
+  lastSignInAt,
+  referralInvite = "none",
+}: InAppOnboardingIntroModalProps) {
   const router = useRouter();
   /** null = pas encore lu le sessionStorage (évite flash + double effet useEffect). */
   const [open, setOpen] = useState<boolean | null>(null);
@@ -103,6 +110,41 @@ export function InAppOnboardingIntroModal({ userId, lastSignInAt }: InAppOnboard
         <p className={cn(segnaDialogBodyClass(), "mt-3 font-medium text-zinc-800")}>
           Découvre notre collection et commence à échanger tes premières pièces&nbsp;!
         </p>
+        {referralInvite === "qualified" ? (
+          <div className="referral-intro-silver-outer mt-3">
+            <div
+              className={cn(
+                segnaDialogMontserrat.className,
+                "referral-intro-silver-inner overflow-hidden bg-zinc-50 px-3.5 py-3.5 text-center text-[15px] font-medium leading-snug text-zinc-800",
+              )}
+            >
+              <p>
+                Tu es arrivée ici grâce à <strong className="font-bold text-zinc-900">une amie Segna</strong> :{" "}
+                <strong className="font-bold text-zinc-900">100&nbsp;crédits</strong> viennent d’être ajoutés sur ton
+                compte, avec un <strong className="font-bold text-zinc-900">premier échange offert</strong> pour
+                découvrir le <strong className="font-bold text-zinc-900">dressing partagé</strong>.
+              </p>
+            </div>
+          </div>
+        ) : referralInvite === "pending" ? (
+          <div className="referral-intro-silver-outer mt-3">
+            <div
+              className={cn(
+                segnaDialogMontserrat.className,
+                "referral-intro-silver-inner overflow-hidden bg-zinc-50 px-3.5 py-3.5 text-center text-[15px] font-medium leading-snug text-zinc-800",
+              )}
+            >
+              <p>
+                Tu es arrivée grâce au <strong className="font-bold text-zinc-900">parrainage Segna</strong>. Une fois
+                ton <strong className="font-bold text-zinc-900">numéro vérifié</strong> et ton{" "}
+                <strong className="font-bold text-zinc-900">parcours d’accueil terminé</strong>,{" "}
+                <strong className="font-bold text-zinc-900">100&nbsp;crédits</strong> et ton{" "}
+                <strong className="font-bold text-zinc-900">premier échange offert</strong> seront activés sur ton
+                compte.
+              </p>
+            </div>
+          </div>
+        ) : null}
         {error ? <p className={cn(segnaDialogMontserrat.className, "mt-3 text-sm text-red-600")}>{error}</p> : null}
         <div className={cn(segnaDialogMontserrat.className, "mt-5 flex flex-col gap-2")}>
           <button

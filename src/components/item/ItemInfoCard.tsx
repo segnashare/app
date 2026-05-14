@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, Package, Repeat2, Star, Tag } from "lucide-react";
+import { Package, Repeat2, Star, Tag } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
@@ -65,7 +65,6 @@ type ItemInfoCardProps = {
 };
 
 export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
-  const likeCount = Math.max(0, Math.floor(Number(data.likeCount ?? 0)));
   const exchangeCount = Math.max(0, Math.floor(Number(data.exchangeCount ?? 0)));
   const itemRatingAverage =
     typeof data.itemRatingAverage === "number" && Number.isFinite(data.itemRatingAverage)
@@ -108,18 +107,7 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     });
   }
 
-  // 3. Likes
-  firstLineItems.push({
-    key: "likes",
-    content: (
-      <div className="flex items-center gap-2">
-        <span className={cn(montserrat.className, "font-bold text-zinc-900")}>{likeCount}</span>
-        <Heart className="h-5 w-5 text-zinc-900" strokeWidth={2.2} aria-hidden />
-      </div>
-    ),
-  });
-
-  // 4. Couleur (pastille + nom) / Matériaux
+  // 3. Couleur (pastille + nom) / Matériaux
   if (data.color && data.color !== "-") {
     const hex = getColorHexFromLabel(data.color);
     const isGradient = hex.startsWith("linear-gradient");

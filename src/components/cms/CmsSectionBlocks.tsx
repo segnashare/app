@@ -20,12 +20,21 @@ import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 /** Hero « Obtenir plus » — ratio Figma 500×350 (aligné crop BO + aperçu). */
 const CMS_PROFILE_PLUS_HERO_ASPECT_CLASS = "aspect-[500/350]";
 
+/** Libellé CMS du hero (ex. « Segna X ») : afficher le mot-clé typographique « SegnaX ». */
+function profilePlusHeroIsSegnaXKicker(kicker: string): boolean {
+  return /^segna\s*x$/i.test(kicker.trim());
+}
+
 const montserratLinkCardTitle = segnaMontserrat;
 const montserratWideCardCta = segnaMontserrat;
 
 export type CmsFrameLayoutMode = "hub" | "stack";
 
 const CmsFrameLayoutModeContext = createContext<CmsFrameLayoutMode>("hub");
+
+export function CmsFrameLayoutModeProvider({ mode, children }: { mode: CmsFrameLayoutMode; children: ReactNode }) {
+  return <CmsFrameLayoutModeContext.Provider value={mode}>{children}</CmsFrameLayoutModeContext.Provider>;
+}
 
 export function useCmsFrameLayoutMode(): CmsFrameLayoutMode {
   return useContext(CmsFrameLayoutModeContext);
@@ -134,10 +143,10 @@ function hubWidePayloadFromOffer(p: CmsFramePayload): CmsFramePayload {
 }
 
 function hubWidePayloadFromPromo(p: CmsFramePayload): CmsFramePayload {
-  const title = [p.header?.trim(), p.title?.trim()].filter(Boolean).join("\n");
   return {
     ...p,
-    title,
+    /** Image + pastille uniquement (pas de surimpression titre / header). */
+    title: "",
     cta_label: p.button_label?.trim() || p.cta_label?.trim() || "Découvrir",
     cta_pill: true,
     title_color: "white",
@@ -216,6 +225,10 @@ export function ShopWideLinkCardBlock({
   wrapperClassName,
   onNavigate,
   visualOnly = false,
+  /** Hors navigation (ex. bannière décorative dans une carte parrainage). */
+  asStatic = false,
+  /** Coins de la surface (et du shimmer image) — défaut aligné catalogue `rounded-2xl`, hero profil `rounded-3xl`. */
+  surfaceRadiusClassName = "rounded-2xl",
 }: {
   payload: CmsFramePayload;
   aspectClassName: string;
@@ -223,6 +236,8 @@ export function ShopWideLinkCardBlock({
   onNavigate?: () => void;
   /** Image pleine carte, pas de titre / CTA / overlay sombre (promo fusionnée Prêts). */
   visualOnly?: boolean;
+  asStatic?: boolean;
+  surfaceRadiusClassName?: string;
 }) {
   const layout = useCmsFrameLayoutMode();
   const href = payload.target_url?.trim() || "/shop";
@@ -242,82 +257,102 @@ export function ShopWideLinkCardBlock({
   const showTitle = Boolean(title) && !visualOnly && (!bgUrl || coverState === "ready" || coverState === "failed");
   const fullCardShimmer = Boolean(bgUrl) && coverState === "loading";
   const showPillOverlay = pill && !visualOnly;
+  /** En stack, sans `visualOnly`, on garde une hauteur souple ; bannière décorative = ratio imposé par l’appelant. */
+  const surfaceAspectClass =
+    visualOnly ? aspectClassName : layout === "stack" ? "aspect-auto min-h-[148px]" : aspectClassName;
+
+  const shellClass = cn(
+    "not-italic",
+    layout === "stack" ? "block w-full max-w-none" : undefined,
+    wrapperClassName,
+  );
+
+  const surface = (
+    <div
+      className={cn(
+        "shop-wide-link-card-surface relative flex min-h-0 flex-col overflow-hidden text-left shadow-sm",
+        surfaceRadiusClassName,
+        visualOnly ? "p-0" : "p-4",
+        pill && !visualOnly ? "justify-between" : "justify-start",
+        surfaceAspectClass,
+        !bgUrl ? backgroundLayerClass(payload) : "bg-zinc-900",
+      )}
+      style={!bgUrl ? backgroundSolidStyle(payload) : undefined}
+    >
+      {bgUrl ? (
+        <>
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <RemoteCoverThumb
+              photoUrl={bgUrl}
+              frameClassName="absolute inset-0 h-full w-full"
+              photoPosition={payload.background?.image?.position ?? null}
+              photoCoverFill
+              onLoadStateChange={setCoverState}
+            />
+          </div>
+          {showPillOverlay ? (
+            <div className="pointer-events-none absolute inset-0 z-[1] bg-black/35" aria-hidden />
+          ) : null}
+          {fullCardShimmer ? (
+            <SegnaSkeletonBlock className="pointer-events-none absolute inset-0 z-[3]" rounded={surfaceRadiusClassName} />
+          ) : null}
+        </>
+      ) : null}
+      {!visualOnly ? (
+        <div
+          className={cn(
+            "relative z-[2] flex min-h-0 flex-1 flex-col",
+            pill ? "justify-between" : "justify-start",
+          )}
+        >
+          {showTitle ? (
+            <p
+              className={cn(
+                "whitespace-pre-line text-[22px] font-bold not-italic leading-tight",
+                montserratLinkCardTitle.className,
+                linkCardTitleClassName(payload),
+              )}
+            >
+              {title}
+            </p>
+          ) : null}
+          {pill ? (
+            <span
+              className={cn(
+                "segna-guidance-shimmer-target mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
+                montserratWideCardCta.className,
+              )}
+            >
+              {renderCmsStarBoldSegments(ctaText, "wide-link-cta")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (asStatic) {
+    return (
+      <div className={shellClass} role="img" aria-label={title.trim() ? title : "Visuel d’invitation"}>
+        {surface}
+      </div>
+    );
+  }
 
   return (
     <Link
       href={href}
-      className={cn(
-        /* Coupe l’héritage d’italique (hub boutique : ancêtres flex / titres Playfair). */
-        "not-italic",
-        layout === "stack" ? "block w-full max-w-none" : undefined,
-        wrapperClassName,
-      )}
+      className={shellClass}
       onClick={onNavigate}
-      aria-label={visualOnly ? (title || "Découvrir") : undefined}
+      aria-label={
+        visualOnly
+          ? (title || "Découvrir")
+          : !visualOnly && !title && pill && ctaText
+            ? ctaText
+            : undefined
+      }
     >
-      <div
-        className={cn(
-          "shop-wide-link-card-surface relative flex min-h-0 flex-col overflow-hidden rounded-2xl text-left shadow-sm",
-          visualOnly ? "p-0" : "p-4",
-          pill && !visualOnly ? "justify-between" : "justify-start",
-          layout === "stack" ? "aspect-auto min-h-[148px]" : aspectClassName,
-          !bgUrl ? backgroundLayerClass(payload) : "bg-zinc-100",
-        )}
-        style={!bgUrl ? backgroundSolidStyle(payload) : undefined}
-      >
-        {bgUrl ? (
-          <>
-            <div className="pointer-events-none absolute inset-0 z-0">
-              <RemoteCoverThumb
-                photoUrl={bgUrl}
-                frameClassName="absolute inset-0 h-full w-full"
-                photoPosition={payload.background?.image?.position ?? null}
-                onLoadStateChange={setCoverState}
-              />
-            </div>
-            {showPillOverlay ? (
-              <div className="pointer-events-none absolute inset-0 z-[1] bg-black/35" aria-hidden />
-            ) : null}
-            {fullCardShimmer ? (
-              <SegnaSkeletonBlock
-                className="pointer-events-none absolute inset-0 z-[3]"
-                rounded="rounded-2xl"
-              />
-            ) : null}
-          </>
-        ) : null}
-        {!visualOnly ? (
-          <div
-            className={cn(
-              "relative z-[2] flex min-h-0 flex-1 flex-col",
-              pill ? "justify-between" : "justify-start",
-            )}
-          >
-            {showTitle ? (
-              <p
-                className={cn(
-                  /* Même échelle typographique que CmsFramePreview (ShopLinkCardPreview) BO */
-                  "whitespace-pre-line text-[22px] font-bold not-italic leading-tight",
-                  montserratLinkCardTitle.className,
-                  linkCardTitleClassName(payload),
-                )}
-              >
-                {title}
-              </p>
-            ) : null}
-            {pill ? (
-              <span
-                className={cn(
-                  "segna-guidance-shimmer-target mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
-                  montserratWideCardCta.className,
-                )}
-              >
-                {renderCmsStarBoldSegments(ctaText, "wide-link-cta")}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      {surface}
     </Link>
   );
 }
@@ -418,8 +453,6 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
   }
 
   const href = payload.target_url?.trim() || "/shop";
-  const header = payload.header?.trim();
-  const title = payload.title?.trim() || "";
   const button = payload.button_label?.trim() || "Découvrir";
   const bgUrl =
     payload.background?.kind === "image" ? imageUrlFromPayload(payload.background.image) : null;
@@ -428,6 +461,7 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
   return (
     <Link
       href={href}
+      aria-label={button}
       className={cn(
         "relative flex w-full flex-col overflow-hidden rounded-2xl px-4 py-4 text-left shadow-sm",
         !bgUrl ? backgroundLayerClass(payload) : "",
@@ -445,10 +479,13 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
           <div className="absolute inset-0 bg-black/45" />
         </div>
       ) : null}
-      <div className="relative z-[1] flex flex-col gap-2">
-        {header ? <p className={cn("text-[12px] font-medium", dark || bgUrl ? "text-zinc-300" : "text-zinc-500")}>{header}</p> : null}
-        {title ? <p className="text-[20px] font-bold leading-snug">{title}</p> : null}
-        <span className="mt-2 inline-flex w-fit rounded-full bg-white px-4 py-2 text-[13px] font-bold text-zinc-900">{button}</span>
+      <div
+        className={cn(
+          "relative z-[1] flex min-h-[120px] flex-1 flex-col",
+          bgUrl ? "justify-end" : "justify-start gap-2",
+        )}
+      >
+        <span className="inline-flex w-fit rounded-full bg-white px-4 py-2 text-[13px] font-bold text-zinc-900">{button}</span>
       </div>
     </Link>
   );
@@ -634,9 +671,10 @@ function ProfilePlusHeroInner({ payload }: { payload: CmsFramePayload }) {
   const bgUrl =
     payload.background?.kind === "image" ? imageUrlFromPayload(payload.background.image) : null;
   const kicker = payload.label?.trim() ?? "";
-  const title = payload.title?.trim() ?? "";
+  const showSegnaXTitle = profilePlusHeroIsSegnaXKicker(kicker);
   const subtitle = payload.subtitle?.trim() ?? "";
   const ctaText = payload.cta_label?.trim() || "Découvrir";
+  const hasTopBrandLine = showSegnaXTitle || Boolean(kicker);
 
   const [coverState, setCoverState] = useState<RemoteCoverLoadState>(() => (bgUrl ? "loading" : "ready"));
   useEffect(() => {
@@ -682,7 +720,16 @@ function ProfilePlusHeroInner({ payload }: { payload: CmsFramePayload }) {
           )}
         >
           <div className="flex w-full min-w-0 flex-col items-center text-center">
-            {kicker ? (
+            {showSegnaXTitle ? (
+              <p
+                className={cn(
+                  segnaPlayfairDisplay.className,
+                  "w-full whitespace-pre-line text-[1.875rem] font-bold leading-tight tracking-tight sm:text-[2.25rem]",
+                )}
+              >
+                SegnaX
+              </p>
+            ) : kicker ? (
               <p
                 className={cn(
                   segnaPlayfairDisplay.className,
@@ -692,22 +739,12 @@ function ProfilePlusHeroInner({ payload }: { payload: CmsFramePayload }) {
                 {kicker}
               </p>
             ) : null}
-            {title ? (
-              <p
-                className={cn(
-                  segnaMontserrat.className,
-                  "w-full whitespace-pre-line text-[1.35rem] font-bold leading-tight sm:text-[1.5rem]",
-                  kicker ? "mt-2" : "mt-0",
-                )}
-              >
-                {title}
-              </p>
-            ) : null}
             {subtitle ? (
               <p
                 className={cn(
                   segnaMontserrat.className,
-                  "mt-2 w-full whitespace-pre-line text-[0.95rem] font-semibold leading-snug text-white/95 sm:text-base",
+                  "w-full whitespace-pre-line text-[0.95rem] font-semibold leading-snug text-white/95 sm:text-base",
+                  hasTopBrandLine ? "mt-3 sm:mt-4" : "mt-2",
                 )}
               >
                 {subtitle}
@@ -762,7 +799,7 @@ function renderCmsFrameContent(row: CmsFrameRow, hub: CmsShopHubFramesEnv | null
 export function CmsFrameItem({ row, layoutMode = "hub" }: { row: CmsFrameRow; layoutMode?: CmsFrameLayoutMode }) {
   const hub = useCmsShopHubFramesOptional();
   return (
-    <CmsFrameLayoutModeContext.Provider value={layoutMode}>{renderCmsFrameContent(row, hub)}</CmsFrameLayoutModeContext.Provider>
+    <CmsFrameLayoutModeProvider mode={layoutMode}>{renderCmsFrameContent(row, hub)}</CmsFrameLayoutModeProvider>
   );
 }
 

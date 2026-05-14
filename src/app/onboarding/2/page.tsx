@@ -1,49 +1,19 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { OnboardingIntroStepTwoClient } from "@/app/onboarding/2/OnboardingIntroStepTwoClient";
+import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-import { OnboardingIntroCmsStepShell } from "@/components/onboarding/OnboardingIntroCmsStepShell";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+export default async function OnboardingCheckpointTwoPage() {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/auth/login?redirect=%2Fonboarding%2F2");
+  }
 
-export default function OnboardingCheckpointTwoPage() {
-  const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
-  const [isContinuing, setIsContinuing] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const initialCmsFrames = await fetchCmsSectionFramesResolved(supabase, "onboarding_2_intro");
 
-  const handleContinue = async () => {
-    if (isContinuing) return;
-    setErrorMessage(null);
-    setIsContinuing(true);
-    const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/birth",
-      p_progress_json: { checkpoint: "/onboarding/2" },
-      p_request_id: crypto.randomUUID(),
-    });
-    setIsContinuing(false);
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    router.push("/onboarding/birth");
-  };
-
-  return (
-    <OnboardingIntroCmsStepShell
-      sectionKey="onboarding_2_intro"
-      trackerStep="/onboarding/2"
-      pillActiveIndex={1}
-      isContinuing={isContinuing}
-      errorMessage={errorMessage}
-      onContinue={handleContinue}
-      title={
-        <>
-          Les bases sont là.
-          <br />
-          Place à ce qui fera de toi une membre à part.
-        </>
-      }
-    />
-  );
+  return <OnboardingIntroStepTwoClient initialCmsFrames={initialCmsFrames} />;
 }

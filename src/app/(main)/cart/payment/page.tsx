@@ -5,6 +5,7 @@ import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import type { CheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-storage";
+import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import {
   formatIncludedShippingForfaitLine,
   parseIncludedOrdersLimitThisMonth,
@@ -79,13 +80,27 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
     .eq("user_id", userId)
     .maybeSingle();
   const profileDeliveryAddress = readProfileDeliveryAddress(profileRow as Record<string, unknown> | null);
-  const isGuest = membershipLabel === "Guest";
   const { data: membershipState } = await supabase.rpc("get_current_membership_state");
   const remainingIncludedOrdersThisMonth = parseRemainingIncludedOrdersThisMonth(membershipState);
   const includedOrdersLimitThisMonth = parseIncludedOrdersLimitThisMonth(membershipState);
-  const waiveIncludedRoundTripShipping = !isGuest && remainingIncludedOrdersThisMonth > 0;
+  const includedExchangeShipping = resolveIncludedExchangeShippingKind({
+    membershipLabel,
+    remainingIncludedOrdersThisMonth,
+  });
+
+  const planCodeForEntitlementRow =
+    membershipLabel === "Membre X"
+      ? "segna_x"
+      : membershipLabel === "Membre +"
+        ? "segna_plus"
+        : "guest";
+  await supabase.rpc("billing_upsert_monthly_entitlement", {
+    p_user_id: userId,
+    p_plan_code: planCodeForEntitlementRow,
+  });
+
   const includedShippingForfaitLine =
-    waiveIncludedRoundTripShipping && includedOrdersLimitThisMonth > 0
+    includedExchangeShipping !== "none" && includedOrdersLimitThisMonth > 0
       ? formatIncludedShippingForfaitLine(membershipLabel, includedOrdersLimitThisMonth)
       : undefined;
 
@@ -134,7 +149,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         exchangeCreditsChargeEuros={exchangeCreditsChargeEuros}
         availableWalletMods={availableWalletMods}
         hideReservationTimer={false}
-        waiveIncludedRoundTripShipping={waiveIncludedRoundTripShipping}
+        includedExchangeShipping={includedExchangeShipping}
         remainingIncludedOrdersThisMonth={remainingIncludedOrdersThisMonth}
         includedOrdersLimitThisMonth={includedOrdersLimitThisMonth}
         includedShippingForfaitLine={includedShippingForfaitLine}

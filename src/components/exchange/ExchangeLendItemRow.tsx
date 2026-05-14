@@ -133,8 +133,7 @@ function getStatusLabel(
   }
   if (normalized === "in_cart") return "Disponible";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "Emprunt en cours";
-  if (normalized === "listed") return "Catalogue (indisponible)";
-  if (normalized === "available" || normalized === "disponible") return "Disponible";
+  if (normalized === "available" || normalized === "disponible" || normalized === "listed") return "Disponible";
   return status || "Inconnu";
 }
 
@@ -188,8 +187,7 @@ function statusPillClassName(
   }
   if (normalized === "in_cart") return "bg-emerald-100 text-emerald-700";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "bg-blue-100 text-blue-700";
-  if (normalized === "listed") return "bg-sky-100 text-sky-900";
-  if (normalized === "available" || normalized === "disponible") return "bg-emerald-100 text-emerald-700";
+  if (normalized === "available" || normalized === "disponible" || normalized === "listed") return "bg-emerald-100 text-emerald-700";
   return "bg-zinc-100 text-zinc-700";
 }
 
@@ -203,7 +201,6 @@ function splitNameAndBrand(name: string): { title: string; brand: string | null 
 function isDraftLike(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
   const normalized = status.trim().toLowerCase();
   const listingStage = intake?.listing_stage?.trim().toLowerCase() ?? "";
-  if (normalized === "listed") return false;
   if (listingStage && listingStage !== "draft") return false;
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated" && intake.fulfillment_stage === "verified") return false;

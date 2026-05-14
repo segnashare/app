@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, Truck, User } from "lucide-react";
+import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, User } from "lucide-react";
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
@@ -25,6 +25,10 @@ import {
 } from "@/lib/cart/checkout-delivery-storage";
 import { CART_CHECKOUT_VAT_LABEL, computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
 import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
+import {
+  computeCartCheckoutRoundTripShippingHtCents,
+} from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import type { IncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { includedOrdersUsedThisMonth } from "@/lib/billing/membership-included-orders";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
@@ -35,7 +39,8 @@ import {
 } from "@/lib/shipping/exchange-shipping-pricing";
 import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
-import { UberDirectQuotePanel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
+import { UberDirectQuotePanel, uberDirectUnavailablePriceLabel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
+import { UberWordmarkIcon } from "@/components/icons/UberWordmarkIcon";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
@@ -85,10 +90,10 @@ type CartPaymentScreenProps = {
   /** Invité : pas de compteur explicite en tête (réservation serveur inchangée). */
   hideReservationTimer?: boolean;
   /**
-   * Aller-retour non facturé : abonné avec quota `remaining_orders_this_month` > 0
-   * (plafonds `billing_plan_entitlement_limits.included_orders_limit`).
+   * Livraison échange prise en charge selon le plan : membre = tout mode ; invité = valeur d’un aller-retour relais
+   * (`included_orders_limit` sur `guest` dans `billing_plan_entitlement_limits`).
    */
-  waiveIncludedRoundTripShipping?: boolean;
+  includedExchangeShipping?: IncludedExchangeShippingKind;
   /** Repère affichage / cohérence avec le serveur au chargement de la page. */
   remainingIncludedOrdersThisMonth?: number;
   /** Plafond mensuel `included_orders_limit` (pour affichage type 1/2). */
@@ -114,7 +119,7 @@ export function CartPaymentScreen({
   exchangeCreditsChargeEuros,
   availableWalletMods,
   hideReservationTimer = false,
-  waiveIncludedRoundTripShipping = false,
+  includedExchangeShipping = "none",
   remainingIncludedOrdersThisMonth = 0,
   includedOrdersLimitThisMonth = 0,
   includedShippingForfaitLine,
@@ -144,7 +149,6 @@ export function CartPaymentScreen({
   const [uberQuoteFetch, setUberQuoteFetch] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [uberQuoteError, setUberQuoteError] = useState<string | null>(null);
   const [uberQuoteErrorCode, setUberQuoteErrorCode] = useState<string | null>(null);
-  const [uberQuoteErrorDetail, setUberQuoteErrorDetail] = useState<string | null>(null);
   const uberQuoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultRelayPostalCode = useMemo(
     () => extractPostalCodeFromAddress(initialProfileDeliveryAddress),
@@ -219,7 +223,6 @@ export function CartPaymentScreen({
       setUberQuote(null);
       setUberQuoteError(null);
       setUberQuoteErrorCode(null);
-      setUberQuoteErrorDetail(null);
       setUberQuoteFetch("idle");
       return;
     }
@@ -227,7 +230,6 @@ export function CartPaymentScreen({
     setUberQuoteFetch("loading");
     setUberQuoteError(null);
     setUberQuoteErrorCode(null);
-    setUberQuoteErrorDetail(null);
 
     const keyWhenScheduled = deliveryAddressKeyRef.current;
 
@@ -260,24 +262,17 @@ export function CartPaymentScreen({
                 : `Erreur ${res.status}`,
             );
             setUberQuoteErrorCode(typeof j.code === "string" && j.code.trim() ? j.code.trim() : null);
-            setUberQuoteErrorDetail(
-              process.env.NODE_ENV === "development" && typeof j.detail === "string" && j.detail.trim()
-                ? j.detail.trim()
-                : null,
-            );
             return;
           }
           if (j.quote && typeof j.quote === "object") {
             setUberQuote(j.quote);
             setUberQuoteFetch("ok");
             setUberQuoteErrorCode(null);
-            setUberQuoteErrorDetail(null);
           } else {
             setUberQuote(null);
             setUberQuoteFetch("error");
             setUberQuoteError("Réponse Uber inattendue.");
             setUberQuoteErrorCode(null);
-            setUberQuoteErrorDetail(null);
           }
         } catch {
           if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
@@ -285,7 +280,6 @@ export function CartPaymentScreen({
           setUberQuoteFetch("error");
           setUberQuoteError("Connexion impossible pour le devis Uber.");
           setUberQuoteErrorCode(null);
-          setUberQuoteErrorDetail(null);
         }
       })();
     }, 450);
@@ -307,6 +301,22 @@ export function CartPaymentScreen({
     if (uberQuoteFetch === "ok" && uberQuote) return "ok";
     return "loading";
   }, [deliveryAddress, deliveryChannel, homeSpeed, uberQuote, uberQuoteFetch]);
+
+  /** Hors zone / erreur devis : masquer le prix sur la ligne Uber dès que le devis échoue (même si l’option standard est sélectionnée). */
+  const uberExpressShowsUnavailablePrice =
+    deliveryChannel === "home" && uberQuoteFetch === "error";
+
+  const uberQuotePanelPhaseForPanel: UberDirectQuotePhase =
+    deliveryChannel === "home" && uberQuoteFetch === "error"
+      ? "error"
+      : uberQuotePanelPhase;
+
+  const showUberQuoteBelowCard =
+    deliveryChannel === "home" &&
+    (uberQuoteFetch === "error" ||
+      (homeSpeed === "uber_direct" &&
+        uberQuotePanelPhase !== "ok" &&
+        uberQuotePanelPhase !== "invite"));
 
   /** Horloge de référence fixée quand le devis change, pour un libellé d’heure stable. */
   const uberArrivalKey =
@@ -339,6 +349,14 @@ export function CartPaymentScreen({
       computeExchangeRoundTripShippingCents(itemCount, deliveryChannel === "relay" ? "relay" : "home"),
     [itemCount, deliveryChannel],
   );
+  const relayRoundTrip = useMemo(
+    () => computeExchangeRoundTripShippingCents(itemCount, "relay"),
+    [itemCount],
+  );
+  const standardHomeRoundTrip = useMemo(
+    () => computeExchangeRoundTripShippingCents(itemCount, "home"),
+    [itemCount],
+  );
   /** Aller domicile en Uber : centimes issus du devis API (aligné facturation Stripe). */
   const uberOutboundCentsFromQuote = useMemo(() => {
     if (deliveryChannel !== "home") return null;
@@ -349,19 +367,87 @@ export function CartPaymentScreen({
   const uberBillingReady =
     deliveryChannel !== "home" || homeSpeed !== "uber_direct" || uberOutboundCentsFromQuote != null;
 
-  /** Sous-total livraison HT (facturation) ; 0 si forfait abonnement. */
-  const billedRoundTripSubtotalCents = waiveIncludedRoundTripShipping
-    ? 0
-    : deliveryChannel === "home" && homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
-      ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
-      : exchangeShipping.subtotalCents;
+  const billedRoundTripSubtotalCents = useMemo(() => {
+    try {
+      return computeCartCheckoutRoundTripShippingHtCents({
+        itemCount,
+        deliveryChannel,
+        homeSpeedBilling: homeSpeed,
+        includedKind: includedExchangeShipping,
+        relayRoundTrip,
+        currentRoundTrip: exchangeShipping,
+        uberOutboundHtCents: uberOutboundCentsFromQuote,
+      });
+    } catch {
+      if (deliveryChannel === "home" && homeSpeed === "uber_direct") {
+        return uberOutboundCentsFromQuote != null
+          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+          : exchangeShipping.subtotalCents;
+      }
+      return exchangeShipping.subtotalCents;
+    }
+  }, [
+    deliveryChannel,
+    exchangeShipping,
+    homeSpeed,
+    includedExchangeShipping,
+    itemCount,
+    relayRoundTrip,
+    uberOutboundCentsFromQuote,
+  ]);
 
   const includedShippingQuotaLabel =
-    waiveIncludedRoundTripShipping && includedOrdersLimitThisMonth > 0
+    includedExchangeShipping !== "none" && includedOrdersLimitThisMonth > 0
       ? `${includedOrdersUsedThisMonth(remainingIncludedOrdersThisMonth, includedOrdersLimitThisMonth)}/${includedOrdersLimitThisMonth}`
       : null;
 
   const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
+
+  const standardOptionShippingHtCents = useMemo(() => {
+    try {
+      return computeCartCheckoutRoundTripShippingHtCents({
+        itemCount,
+        deliveryChannel: "home",
+        homeSpeedBilling: "standard",
+        includedKind: includedExchangeShipping,
+        relayRoundTrip,
+        currentRoundTrip: standardHomeRoundTrip,
+        uberOutboundHtCents: null,
+      });
+    } catch {
+      return standardHomeRoundTrip.subtotalCents;
+    }
+  }, [includedExchangeShipping, itemCount, relayRoundTrip, standardHomeRoundTrip]);
+
+  const expressOptionShippingHtCents = useMemo(() => {
+    try {
+      return computeCartCheckoutRoundTripShippingHtCents({
+        itemCount,
+        deliveryChannel: "home",
+        homeSpeedBilling: "uber_direct",
+        includedKind: includedExchangeShipping,
+        relayRoundTrip,
+        currentRoundTrip: standardHomeRoundTrip,
+        uberOutboundHtCents: uberOutboundCentsFromQuote,
+      });
+    } catch {
+      return uberOutboundCentsFromQuote != null
+        ? uberOutboundCentsFromQuote + standardHomeRoundTrip.returnRelayCents
+        : standardHomeRoundTrip.subtotalCents;
+    }
+  }, [
+    includedExchangeShipping,
+    itemCount,
+    relayRoundTrip,
+    standardHomeRoundTrip,
+    uberOutboundCentsFromQuote,
+  ]);
+
+  const relayInboundShowsZero =
+    includedExchangeShipping === "member_all_modes" ||
+    (includedExchangeShipping === "guest_relay_round_trip_equivalent" && deliveryChannel === "relay");
+
+  const homeDeliveryShowsFullIncluded = includedExchangeShipping === "member_all_modes";
 
   const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
 
@@ -376,18 +462,10 @@ export function CartPaymentScreen({
   const serviceTtcEuros = centsToEuros(feesPricing.serviceTtcCents);
   const shippingTtcEuros = centsToEuros(feesPricing.shippingTtcCents);
   const standardOptionShippingTtcEuros = centsToEuros(
-    computeCartFeesHtVatTtc(waiveIncludedRoundTripShipping ? 0 : exchangeShipping.subtotalCents, serviceHtCents)
-      .shippingTtcCents,
+    computeCartFeesHtVatTtc(standardOptionShippingHtCents, serviceHtCents).shippingTtcCents,
   );
   const expressOptionShippingTtcEuros = centsToEuros(
-    computeCartFeesHtVatTtc(
-      waiveIncludedRoundTripShipping
-        ? 0
-        : uberOutboundCentsFromQuote != null
-          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
-          : exchangeShipping.subtotalCents,
-      serviceHtCents,
-    ).shippingTtcCents,
+    computeCartFeesHtVatTtc(expressOptionShippingHtCents, serviceHtCents).shippingTtcCents,
   );
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
   const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
@@ -680,13 +758,13 @@ export function CartPaymentScreen({
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold text-zinc-900">Mondial Relay</p>
-                    {waiveIncludedRoundTripShipping && includedShippingForfaitLine ? (
-                      <p className="mt-0.5 text-[12px] font-medium text-blue-700">{includedShippingForfaitLine}</p>
+                    {includedExchangeShipping !== "none" && includedShippingForfaitLine ? (
+                      <p className="mt-0.5 text-[14px] font-bold leading-snug text-zinc-900">{includedShippingForfaitLine}</p>
                     ) : null}
                   </div>
                 </div>
                 <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">
-                  {waiveIncludedRoundTripShipping ? (
+                  {relayInboundShowsZero ? (
                     includedShippingQuotaLabel ? (
                       <span className="tabular-nums">{includedShippingQuotaLabel}</span>
                     ) : (
@@ -802,19 +880,21 @@ export function CartPaymentScreen({
                     onClick={() => persistHomeSpeed("uber_direct")}
                     className="flex w-full items-start gap-3 px-3 py-3 text-left"
                   >
-                    <Truck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                    <UberWordmarkIcon className="mt-0.5 h-5 w-5 shrink-0 text-zinc-900" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-[15px] font-semibold leading-tight text-zinc-900">
                           Aller express - Retour relais
                         </p>
                         <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                          {waiveIncludedRoundTripShipping ? (
+                          {homeDeliveryShowsFullIncluded ? (
                             includedShippingQuotaLabel ? (
                               <span className="tabular-nums">{includedShippingQuotaLabel}</span>
                             ) : (
                               <span className="text-emerald-700">Offert</span>
                             )
+                          ) : uberExpressShowsUnavailablePrice ? (
+                            <span className="tabular-nums">{uberDirectUnavailablePriceLabel(uberQuoteErrorCode)}</span>
                           ) : (
                             <>
                               {euros(expressOptionShippingTtcEuros)}
@@ -828,13 +908,17 @@ export function CartPaymentScreen({
                       ) : null}
                     </div>
                   </button>
-                  {homeSpeed === "uber_direct" && uberQuotePanelPhase !== "ok" ? (
-                    <div className="px-3 pb-3 pl-[44px]">
+                  {showUberQuoteBelowCard ? (
+                    <div
+                      className={cn(
+                        "px-3 pb-3",
+                        uberQuotePanelPhaseForPanel === "error" ? "text-center" : "pl-[calc(1.25rem+0.75rem)]",
+                      )}
+                    >
                       <UberDirectQuotePanel
-                        phase={uberQuotePanelPhase}
+                        phase={uberQuotePanelPhaseForPanel}
                         errorMessage={uberQuoteError}
                         errorCode={uberQuoteErrorCode}
-                        errorDetail={uberQuoteErrorDetail}
                       />
                     </div>
                   ) : null}
@@ -855,7 +939,7 @@ export function CartPaymentScreen({
                     <p className="mt-0.5 text-[13px] text-zinc-500">(2-3 jours ouvrés)</p>
                   </div>
                   <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                    {waiveIncludedRoundTripShipping ? (
+                    {homeDeliveryShowsFullIncluded ? (
                       includedShippingQuotaLabel ? (
                         <span className="tabular-nums">{includedShippingQuotaLabel}</span>
                       ) : (
@@ -1054,9 +1138,11 @@ export function CartPaymentScreen({
                         ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
                         : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
                       : null}
-                  {waiveIncludedRoundTripShipping ? (
+                  {billedRoundTripSubtotalCents === 0 && includedExchangeShipping !== "none" ? (
                     <span className="mt-1 block text-emerald-800/90">
-                      Le trajet aller-retour du barème est pris en charge par ton abonnement
+                      {includedExchangeShipping === "guest_relay_round_trip_equivalent"
+                        ? "La partie point relais du barème aller-retour est prise en charge pour cette commande"
+                        : "Le trajet aller-retour du barème est pris en charge par ton abonnement"}
                       {remainingIncludedOrdersThisMonth > 0
                         ? ` (${remainingIncludedOrdersThisMonth} inclusion${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} restante${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} ce mois-ci avant paiement)`
                         : ""}

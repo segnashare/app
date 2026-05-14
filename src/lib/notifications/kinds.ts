@@ -15,6 +15,10 @@
  *
  * **Pièce / annonce** (via `POST /api/internal/member-lifecycle/notify`)  
  * - `item_listing_evaluated`, `item_received_by_segna`, `item_validated_by_segna`
+ *
+ * **Onboarding in-app** : `onboarding_reward_complete` — SMS après passage de l’étape « reward » à « finished » (`POST /api/onboarding/finish-reward`).
+ *
+ * **Parrainage** : `referral_referrer_bonus` — SMS au parrain lorsque le filleul est qualifié (`POST /api/referral/dispatch-referrer-notify`, cron).
  */
 export const NotificationKind = {
   cartOrderPaid: "cart_order_paid",
@@ -32,6 +36,8 @@ export const NotificationKind = {
   itemListingEvaluated: "item_listing_evaluated",
   itemReceivedBySegna: "item_received_by_segna",
   itemValidatedBySegna: "item_validated_by_segna",
+  onboardingRewardComplete: "onboarding_reward_complete",
+  referralReferrerBonus: "referral_referrer_bonus",
 } as const;
 
 export type NotificationKindId = (typeof NotificationKind)[keyof typeof NotificationKind];

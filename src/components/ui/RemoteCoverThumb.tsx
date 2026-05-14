@@ -190,7 +190,10 @@ function RemoteCoverThumbImpl({
       : null;
 
   return (
-    <div ref={frameRef} className={cn("relative overflow-hidden bg-zinc-200", frameClassName)}>
+    <div
+      ref={frameRef}
+      className={cn("relative overflow-hidden", photoCoverFill ? "bg-zinc-950" : "bg-zinc-200", frameClassName)}
+    >
       {!suppressLoadSkeleton && !failed && !shouldPaintPhoto ? (
         <SegnaSkeletonBlock
           className="pointer-events-none absolute inset-0 z-[2]"

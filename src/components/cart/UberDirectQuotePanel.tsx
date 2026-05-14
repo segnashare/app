@@ -8,17 +8,17 @@ type UberDirectQuotePanelProps = {
   phase: UberDirectQuotePhase;
   errorMessage: string | null;
   errorCode?: string | null;
-  errorDetail?: string | null;
 };
 
-function uberErrorTitle(code: string | null | undefined): string {
+/** Libellé court à afficher à la place du prix (carte parente). */
+export function uberDirectUnavailablePriceLabel(code: string | null | undefined): string {
   switch (code) {
     case "address_undeliverable":
-      return "Hors zone";
+      return "Hors Zone";
     case "invalid_client":
       return "Indisponible";
     default:
-      return "Pas de tarif";
+      return "Indisponible";
   }
 }
 
@@ -30,7 +30,6 @@ export function UberDirectQuotePanel({
   phase,
   errorMessage,
   errorCode,
-  errorDetail,
 }: UberDirectQuotePanelProps) {
   if (phase === "invite" || phase === "ok") {
     return null;
@@ -47,21 +46,10 @@ export function UberDirectQuotePanel({
     );
   }
   if (phase === "error") {
-    const title = uberErrorTitle(errorCode);
     const body = errorMessage?.trim() ?? "Réessaie dans un instant.";
     return (
-      <div className="mt-1.5 text-left text-[13px]">
-        <p className="font-medium text-zinc-900">{title}</p>
-        <p className="mt-0.5 text-zinc-600">{body}</p>
-        {errorCode === "address_undeliverable" ? <p className="mt-1.5 text-[12px] text-zinc-400">Modifie l’adresse ci-dessus.</p> : null}
-        {errorDetail?.trim() ? (
-          <details className="mt-2 border-t border-zinc-100 pt-2">
-            <summary className="cursor-pointer text-[11px] font-medium text-zinc-400">Détails</summary>
-            <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-50 p-2 text-[10px] text-zinc-600">
-              {errorDetail.trim()}
-            </pre>
-          </details>
-        ) : null}
+      <div className="mt-1.5 text-center text-[13px] leading-relaxed text-zinc-600">
+        <p>{body}</p>
       </div>
     );
   }

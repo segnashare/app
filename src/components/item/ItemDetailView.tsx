@@ -785,7 +785,6 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
           slots={data.slots}
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
-          hideFrameLikeButtons={fromCart || !authResolved || isOwner}
           segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
         />
       </div>

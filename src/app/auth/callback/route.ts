@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { REFERRAL_COOKIE_NAME } from "@/lib/referral/referralInviteConstants";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OAuthIntent = "signup" | "member";
@@ -18,6 +19,16 @@ function redirectWithOAuthError(request: NextRequest, intent: OAuthIntent, error
   }
   url.searchParams.set("oauth_error", errorCode);
   return NextResponse.redirect(url);
+}
+
+function referralCodeFromCookie(request: NextRequest): string | null {
+  const raw = request.cookies.get(REFERRAL_COOKIE_NAME)?.value;
+  if (!raw || !raw.trim()) return null;
+  try {
+    return decodeURIComponent(raw).trim() || null;
+  } catch {
+    return raw.trim() || null;
+  }
 }
 
 async function resolvePostAuthPath(
@@ -83,12 +94,15 @@ export async function GET(request: NextRequest) {
       args?: Record<string, unknown>,
     ) => Promise<{ data?: unknown; error?: { message?: string } | null }>)(fn, args);
 
+  const referralFromCookie = referralCodeFromCookie(request);
+
   const bootstrapResult = await rpcUntyped("bootstrap_user_after_signup", {
     p_first_name: null,
     p_last_name: null,
     p_locale: null,
     p_timezone: null,
     p_request_id: crypto.randomUUID(),
+    p_referral_code: referralFromCookie,
   });
 
   if (bootstrapResult.error) {
@@ -99,5 +113,7 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl.clone();
   url.pathname = await resolvePostAuthPath(supabase, user.id);
   url.search = "";
-  return NextResponse.redirect(url);
+  const res = NextResponse.redirect(url);
+  res.cookies.set(REFERRAL_COOKIE_NAME, "", { path: "/", maxAge: 0, sameSite: "lax" });
+  return res;
 }

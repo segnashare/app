@@ -9,7 +9,7 @@ import {
 
 function mapCartLineStatus(cartItemStatus: string | null, itemStatus: string | null): CartLineStatus {
   if (cartItemStatus === "reserved" && itemStatus === "reserved") return "reserve";
-  if (cartItemStatus === "reservation_pending" && (itemStatus === "available" || itemStatus === "listed")) {
+  if (cartItemStatus === "reservation_pending" && itemStatus === "available") {
     return "en_attente_wallet";
   }
   if (cartItemStatus === "in_cart" && (itemStatus === "available" || itemStatus === "in_cart")) return "disponible";

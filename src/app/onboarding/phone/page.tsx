@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import {
@@ -9,7 +8,6 @@ import {
 } from "@/components/onboarding/OnboardingPhoneCore";
 import { OnboardingScreenShell } from "@/components/onboarding/OnboardingScreenShell";
 import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
@@ -19,7 +17,6 @@ const montserrat = segnaMontserrat;
 const AUTH_BG = "bg-white";
 
 export default function OnboardingPhonePage() {
-  const router = useRouter();
   const [canContinue, setCanContinue] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authErrors, setAuthErrors] = useState<OnboardingPhoneAuthErrorState>({
@@ -37,27 +34,6 @@ export default function OnboardingPhonePage() {
 
   const footerErrorVisible = Boolean(authErrors.field || authErrors.submit);
 
-  const handlePasser = useCallback(async () => {
-    if (
-      !window.confirm(
-        "Continuer sans numéro ? Tu pourras l’ajouter plus tard depuis ton profil, certaines fonctions peuvent rester limitées.",
-      )
-    ) {
-      return;
-    }
-    const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/name",
-      p_progress_json: { checkpoint: "/onboarding/phone", skipped_phone: true },
-      p_request_id: crypto.randomUUID(),
-    });
-    if (error) {
-      window.alert(error.message);
-      return;
-    }
-    router.push("/onboarding/name");
-  }, [router]);
-
   return (
     <OnboardingScreenShell
       currentStep="/onboarding/phone"
@@ -67,18 +43,6 @@ export default function OnboardingPhonePage() {
       centeredAuthLayout
       appViewportOuterClassName={AUTH_BG}
       appViewportClassName={AUTH_BG}
-      headerAccessoryTopRight={
-        <button
-          type="button"
-          onClick={() => void handlePasser()}
-          className={cn(
-            montserrat.className,
-            "text-[15px] font-semibold text-[#999999] transition-colors hover:text-zinc-600",
-          )}
-        >
-          Passer
-        </button>
-      }
       centeredAuthBelowHeader={
         <AuthRingDotSpinner
           variant="onLight"

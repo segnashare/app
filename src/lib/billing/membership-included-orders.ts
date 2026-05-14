@@ -29,6 +29,11 @@ export function includedOrdersUsedThisMonth(remaining: number, limit: number): n
 /** Libellé sous la ligne « Mondial Relay » quand l’aller-retour est couvert par l’abonnement. */
 export function formatIncludedShippingForfaitLine(label: MembershipLabel, limit: number): string {
   if (limit <= 0) return "";
+  if (label === "Guest") {
+    return limit === 1
+      ? "Offre de lancement : 1 échange inclus"
+      : `Offre de lancement : ${limit} échanges inclus`;
+  }
   const forfaitName =
     label === "Membre X" ? "SegnaX" : label === "Membre +" ? "Segna+" : null;
   if (forfaitName) {

@@ -62,8 +62,8 @@ type OnboardingScreenShellProps = {
   /** Rendu entre le header (ex. lien) et le bloc titre — ex. indicateur décoratif centré. */
   centeredAuthBelowHeader?: ReactNode;
   /**
-   * Espacement vertical entre titre (`h1Principal`), corps (`mainLayout`) et pied (`footerRightSlot`)
-   * en `centeredAuthLayout` + `centeredAuthBelowHeader`. Par défaut : grand écart type e-mail.
+   * Espacement vertical en `centeredAuthLayout` : avec `footerRightSlot`, entre le bloc fixe
+   * (indicateur + titre) et la zone scrollable ; sinon entre titre, corps et pied dans la même colonne.
    */
   centeredAuthSectionGapClassName?: string;
 };
@@ -147,7 +147,8 @@ export function OnboardingScreenShell({
       className={cn(
         !resolvedFillHeight && themeClassNames.onboarding.shell.viewportOnboardingStandard,
         showDebugFrames && themeClassNames.onboarding.shell.debugCadreViewport,
-        centeredAuthLayout && "justify-between px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-5",
+        centeredAuthLayout &&
+          "justify-between px-6 pt-4 pb-0 md:px-8 md:pt-5 md:pb-0",
         appViewportClassName,
       )}
     >
@@ -164,45 +165,79 @@ export function OnboardingScreenShell({
             {headerAccessoryTopRight}
           </header>
 
-          {centeredAuthBelowHeader ? (
+          {footerRightSlot ? null : centeredAuthBelowHeader ? (
             <div className="flex w-full shrink-0 justify-center py-3">{centeredAuthBelowHeader}</div>
           ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <section
-              className={cn(
-                "flex min-h-0 flex-1 flex-col items-center px-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
-                centeredAuthBelowHeader
-                  ? cn(
-                      "justify-start pt-4",
-                      centeredAuthSectionGapClassName ?? "gap-y-[clamp(1.5rem,4vh,2.75rem)]",
-                    )
-                  : "justify-center gap-8 pt-10 -translate-y-[min(10vh,88px)] md:-translate-y-[min(12vh,104px)]",
-                showDebugFrames && themeClassNames.onboarding.shell.debugCadreContenu,
-              )}
-            >
-              {h1Principal ? <div className={cn(centeredAuthColumnMax, "shrink-0")}>{h1Principal}</div> : null}
-              {mainLayout ? <div className={cn(centeredAuthColumnMax, "shrink-0")}>{mainLayout}</div> : <div className="flex-1">{children}</div>}
-
-              {errorMessage ? (
-                <p className={cn(themeClassNames.onboarding.textes.erreurFormulaire, centeredAuthColumnMax, "shrink-0 px-2 text-center")}>
-                  {errorMessage}
-                </p>
-              ) : null}
-
-              {footerRightSlot ? (
-                <div
+            {footerRightSlot ? (
+              <div
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col",
+                  centeredAuthBelowHeader
+                    ? cn(centeredAuthSectionGapClassName ?? "gap-y-[clamp(1.5rem,4vh,2.75rem)]")
+                    : "gap-y-8 pt-6",
+                )}
+              >
+                <div className="flex w-full shrink-0 flex-col items-center">
+                  {centeredAuthBelowHeader ? (
+                    <div className="flex w-full justify-center py-3">{centeredAuthBelowHeader}</div>
+                  ) : null}
+                  {h1Principal ? (
+                    <div className={cn(centeredAuthColumnMax, "w-full shrink-0 pt-4")}>{h1Principal}</div>
+                  ) : null}
+                </div>
+                <section
                   className={cn(
-                    "flex shrink-0 flex-col items-center gap-2",
-                    centeredAuthColumnMax,
-                    footerRightSlotClassName,
-                    showDebugFrames && themeClassNames.onboarding.shell.debugCadreFooter,
+                    "flex min-h-0 flex-1 flex-col items-center justify-start gap-3 overflow-y-auto px-0 pb-3",
+                    showDebugFrames && themeClassNames.onboarding.shell.debugCadreContenu,
                   )}
                 >
-                  {footerRightSlot}
-                </div>
-              ) : null}
-            </section>
+                  {mainLayout ? <div className={cn(centeredAuthColumnMax, "shrink-0")}>{mainLayout}</div> : <div className="flex-1">{children}</div>}
+                  {errorMessage ? (
+                    <p className={cn(themeClassNames.onboarding.textes.erreurFormulaire, centeredAuthColumnMax, "shrink-0 px-2 text-center")}>
+                      {errorMessage}
+                    </p>
+                  ) : null}
+                </section>
+              </div>
+            ) : (
+              <section
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-0",
+                  "pb-[max(1rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))]",
+                  centeredAuthBelowHeader
+                    ? cn(
+                        "justify-start pt-4",
+                        centeredAuthSectionGapClassName ?? "gap-y-[clamp(1.5rem,4vh,2.75rem)]",
+                      )
+                    : "justify-center gap-8 pt-10 -translate-y-[min(10vh,88px)] md:-translate-y-[min(12vh,104px)]",
+                  showDebugFrames && themeClassNames.onboarding.shell.debugCadreContenu,
+                )}
+              >
+                {h1Principal ? <div className={cn(centeredAuthColumnMax, "shrink-0")}>{h1Principal}</div> : null}
+                {mainLayout ? <div className={cn(centeredAuthColumnMax, "shrink-0")}>{mainLayout}</div> : <div className="flex-1">{children}</div>}
+                {errorMessage ? (
+                  <p className={cn(themeClassNames.onboarding.textes.erreurFormulaire, centeredAuthColumnMax, "shrink-0 px-2 text-center")}>
+                    {errorMessage}
+                  </p>
+                ) : null}
+              </section>
+            )}
+
+            {footerRightSlot ? (
+              <div
+                className={cn(
+                  "flex w-full shrink-0 flex-col items-center gap-2 pt-2",
+                  centeredAuthColumnMax,
+                  footerRightSlotClassName,
+                  "pb-[max(1.25rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] md:pb-[max(1.75rem,calc(1rem+env(safe-area-inset-bottom,0px)))]",
+                  showDebugFrames && themeClassNames.onboarding.shell.debugCadreFooter,
+                )}
+              >
+                {footerRightSlot}
+              </div>
+            ) : null}
           </div>
         </>
       ) : (
