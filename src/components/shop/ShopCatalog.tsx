@@ -14,7 +14,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
+import { createSignedUrlForStoragePath, createSignedUrlsForStoragePaths, normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import {
   consumeShopCatalogRestoreFromStorage,
@@ -58,6 +58,10 @@ const montserratPieceMedium = segnaMontserrat;
 const SHOP_GRID_INITIAL_VISIBLE_COUNT = 48;
 const SHOP_GRID_LOAD_MORE_COUNT = 48;
 const SHOP_INITIAL_COVER_WARM_COUNT = 32;
+/** Limite les lots `createSignedUrls` (côté stockage / réseau) pour éviter des réponses tronquées. */
+const SHOP_COVER_SIGN_PATH_CHUNK = 40;
+/** Enchaîne des passes de signature dans le même effet (évite annulations en cascade si `coverUrlById` change). */
+const SHOP_COVER_SIGN_MAX_PASSES = 8;
 
 /** Chips filtres: base grise, active noire, plus plates et moins arrondies. */
 const filterChipActiveClass = "border-transparent bg-zinc-950 text-white";
@@ -172,6 +176,8 @@ type ShopCatalogProps = {
   boutiqueHubSectionOrder?: string[];
   /** Onboarding panier : attire l'oeil vers les + d'ajout au panier. */
   guideCartOnboarding?: boolean;
+  /** Couvertures déjà résolues côté serveur (id → URL signée). */
+  initialCoverUrlById?: Record<string, string>;
 };
 
 type MenuKey = keyof ShopFilters;
@@ -345,7 +351,7 @@ function ShopPieceSquareCatalogCard({
     !cover && !hasPhotoPath ? "ready" : "loading",
   );
 
-  const imageReady = loadState !== "loading" || !hasPhotoPath;
+  const imageReady = Boolean(cover) || loadState !== "loading" || !hasPhotoPath;
   const showMeta = !hideMetaUntilReady || imageReady;
 
   const brandName = (item.brand_label ?? "").trim();
@@ -765,6 +771,7 @@ export function ShopCatalog({
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
   guideCartOnboarding = false,
+  initialCoverUrlById: initialCoverUrlByIdProp = {},
 }: ShopCatalogProps) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { itemIds: cartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
@@ -791,8 +798,9 @@ export function ShopCatalog({
   const [localCartItemIds, setLocalCartItemIds] = useState<Set<string>>(() => new Set());
   const [likeBusyIds, setLikeBusyIds] = useState<Set<string>>(() => new Set());
   const [cartBusyIds, setCartBusyIds] = useState<Set<string>>(() => new Set());
-  const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>({});
-  const coverResolvedRef = useRef(new Set<string>());
+  const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(() => ({ ...initialCoverUrlByIdProp }));
+  const coverUrlByIdRef = useRef<Record<string, string>>({});
+  coverUrlByIdRef.current = coverUrlById;
   const filtersRef = useRef(filters);
   const sortModeRef = useRef(sortMode);
   filtersRef.current = filters;
@@ -870,6 +878,21 @@ export function ShopCatalog({
     });
   }, [filteredItems, sortMode]);
 
+  const sortedFilteredItemsRef = useRef(sortedFilteredItems);
+  sortedFilteredItemsRef.current = sortedFilteredItems;
+  const gridVisibleCountRef = useRef(gridVisibleCount);
+  gridVisibleCountRef.current = gridVisibleCount;
+  const initialItemsRef = useRef(initialItems);
+  initialItemsRef.current = initialItems;
+  const initialMostLikedItemsRef = useRef(initialMostLikedItems);
+  initialMostLikedItemsRef.current = initialMostLikedItems;
+
+  /** Identifiant stable de la fenêtre catalogue visible (déclenche la résolution des couvertures quand la liste change). */
+  const visibleCatalogIdsKey = useMemo(() => {
+    const slice = sortedFilteredItems.slice(0, gridVisibleCount);
+    return `${gridVisibleCount}|${initialItems.length}|${slice.map((i) => i.id).join(",")}`;
+  }, [gridVisibleCount, sortedFilteredItems, initialItems.length]);
+
   useEffect(() => {
     setGridVisibleCount(SHOP_GRID_INITIAL_VISIBLE_COUNT);
   }, [search, sortMode, heartsOnly, disponiblesOnly, filters]);
@@ -944,45 +967,89 @@ export function ShopCatalog({
     }
   }, []);
 
+  /* eslint-disable react-hooks/exhaustive-deps -- listes via refs ; déclenché surtout par `visibleCatalogIdsKey` (évite annulations à chaque update `coverUrlById`). */
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const candidates = [
-        ...sortedFilteredItems.slice(0, gridVisibleCount),
-        ...initialMostLikedItems.slice(0, 10),
-        ...initialItems.slice(0, SHOP_INITIAL_COVER_WARM_COUNT),
+      const noPathLocal = new Set<string>();
+      const gc = gridVisibleCountRef.current;
+      const sorted = sortedFilteredItemsRef.current;
+      const initial = initialItemsRef.current;
+      const mostLiked = initialMostLikedItemsRef.current;
+      const baseCandidates = [
+        ...sorted.slice(0, gc),
+        ...mostLiked.slice(0, 10),
+        ...initial.slice(0, SHOP_INITIAL_COVER_WARM_COUNT),
       ];
-      const pathByItemId = new Map<string, string>();
-      const paths: string[] = [];
+      /** Copie locale pour enchaîner les passes sans attendre le commit React. */
+      let mergedCovers: Record<string, string> = { ...coverUrlByIdRef.current };
 
-      for (const item of candidates) {
-        if (coverResolvedRef.current.has(item.id)) continue;
-        const path = getFirstPhotoStoragePath(item.photos);
-        if (!path) {
-          coverResolvedRef.current.add(item.id);
-          continue;
+      for (let pass = 0; pass < SHOP_COVER_SIGN_MAX_PASSES; pass++) {
+        const pathByItemId = new Map<string, string>();
+        const paths: string[] = [];
+
+        for (const item of baseCandidates) {
+          if (mergedCovers[item.id]) continue;
+          if (noPathLocal.has(item.id)) continue;
+          const path = getFirstPhotoStoragePath(item.photos);
+          if (!path) {
+            noPathLocal.add(item.id);
+            continue;
+          }
+          pathByItemId.set(item.id, path);
+          paths.push(path);
         }
-        pathByItemId.set(item.id, path);
-        paths.push(path);
-      }
 
-      const signedByPath = await createSignedUrlsForStoragePaths(supabase, paths, 60 * 60 * 24);
-      if (cancelled) return;
-      const updates: Record<string, string> = {};
-      for (const [id, path] of pathByItemId) {
-        const url = signedByPath.get(path);
-        if (!url) continue;
-        updates[id] = url;
-        coverResolvedRef.current.add(id);
-      }
-      if (Object.keys(updates).length > 0) {
-        setCoverUrlById((prev) => ({ ...prev, ...updates }));
+        if (pathByItemId.size === 0) break;
+
+        const uniquePaths = [...new Set(paths)];
+        const signedByPath = new Map<string, string>();
+        for (let i = 0; i < uniquePaths.length; i += SHOP_COVER_SIGN_PATH_CHUNK) {
+          const chunk = uniquePaths.slice(i, i + SHOP_COVER_SIGN_PATH_CHUNK);
+          const partial = await createSignedUrlsForStoragePaths(supabase, chunk, 60 * 60 * 24);
+          if (cancelled) return;
+          for (const [k, v] of partial) {
+            if (v) signedByPath.set(k, v);
+          }
+        }
+        if (cancelled) return;
+
+        const updates: Record<string, string> = {};
+        for (const [id, path] of pathByItemId) {
+          const normalized = normalizeStorageObjectPath(path);
+          const url = signedByPath.get(path) ?? signedByPath.get(normalized);
+          if (url) {
+            updates[id] = url;
+          }
+        }
+
+        const missingForFallback = [...pathByItemId.entries()].filter(([id]) => !updates[id]);
+        for (const [id, path] of missingForFallback) {
+          if (cancelled) return;
+          const single = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24);
+          if (single) updates[id] = single;
+        }
+
+        if (Object.keys(updates).length === 0) break;
+
+        mergedCovers = { ...mergedCovers, ...updates };
+        setCoverUrlById((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const [id, url] of Object.entries(updates)) {
+            if (next[id] !== url) {
+              next[id] = url;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [gridVisibleCount, initialItems, initialMostLikedItems, sortedFilteredItems, supabase]);
+  }, [visibleCatalogIdsKey, supabase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2317,7 +2384,7 @@ export function ShopCatalog({
                         const liked = likedSet.has(item.id);
                         const cover = coverUrlById[item.id];
                         return (
-                          <li key={`available-${item.id}-${cover ?? "nocover"}`}>
+                          <li key={`available-${item.id}`}>
                             <ShopCatalogGridItemCard
                               item={item}
                               cover={cover}
@@ -2473,7 +2540,7 @@ export function ShopCatalog({
       >
         {/* Filtres */}
         <div className="border-b border-zinc-200/70 bg-white text-zinc-900">
-          <div className="flex items-stretch gap-2 px-2 py-2">
+          <div className="flex items-stretch gap-2 py-2 pl-2 pr-0">
                       <button
                         type="button"
               onClick={onSlidersFilterClick}
@@ -2561,7 +2628,7 @@ export function ShopCatalog({
                   const liked = likedSet.has(item.id);
                   const cover = coverUrlById[item.id];
                   return (
-                    <li key={`${item.id}-${cover ?? "nocover"}`}>
+                    <li key={item.id}>
                       <ShopCatalogGridItemCard
                         item={item}
                         cover={cover}
@@ -3062,7 +3129,7 @@ export function ItemRailTwoUp({
         <div className="w-3 shrink-0" aria-hidden />
         {railItems.map((item, index) => (
           <ItemRailTwoUpCard
-            key={`${title}-${item.id}-${index}-${coverUrlById[item.id] ?? "nocover"}`}
+            key={`${title}-${item.id}-${index}`}
             item={item}
             cover={coverUrlById[item.id]}
             shimmerDurationSec={shimmerDurationSec}

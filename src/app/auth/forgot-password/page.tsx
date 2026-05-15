@@ -70,7 +70,7 @@ export default function ForgotPasswordPage() {
             Mot de passe oublié
           </h1>
           <p className={cn(montserrat.className, "text-[15px] font-bold leading-snug text-[#999999]")}>
-            On t&apos;envoie un lien de réinitialisation par e-mail.
+            Lien par e-mail pour réinitialiser ou définir un mot de passe (même si ton inscription passait par Google).
           </p>
         </div>
       }

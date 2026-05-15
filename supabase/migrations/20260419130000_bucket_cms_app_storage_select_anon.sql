@@ -10,5 +10,4 @@ for select
 to anon
 using (bucket_id = 'bucket_cms_app');
 
-comment on policy "bucket_cms_app_select_anon" on storage.objects is
-  'Select sur les objets CMS pour collage /auth et autres écrans publics (URL signée côté client anon).';
+-- Pas de COMMENT ON POLICY ici : sur projet distant le rôle de migration n’est pas owner de storage.objects (42501).

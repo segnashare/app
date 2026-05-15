@@ -35,7 +35,6 @@ as $$
     select up.updated_at
     from public.user_profiles up
     where up.user_id = p_profile_user_id
-      and up.deleted_at is null
     limit 1
   )
   select

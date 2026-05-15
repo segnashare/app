@@ -74,7 +74,7 @@ function LoginPageContent() {
             Se connecter
           </h1>
           <p className={cn(montserrat.className, "text-[15px] font-bold leading-snug text-[#999999]")}>
-            Entre ton e-mail et ton mot de passe.
+            E-mail et mot de passe, ou Google ci-dessous.
           </p>
         </div>
       }

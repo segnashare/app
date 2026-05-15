@@ -1,3 +1,7 @@
+-- Colonne absente du schéma initial user_profiles (202603100950) mais utilisée ci‑dessous et par set_user_location (111620).
+alter table public.user_profiles
+  add column if not exists city text;
+
 create or replace function public.derive_relative_city_from_adress(p_adress text)
 returns text
 language plpgsql
@@ -59,17 +63,29 @@ begin
   v_timezone := coalesce(new.timezone, 'Europe/Paris');
   v_relative_city := public.derive_relative_city_from_adress(new.adress);
 
-  insert into public.user_profiles (user_id, city, profile_data)
+  insert into public.user_profiles (
+    user_id,
+    city,
+    photos,
+    profile_data,
+    preferences,
+    looks,
+    answers
+  )
   values (
     new.id,
     v_relative_city,
+    '[]'::jsonb,
     jsonb_build_object(
       'location',
       jsonb_build_object(
         'label', new.adress,
         'timezone', v_timezone
       )
-    )
+    ),
+    '{}'::jsonb,
+    '[]'::jsonb,
+    '[]'::jsonb
   )
   on conflict (user_id) do update
   set city = excluded.city,

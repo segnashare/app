@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ChevronRight, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -11,9 +12,8 @@ const montserratItalic = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
 import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
-import { ItemViewView } from "@/components/item/ItemViewView";
-import { Input } from "@/components/ui/Input";
 import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
+import { Input } from "@/components/ui/Input";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import {
   dataUrlToFile,
@@ -36,6 +36,11 @@ import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/l
 import { createSupabaseBrowserClient, getBrowserAuthUser } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
+
+const ItemViewView = dynamic(
+  () => import("@/components/item/ItemViewView").then((m) => m.ItemViewView),
+  { loading: () => <AppLoadingScreen /> },
+);
 
 
 

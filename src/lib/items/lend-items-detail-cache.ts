@@ -1,4 +1,4 @@
-import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
+import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-core";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 
 const CACHE_TTL_MS = 12 * 60 * 1000;

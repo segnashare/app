@@ -116,6 +116,15 @@ function isMutationMethod(method: string) {
   return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
+/** Lecture `users.onboarding_mode` : uniquement quand la navigation dépend du mode (onboarding / démo / bridge). */
+function needsOnboardingModeForPageNavigation(pathname: string) {
+  if (pathname.startsWith("/onboarding")) return true;
+  if (isDemoOnboardingRoute(pathname)) return true;
+  if (isBridgeOnboardingRoute(pathname)) return true;
+  if (pathname.startsWith("/auth/sign-up/password")) return true;
+  return false;
+}
+
 function middlewareShouldRun(pathname: string) {
   if (API_MIDDLEWARE_BYPASS_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return false;
   return isPublicRoute(pathname) || isProtectedRoute(pathname) || pathname.startsWith("/api");
@@ -126,6 +135,13 @@ function isExplicitMemberSignIn(request: NextRequest) {
   return (
     request.nextUrl.pathname === "/auth/login" && request.nextUrl.searchParams.get("from") === "member"
   );
+}
+
+/** Évite `?redirect=/onboarding/1` collé à l’URL d’onboarding après une redirection depuis `/auth/login` (bruit + edge cases). */
+function scrubOnboardingDestinationQuery(url: URL) {
+  if (url.pathname.startsWith("/onboarding")) {
+    url.search = "";
+  }
 }
 
 export async function middleware(request: NextRequest) {
@@ -164,14 +180,19 @@ export async function middleware(request: NextRequest) {
   );
 
   const {
-    data: { session },
-  } = await perf.measure("auth.getSession", () => supabase.auth.getSession());
+    data: { user },
+    error: authUserError,
+  } = await perf.measure("auth.getUser", () => supabase.auth.getUser());
+
+  if (authUserError) {
+    console.warn("[middleware] auth.getUser", authUserError.message);
+  }
 
   const now = Date.now();
   const lastSeenRaw = request.cookies.get(SESSION_IDLE_COOKIE)?.value;
   const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : Number.NaN;
 
-  if (session?.user && Number.isFinite(lastSeen) && now - lastSeen > SESSION_IDLE_TIMEOUT_MS) {
+  if (user && Number.isFinite(lastSeen) && now - lastSeen > SESSION_IDLE_TIMEOUT_MS) {
     await supabase.auth.signOut();
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
@@ -185,7 +206,7 @@ export async function middleware(request: NextRequest) {
     return finalize(redirectResponse);
   }
 
-  if (session?.user) {
+  if (user) {
     response.cookies.set(SESSION_IDLE_COOKIE, String(now), {
       path: "/",
       httpOnly: true,
@@ -199,33 +220,58 @@ export async function middleware(request: NextRequest) {
 
   const hasVerifyParams = request.nextUrl.searchParams.has("email") && request.nextUrl.searchParams.has("sentAt");
 
-  if (!session && pathname === "/auth/sign-up/verify" && !hasVerifyParams) {
+  if (!user && pathname === "/auth/sign-up/verify" && !hasVerifyParams) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/sign-up/email";
     url.search = "";
     return finalize(NextResponse.redirect(url));
   }
 
-  if (isProtectedRoute(pathname) && !session) {
+  if (isProtectedRoute(pathname) && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
+    url.search = "";
     return finalize(NextResponse.redirect(url));
   }
 
   let cachedReachedIndex: number | null = null;
   let cachedReachedPath: OnboardingPath | undefined;
   let cachedStatus: string | null | undefined;
-  let cachedOnboardingMode: OnboardingMode | null | undefined;
-  const getReachedState = async () => {
-    if (!session) {
-      return {
-        reachedIndex: 0,
-        reachedPath: ONBOARDING_PATHS[0],
-        status: null as string | null,
-        onboardingMode: "real" as OnboardingMode,
-      };
+  let cachedOnboardingMode: OnboardingMode | undefined;
+  /** `true` once `onboarding_sessions` has been read for this request (avoids an extra round-trip on shop/cart/etc.). */
+  let reachedRowLoaded = false;
+
+  const emptyReachedState = () => ({
+    reachedIndex: 0,
+    reachedPath: ONBOARDING_PATHS[0],
+    status: null as string | null,
+    onboardingMode: "real" as OnboardingMode,
+  });
+
+  /** Demo / bridge guards: only `users.onboarding_mode` (skip `onboarding_sessions` on most app pages). */
+  const ensureOnboardingMode = async (): Promise<OnboardingMode> => {
+    if (!user) return "real";
+    if (cachedOnboardingMode !== undefined) return cachedOnboardingMode;
+
+    const userStateRes = await perf.measure("users.onboarding_mode.read", () =>
+      supabase.from("users").select("onboarding_mode").eq("id", user.id).maybeSingle(),
+    );
+
+    const onboardingModeValue = userStateRes.data?.onboarding_mode;
+    const mode: OnboardingMode =
+      onboardingModeValue === "demo" || onboardingModeValue === "bridge" || onboardingModeValue === "real"
+        ? onboardingModeValue
+        : "real";
+    cachedOnboardingMode = mode;
+    return mode;
+  };
+
+  const ensureFullReachedState = async () => {
+    if (!user) {
+      return emptyReachedState();
     }
     if (
+      reachedRowLoaded &&
       cachedReachedIndex !== null &&
       cachedReachedPath !== undefined &&
       cachedStatus !== undefined &&
@@ -239,58 +285,69 @@ export async function middleware(request: NextRequest) {
       };
     }
 
-    const [sessionStateRes, userStateRes] = await Promise.all([
-      perf.measure("onboarding_sessions.read", () =>
-        supabase
-          .from("onboarding_sessions")
-          .select("current_step, status")
-          .eq("user_id", session.user.id)
-          .maybeSingle(),
-      ),
-      perf.measure("users.onboarding_mode.read", () =>
-        supabase
-          .from("users")
-          .select("onboarding_mode")
-          .eq("id", session.user.id)
-          .maybeSingle(),
-      ),
-    ]);
+    const sessionPromise = perf.measure("onboarding_sessions.read", () =>
+      supabase
+        .from("onboarding_sessions")
+        .select("current_step, status")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    );
 
-    const reachedPath = normalizeOnboardingPath(sessionStateRes.data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
-    cachedReachedPath = reachedPath;
-    cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
-    cachedStatus = sessionStateRes.data?.status ?? null;
+    if (cachedOnboardingMode === undefined) {
+      const [sessionStateRes, userStateRes] = await Promise.all([
+        sessionPromise,
+        perf.measure("users.onboarding_mode.read", () =>
+          supabase.from("users").select("onboarding_mode").eq("id", user.id).maybeSingle(),
+        ),
+      ]);
 
-    const onboardingModeValue = userStateRes.data?.onboarding_mode;
-    cachedOnboardingMode =
-      onboardingModeValue === "demo" || onboardingModeValue === "bridge" || onboardingModeValue === "real"
-        ? onboardingModeValue
-        : "real";
+      const onboardingModeValue = userStateRes.data?.onboarding_mode;
+      const mode: OnboardingMode =
+        onboardingModeValue === "demo" || onboardingModeValue === "bridge" || onboardingModeValue === "real"
+          ? onboardingModeValue
+          : "real";
+      cachedOnboardingMode = mode;
+
+      const reachedPath = normalizeOnboardingPath(sessionStateRes.data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
+      cachedReachedPath = reachedPath;
+      cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
+      cachedStatus = sessionStateRes.data?.status ?? null;
+    } else {
+      const sessionStateRes = await sessionPromise;
+      const reachedPath = normalizeOnboardingPath(sessionStateRes.data?.current_step ?? "") ?? ONBOARDING_PATHS[0];
+      cachedReachedPath = reachedPath;
+      cachedReachedIndex = getReachedOnboardingIndex(reachedPath);
+      cachedStatus = sessionStateRes.data?.status ?? null;
+    }
+
+    reachedRowLoaded = true;
 
     return {
       reachedIndex: cachedReachedIndex,
       reachedPath: cachedReachedPath,
-      status: cachedStatus,
+      status: cachedStatus ?? null,
       onboardingMode: cachedOnboardingMode,
     };
   };
 
-  if (session && pathname.startsWith("/api")) {
-    const { onboardingMode } = await getReachedState();
+  if (user && pathname.startsWith("/api")) {
     const isOnboardingApi = pathname.startsWith("/api/onboarding/");
-    if (onboardingMode === "demo" && isMutationMethod(request.method) && !isOnboardingApi) {
-      return finalize(NextResponse.json(
-        {
-          error: "Mode demo actif: les actions de modification sont desactivees (Stripe inclus).",
-          demoMode: true,
-        },
-        { status: 403 },
-      ));
+    if (isMutationMethod(request.method) && !isOnboardingApi) {
+      const onboardingMode = await ensureOnboardingMode();
+      if (onboardingMode === "demo") {
+        return finalize(NextResponse.json(
+          {
+            error: "Mode demo actif: les actions de modification sont desactivees (Stripe inclus).",
+            demoMode: true,
+          },
+          { status: 403 },
+        ));
+      }
     }
   }
 
-  if (session && !pathname.startsWith("/api")) {
-    const { onboardingMode } = await getReachedState();
+  if (user && !pathname.startsWith("/api") && needsOnboardingModeForPageNavigation(pathname)) {
+    const onboardingMode = await ensureOnboardingMode();
 
     if (
       onboardingMode === "demo" &&
@@ -316,8 +373,8 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (session && pathname.startsWith("/auth/sign-up/password")) {
-    const { reachedIndex, status, onboardingMode } = await getReachedState();
+  if (user && pathname.startsWith("/auth/sign-up/password")) {
+    const { reachedIndex, status, onboardingMode } = await ensureFullReachedState();
     if (onboardingMode === "demo") {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
@@ -336,12 +393,13 @@ export async function middleware(request: NextRequest) {
     if (reachedIndex > 0) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
+      scrubOnboardingDestinationQuery(url);
       return finalize(NextResponse.redirect(url));
     }
   }
 
-  if (session && pathname.startsWith("/onboarding") && !isDemoOnboardingRoute(pathname) && !isBridgeOnboardingRoute(pathname)) {
-    const { reachedIndex, reachedPath, status } = await getReachedState();
+  if (user && pathname.startsWith("/onboarding") && !isDemoOnboardingRoute(pathname) && !isBridgeOnboardingRoute(pathname)) {
+    const { reachedIndex, reachedPath, status } = await ensureFullReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
       url.pathname = "/shop";
@@ -350,23 +408,26 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/onboarding") {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
+      scrubOnboardingDestinationQuery(url);
       return finalize(NextResponse.redirect(url));
     }
     const requestedIndex = getOnboardingIndexFromPath(pathname);
     if (requestedIndex === -1) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
+      scrubOnboardingDestinationQuery(url);
       return finalize(NextResponse.redirect(url));
     }
     if (requestedIndex > reachedIndex && !isAllowedOnboardingJump(pathname, reachedPath)) {
       const url = request.nextUrl.clone();
       url.pathname = getOnboardingPathFromIndex(reachedIndex);
+      scrubOnboardingDestinationQuery(url);
       return finalize(NextResponse.redirect(url));
     }
   }
 
-  if (session && isPublicRoute(pathname) && pathname !== "/" && !isExplicitMemberSignIn(request)) {
-    const { reachedIndex, status, onboardingMode } = await getReachedState();
+  if (user && isPublicRoute(pathname) && pathname !== "/" && !isExplicitMemberSignIn(request)) {
+    const { reachedIndex, status, onboardingMode } = await ensureFullReachedState();
     const url = request.nextUrl.clone();
     url.pathname =
       onboardingMode === "demo"
@@ -376,6 +437,7 @@ export async function middleware(request: NextRequest) {
           : status === "completed"
             ? "/shop"
             : getOnboardingPathFromIndex(reachedIndex);
+    scrubOnboardingDestinationQuery(url);
     return finalize(NextResponse.redirect(url));
   }
 

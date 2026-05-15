@@ -29,6 +29,7 @@ alter table public.users
   add column if not exists banned_at timestamptz,
   add column if not exists banned_by_user_id uuid references public.users(id) on delete set null,
   add column if not exists ban_reason text,
+  add column if not exists deleted_at timestamptz,
   add column if not exists deleted_by_user_id uuid references public.users(id) on delete set null,
   add column if not exists delete_reason text,
   add column if not exists purge_after timestamptz;

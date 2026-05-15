@@ -2,9 +2,12 @@ import { notFound } from "next/navigation";
 
 import { MainContent } from "@/components/layout/MainContent";
 import { ShopCatalog, type ShopCatalogItem } from "@/components/shop/ShopCatalog";
-import { getCurrentUserAppState } from "@/lib/auth/current-user-server";
+import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  loadShopBoutiqueFilterFacetResponses,
+} from "@/lib/shop/shop-boutique-data-cache";
 import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
 import {
   isShopSectionSlug,
@@ -12,6 +15,8 @@ import {
   SHOP_SECTION_TITLES,
   type ShopSectionSlug,
 } from "@/lib/shop/load-shop-section-items";
+import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
+import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -41,22 +46,17 @@ export default async function ShopSectionPage({ params }: PageProps) {
     };
   };
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await getCurrentAuthUser();
   if (!user) {
     return null;
   }
   const userState = await getCurrentUserAppState(user.id);
+  const isDemoMode = userState.onboarding_mode === "demo";
 
-  const [lendersRes, profileRes, catRes, sizeRes, brandRes, colRes, matRes, favRes] = await Promise.all([
+  const [lendersRes, profileRes, facetPack, favRes] = await Promise.all([
     anySb.rpc("get_shop_featured_lenders", { p_limit: 9 }),
     supabase.from("user_profiles").select("id").eq("user_id", user.id).maybeSingle(),
-    anySb.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
-    anySb.from("sizes").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_brands").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_couleurs").select("id,label").order("label", { ascending: true }),
-    anySb.from("item_materiaux").select("id,label").order("label", { ascending: true }),
+    loadShopBoutiqueFilterFacetResponses(isDemoMode, supabase),
     supabase
       .from("item_favorites")
       .select("item_id")
@@ -64,6 +64,9 @@ export default async function ShopSectionPage({ params }: PageProps) {
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
   ]);
+
+  const { catResFinal: catRes, sizeResFinal: sizeRes, brandResFinal: brandRes, colResFinal: colRes, matResFinal: matRes } =
+    facetPack;
 
   const profileId = (profileRes.data as { id?: string } | null)?.id ?? null;
   let preferredBrandIds: string[] = [];
@@ -115,6 +118,11 @@ export default async function ShopSectionPage({ params }: PageProps) {
     categoryRows,
   });
 
+  const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(
+    sectionCatalogClient as unknown as StorageSignClient,
+    initialItems,
+  );
+
   const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
   const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
 
@@ -124,6 +132,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
         mode="section"
         sectionPageTitle={SHOP_SECTION_TITLES[slug]}
         initialItems={initialItems}
+        initialCoverUrlById={initialCoverUrlById}
         initialLikedItemIds={initialLikedItemIds}
         categories={categoryRows}
         sizes={mapFilterRows(sizeRes.data)}

@@ -40,7 +40,6 @@ as $$
     on u.id = ub.blocked_user_id
   left join public.user_profiles up
     on up.user_id = ub.blocked_user_id
-    and up.deleted_at is null
   where ub.blocked_by_user_id = auth.uid()
     and ub.deleted_at is null;
 $$;

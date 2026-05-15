@@ -35,8 +35,24 @@ declare
 begin
   v_display_name := public.format_display_name_from_names(new.first_name, new.last_name);
 
-  insert into public.user_profiles (user_id, display_name)
-  values (new.id, v_display_name)
+  insert into public.user_profiles (
+    user_id,
+    display_name,
+    photos,
+    profile_data,
+    preferences,
+    looks,
+    answers
+  )
+  values (
+    new.id,
+    v_display_name,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '[]'::jsonb,
+    '[]'::jsonb
+  )
   on conflict (user_id) do update
   set display_name = excluded.display_name;
 

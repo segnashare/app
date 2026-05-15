@@ -563,7 +563,6 @@ as $$
     select up.updated_at
     from public.user_profiles up
     where up.user_id = p_profile_user_id
-      and up.deleted_at is null
     limit 1
   )
   select
@@ -656,10 +655,18 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_item_favorites_to_member_item_interactions on public.item_favorites;
-create trigger trg_item_favorites_to_member_item_interactions
-after insert or update on public.item_favorites
-for each row execute function public.member_item_interactions_from_business_tables();
+do $$
+begin
+  if to_regclass('public.item_favorites') is not null then
+    execute 'drop trigger if exists trg_item_favorites_to_member_item_interactions on public.item_favorites';
+    execute $tr$
+      create trigger trg_item_favorites_to_member_item_interactions
+      after insert or update on public.item_favorites
+      for each row execute function public.member_item_interactions_from_business_tables()
+    $tr$;
+  end if;
+end
+$$;
 
 drop trigger if exists trg_cart_items_to_member_item_interactions on public.cart_items;
 create trigger trg_cart_items_to_member_item_interactions

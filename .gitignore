@@ -24,6 +24,17 @@
 .DS_Store
 *.pem
 
+# MCP / local tooling scratch (Supabase Cursor MCP, etc.)
+.mcp_*
+.mcp_chunks/
+.mcp_section_packs/
+.payload_*
+.tmp-mcp*
+.apply_*_compact.json
+apply_migration.json
+/sql_only.txt
+/temp_*.json
+
 # debug
 npm-debug.log*
 yarn-debug.log*

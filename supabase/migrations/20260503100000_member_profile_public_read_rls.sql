@@ -7,7 +7,6 @@ for select
 to authenticated
 using (
   user_id is distinct from auth.uid()
-  and deleted_at is null
   and exists (
     select 1
     from public.users u
@@ -28,7 +27,6 @@ using (
     from public.user_profiles up
     inner join public.users u on u.id = up.user_id
     where up.id = user_profile_brands.user_profile_id
-      and up.deleted_at is null
       and u.deleted_at is null
       and u.status is distinct from 'corporate_inventory'::public.user_status
       and up.user_id is distinct from auth.uid()

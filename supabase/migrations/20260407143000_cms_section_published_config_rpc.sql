@@ -1,16 +1,25 @@
 -- Expose la config publiée d’une section (ex. masquer le titre) sans charger les frames.
+-- Table `cms_app_sections` : voir 20260502140000 ; sur base neuve cette migration s’exécute avant.
 
 create or replace function public.get_cms_section_published_config(p_section_key text)
 returns jsonb
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select coalesce(s.published_section_config, '{}'::jsonb)
-  from public.cms_app_sections s
-  where s.section_key = nullif(trim(coalesce(p_section_key, '')), '')
-  limit 1;
+begin
+  if to_regclass('public.cms_app_sections') is null then
+    return '{}'::jsonb;
+  end if;
+
+  return (
+    select coalesce(s.published_section_config, '{}'::jsonb)
+    from public.cms_app_sections s
+    where s.section_key = nullif(trim(coalesce(p_section_key, '')), '')
+    limit 1
+  );
+end;
 $$;
 
 grant execute on function public.get_cms_section_published_config(text) to authenticated;

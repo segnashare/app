@@ -174,10 +174,30 @@ export function SignInCore({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email }),
           });
-          const payload = (await response.json()) as { exists?: boolean };
+          if (!response.ok) {
+            setErrorMessage("Impossible de vérifier le compte pour le moment. Réessaie, ou utilise « Continuer avec Google » si ton inscription passait par Google.");
+            return;
+          }
+          const payload = (await response.json()) as {
+            exists?: boolean;
+            passwordSet?: boolean;
+            googleLinked?: boolean;
+          };
           if (payload.exists) {
-            setAuthErrorType("wrong_password");
-            setErrorMessage("Mot de passe incorrect.");
+            if (payload.passwordSet) {
+              setAuthErrorType("wrong_password");
+              setErrorMessage("Mot de passe incorrect.");
+            } else if (payload.googleLinked) {
+              setAuthErrorType(null);
+              setErrorMessage(
+                "Ce compte vient de Google : pas encore de mot de passe Segna. Utilise « Continuer avec Google », ou « Mot de passe oublié » avec la même adresse e-mail pour recevoir un lien et en définir un.",
+              );
+            } else {
+              setAuthErrorType(null);
+              setErrorMessage(
+                "Tu n’as pas encore défini de mot de passe sur ce compte. Utilise « Mot de passe oublié » pour en recevoir un par e-mail.",
+              );
+            }
           } else {
             setAuthErrorType("account_not_found");
             setErrorMessage("Ce compte n'existe pas.");

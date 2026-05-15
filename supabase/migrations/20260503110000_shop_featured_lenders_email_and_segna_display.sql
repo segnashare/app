@@ -4,7 +4,6 @@ select up.user_id, 'organization'::public.app_role
 from public.user_profiles up
 inner join public.users u on u.id = up.user_id
 where u.deleted_at is null
-  and up.deleted_at is null
   and trim(coalesce(up.display_name, '')) = 'Segna S.'
 on conflict (user_id, role) do update
 set
@@ -74,7 +73,6 @@ begin
       ) x
       inner join public.user_profiles up
         on up.user_id = x.user_id
-        and up.deleted_at is null
     ),
     '[]'::jsonb
   );

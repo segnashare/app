@@ -19,8 +19,24 @@ begin
     v_age := extract(year from age(current_date, new.birth_date))::integer;
   end if;
 
-  insert into public.user_profiles (user_id, age)
-  values (new.id, v_age)
+  insert into public.user_profiles (
+    user_id,
+    age,
+    photos,
+    profile_data,
+    preferences,
+    looks,
+    answers
+  )
+  values (
+    new.id,
+    v_age,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '[]'::jsonb,
+    '[]'::jsonb
+  )
   on conflict (user_id) do update
   set age = excluded.age;
 

@@ -23,17 +23,32 @@ where u.id in (
 -- ---------------------------------------------------------------------------
 -- 3) Recréer public.app_role sans `prospect` (même méthode que super_admin)
 -- ---------------------------------------------------------------------------
-drop policy if exists referrals_codes_select_own_or_mod on public.referrals_codes;
-drop policy if exists referrals_select_own_or_mod on public.referrals;
-drop policy if exists referrals_admin_all on public.referrals;
-drop policy if exists item_condition_history_select_via_staff on public.item_condition_history;
-drop policy if exists item_condition_history_insert_via_staff on public.item_condition_history;
+-- `referrals` / `referrals_codes` peuvent ne pas exister sur certaines bases.
+
+do $$
+begin
+  if to_regclass('public.referrals_codes') is not null then
+    execute 'drop policy if exists referrals_codes_select_own_or_mod on public.referrals_codes';
+  end if;
+  if to_regclass('public.referrals') is not null then
+    execute 'drop policy if exists referrals_select_own_or_mod on public.referrals';
+    execute 'drop policy if exists referrals_admin_all on public.referrals';
+  end if;
+  if to_regclass('public.item_condition_history') is not null then
+    execute 'drop policy if exists item_condition_history_select_via_staff on public.item_condition_history';
+    execute 'drop policy if exists item_condition_history_insert_via_staff on public.item_condition_history';
+  end if;
+end;
+$$;
 
 drop function if exists public.has_role(public.app_role);
 
 alter type public.app_role rename to app_role_old;
 
 create type public.app_role as enum ('user', 'moderator', 'admin', 'segna_system', 'organization');
+
+alter table public.user_roles
+  alter column role drop default;
 
 alter table public.user_roles
   alter column role type public.app_role using (
@@ -47,6 +62,11 @@ alter table public.user_roles
       else 'user'::public.app_role
     end
   );
+
+alter table public.user_roles alter column role set default 'user'::public.app_role;
+
+alter table public.activity_events
+  alter column actor_role drop default;
 
 alter table public.activity_events
   alter column actor_role type public.app_role using (
@@ -82,42 +102,54 @@ $$;
 
 grant execute on function public.has_role(public.app_role) to authenticated;
 
-create policy referrals_codes_select_own_or_mod on public.referrals_codes for select to authenticated
-  using (
-    (user_id = auth.uid())
-    or exists (
-      select 1 from public.user_roles ur
-      where ur.user_id = auth.uid()
-        and lower(ur.role::text) = any (array['moderator'::text, 'admin'::text])
-    )
-  );
-
-create policy referrals_select_own_or_mod on public.referrals for select to authenticated
-  using (
-    (referrer_user_id = auth.uid())
-    or (referred_user_id = auth.uid())
-    or exists (
-      select 1 from public.user_roles ur
-      where ur.user_id = auth.uid()
-        and lower(ur.role::text) = any (array['moderator'::text, 'admin'::text])
-    )
-  );
-
-create policy referrals_admin_all on public.referrals for all to authenticated
-  using (
-    exists (
-      select 1 from public.user_roles ur
-      where ur.user_id = auth.uid()
-        and lower(ur.role::text) = 'admin'::text
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.user_roles ur
-      where ur.user_id = auth.uid()
-        and lower(ur.role::text) = 'admin'::text
-    )
-  );
+do $$
+begin
+  if to_regclass('public.referrals_codes') is not null then
+    execute $pol$
+      create policy referrals_codes_select_own_or_mod on public.referrals_codes for select to authenticated
+        using (
+          (user_id = auth.uid())
+          or exists (
+            select 1 from public.user_roles ur
+            where ur.user_id = auth.uid()
+              and lower(ur.role::text) = any (array['moderator'::text, 'admin'::text])
+          )
+        );
+    $pol$;
+  end if;
+  if to_regclass('public.referrals') is not null then
+    execute $pol$
+      create policy referrals_select_own_or_mod on public.referrals for select to authenticated
+        using (
+          (referrer_user_id = auth.uid())
+          or (referred_user_id = auth.uid())
+          or exists (
+            select 1 from public.user_roles ur
+            where ur.user_id = auth.uid()
+              and lower(ur.role::text) = any (array['moderator'::text, 'admin'::text])
+          )
+        );
+    $pol$;
+    execute $pol$
+      create policy referrals_admin_all on public.referrals for all to authenticated
+        using (
+          exists (
+            select 1 from public.user_roles ur
+            where ur.user_id = auth.uid()
+              and lower(ur.role::text) = 'admin'::text
+          )
+        )
+        with check (
+          exists (
+            select 1 from public.user_roles ur
+            where ur.user_id = auth.uid()
+              and lower(ur.role::text) = 'admin'::text
+          )
+        );
+    $pol$;
+  end if;
+end;
+$$;
 
 do $$
 begin

@@ -76,6 +76,10 @@ export function ForgotPasswordCore({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+      if (!response.ok) {
+        setSubmitError("Impossible de vérifier ce compte pour le moment. Réessaie dans quelques instants.");
+        return;
+      }
       const payload = (await response.json()) as { exists?: boolean };
       if (!payload.exists) {
         setSubmitError("Ce compte n'existe pas.");

@@ -1,4 +1,5 @@
 -- Agrégats cross-panier (RLS cart_items limitée au propriétaire) : concurrents in_cart + réservation ailleurs.
+-- Valeur enum « reserved » : voir 20260430130300 (transaction séparée, évite 55P04).
 
 create or replace function public.get_cart_items_competition_state(p_item_ids uuid[])
 returns jsonb

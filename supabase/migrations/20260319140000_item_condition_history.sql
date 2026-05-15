@@ -1,3 +1,7 @@
+-- Soft-delete des rôles (référencé par has_role() et policies staff avant migration dédiée).
+alter table public.user_roles
+  add column if not exists deleted_at timestamptz;
+
 -- Table d'historique des conditions/défauts d'une pièce.
 -- Chaque ligne = un instant de la vie de la pièce : on sait d'où vient la condition (source)
 -- et à quel moment elle était pertinente (recorded_at).

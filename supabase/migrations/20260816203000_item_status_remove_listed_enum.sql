@@ -1381,7 +1381,6 @@ select up.user_id, 'organization'::public.app_role
 from public.user_profiles up
 inner join public.users u on u.id = up.user_id
 where u.deleted_at is null
-  and up.deleted_at is null
   and trim(coalesce(up.display_name, '')) = 'Segna S.'
 on conflict (user_id, role) do update
 set
@@ -1450,7 +1449,6 @@ begin
       ) x
       inner join public.user_profiles up
         on up.user_id = x.user_id
-        and up.deleted_at is null
     ),
     '[]'::jsonb
   );
@@ -2242,7 +2240,7 @@ begin
       )::numeric as base_score
     from public.items i
     left join public.user_profiles up
-      on up.user_id = i.owner_user_id and up.deleted_at is null
+      on up.user_id = i.owner_user_id
     left join public.item_categories cat
       on cat.id = i.item_category_id
     left join public.sizes sz
@@ -2316,8 +2314,7 @@ begin
       on ph.member_user_id = v_uid
       and ph.entity_type = 'profile'
       and ph.profile_user_id = up.user_id
-    where up.deleted_at is null
-      and up.user_id <> v_uid
+    where up.user_id <> v_uid
       and (ph.hidden_until is null or ph.hidden_until <= now())
       and public.is_profile_eligible_for_home_feed(v_uid, up.user_id, 30)
       and not exists (

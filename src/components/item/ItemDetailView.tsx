@@ -15,7 +15,7 @@ import { ItemViewView } from "./ItemViewView";
 import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
-import type { ItemDetailPayload } from "@/lib/items/fetch-item-detail-client";
+import type { FetchItemDetailResult, ItemDetailPayload } from "@/lib/items/fetch-item-detail-core";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
@@ -123,9 +123,17 @@ const ITEM_DETAIL_CACHED_EVENT = "segna:item-detail-cached";
 type ItemDetailViewProps = {
   /** Préchargement SSR des frames « Propriété Segna » (membre connecté uniquement côté page). */
   initialSegnaStockPropertyCmsFrames?: CmsFrameRow[];
+  /** Session résolue côté serveur : évite un `getUser()` client pour les droits UI (propriétaire). */
+  initialAuthUserId?: string | null;
+  /** Résultat du chargement fiche côté serveur (évite le waterfall client si présent). */
+  initialDetailResult?: FetchItemDetailResult;
 };
 
-export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetailViewProps = {}) {
+export function ItemDetailView({
+  initialSegnaStockPropertyCmsFrames,
+  initialAuthUserId = null,
+  initialDetailResult,
+}: ItemDetailViewProps = {}) {
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -136,8 +144,9 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   /** Strip `?verification=1` après chargement (URL propre). */
   const verificationPending = searchParams.get("verification") === "1";
 
-  /** Depuis le shop, ne pas réutiliser le cache « échange » (souvent obsolète pour `item_custom_brand_label`). */
+  /** Depuis le shop sans SSR : ne pas réutiliser le cache « échange » (souvent obsolète pour `item_custom_brand_label`). */
   const [data, setData] = useState<ItemDetailPayload | null>(() => {
+    if (initialDetailResult?.ok) return initialDetailResult.payload;
     if (!itemId) return null;
     if (typeof window !== "undefined") {
       try {
@@ -149,6 +158,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     return readLendItemDetailCache(itemId);
   });
   const [isLoading, setIsLoading] = useState(() => {
+    if (initialDetailResult !== undefined) return false;
     if (!itemId) return false;
     if (typeof window !== "undefined") {
       try {
@@ -159,7 +169,12 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
     }
     return readLendItemDetailCache(itemId) == null;
   });
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(() => {
+    if (initialDetailResult && !initialDetailResult.ok) {
+      return initialDetailResult.kind === "auth" ? "Session invalide." : "Pièce introuvable.";
+    }
+    return null;
+  });
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -181,15 +196,14 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   const itemIdRef = useRef<string | null>(null);
   itemIdRef.current = itemId;
 
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
-  const [authResolved, setAuthResolved] = useState(false);
+  const [authUserId, setAuthUserId] = useState<string | null>(() => initialAuthUserId ?? null);
   useEffect(() => {
+    if (initialAuthUserId) return;
     const supabase = createSupabaseBrowserClient();
     void supabase.auth.getUser().then((res) => {
       setAuthUserId(res.data.user?.id ?? null);
-      setAuthResolved(true);
     });
-  }, []);
+  }, [initialAuthUserId]);
 
   const navigateBack = useCallback(() => {
     if (fromCart || fromShop) {
@@ -246,6 +260,9 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
       return;
     }
     setErrorMessage(null);
+    if (initialDetailResult !== undefined) {
+      return;
+    }
     if (fromShop) {
       invalidateLendItemDetailCache(itemId);
       setData(null);
@@ -260,7 +277,7 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
       setData(null);
       setIsLoading(true);
     }
-  }, [itemId, fromShop]);
+  }, [itemId, fromShop, initialDetailResult]);
 
   useEffect(() => {
     if (!itemId || typeof window === "undefined") return;
@@ -309,8 +326,15 @@ export function ItemDetailView({ initialSegnaStockPropertyCmsFrames }: ItemDetai
   }, []);
 
   useEffect(() => {
+    if (!itemId) return;
+    if (initialDetailResult !== undefined) {
+      if (initialDetailResult.ok) {
+        primeLendItemDetailCache(itemId, initialDetailResult.payload);
+      }
+      return;
+    }
     void fetchData();
-  }, [fetchData]);
+  }, [itemId, initialDetailResult, fetchData]);
 
   useEffect(() => {
     if (!actionsMenuOpen) return;

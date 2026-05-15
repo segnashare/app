@@ -137,7 +137,6 @@ as $$
     select up.updated_at
     from public.user_profiles up
     where up.user_id = p_profile_user_id
-      and up.deleted_at is null
     limit 1
   )
   select
@@ -194,7 +193,6 @@ for select
 to authenticated
 using (
   user_id is distinct from auth.uid()
-  and deleted_at is null
   and exists (
     select 1
     from public.users u
@@ -216,7 +214,6 @@ using (
     from public.user_profiles up
     inner join public.users u on u.id = up.user_id
     where up.id = user_profile_brands.user_profile_id
-      and up.deleted_at is null
       and u.deleted_at is null
       and u.status is distinct from 'corporate_inventory'::public.user_status
       and coalesce(u.phantom_mode, false) = false
@@ -492,7 +489,7 @@ begin
       )::numeric as base_score
     from public.items i
     left join public.user_profiles up
-      on up.user_id = i.owner_user_id and up.deleted_at is null
+      on up.user_id = i.owner_user_id
     left join public.item_categories cat
       on cat.id = i.item_category_id
     left join public.sizes sz
@@ -566,8 +563,7 @@ begin
       on ph.member_user_id = v_uid
       and ph.entity_type = 'profile'
       and ph.profile_user_id = up.user_id
-    where up.deleted_at is null
-      and up.user_id <> v_uid
+    where up.user_id <> v_uid
       and (ph.hidden_until is null or ph.hidden_until <= now())
       and public.is_profile_eligible_for_home_feed(v_uid, up.user_id, 30)
       and not exists (

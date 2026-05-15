@@ -2,8 +2,24 @@
  * Parse la colonne JSON `items.photos` (clés photo1, photo2, …) pour résolution d’URL signée.
  */
 export function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<string, unknown>> {
-  if (!raw || typeof raw !== "object") return [];
-  const photos = raw as Record<string, unknown>;
+  let rawPhotos: unknown = raw;
+  if (typeof rawPhotos === "string") {
+    const t = rawPhotos.trim();
+    if (!t) return [];
+    try {
+      rawPhotos = JSON.parse(t) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!rawPhotos) return [];
+  if (Array.isArray(rawPhotos)) {
+    return (rawPhotos as unknown[]).filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object") as Array<
+      Record<string, unknown>
+    >;
+  }
+  if (typeof rawPhotos !== "object") return [];
+  const photos = rawPhotos as Record<string, unknown>;
   return Object.entries(photos)
     .filter(([key, value]) => key.toLowerCase().startsWith("photo") && value && typeof value === "object")
     .sort(([keyA], [keyB]) => {
@@ -20,8 +36,33 @@ export function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<stri
  * Certaines pièces n’ont que `main_url` / `url` à la racine, ou un tableau `entries`, sans clés `photoN`.
  */
 export function getFirstPhotoStoragePath(rawPhotos: unknown): string | null {
-  if (!rawPhotos || typeof rawPhotos !== "object") return null;
-  const photos = rawPhotos as Record<string, unknown>;
+  let raw: unknown = rawPhotos;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return null;
+    if (/^https?:\/\//i.test(t)) return t;
+    try {
+      raw = JSON.parse(t) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!raw) return null;
+  /** Certaines lignes stockent directement un tableau `[{ storage_path, … }]` sans clés `photoN`. */
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const urlCandidate =
+        row.storage_path ?? row.storagePath ?? row.url ?? row.photo_url ?? row.photoUrl ?? row.path;
+      if (typeof urlCandidate === "string" && urlCandidate.trim()) {
+        return urlCandidate.trim();
+      }
+    }
+    return null;
+  }
+  if (typeof raw !== "object") return null;
+  const photos = raw as Record<string, unknown>;
 
   const rootCandidates = [
     photos.main_url,
@@ -38,7 +79,7 @@ export function getFirstPhotoStoragePath(rawPhotos: unknown): string | null {
     }
   }
 
-  const entries = parsePhotoEntriesFromItemPhotos(rawPhotos);
+  const entries = parsePhotoEntriesFromItemPhotos(photos);
   const first = entries[0];
   if (first) {
     const storagePathRaw = first.storage_path ?? first.storagePath ?? first.url ?? first.photo_url ?? first.photoUrl;

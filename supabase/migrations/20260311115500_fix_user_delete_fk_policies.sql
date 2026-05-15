@@ -83,9 +83,10 @@ alter table public.cart_items
   foreign key (owner_user_id) references public.users(id) on delete cascade;
 
 alter table public.cart_payments drop constraint if exists cart_payments_payer_user_id_fkey;
+alter table public.cart_payments drop constraint if exists cart_payments_user_id_fkey;
 alter table public.cart_payments
-  add constraint cart_payments_payer_user_id_fkey
-  foreign key (payer_user_id) references public.users(id) on delete cascade;
+  add constraint cart_payments_user_id_fkey
+  foreign key (user_id) references public.users(id) on delete cascade;
 
 alter table public.cart_refunds drop constraint if exists cart_refunds_user_id_fkey;
 alter table public.cart_refunds

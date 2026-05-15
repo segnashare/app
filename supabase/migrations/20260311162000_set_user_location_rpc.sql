@@ -1,3 +1,6 @@
+alter table public.user_profiles
+  add column if not exists city text;
+
 alter table public.users
   add column if not exists adress text;
 
@@ -39,8 +42,24 @@ begin
       timezone = coalesce(excluded.timezone, public.users.timezone)
   returning * into v_row;
 
-  insert into public.user_profiles (user_id, city)
-  values (v_uid, v_relative_city)
+  insert into public.user_profiles (
+    user_id,
+    city,
+    photos,
+    profile_data,
+    preferences,
+    looks,
+    answers
+  )
+  values (
+    v_uid,
+    v_relative_city,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '[]'::jsonb,
+    '[]'::jsonb
+  )
   on conflict (user_id) do update
   set city = coalesce(excluded.city, public.user_profiles.city);
 

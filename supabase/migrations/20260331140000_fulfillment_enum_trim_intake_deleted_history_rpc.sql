@@ -20,6 +20,8 @@ where fulfillment_stage::text = 'verification_pending';
 drop trigger if exists trg_item_intake_after_update_sync_listed on public.item_intake;
 drop trigger if exists trg_item_intake_before_insert_guard on public.item_intake;
 drop trigger if exists trg_item_intake_before_update_guard on public.item_intake;
+-- PG 0A000 : ALTER TYPE sur fulfillment_stage si un trigger référence cette colonne (20260326112000).
+drop trigger if exists trg_item_intake_after_refusal_workflow on public.item_intake;
 
 create type public.item_intake_fulfillment_stage_new as enum (
   'shipping',
@@ -121,6 +123,12 @@ create trigger trg_item_intake_after_update_sync_listed
 after insert or update of fulfillment_stage on public.item_intake
 for each row
 execute function public.item_intake_after_update_sync_items_listed();
+
+drop trigger if exists trg_item_intake_after_refusal_workflow on public.item_intake;
+create trigger trg_item_intake_after_refusal_workflow
+after insert or update of listing_stage, fulfillment_stage on public.item_intake
+for each row
+execute function public.item_intake_after_refusal_workflow();
 
 -- ---------------------------------------------------------------------------
 -- C) item_intake.deleted_at

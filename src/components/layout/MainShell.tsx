@@ -50,7 +50,7 @@ export function MainShell({
           referralInvite={inAppOnboardingIntro.referralInvite}
         />
       ) : null}
-      {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal userId={inAppOnboardingRewardUserId} /> : null}
+      {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal /> : null}
       {referrerBonusModal ? <ReferrerBonusModal payload={referrerBonusModal} /> : null}
     </div>
   );
