@@ -47,6 +47,17 @@ export function resolveOutboundBorrowDeliveredAtIso(
 /**
  * Date limite de retour : 10 j. (Guest), 30 j. (Membre X), +1 mois calendaire depuis la livraison (Membre +).
  */
+/** Libellé produit pour e-mails / notifications (durée de location). */
+export function describeBorrowPeriodForMembership(membershipLabel: SegnaBorrowMembershipLabel): string {
+  if (membershipLabel === "Guest") {
+    return "10 jours à compter de la réception de ta commande";
+  }
+  if (membershipLabel === "Membre X") {
+    return "30 jours à compter de la réception de ta commande";
+  }
+  return "1 mois calendaire à compter de la réception de ta commande";
+}
+
 export function computeBorrowDeadlineMs(
   deliveredAtMs: number,
   membershipLabel: SegnaBorrowMembershipLabel,

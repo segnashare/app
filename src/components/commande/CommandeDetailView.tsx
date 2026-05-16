@@ -124,7 +124,7 @@ function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPha
 
   if (st === "ready") {
     return {
-      preparationLine: "Colis prêt — le coursier Uber va récupérer ton colis.",
+      preparationLine: "Votre box est prête, le coursier Uber va bientôt la récupérer.",
       deliveryWindowLine: null,
     };
   }

@@ -51,18 +51,65 @@ export function orderOutboundRelayPickupAvailableEmail(firstName: string | null)
   return { subject, text, html };
 }
 
-export function orderOutboundDeliveredEmail(firstName: string | null): { subject: string; text: string; html: string } {
-  const pEsc = escapeHtml(firstNameOrBonjour(firstName));
-  const subject = "Commande livrée — à vérifier";
-  const { text, html } = shell(subject, "Colis livré : merci de vérifier ta commande", [
-    { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
+export type OrderOutboundDeliveredEmailInput = {
+  firstName: string | null;
+  orderRef: string;
+  itemLabels: string[];
+  borrowPeriodLabel: string;
+  returnDeadlineLabel: string;
+  supportEmail: string;
+};
+
+export function orderOutboundDeliveredEmail(
+  input: OrderOutboundDeliveredEmailInput,
+): { subject: string; text: string; html: string } {
+  const pEsc = escapeHtml(firstNameOrBonjour(input.firstName));
+  const orderRefEsc = escapeHtml(input.orderRef);
+  const borrowEsc = escapeHtml(input.borrowPeriodLabel);
+  const deadlineEsc = escapeHtml(input.returnDeadlineLabel);
+  const supportEsc = escapeHtml(input.supportEmail);
+
+  const itemsText =
+    input.itemLabels.length > 0
+      ? input.itemLabels.map((l) => `• ${l}`).join("\n")
+      : "• (détail dans l’app Segna)";
+  const itemsHtml =
+    input.itemLabels.length > 0
+      ? `<ul style="margin:0 0 16px;padding-left:20px;">${input.itemLabels
+          .map((l) => `<li>${escapeHtml(l)}</li>`)
+          .join("")}</ul>`
+      : "<p style=\"margin:0 0 16px;\">Détail des pièces dans l’app Segna.</p>";
+
+  const subject = "Ta box Segna est livrée — récap de ton échange";
+  const { text, html } = shell(subject, "Récapitulatif de ton échange et date limite de retour", [
+    { text: `Bonjour ${firstNameOrBonjour(input.firstName)},`, html: `Bonjour ${pEsc},` },
     {
-      text: "Ton colis est indiqué comme livré. Merci de vérifier ta commande dans l’app.",
-      html: "Ton colis est indiqué comme <strong>livré</strong>. Merci de <strong>vérifier</strong> ta commande dans l’app (section commande / échange).",
+      text: "Ton colis est indiqué comme livré. Voici le récapitulatif de ton échange :",
+      html: "Ton colis est indiqué comme <strong>livré</strong>. Voici le <strong>récapitulatif</strong> de ton échange :",
     },
     {
-      text: "En cas de problème, contacte le support depuis l’application.",
-      html: "En cas de problème, contacte le support depuis l’application.",
+      text: `Commande ${input.orderRef}\n${itemsText}`,
+      html: `<p style="margin:0 0 8px;"><strong>Commande ${orderRefEsc}</strong></p>${itemsHtml}`,
+    },
+    {
+      text: `Durée de location : ${input.borrowPeriodLabel}.`,
+      html: `<strong>Durée de location :</strong> ${borrowEsc}.`,
+    },
+    {
+      text: `Date limite de retour : ${input.returnDeadlineLabel}.`,
+      html: `<strong>Date limite de retour :</strong> ${deadlineEsc}.`,
+    },
+    {
+      text: "Pense à déclarer dans l’app Segna le moindre problème (colis, contenu, état des pièces).",
+      html: "Pense à <strong>déclarer dans l’app Segna</strong> le moindre problème (colis, contenu, état des pièces).",
+    },
+    {
+      text: `Si tu as besoin d’aide, écris-nous à ${input.supportEmail}.`,
+      html: `Si tu as besoin d’aide, écris-nous à <a href="mailto:${supportEsc}" style="color:#000;text-decoration:underline;">${supportEsc}</a>.`,
+    },
+    {
+      text: "Bonne location et profite bien de ta box !",
+      html: "Bonne location et <strong>profite bien de ta box</strong> !",
     },
   ]);
   return { subject, text, html };

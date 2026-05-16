@@ -4,10 +4,10 @@
  * **Paiements / abo** : `cart_order_paid` (e-mail + SMS prépa si Twilio + tél.), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
- * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail ; SMS seulement sur cette transition  
+ * - `order_outbound_ready_to_ship` : aller **pending → ready** — SMS seul (pas d’e-mail)  
  * - `order_outbound_transit_partner` : aller `dropped_in` — **SMS seulement** (en transit chez le partenaire, pas retrait) ; pas si Uber domicile  
  * - `order_outbound_relay_pickup_ready` : aller `dropped_out` — e-mail + SMS « colis disponible au relais » ; pas si Uber domicile  
- * - `order_outbound_delivered` : aller livré — demande de vérification côté membre  
+ * - `order_outbound_delivered` : aller livré (`in_transit_in` → `delivered`, etc.) — e-mail récap (location, échéance retour) + SMS  
  * - `return_member_dropped_parcel` : retour déposé au relais — e-mail + SMS si l’aller n’était pas Uber domicile  
  * - `return_received_by_segna` : retour réceptionné / en vérification côté Segna
  *
