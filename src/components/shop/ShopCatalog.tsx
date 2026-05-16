@@ -28,6 +28,7 @@ import {
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import {
   CMS_SHOP_HUB_FRAME_OUTER_CLASS,
+  SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
   CmsFrameItem,
   ShopWideLinkCardBlock,
   useCmsHubFrameOuterOverride,
@@ -566,7 +567,7 @@ function ShopPieceSplitCard({
       <p
         className={cn(
           montserratPieceMedium.className,
-          "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
+          "flex flex-wrap items-center gap-x-1 text-left text-[10px] font-medium leading-snug min-[380px]:text-[11px]",
           textMeta,
         )}
       >
@@ -2003,7 +2004,7 @@ export function ShopCatalog({
                     return (
                         <div
                           key={dept.linkFrame.id}
-                          className="w-[min(88vw,410px)] max-w-[410px] shrink-0 snap-start"
+                          className={CMS_SHOP_HUB_FRAME_OUTER_CLASS}
                         >
                           <ShopWideLinkCardBlock
                             payload={dept.linkFrame.payload}
@@ -2019,7 +2020,7 @@ export function ShopCatalog({
                       <Link
                         key={dept.slug}
                         href={`/shop/${dept.slug}`}
-                        className="w-[min(88vw,410px)] max-w-[410px] shrink-0 snap-start rounded-2xl text-left"
+                        className={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "rounded-2xl text-left")}
                         onClick={persist}
                       >
                         <div
@@ -2100,8 +2101,8 @@ export function ShopCatalog({
               }
             />
             ) : null}
-                <div className="flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0" aria-hidden />
+                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 {brandsForRail.map((entry) => {
                   if (entry.kind === "link") {
                     return (
@@ -2148,7 +2149,7 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
-                  <div className="w-3 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
         );
@@ -2317,8 +2318,8 @@ export function ShopCatalog({
               }
             />
             ) : null}
-                <div className="flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0" aria-hidden />
+                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
               {frenchHub.list.map((entry) => {
                 if (entry.kind === "link") {
                   return (
@@ -2365,7 +2366,7 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
-                  <div className="w-3 shrink-0" aria-hidden />
+                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
         );
@@ -3221,7 +3222,7 @@ export function ShopCapsuleItemRefFrame({
       ? cn("snap-start", cmsHubFrameOuterOverride)
       : cn(
           "shrink-0 snap-start",
-          spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
+          spotlight ? SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS : "w-[48%] min-w-[160px] max-w-[220px]",
         );
 
   return (
@@ -3306,8 +3307,8 @@ function HubRail({
   return (
     <section className="space-y-3">
       {!hideSectionTitle ? <SectionHeader title={title} sectionHref={sectionHref} /> : null}
-      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="w-3 shrink-0" aria-hidden />
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="w-3 shrink-0 snap-start" aria-hidden />
         {railItems.map((item, index) => {
           const inCart = cartItemIds.has(item.id);
           const liked = likedSet.has(item.id);
@@ -3335,8 +3336,7 @@ function HubRail({
               key={`${title}-${item.id}-${index}`}
               href={`/items/${item.id}?from=shop`}
               className={cn(
-                "shrink-0",
-                spotlight ? "w-[min(92vw,380px)] max-w-[380px]" : "w-[48%] min-w-[160px] max-w-[220px]",
+                spotlight ? SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS : "w-[48%] min-w-[160px] max-w-[220px] shrink-0",
               )}
               onClick={() => {
                 persistShopCatalogStateForItemNavigation({
@@ -3361,7 +3361,7 @@ function HubRail({
             </Link>
           );
         })}
-        <div className="w-3 shrink-0" aria-hidden />
+        <div className="w-3 shrink-0 snap-start" aria-hidden />
       </div>
     </section>
   );

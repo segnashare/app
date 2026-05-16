@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
-const montserrat = segnaMontserrat;
+import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const playfairDisplay = segnaPlayfairDisplay;
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -51,22 +50,6 @@ function isValidBirthDate(day: string, month: string, year: string) {
   );
 }
 
-function toBirthDate(day: string, month: string, year: string) {
-  const dayNumber = Number(day);
-  const monthNumber = Number(month);
-  const yearNumber = Number(year);
-  return new Date(yearNumber, monthNumber - 1, dayNumber);
-}
-
-function getAgeFromBirthDate(birthDate: Date) {
-  const now = new Date();
-  let age = now.getFullYear() - birthDate.getFullYear();
-  const monthDiff = now.getMonth() - birthDate.getMonth();
-  const hasNotHadBirthdayYet = monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate());
-  if (hasNotHadBirthdayYet) age -= 1;
-  return age;
-}
-
 export function OnboardingBirthCore({
   formId,
   onCanContinueChange,
@@ -86,7 +69,6 @@ export function OnboardingBirthCore({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [digits, setDigits] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [showAgeModal, setShowAgeModal] = useState(false);
 
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const placeholders = useMemo(() => ["d", "d", "m", "m", "y", "y", "y", "y"], []);
@@ -124,13 +106,6 @@ export function OnboardingBirthCore({
       setErrorMessage("Merci d'indiquer une date valide.");
       return;
     }
-
-    setShowAgeModal(true);
-  };
-
-  const onConfirmAge = async () => {
-    setErrorMessage(null);
-    const values: BirthFormValues = { day, month, year };
 
     setIsSubmitting(true);
     const isoDate = `${values.year}-${values.month}-${values.day}`;
@@ -175,12 +150,6 @@ export function OnboardingBirthCore({
 
     router.push(redirectPath ?? "/onboarding/size");
   };
-
-  const birthDateForModal = isDateValid ? toBirthDate(day, month, year) : null;
-  const ageForModal = birthDateForModal ? getAgeFromBirthDate(birthDateForModal) : null;
-  const birthDateForModalLabel = birthDateForModal
-    ? birthDateForModal.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
-    : "";
 
   return (
     <div className={cn(formClassName ?? "mt-8 w-full")}>
@@ -255,46 +224,6 @@ export function OnboardingBirthCore({
 
       </form>
 
-      {showAgeModal && birthDateForModal && ageForModal !== null ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-md p-[clamp(12px,3vw,28px)]">
-          <div className="w-[min(90vw,500px)] max-h-[min(88vh,640px)] overflow-hidden rounded-[clamp(16px,2.4vw,20px)] bg-white shadow-[0_14px_42px_rgba(0,0,0,0.18)]">
-            <div className="min-h-[clamp(250px,52vw,360px)] px-[clamp(20px,4.6vw,36px)] pb-[clamp(26px,5.2vw,40px)] pt-[clamp(30px,6vw,48px)]">
-              <h2 className={cn(playfairDisplay.className, "text-[clamp(30px,8vw,64px)] font-extrabold leading-[1.02] text-zinc-950")}>
-                Tu as {ageForModal} ans
-              </h2>
-              <p className="mt-[clamp(8px,1.8vw,14px)] text-[clamp(14px,3.2vw,18px)] font-semibold leading-[1.15] text-zinc-900">
-                Née {birthDateForModalLabel}
-              </p>
-              <p className="mt-[clamp(30px,6vw,42px)] text-[clamp(16px,4vw,24px)] font-semibold leading-[1.28] text-zinc-900">
-                Confirme que ton âge est correct.
-              </p>
-              <p className="mt-[clamp(6px,1.4vw,12px)] text-[clamp(16px,4vw,24px)] leading-[1.28] text-zinc-900">
-                Ensemble, faisons en sorte que notre communauté reste authentique.
-              </p>
-            </div>
-
-            <div className="flex h-[clamp(68px,12vw,88px)] border-t border-zinc-200">
-              <button
-                type="button"
-                className="h-full flex-1 text-[clamp(16px,3.6vw,24px)] font-medium text-zinc-800"
-                onClick={() => setShowAgeModal(false)}
-                disabled={isSubmitting}
-              >
-                Modifier
-              </button>
-              <div className="w-px bg-zinc-200" aria-hidden />
-              <button
-                type="button"
-                className="h-full flex-1 text-[clamp(16px,3.6vw,24px)] font-semibold text-zinc-900"
-                onClick={() => void onConfirmAge()}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "..." : "Confirmer"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -194,6 +194,25 @@ function isProfileRequirementValueFilled(value: unknown): boolean {
   return trimmed.length > 0 && trimmed !== "À compléter" && trimmed !== "Non renseigné";
 }
 
+const ESSENTIAL_ONBOARDING_INFO_IDS = ["first_name", "age", "location", "work", "sizes"] as const;
+
+function collectMissingOnboardingRequirementTargets(
+  looksSlots: Array<LookSlot | null>,
+  infoItems: ProfileRowItem[],
+): Set<string> {
+  const targets = new Set<string>();
+  if (!looksSlots.some(Boolean)) {
+    targets.add("look-0");
+  }
+  for (const id of ESSENTIAL_ONBOARDING_INFO_IDS) {
+    const value = infoItems.find((item) => item.id === id)?.value;
+    if (!isProfileRequirementValueFilled(value)) {
+      targets.add(`info-${id}`);
+    }
+  }
+  return targets;
+}
+
 function toPreferenceDisplay(value: unknown, customText: unknown) {
   const custom = typeof customText === "string" && customText.trim().length > 0 ? customText.trim() : "";
   if (Array.isArray(value)) {
@@ -428,6 +447,8 @@ type ProfileCompleteModifyCoreProps = {
     hasPhoto: boolean;
     hasEssentialInfos: boolean;
   }) => void;
+  /** Incrémenté au clic sur « Terminé » quand le profil onboarding n’est pas prêt → secousse des champs manquants. */
+  requirementShakeKey?: number;
 };
 
 export function ProfileCompleteModifyCore({
@@ -435,6 +456,7 @@ export function ProfileCompleteModifyCore({
   showInsightsValidationError = false,
   onScorePreviewChange,
   onOnboardingProfileRequirementsChange,
+  requirementShakeKey,
 }: ProfileCompleteModifyCoreProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
@@ -456,6 +478,7 @@ export function ProfileCompleteModifyCore({
 
   const [profilePhoto, setProfilePhoto] = useState<LookSlot | null>(null);
   const [looksSlots, setLooksSlots] = useState<Array<LookSlot | null>>([null, null, null]);
+  const [shakingTargets, setShakingTargets] = useState<Set<string>>(() => new Set());
 
   const [prompt0, setPrompt0] = useState("");
   const [prompt1, setPrompt1] = useState("");
@@ -1274,6 +1297,22 @@ export function ProfileCompleteModifyCore({
   }, [infoItems, isHydrating, looksSlots, onOnboardingProfileRequirementsChange]);
 
   useEffect(() => {
+    if (requirementShakeKey == null || requirementShakeKey === 0 || isHydrating) return;
+    const targets = collectMissingOnboardingRequirementTargets(looksSlots, infoItems);
+    if (targets.size === 0) return;
+    setShakingTargets(targets);
+    const scrollTargetId = targets.has("look-0") ? "look-0" : [...targets][0];
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-profile-shake="${scrollTargetId}"]`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    const timeoutId = window.setTimeout(() => setShakingTargets(new Set()), 560);
+    return () => window.clearTimeout(timeoutId);
+  }, [requirementShakeKey, isHydrating, looksSlots, infoItems]);
+
+  useEffect(() => {
     if (isHydrating) return;
     const serialized = JSON.stringify(answersForSave);
     if (serialized === lastSavedAnswersRef.current) return;
@@ -1375,9 +1414,11 @@ export function ProfileCompleteModifyCore({
       {items.map((item, index) => (
         <div
           key={item.id}
+          data-profile-shake={`info-${item.id}`}
           className={cn(
             "flex items-center justify-between px-4 py-3",
             index < items.length - 1 ? "border-b border-zinc-200" : "",
+            shakingTargets.has(`info-${item.id}`) ? "profile-requirement-vibrate" : "",
           )}
         >
           <button
@@ -1418,6 +1459,7 @@ export function ProfileCompleteModifyCore({
             <button
               key={`look-slot-${index}`}
               data-look-slot-index={index}
+              data-profile-shake={index === 0 ? "look-0" : undefined}
               type="button"
               draggable={Boolean(slot)}
               onDragStart={(event: DragEvent<HTMLButtonElement>) => {
@@ -1496,6 +1538,7 @@ export function ProfileCompleteModifyCore({
                 dragOverLookIndex === index ? "border-zinc-700 bg-zinc-100" : "",
                 slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
                 draggingLookIndex === index ? "opacity-30" : "",
+                index === 0 && shakingTargets.has("look-0") ? "profile-requirement-vibrate" : "",
               )}
             >
               <div className="absolute inset-0 overflow-hidden rounded-[14px]">

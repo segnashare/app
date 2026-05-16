@@ -42,11 +42,10 @@ export function ProfileCompleteHeader({
             <button
               type="button"
               onClick={onDone}
-              disabled={doneDisabled}
               aria-disabled={doneDisabled}
               className={cn(
                 "justify-self-end px-2 text-[20px] font-bold",
-                doneDisabled ? "pointer-events-none cursor-default text-zinc-300" : "text-zinc-900",
+                doneDisabled ? "cursor-pointer text-zinc-300" : "text-zinc-900",
               )}
             >
               Terminé

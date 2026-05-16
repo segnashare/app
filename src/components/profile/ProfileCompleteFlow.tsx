@@ -148,6 +148,7 @@ export function ProfileCompleteFlow({
   const [previewScore, setPreviewScore] = useState<number | null>(null);
   const [requirements, setRequirements] = useState<OnboardingProfileRequirements | null>(onboardingProfileRequirements);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [requirementShakeKey, setRequirementShakeKey] = useState(0);
   const displayedScore = previewScore ?? completionScore;
   const onboardingHelpCopy =
     showOnboardingProfileHelp && requirements != null ? getOnboardingProfileHelpCopy(requirements) : null;
@@ -163,6 +164,7 @@ export function ProfileCompleteFlow({
     setTransitionError(null);
     if (!profileRequirementsReady) {
       setMode("edit");
+      setRequirementShakeKey((k) => k + 1);
       setTransitionError("Ajoute une photo et complète les infos essentielles avant de valider ton profil.");
       return;
     }
@@ -184,6 +186,7 @@ export function ProfileCompleteFlow({
       setRequirements(liveRequirements);
       if (!getOnboardingProfileHelpCopy(liveRequirements).ready) {
         setMode("edit");
+        setRequirementShakeKey((k) => k + 1);
         setTransitionError("Complète les éléments indiqués avant de valider ton profil.");
         return;
       }
@@ -234,6 +237,7 @@ export function ProfileCompleteFlow({
               showInsightsValidationError={showInsightsValidationError}
               onScorePreviewChange={setPreviewScore}
               onOnboardingProfileRequirementsChange={setRequirements}
+              requirementShakeKey={showOnboardingProfileHelp ? requirementShakeKey : undefined}
             />
           ) : (
             <ProfileCompleteVisualizationCore displayName={displayName} />

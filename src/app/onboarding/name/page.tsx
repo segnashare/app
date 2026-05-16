@@ -28,9 +28,6 @@ export default function OnboardingNamePage() {
       showStepTracker={true}
       persistProgressOnNext={false}
       centeredAuthLayout
-      headerAccessoryTopRight={
-        <span className={cn(montserrat.className, "text-[15px] font-semibold text-[#999999]")}>Pourquoi ?</span>
-      }
       appViewportOuterClassName={AUTH_BG}
       appViewportClassName={AUTH_BG}
       centeredAuthSectionGapClassName="gap-y-20 md:gap-y-10"

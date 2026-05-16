@@ -117,6 +117,36 @@ body:has(.segna-lock-document-scroll) {
   }
 }
 
+/* Profil onboarding : secousse ponctuelle sur photo / infos manquantes (même esprit que panier). */
+@keyframes profile-requirement-vibrate {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  18% {
+    transform: translate3d(-2px, 0, 0) rotate(-5deg);
+  }
+  36% {
+    transform: translate3d(2px, 0, 0) rotate(5deg);
+  }
+  54% {
+    transform: translate3d(-2px, 0, 0) rotate(-4deg);
+  }
+  72% {
+    transform: translate3d(2px, 0, 0) rotate(4deg);
+  }
+}
+
+.profile-requirement-vibrate {
+  animation: profile-requirement-vibrate 0.55s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-requirement-vibrate {
+    animation: none;
+  }
+}
+
 /* Shop catalogue : squelette image (balayage diagonal type Uber) en attendant l’URL signée. */
 /* Dernière portion du temps ≈ quasi à l’arrêt en bout de course (effet d’attente). */
 @keyframes shop-catalog-image-shimmer {

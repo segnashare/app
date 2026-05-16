@@ -11,6 +11,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = segnaMontserrat;
+/** Numéro de test : contourne l’unicité seulement si le numéro est déjà pris par un autre compte (pas d’OTP). */
 const DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164 = "+33781774735";
 
 type PhoneFormValues = {
@@ -131,7 +132,8 @@ export function OnboardingPhoneCore({
       return;
     }
 
-    if (isDuplicatePhoneException) {
+    // Passe-droit dev : uniquement si le numéro est encore pris ailleurs (sinon flux SMS normal).
+    if (isDuplicatePhoneException && phoneOk !== true) {
       const { error } = await supabase.rpc("upsert_onboarding_progress", {
         p_current_step: "/onboarding/name",
         p_progress_json: {

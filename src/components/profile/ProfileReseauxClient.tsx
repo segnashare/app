@@ -25,6 +25,7 @@ type FieldErrors = Partial<Record<"instagram" | "tiktok" | "pinterest" | "thread
 
 /** Même clé que `ProfileTabs` / `ProfileKycCore` pour forcer un rechargement du score après sauvegarde. */
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
+const RESEAUX_HANDLE_PLACEHOLDER = "ex : segnashare";
 
 function SocialNetworkIcon({ id }: { id: keyof FieldErrors }) {
   const cls = "h-5 w-5 shrink-0 text-zinc-900";
@@ -218,7 +219,7 @@ export function ProfileReseauxClient() {
             {field({
               id: "instagram",
               label: "Instagram",
-              placeholder: "ex. segna_officiel",
+              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
               value: instagram,
               onChange: setInstagram,
             })}
@@ -226,7 +227,7 @@ export function ProfileReseauxClient() {
             {field({
               id: "tiktok",
               label: "TikTok",
-              placeholder: "ex. segna",
+              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
               value: tiktok,
               onChange: setTiktok,
             })}
@@ -234,7 +235,7 @@ export function ProfileReseauxClient() {
             {field({
               id: "pinterest",
               label: "Pinterest",
-              placeholder: "ex. monpseudo",
+              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
               value: pinterest,
               onChange: setPinterest,
             })}
@@ -242,7 +243,7 @@ export function ProfileReseauxClient() {
             {field({
               id: "threads",
               label: "Threads",
-              placeholder: "ex. segna",
+              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
               value: threads,
               onChange: setThreads,
             })}

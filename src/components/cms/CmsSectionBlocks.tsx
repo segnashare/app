@@ -58,12 +58,19 @@ function cmsLinkCardCtaClassName(tone: CmsLinkCardCtaTone): string {
 }
 
 /**
- * Gabarit des grandes cartes hub CMS (offres, éditos, liens…).
- * `max(88vw, 90%)` aligne sur les rails boutique (ex. catégories en `88vw`) tout en gardant au moins
- * l’ancien rendu `90%` sur colonnes étroites ; le tout plafonné à 410px (colonne app `max-w-[430px]`).
+ * Gabarit des grandes cartes hub CMS (`shop_link_card`, offres, éditos…).
+ * Plus étroit que les cartes split (`SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS`) pour accentuer
+ * l’aperçu de la frame suivante sur petits écrans. Plafond 410px (colonne app `max-w-[430px]`).
  */
 export const CMS_SHOP_HUB_FRAME_OUTER_CLASS =
-  "w-[min(max(88vw,90%),410px)] max-w-[410px] shrink-0 snap-start";
+  "w-[min(84vw,410px)] max-w-[410px] shrink-0 snap-start";
+
+/**
+ * Rails pièces split hub (À découvrir, bons coups…) : même largeur que le rail Catégories
+ * pour laisser voir l’aperçu de la frame suivante sur petits écrans.
+ */
+export const SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS =
+  "w-[min(88vw,410px)] max-w-[410px] shrink-0 snap-start";
 
 /**
  * Gabarit large (rail « Prêts », panier vide Échange, etc.) : **`w-full`** dans la zone utile
@@ -91,7 +98,7 @@ function useCmsPromoVisualOnly(): boolean {
 
 /**
  * Largeur des cartes hub quand un parent a posé `hubFrameOuterClass` (`CmsHorizontalScrollRow`, etc.).
- * `null` sinon — ex. `ShopCapsuleItemRefFrame` garde alors ses largeurs rail catalogue (`92vw` / 48 %).
+ * `null` sinon — ex. `ShopCapsuleItemRefFrame` garde alors ses largeurs rail catalogue (`88vw` / 48 %).
  */
 export function useCmsHubFrameOuterOverride(): string | null {
   return useContext(CmsHubFrameOuterClassContext);
