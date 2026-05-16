@@ -5,8 +5,15 @@ export type MemberOutboundShipmentPhaseCopy = {
   pulse?: boolean;
 };
 
+/** Ancienne valeur enum `in_transit` (avant split `in_transit_in` / `in_transit_out`) — encore présente sur certaines lignes. */
+export function normalizeOutboundShipmentStatusForUi(status: string): string {
+  const s = status.trim().toLowerCase();
+  if (s === "in_transit") return "in_transit_in";
+  return s;
+}
+
 export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutboundShipmentPhaseCopy {
-  switch (status) {
+  switch (normalizeOutboundShipmentStatusForUi(status)) {
     case "pending":
       return {
         title: "En préparation",
@@ -31,7 +38,8 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
     case "in_transit_in":
       return {
         title: "En route vers toi",
-        detail: "Ton colis est en transit. Suis-le avec le numéro de suivi et confirme la réception à réception.",
+        detail: "Ton colis est en chemin. Suis la livraison sur Uber jusqu’à réception.",
+        pulse: true,
       };
     case "in_transit_out":
       return {
@@ -55,7 +63,7 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
 
 /** Colis considéré « en transit » pour l’UI (ligne livraison sous la carte). */
 export function isOutboundShipmentInTransit(status: string): boolean {
-  const s = status.toLowerCase();
+  const s = normalizeOutboundShipmentStatusForUi(status);
   return s === "in_transit_in" || s === "in_transit_out";
 }
 

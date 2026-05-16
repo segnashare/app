@@ -141,6 +141,36 @@ async function advanceStatus(
 
   if (current === target) return { ok: true, status: current };
 
+  // Legacy enum `in_transit` → `in_transit_in` (certaines lignes n’ont pas reçu la migration).
+  if (current === "in_transit") {
+    const migrate = await transitionShipmentStatus(admin as any, {
+      shipmentId,
+      ifCurrentStatus: "in_transit",
+      toStatus: "in_transit_in",
+      actorUserId: null,
+      reason: "Uber webhook: normalisation in_transit → in_transit_in",
+      source: "uber_direct_webhook",
+      context: { delivery_id: deliveryId, payload_type: payload.event_type ?? payload.type ?? null },
+      occurredAt: nowIso,
+      trackingNumber: deliveryId,
+      setReadyAt: false,
+    });
+    if (migrate.ok) {
+      current = "in_transit_in";
+      expectedCurrent = "in_transit_in";
+    } else if (migrate.error !== "STATUS_MISMATCH") {
+      return migrate;
+    } else {
+      const { data: fresh } = await admin.from("shipments").select("status").eq("id", shipmentId).maybeSingle();
+      const freshSt = norm((fresh as { status?: unknown } | null)?.status);
+      if (freshSt === "in_transit_in") {
+        current = "in_transit_in";
+        expectedCurrent = "in_transit_in";
+      }
+    }
+    if (current === target) return { ok: true, status: current };
+  }
+
   // Cas courant Uber: ready -> in_transit_in -> delivered.
   if (target === "delivered" && current === "ready") {
     const step1 = await transitionShipmentStatus(admin as any, {

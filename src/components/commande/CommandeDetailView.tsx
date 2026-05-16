@@ -18,7 +18,10 @@ import {
 } from "@/lib/cart/cart-outbound-delivery-kind";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
-import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
+import {
+  getMemberOutboundShipmentPhaseCopy,
+  normalizeOutboundShipmentStatusForUi,
+} from "@/lib/cart/member-outbound-shipment-copy";
 import { getSegnaSupportContact } from "@/lib/config/support-contact";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
@@ -94,37 +97,38 @@ function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
   return `Livraison prévue le ${dateLabel}`;
 }
 
-function formatQuarterHourRangeFr(anchorMs: number, minutesAfterAnchor: number): string {
-  const ms = anchorMs + minutesAfterAnchor * 60_000;
-  const quarter = 15 * 60_000;
-  const startMs = Math.ceil(ms / quarter) * quarter;
-  const endMs = startMs + 30 * 60_000;
-  const fmt = (t: number) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  return `${fmt(startMs)}-${fmt(endMs)}`;
-}
-
 function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPhases | null {
   const isUber =
     isUberCartOutboundShipment(detail.shipment) ||
     checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail);
   if (!isUber || !detail.shipment) return null;
 
-  const st = detail.shipment.status.toLowerCase();
+  const st = normalizeOutboundShipmentStatusForUi(detail.shipment.status);
   const prep = `Colis en préparation (${SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES} min env. après la commande).`;
+
+  if (st === "delivered" || st === "closed") {
+    return { preparationLine: "Livraison effectuée.", deliveryWindowLine: null };
+  }
+
+  if (st === "in_transit_in") {
+    return {
+      preparationLine: "Ton colis est en chemin vers toi.",
+      deliveryWindowLine: null,
+      inTransit: true,
+    };
+  }
+
   if (st === "pending") {
     return { preparationLine: prep, deliveryWindowLine: null };
   }
-  const ub = detail.shipment.uberBooking;
-  if (ub?.durationMin != null && Number.isFinite(ub.durationMin) && ub.durationMin >= 0) {
-    const createdAtMs = Date.parse(detail.createdAtIso);
-    if (!Number.isNaN(createdAtMs)) {
-      const range = formatQuarterHourRangeFr(createdAtMs, SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES + ub.durationMin);
-      return {
-        preparationLine: prep,
-        deliveryWindowLine: `Livraison estimée : ${range}`,
-      };
-    }
+
+  if (st === "ready") {
+    return {
+      preparationLine: "Colis prêt — le coursier Uber va récupérer ton colis.",
+      deliveryWindowLine: null,
+    };
   }
+
   return { preparationLine: prep, deliveryWindowLine: null };
 }
 
@@ -154,7 +158,9 @@ export function CommandeDetailView({
   const uberTrackingHref = isUberOutbound ? (detail.shipment?.memberTrackingUrl ?? null) : null;
   const uberPhases = isUberOutbound ? buildCommandeUberPhases(detail) : null;
   const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
-  const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
+  const shipSt = detail.shipment?.status
+    ? normalizeOutboundShipmentStatusForUi(detail.shipment.status)
+    : "";
   /** Tant que l’aller MR est « en préparation », pas de lien / libellé suivi côté membre. */
   const hideMondialTrackingWhilePending = !isUberOutbound && shipSt === "pending";
   const expeditionTrackingRef = hideMondialTrackingWhilePending ? null : (detail.shipment?.trackingNumber ?? null);

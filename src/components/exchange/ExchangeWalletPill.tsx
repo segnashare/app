@@ -54,7 +54,7 @@ export function ExchangeWalletPill({
         title: "Mode Guest",
         description:
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Obtenir des crédits.",
+        primaryCtaLabel: "Obtenir des crédits",
         primaryCtaHref: "/package?plan=credits",
         secondaryCtaLabel: "Devenir membre SegnaX",
         secondaryCtaHref: "/package?plan=x",
@@ -68,7 +68,7 @@ export function ExchangeWalletPill({
           "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
         primaryCtaLabel: "Voir les offres Segna+",
         primaryCtaHref: "/package",
-        secondaryCtaLabel: "Obtenir des crédits.",
+        secondaryCtaLabel: "Obtenir des crédits",
         secondaryCtaHref: "/package?plan=credits",
       };
     }
@@ -77,7 +77,7 @@ export function ExchangeWalletPill({
       return {
         title: "Plafond de prêt atteint",
         description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
-        primaryCtaLabel: "Obtenir des crédits.",
+        primaryCtaLabel: "Obtenir des crédits",
         primaryCtaHref: "/package?plan=credits",
         secondaryCtaLabel: "Comprendre",
         secondaryCtaHref: "/package",
@@ -90,7 +90,7 @@ export function ExchangeWalletPill({
         "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
       primaryCtaLabel: "Ajouter",
       primaryCtaHref: "/shop",
-      secondaryCtaLabel: "Obtenir des crédits.",
+      secondaryCtaLabel: "Obtenir des crédits",
       secondaryCtaHref: "/package?plan=credits",
     };
   }, [walletState]);

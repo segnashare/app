@@ -14,8 +14,12 @@ const btnPrimary = cn(
 export type CommandeExpeditionVariant = "mondial" | "uber";
 
 export type CommandeUberPhases = {
+  /** Message principal sous le visuel (préparation, prise en charge, en chemin…). */
   preparationLine: string;
+  /** Créneau estimé — uniquement en préparation Segna si besoin (souvent null). */
   deliveryWindowLine: string | null;
+  /** Coursier en route vers le membre (statut logistique `in_transit_in`). */
+  inTransit?: boolean;
 };
 
 type CommandeExpeditionSummarySectionProps = {
@@ -85,7 +89,11 @@ export function CommandeExpeditionSummarySection({
                 <span className="font-mono text-[13px] font-semibold text-zinc-900">{trackingRef}</span>
               </p>
             ) : null}
-            <p className="text-[13px] leading-relaxed text-zinc-500">Suivi disponible sur Uber dès activation de la course.</p>
+            <p className="text-[13px] leading-relaxed text-zinc-500">
+              {uberPhases?.inTransit
+                ? "Suis ta livraison en direct sur Uber."
+                : "Suivi disponible sur Uber dès activation de la course."}
+            </p>
           </>
         ) : trackingRef ? (
           <p className={cn("text-[15px] font-normal leading-relaxed", BODY_TEXT)}>
