@@ -4,6 +4,10 @@ import { getMondialRelaySoapEnv } from "@/lib/mondial-relay/config";
 import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
+import {
+  formatMissingEnvMessage,
+  getShippingEnvDiagnostics,
+} from "@/lib/shipping/server-env-diagnostics";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const RELAY_ACTIONS = new Set(["24R", "24L", "LCC", "XOH"]);
@@ -36,10 +40,12 @@ export async function POST(request: Request) {
 
   const soap = getMondialRelaySoapEnv();
   if (!soap) {
+    const diagnostics = getShippingEnvDiagnostics();
+    const soapDiag = diagnostics.mondial_relay_soap;
     return NextResponse.json(
       {
-        error:
-          "Recherche relais indisponible : configuration transporteur incomplète côté serveur (MONDR_RELAY_SOAP_*).",
+        error: formatMissingEnvMessage("Recherche points relais (Mondial Relay SOAP)", soapDiag.missing),
+        diagnostics,
       },
       { status: 501 },
     );

@@ -567,7 +567,7 @@ function ShopPieceSplitCard({
       <p
         className={cn(
           montserratPieceMedium.className,
-          "flex flex-wrap items-center gap-x-1 text-left text-[10px] font-medium leading-snug min-[380px]:text-[11px]",
+          "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
           textMeta,
         )}
       >

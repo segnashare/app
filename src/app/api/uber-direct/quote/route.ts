@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
 import { readUberDirectConfig } from "@/lib/uber-direct/config";
 import { fetchUberDeliveryQuoteRaw } from "@/lib/uber-direct/deliveries-api";
+import {
+  formatMissingEnvMessage,
+  getShippingEnvDiagnostics,
+} from "@/lib/shipping/server-env-diagnostics";
 import type { CheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -77,8 +81,14 @@ export async function POST(request: Request) {
   try {
     const config = readUberDirectConfig();
     if (!config) {
+      const diagnostics = getShippingEnvDiagnostics();
+      const uberDiag = diagnostics.uber_direct;
       return NextResponse.json(
-        { ok: false, message: "Uber Direct n’est pas configuré sur ce serveur." },
+        {
+          ok: false,
+          message: formatMissingEnvMessage("Uber Direct", uberDiag.missing),
+          diagnostics,
+        },
         { status: 503 },
       );
     }

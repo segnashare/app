@@ -575,8 +575,15 @@ export function CartPaymentScreen({
         points?: Array<{ code: string; label: string; postalCode?: string; city?: string }>;
         error?: string;
         hint?: string;
+        diagnostics?: {
+          mondial_relay_soap?: { missing?: string[] };
+          deployment?: { vercel_env?: string | null; vercel_url?: string | null };
+        };
       };
       if (!res.ok) {
+        if (j.diagnostics?.mondial_relay_soap?.missing?.length) {
+          console.warn("[relay-search] Variables manquantes côté serveur:", j.diagnostics.mondial_relay_soap.missing, j.diagnostics);
+        }
         setRelaySearchError(userFacingRelaySearchError(res.status, j.error));
         setRelayPoints([]);
         setSelectedRelay(null);
