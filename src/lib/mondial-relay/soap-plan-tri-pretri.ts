@@ -22,7 +22,11 @@ export function mondialRelayLivRelSixDigits(numRaw: string, connectCode: string)
 }
 
 /**
- * Security ObtenirPreTri : concaténation des champs dans l’ordre du corps SOAP, + clé privée (cf. usages PrestaShop / doc MR).
+ * Security ObtenirPreTri : concaténation des champs dans l’ordre du corps SOAP, + clé privée (cf. doc MR).
+ * Les segments doivent être **identiques** à ceux placés dans le XML (après le même trim / casse que
+ * `buildObtenirPreTriEnvelope`). Ne pas passer toute la chaîne en majuscules : WSI3 n’uppercase pas
+ * l’enseigne dans son hash ; si l’enseigne contient des minuscules, un hash tout en majuscules ici
+ * provoque un statut 97 alors que la recherche WSI3 réussit.
  */
 export function obtenirPreTriSecurity(input: {
   enseigne: string;
@@ -33,15 +37,14 @@ export function obtenirPreTriSecurity(input: {
   livRel: string;
   privateKey: string;
 }): string {
-  const u = (s: string) => s.trim().toUpperCase();
+  const enseigne = input.enseigne.trim();
+  const modeLiv = input.modeLiv.trim().toUpperCase();
+  const destCp = input.destCp.trim();
+  const destPays = input.destPays.trim().toUpperCase();
+  const livRelPays = input.livRelPays.trim().toUpperCase();
+  const livRel = input.livRel.trim();
   const raw =
-    u(input.enseigne) +
-    u(input.modeLiv) +
-    u(input.destCp) +
-    u(input.destPays) +
-    u(input.livRelPays) +
-    u(input.livRel) +
-    input.privateKey.trim();
+    enseigne + modeLiv + destCp + destPays + livRelPays + livRel + input.privateKey.trim();
   return createHash("md5").update(raw, "utf8").digest("hex").toUpperCase();
 }
 
@@ -102,9 +105,10 @@ function buildObtenirPreTriEnvelope(
   const destPays = params.destPays.trim().toUpperCase();
   const livRelPays = params.livRelPays.trim().toUpperCase();
   const livRel = params.livRel.trim();
+  const enseigneXml = env.enseigne.trim();
 
   const security = obtenirPreTriSecurity({
-    enseigne: env.enseigne,
+    enseigne: enseigneXml,
     modeLiv,
     destCp,
     destPays,
@@ -118,7 +122,7 @@ function buildObtenirPreTriEnvelope(
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <ObtenirPreTri xmlns="http://www.mondialrelay.fr/webservice/">
-      <Enseigne>${E(env.enseigne)}</Enseigne>
+      <Enseigne>${E(enseigneXml)}</Enseigne>
       <ModeLiv>${E(modeLiv)}</ModeLiv>
       <Dest_CP>${E(destCp)}</Dest_CP>
       <Dest_Pays>${E(destPays)}</Dest_Pays>
