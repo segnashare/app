@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getMondialRelaySoapEnv } from "@/lib/mondial-relay/config";
 import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
+import { buildPlanTriRelayDiagnosticsWhenAllStat97 } from "@/lib/mondial-relay/plan-tri-relay-diagnostics";
 import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
@@ -232,6 +233,17 @@ export async function POST(request: Request) {
         destination_postcode: hub.PostCode,
       };
       if (points.length > 0 && kept.length === 0) {
+        const planTriDiagnostics =
+          buildPlanTriRelayDiagnosticsWhenAllStat97({
+            soap,
+            modeLiv: action,
+            hubDestPostcode: hub.PostCode,
+            hubDestCountry: hub.CountryCode,
+            wsi3ReturnedHits: points.length > 0,
+            excludedStatHistogram: meta.excluded_stat_histogram,
+            excludedCount: meta.excluded_count,
+          }) ?? undefined;
+
         console.warn("[mondial-relay:relay-search] plan_tri_excluded_all_relays", {
           search_country: country,
           search_postal_masked: maskPostalForLog(postalCode),
@@ -251,13 +263,16 @@ export async function POST(request: Request) {
           })(),
           excluded_stat_histogram: meta.excluded_stat_histogram ?? {},
           excluded_samples: meta.excluded_samples,
+          plan_tri_diagnostics: planTriDiagnostics,
           doc: "Interpréter les codes Statut avec Mondial Relay ; vérifier hub MONDR_SEGNA_RECIP_*, MONDR_RELAY_SOAP_ACTION et MONDR_RELAY_SOAP_PLAN_TRI_URL. Logs détaillés : MONDR_MR_DEBUG_LOG=1.",
         });
+
         return NextResponse.json({
           points: [],
           search_context: searchContext,
           mondial_relay_stat: rawStat ?? null,
           plan_tri: planTri,
+          ...(planTriDiagnostics ? { plan_tri_diagnostics: planTriDiagnostics } : {}),
           hint:
             "Aucun point ne passe le contrôle plan de tri pour le hub Segna et ce produit. Tu peux relancer avec skip_plan_tri=true pour voir la liste WSI3 brute (à tes risques).",
         });

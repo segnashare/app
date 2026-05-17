@@ -582,6 +582,8 @@ export function CartPaymentScreen({
           excluded_stat_histogram?: Record<string, number>;
           skipped_reason?: string;
         };
+        /** Présent quand tous les relais WSI3 sont exclus avec le statut MR 97 (diagnostic sans secrets). */
+        plan_tri_diagnostics?: Record<string, unknown>;
         diagnostics?: {
           mondial_relay_soap?: { missing?: string[] };
           deployment?: { vercel_env?: string | null; vercel_url?: string | null };
@@ -609,8 +611,11 @@ export function CartPaymentScreen({
         setRelaySearchError(j.hint ?? "Aucun point relais pour ce code postal.");
         setSelectedRelay(null);
         writeCheckoutRelaySelection(null);
-        if (j.plan_tri) {
-          console.warn("[relay-search] diagnostic plan_tri (réponse API)", j.plan_tri);
+        if (j.plan_tri || j.plan_tri_diagnostics) {
+          console.warn("[relay-search] diagnostic plan_tri (réponse API)", {
+            plan_tri: j.plan_tri,
+            plan_tri_diagnostics: j.plan_tri_diagnostics,
+          });
         }
       } else {
         setSelectedRelay((cur) => {
