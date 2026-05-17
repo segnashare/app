@@ -141,7 +141,7 @@ export function RetourShippingFormClient({
             rel="noopener noreferrer"
             className="inline-block rounded-none border-0 bg-transparent p-0 text-center text-[15px] font-semibold text-zinc-900 underline decoration-zinc-400 underline-offset-[5px] outline-none ring-0 hover:decoration-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
           >
-            Imprimer le bordereau
+            Ré-imprimer le bordereau
           </a>
         </div>
       ) : null}

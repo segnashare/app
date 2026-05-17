@@ -86,3 +86,14 @@ export function computeBorrowDeadlineMs(
   d.setMonth(d.getMonth() + 1);
   return d.getTime();
 }
+
+/** Ajoute les jours de prolongation payés à l’échéance d’emprunt de base. */
+export function applyBorrowExtensionDaysToDeadlineMs(
+  deadlineMs: number,
+  extensionDaysTotal: number,
+): number {
+  if (!Number.isFinite(deadlineMs)) return deadlineMs;
+  const extra = Number.isFinite(extensionDaysTotal) ? Math.max(0, Math.trunc(extensionDaysTotal)) : 0;
+  if (extra <= 0) return deadlineMs;
+  return deadlineMs + extra * MS_PER_DAY;
+}

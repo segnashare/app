@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getMondialRelaySoapEnv } from "@/lib/mondial-relay/config";
+import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
 import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
@@ -11,6 +12,20 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const RELAY_ACTIONS = new Set(["24R", "24L", "LCC", "XOH"]);
+
+function maskPostalForLog(cp: string): string {
+  const t = cp.replace(/\s/g, "").trim();
+  if (t.length <= 2) return "**";
+  return `${t.slice(0, 2)}…${t.slice(-2)}`;
+}
+
+function planTriHost(soap: { planTriEndpoint: string }): string {
+  try {
+    return new URL(soap.planTriEndpoint).hostname;
+  } catch {
+    return "invalid_plan_tri_url";
+  }
+}
 
 function optPositiveInt(v: unknown): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" ? parseInt(v, 10) : NaN;
@@ -137,11 +152,31 @@ export async function POST(request: Request) {
   };
 
   try {
+    mondialRelayDebugLog("relay-search:request", {
+      country,
+      postal_code: maskPostalForLog(postalCode),
+      action,
+      weight_g: weightG,
+      skip_plan_tri: skipPlanTri,
+      wsi3_endpoint_host: (() => {
+        try {
+          return new URL(soap.endpoint).hostname;
+        } catch {
+          return "invalid_wsi3_url";
+        }
+      })(),
+    });
+
     const { points, rawStat } = await searchRelayPointsSoap(soap, {
       country,
       postalCode,
       weightGrams: weightG,
       action,
+    });
+
+    mondialRelayDebugLog("relay-search:wsi3_result", {
+      points_count: points.length,
+      mondial_relay_stat: rawStat ?? null,
     });
 
     if (rawStat && rawStat !== "0" && points.length === 0) {
@@ -161,6 +196,7 @@ export async function POST(request: Request) {
       applied: boolean;
       excluded_count: number;
       excluded_samples: { code: string; statut: string }[];
+      excluded_stat_histogram?: Record<string, number>;
       skipped_reason?: string;
       destination_postcode?: string;
     } | null = null;
@@ -192,9 +228,31 @@ export async function POST(request: Request) {
         applied: meta.applied,
         excluded_count: meta.excluded_count,
         excluded_samples: meta.excluded_samples,
+        excluded_stat_histogram: meta.excluded_stat_histogram,
         destination_postcode: hub.PostCode,
       };
       if (points.length > 0 && kept.length === 0) {
+        console.warn("[mondial-relay:relay-search] plan_tri_excluded_all_relays", {
+          search_country: country,
+          search_postal_masked: maskPostalForLog(postalCode),
+          action,
+          weight_g: weightG,
+          wsi3_points: points.length,
+          mondial_relay_stat: rawStat ?? null,
+          hub_country: hub.CountryCode,
+          hub_postal_masked: maskPostalForLog(hub.PostCode),
+          plan_tri_host: planTriHost(soap),
+          wsi3_host: (() => {
+            try {
+              return new URL(soap.endpoint).hostname;
+            } catch {
+              return "invalid";
+            }
+          })(),
+          excluded_stat_histogram: meta.excluded_stat_histogram ?? {},
+          excluded_samples: meta.excluded_samples,
+          doc: "Interpréter les codes Statut avec Mondial Relay ; vérifier hub MONDR_SEGNA_RECIP_*, MONDR_RELAY_SOAP_ACTION et MONDR_RELAY_SOAP_PLAN_TRI_URL. Logs détaillés : MONDR_MR_DEBUG_LOG=1.",
+        });
         return NextResponse.json({
           points: [],
           search_context: searchContext,
@@ -214,6 +272,8 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur inconnue";
+    mondialRelayDebugLog("relay-search:error", { message: msg.slice(0, 400) });
+    console.error("[mondial-relay:relay-search] exception", { message: msg.slice(0, 400) });
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

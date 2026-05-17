@@ -1,7 +1,7 @@
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 
 import { getMemberReturnShipmentPhaseCopy, getReturnShipmentSubtitle } from "@/lib/cart/member-return-shipment-copy";
-import { computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
+import { applyBorrowExtensionDaysToDeadlineMs, computeBorrowDeadlineMs } from "@/lib/emprunt/borrow-period";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 
 export type ReturnPageCta = {
@@ -19,6 +19,9 @@ export type MemberReturnPageUi = {
   heroTagline: string;
   /** Une ou deux phrases sous le hero. */
   bodyLines: string[];
+  /** Affiche « En savoir plus » (délais / retard) après la dernière ligne de corps. */
+  showBorrowDelayLearnMore?: boolean;
+  membershipLabel?: MembershipLabel;
   ctas: ReturnPageCta[];
   /** Bloc client : génération auto + PDF / erreur (pending, ready, failed). */
   includeLabelClientBlock: boolean;
@@ -33,6 +36,8 @@ type Ctx = {
   /** Livraison aller : `shipments.delivered_at` si présent, sinon `updated_at` (legacy). */
   outboundDeliveredAtIso?: string | null;
   membershipLabel?: MembershipLabel;
+  /** Jours de prolongation déjà payés (somme des extensions). */
+  borrowExtensionDaysTotal?: number;
 };
 
 function fmt(iso: string) {
@@ -57,14 +62,15 @@ function heroTaglineReturnBeforeDeadline(ctx: Ctx): string {
   const iso = ctx.outboundDeliveredAtIso;
   const label = ctx.membershipLabel ?? "Guest";
   if (!iso?.trim()) {
-    return "Retourne ta box dans les délais indiqués sur ta commande";
+    return "Retourne ta box d’ici les délais indiqués sur ta commande";
   }
   const deliveredMs = Date.parse(iso);
-  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, label);
+  const baseDeadlineMs = computeBorrowDeadlineMs(deliveredMs, label);
+  const deadlineMs = applyBorrowExtensionDaysToDeadlineMs(baseDeadlineMs, ctx.borrowExtensionDaysTotal ?? 0);
   if (!Number.isFinite(deadlineMs)) {
-    return "Retourne ta box dans les délais indiqués sur ta commande";
+    return "Retourne ta box d’ici les délais indiqués sur ta commande";
   }
-  return `Retourne ta box avant le ${fmtBorrowDeadlineDdMm(deadlineMs)}`;
+  return `Retourne ta box d’ici le ${fmtBorrowDeadlineDdMm(deadlineMs)}`;
 }
 
 /**
@@ -80,7 +86,14 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
       ? buildMondialRelayTrackingUrl(ctx.trackingNumber.trim())
       : null;
 
-  const commandeHref = `/commande/${ctx.cartId}`;
+  const empruntHref = `/exchange/emprunt/${ctx.cartId}`;
+  const prolongerHref = `/commande/${ctx.cartId}/prolonger`;
+
+  /** Prolonger (secondaire) au-dessus, retour échange / emprunt (primaire) en dessous. */
+  const prepareReturnCtas: ReturnPageCta[] = [
+    { label: "Prolonger l’échange", href: prolongerHref, variant: "secondary" },
+    { label: "Retourner à l’échange", href: empruntHref, variant: "primary" },
+  ];
 
   switch (s) {
     case "pending": {
@@ -88,16 +101,16 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
         headerTitle: phase.title,
         metaLine: m,
         heroTagline: heroTaglineReturnBeforeDeadline(ctx),
-        bodyLines: [
-          "Réutilise la pochette d’expédition initiale : le bordereau retour y est déjà glissé. Le PDF ci-dessous n’est qu’une copie de secours, purement optionnelle.",
-        ],
-        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "primary" }],
+        bodyLines: ["Utilise la pochette et le bordereau d’expédition prévus pour le retour."],
+        showBorrowDelayLearnMore: true,
+        membershipLabel: ctx.membershipLabel,
+        ctas: prepareReturnCtas,
         includeLabelClientBlock: true,
       };
     }
     case "ready": {
       /** Lien PDF dans le bloc client pour éviter le doublon avec le hero. */
-      const ctas: ReturnPageCta[] = [{ label: "Voir la commande", href: commandeHref, variant: "primary" }];
+      const ctas: ReturnPageCta[] = prepareReturnCtas;
       return {
         headerTitle: phase.title,
         metaLine: m,
@@ -164,9 +177,9 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
         heroTagline: "Un blocage technique",
         bodyLines: [
           phase.detail,
-          "Tu peux réessayer la génération ci-dessous, ou contacter le support depuis « Aide commande ».",
+          "Tu peux réessayer la génération ci-dessous, ou contacter le support depuis « Aide échange ».",
         ],
-        ctas: [{ label: "Voir la commande", href: commandeHref, variant: "primary" }],
+        ctas: prepareReturnCtas,
         includeLabelClientBlock: true,
       };
     default:

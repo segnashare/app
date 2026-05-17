@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { parseStringPromise, processors } from "xml2js";
 
 import type { MondialRelaySoapEnv } from "@/lib/mondial-relay/config";
+import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
 import type { RelaySearchHit } from "@/lib/mondial-relay/soap-point-relais-search";
 
 /** Numéro relais attendu par MR sur LIV_Rel (souvent 6 chiffres, cf. regex modules historiques). */
@@ -178,6 +179,8 @@ export type PlanTriFilterMeta = {
   applied: boolean;
   excluded_count: number;
   excluded_samples: { code: string; statut: string }[];
+  /** Comptage des codes statut MR pour les relais exclus (diagnostic sans lire les logs). */
+  excluded_stat_histogram?: Record<string, number>;
   skipped_reason?: string;
 };
 
@@ -233,7 +236,14 @@ export async function filterRelayHitsByPlanTri(
       });
       if (ok) return { kind: "keep", hit };
       return { kind: "drop", code: hit.code, statut: statut || "?" };
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      mondialRelayDebugLog("plan-tri:obtenir_pretri_error", {
+        relay_code: hit.code,
+        liv_rel: livRel,
+        liv_rel_pays: livRelPays,
+        error: msg.slice(0, 240),
+      });
       /** Erreur technique : on conserve le point si le hash Security ou le service PlanTri pose problème. */
       return { kind: "keep", hit };
     }
@@ -241,6 +251,7 @@ export async function filterRelayHitsByPlanTri(
 
   const kept: RelaySearchHit[] = [];
   const excluded_samples: { code: string; statut: string }[] = [];
+  const excluded_stat_histogram: Record<string, number> = {};
   let excluded_count = 0;
 
   for (const r of rows) {
@@ -248,11 +259,31 @@ export async function filterRelayHitsByPlanTri(
       kept.push(r.hit);
     } else {
       excluded_count++;
+      const st = r.statut || "?";
+      excluded_stat_histogram[st] = (excluded_stat_histogram[st] ?? 0) + 1;
       if (excluded_samples.length < 8) {
         excluded_samples.push({ code: r.code, statut: r.statut });
       }
     }
   }
+
+  mondialRelayDebugLog("plan-tri:summary", {
+    wsi3_hits: hits.length,
+    kept: kept.length,
+    excluded: excluded_count,
+    modeLiv,
+    dest_pays: destPays,
+    dest_cp_len: destCp.length,
+    plan_tri_host: (() => {
+      try {
+        return new URL(env.planTriEndpoint).hostname;
+      } catch {
+        return "invalid_url";
+      }
+    })(),
+    excluded_stat_histogram,
+    excluded_samples,
+  });
 
   return {
     kept,
@@ -260,6 +291,7 @@ export async function filterRelayHitsByPlanTri(
       applied: true,
       excluded_count,
       excluded_samples,
+      excluded_stat_histogram,
     },
   };
 }

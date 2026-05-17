@@ -13,6 +13,7 @@ import {
 import { NotificationKind } from "@/lib/notifications/kinds";
 import {
   borrowDeadlineReminderEmail,
+  buildMemberCartOrderPageUrl,
   orderOutboundDeliveredEmail,
   orderOutboundRelayPickupAvailableEmail,
   returnDroppedOutEmail,
@@ -30,8 +31,21 @@ const SMS_OUTBOUND_TRANSIT_PARTNER =
 const SMS_OUTBOUND_RELAY_AVAILABLE =
   "Segna : ton colis est disponible au point relais. Tu peux le retirer — détail et suivi dans l’app.";
 /** `delivered` (aller, depuis transit) : livraison confirmée — e-mail récap + SMS. */
-const SMS_OUTBOUND_DELIVERED =
-  "Segna : ton colis devrait être chez toi. Profite bien de ta box ! Signale le moindre problème dans l’app. Bon échange !";
+function buildOutboundDeliveredSms(cartId: string): string {
+  const lines = [
+    "Ton colis Segna devrait être chez toi.",
+    "",
+    "Profite bien de ta box !",
+    "Signale le moindre problème dans l’app.",
+    "",
+    "Bon échange !",
+  ];
+  const orderUrl = buildMemberCartOrderPageUrl(cartId);
+  if (orderUrl) {
+    lines.push("", orderUrl);
+  }
+  return lines.join("\n");
+}
 const SMS_RETURN_AT_RELAY = "Segna : ton retour au relais est enregistré. Merci !";
 
 type CartItemJoinForNotify = {
@@ -179,6 +193,7 @@ export async function sendOutboundDeliveredRecap(
   const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
   const { subject, text, html } = orderOutboundDeliveredEmail({
     firstName: input.firstName,
+    cartId: input.cartId,
     orderRef: deliveredCtx.orderRef,
     itemLabels: deliveredCtx.itemLabels,
     borrowPeriodLabel: deliveredCtx.borrowPeriodLabel,
@@ -209,7 +224,7 @@ export async function sendOutboundDeliveredRecap(
     kind: NotificationKind.orderOutboundDelivered,
     idempotencyKey: `txn:lc:ship:${input.shipmentId}:${OUTBOUND_DELIVERED_SMS_IDEMPOTENCY_SUFFIX}`,
     metadata: recapMeta,
-    smsBody: SMS_OUTBOUND_DELIVERED,
+    smsBody: buildOutboundDeliveredSms(input.cartId),
     transactionalSms: true,
   });
 

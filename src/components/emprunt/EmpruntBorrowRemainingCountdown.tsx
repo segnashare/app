@@ -6,6 +6,7 @@ import {
   BORROW_MS_PER_DAY,
   BORROW_PERIOD_DAYS_GUEST,
   borrowRemainingDaysDisplayed,
+  applyBorrowExtensionDaysToDeadlineMs,
   computeBorrowDeadlineMs,
   formatBorrowLastHoursCountdown,
   type SegnaBorrowMembershipLabel,
@@ -20,6 +21,7 @@ type EmpruntBorrowRemainingCountdownProps = {
   deliveredAtIso: string;
   returnCommitmentMet?: boolean;
   membershipLabel: SegnaBorrowMembershipLabel;
+  borrowExtensionDaysTotal?: number;
 };
 
 function clampRemaining(deadlineMs: number, now: number): number {
@@ -38,9 +40,13 @@ export function EmpruntBorrowRemainingCountdown({
   deliveredAtIso,
   returnCommitmentMet,
   membershipLabel,
+  borrowExtensionDaysTotal = 0,
 }: EmpruntBorrowRemainingCountdownProps) {
   const deliveredMs = Date.parse(deliveredAtIso);
-  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
+  const deadlineMs = applyBorrowExtensionDaysToDeadlineMs(
+    computeBorrowDeadlineMs(deliveredMs, membershipLabel),
+    borrowExtensionDaysTotal,
+  );
 
   const [now, setNow] = useState(() => Date.now());
   const remainingForTick = Number.isFinite(deadlineMs)

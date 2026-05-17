@@ -17,17 +17,13 @@ import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-sea
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
 
 import { patchItemIntakeMondialRelayMetadata } from "@/lib/items/item-intake-mr-patch";
+import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
 
 const DEFAULT_MAX_RELAYS = 25;
 const DELAY_MS_BETWEEN_RELAY_ATTEMPTS = 400;
 
-/** Logs serveur (terminal `next dev` ou logs Vercel). Désactivable : `MONDR_MR_DEBUG_LOG=0`. Forcer : `MONDR_MR_DEBUG_LOG=1`. */
 function mrAutoLog(phase: string, data: Record<string, unknown>): void {
-  const forcedOff = process.env.MONDR_MR_DEBUG_LOG === "0";
-  const forcedOn = process.env.MONDR_MR_DEBUG_LOG === "1";
-  if (forcedOff) return;
-  if (!forcedOn && process.env.NODE_ENV === "production") return;
-  console.log(`[mr-auto-generate] ${phase}`, data);
+  mondialRelayDebugLog(`mr-auto-generate:${phase}`, data);
 }
 
 function sleep(ms: number): Promise<void> {

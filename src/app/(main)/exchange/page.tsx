@@ -14,7 +14,9 @@ import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines"
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
+import { fetchCartBorrowExtensionDaysByCartIds } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import {
+  applyBorrowExtensionDaysToDeadlineMs,
   computeBorrowDeadlineMs,
   isBorrowReturnUrgentForExchangeList,
   resolveOutboundBorrowDeliveredAtIso,
@@ -571,7 +573,7 @@ export default async function ExchangePage() {
 
   const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
 
-  const [thumbUrlsByCartId, outboundShipRes, returnShipRes] = (await Promise.all([
+  const [thumbUrlsByCartId, outboundShipRes, returnShipRes, borrowExtensionDaysByCartId] = (await Promise.all([
     perf.measure("orders.thumbs", () => fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds)),
     orderCardCartIds.length > 0
       ? perf.measure("shipments.outbound", () => supabase
@@ -592,6 +594,7 @@ export default async function ExchangePage() {
           .eq("context", "cart_return")
           .is("deleted_at", null))
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
+    perf.measure("borrow.extensions", () => fetchCartBorrowExtensionDaysByCartIds(supabase, orderCardCartIds)),
   ])) as any[];
 
   const outboundShipmentByCartId = new Map<
@@ -632,16 +635,20 @@ export default async function ExchangePage() {
     }
   }
 
-  function borrowReturnDeadlineMsForShip(ship: {
-    status: string;
-    updated_at: string;
-    delivered_at: string | null;
-  }): number {
+  function borrowReturnDeadlineMsForShip(
+    ship: {
+      status: string;
+      updated_at: string;
+      delivered_at: string | null;
+    },
+    cartId: string,
+  ): number {
     if (String(ship.status).toLowerCase() !== "delivered") return Number.NaN;
     const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at);
     if (!borrowAnchorIso) return Number.NaN;
     const deliveredAtMs = Date.parse(borrowAnchorIso);
-    return computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+    const base = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+    return applyBorrowExtensionDaysToDeadlineMs(base, borrowExtensionDaysByCartId.get(cartId) ?? 0);
   }
 
   const exchangeListNowMs = Date.now();
@@ -662,7 +669,7 @@ export default async function ExchangePage() {
     }
     const ret = returnShipmentByCartId.get(order.id);
     const ship = outboundShipmentByCartId.get(order.id);
-    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship) : Number.NaN;
+    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship, order.id) : Number.NaN;
     const borrowReturnUrgent =
       ship != null &&
       Number.isFinite(borrowReturnDeadlineMs) &&
@@ -724,7 +731,7 @@ export default async function ExchangePage() {
   function exchangeOngoingOrderSortKey(orderId: string): { urgent: 0 | 1; deadlineMs: number } {
     const ship = outboundShipmentByCartId.get(orderId);
     if (!ship) return { urgent: 1, deadlineMs: Number.POSITIVE_INFINITY };
-    const deadlineMs = borrowReturnDeadlineMsForShip(ship);
+    const deadlineMs = borrowReturnDeadlineMsForShip(ship, orderId);
     const urgent =
       Number.isFinite(deadlineMs) && isBorrowReturnUrgentForExchangeList(exchangeListNowMs, deadlineMs) ? 0 : 1;
     return { urgent, deadlineMs: Number.isFinite(deadlineMs) ? deadlineMs : Number.POSITIVE_INFINITY };

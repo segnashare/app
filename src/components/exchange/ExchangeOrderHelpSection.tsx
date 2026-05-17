@@ -24,12 +24,17 @@ const triggerClass = cn(
 type ExchangeOrderHelpSectionProps = {
   /** `header` : coin haut droit à côté du bouton fermer ; `footer` : sous le contenu. */
   placement?: "header" | "footer";
+  /** Libellé du lien déclencheur (défaut : aide commande). */
+  triggerLabel?: string;
 };
 
 /**
  * Lien « Aide commande » ouvrant une modale (suivi commande / emprunt / litige).
  */
-export function ExchangeOrderHelpSection({ placement = "footer" }: ExchangeOrderHelpSectionProps) {
+export function ExchangeOrderHelpSection({
+  placement = "footer",
+  triggerLabel = "Aide commande",
+}: ExchangeOrderHelpSectionProps) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const { phone, email } = getSegnaSupportContact();
@@ -51,7 +56,7 @@ export function ExchangeOrderHelpSection({ placement = "footer" }: ExchangeOrder
       onClick={() => setOpen(true)}
       className={cn(triggerClass, placement === "header" ? "text-right whitespace-nowrap" : "text-left")}
     >
-      Aide commande
+      {triggerLabel}
     </button>
   );
 

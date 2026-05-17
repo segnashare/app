@@ -4,7 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ChevronRight, GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent, TouchEvent } from "react";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
@@ -31,8 +31,16 @@ import {
   type ItemInfoDraft,
 } from "@/lib/items/itemInfoDraftStorage";
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
+import { normalizeItemSizeDisplay } from "@/lib/items/formatItemSizeLabel";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
-import { clearFromItemSession, setPostSubmitBlock, withFromItemParam } from "@/lib/items/new-item-nav";
+import {
+  clearFromItemSession,
+  consumeNewItemScrollRestore,
+  persistNewItemScrollForSubPage,
+  setPostSubmitBlock,
+  stashNewItemScrollForStrictRemount,
+  withFromItemParam,
+} from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient, getBrowserAuthUser } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
@@ -176,6 +184,8 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   degrade: "Dégradé",
 };
 const ITEM_STAGE_RATIO = 3 / 4;
+/** Cadre éditeur / payload : aligné sur l’affichage portrait des photos de pièce. */
+const ITEM_PHOTO_MODIFY_ASPECT = "portrait" as const;
 
 const getImageRatio = (dataUrl: string) =>
   new Promise<number>((resolve) => {
@@ -229,7 +239,7 @@ function normalizePhotosForComparison(photosRaw: unknown): Record<string, unknow
       position: {
         offset: { x: offsetX, y: offsetY },
         zoom,
-        aspect: "square",
+        aspect: ITEM_PHOTO_MODIFY_ASPECT,
       },
     };
   }
@@ -304,7 +314,7 @@ export default function NewItemPage() {
   const infoValues = {
     category: infoDraft.category ?? "-",
     brand: formattedCustomBrand ?? infoDraft.brand ?? "-",
-    size: infoDraft.size ?? "-",
+    size: infoDraft.size ? normalizeItemSizeDisplay(infoDraft.size) : "-",
     condition: infoDraft.condition ?? "-",
     materials: infoDraft.materials ?? "-",
     color: infoDraft.color ?? "-",
@@ -381,7 +391,11 @@ export default function NewItemPage() {
 
     const ensureDraft = async () => {
       setErrorMessage(null);
-      setIsInitializingDraft(true);
+      const isWarmReturn =
+        Boolean(requestedItemId) && !forceFreshDraft && getLastDbLoadedItemId() === requestedItemId;
+      if (!isWarmReturn) {
+        setIsInitializingDraft(true);
+      }
       if (!requestedItemId && forceFreshDraft) {
         sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
         sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
@@ -438,6 +452,7 @@ export default function NewItemPage() {
 
         // Déjà chargé dans cette session (retour sous-page) : ne pas écraser le sessionStorage
         if (!forceFreshDraft && getLastDbLoadedItemId() === requestedItemId) {
+          setIsInitializingDraft(false);
           setInfoDraft(getItemInfoDraft());
           let nextTitle = "";
           let nextDescription = "";
@@ -490,7 +505,6 @@ export default function NewItemPage() {
               typeof intakeQuick?.listing_stage === "string" ? intakeQuick.listing_stage : null,
             );
           }
-          setIsInitializingDraft(false);
           return;
         }
 
@@ -889,6 +903,16 @@ export default function NewItemPage() {
     }
   }, [pathname]);
 
+  useLayoutEffect(() => {
+    if (pathname !== "/items/new" || isInitializingDraft) return;
+    const scrollY = consumeNewItemScrollRestore();
+    if (scrollY == null) return;
+    const apply = () => window.scrollTo(0, scrollY);
+    apply();
+    requestAnimationFrame(apply);
+    stashNewItemScrollForStrictRemount(scrollY);
+  }, [pathname, isInitializingDraft]);
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
@@ -993,7 +1017,7 @@ export default function NewItemPage() {
         mimeType: file.type || "image/jpeg",
         itemId: draftItemId ?? undefined,
         slot: slotIndex,
-        aspect: "square",
+        aspect: ITEM_PHOTO_MODIFY_ASPECT,
         offset: { x: 0, y: 0 },
         zoom: 1,
         status: "pending",
@@ -1003,6 +1027,7 @@ export default function NewItemPage() {
       event.target.value = "";
       return;
     }
+    persistNewItemScrollForSubPage();
     router.push(`/modify?id=${encodeURIComponent(draftId)}`);
     pendingSlotRef.current = null;
     event.target.value = "";
@@ -1446,7 +1471,7 @@ export default function NewItemPage() {
         position: {
           offset: slot.offset,
           zoom: slot.zoom,
-          aspect: "square",
+          aspect: ITEM_PHOTO_MODIFY_ASPECT,
         },
       };
     }
@@ -1537,7 +1562,12 @@ export default function NewItemPage() {
     setDragPreview(null);
   };
 
-  const shouldBlockInitialReveal = Boolean(requestedItemId) && isInitializingDraft;
+  const isWarmReturnOnClient =
+    typeof window !== "undefined" &&
+    Boolean(requestedItemId) &&
+    !forceFreshDraft &&
+    getLastDbLoadedItemId() === requestedItemId;
+  const shouldBlockInitialReveal = Boolean(requestedItemId) && isInitializingDraft && !isWarmReturnOnClient;
 
   if (shouldBlockInitialReveal) {
     return <AppLoadingScreen />;
@@ -1712,7 +1742,7 @@ export default function NewItemPage() {
                           mimeType: slot.mimeType,
                           itemId: draftItemId ?? undefined,
                           slot: index,
-                          aspect: "square",
+                          aspect: ITEM_PHOTO_MODIFY_ASPECT,
                           offset: { x: slot.offset.x, y: slot.offset.y },
                           zoom: slot.zoom,
                           status: "pending",
@@ -1721,6 +1751,7 @@ export default function NewItemPage() {
                         setErrorMessage(error instanceof Error ? error.message : "Impossible de préparer la photo.");
                         return;
                       }
+                      persistNewItemScrollForSubPage();
                       router.push(`/modify?id=${encodeURIComponent(draftId)}`);
                       return;
                     }
@@ -1813,11 +1844,13 @@ export default function NewItemPage() {
                 <Link
                   key={item.key}
                   replace
+                  scroll={false}
                   href={
                     requestedItemId && draftItemId
                       ? withFromItemParam(`${item.href}?itemId=${draftItemId}`, searchParams)
                       : item.href
                   }
+                  onClick={() => persistNewItemScrollForSubPage()}
                   className={cn("flex items-center justify-between px-4 py-3 transition hover:bg-zinc-50", index > 0 ? "border-t border-zinc-200" : "")}
                 >
                   <div className="min-w-0 flex-1">

@@ -12,6 +12,7 @@ type EmpruntBorrowSummarySectionProps = {
   deliveredAtIso: string | null;
   returnCommitmentMet?: boolean;
   membershipLabel: SegnaBorrowMembershipLabel;
+  borrowExtensionDaysTotal?: number;
 };
 
 const BODY_GRAY = "text-[#545454]";
@@ -33,6 +34,7 @@ export function EmpruntBorrowSummarySection({
   deliveredAtIso,
   returnCommitmentMet,
   membershipLabel,
+  borrowExtensionDaysTotal = 0,
 }: EmpruntBorrowSummarySectionProps) {
   return (
     <section
@@ -63,6 +65,7 @@ export function EmpruntBorrowSummarySection({
             deliveredAtIso={deliveredAtIso}
             returnCommitmentMet={returnCommitmentMet}
             membershipLabel={membershipLabel}
+            borrowExtensionDaysTotal={borrowExtensionDaysTotal}
           />
         ) : (
           <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
@@ -77,7 +80,7 @@ export function EmpruntBorrowSummarySection({
       </div>
       <div className="mt-8 flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:gap-2.5">
         <Link href={`/commande/${cartId}/prolonger`} className={btnSecondary}>
-          Prolonger
+          Prolonger l&apos;échange
         </Link>
         <Link href={`/exchange/retour/${cartId}`} className={btnPrimary}>
           Retourner

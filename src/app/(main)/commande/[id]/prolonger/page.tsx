@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
-import { CommandeRetourPlaceholderView } from "@/components/commande/CommandeRetourPlaceholderView";
+import { CommandeProlongerClient } from "@/components/commande/CommandeProlongerClient";
+import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -43,11 +45,21 @@ export default async function CommandeProlongerPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
+  if (detail.lines.length === 0) {
+    redirect(`/exchange/emprunt/${cartId}`);
+  }
+
+  const existingExtensionDays = await fetchCartBorrowExtensionDaysTotal(supabase, cartId);
+
   return (
-    <CommandeRetourPlaceholderView
-      cartId={cartId}
-      orderNumberCompact={detail.orderNumberCompact}
-      variant="prolonger"
-    />
+    <Suspense fallback={null}>
+      <CommandeProlongerClient
+        cartId={cartId}
+        orderNumberCompact={detail.orderNumberCompact}
+        lines={detail.lines}
+        creditKind={detail.walletCreditKind}
+        existingExtensionDays={existingExtensionDays}
+      />
+    </Suspense>
   );
 }

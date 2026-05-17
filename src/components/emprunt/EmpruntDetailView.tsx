@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils/cn";
 type EmpruntDetailViewProps = {
   detail: MemberCartOrderDetail;
   membershipLabel: SegnaBorrowMembershipLabel;
+  borrowExtensionDaysTotal?: number;
 };
 
 function formatEuros(n: number): string {
@@ -25,7 +26,11 @@ function formatEuros(n: number): string {
 /**
  * Panier « chez le membre » après livraison aller — durée de location & retour (placeholders).
  */
-export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailViewProps) {
+export function EmpruntDetailView({
+  detail,
+  membershipLabel,
+  borrowExtensionDaysTotal = 0,
+}: EmpruntDetailViewProps) {
   const creditKind = detail.walletCreditKind;
   const returnCommitmentMet = isCartReturnCommitmentMet(detail.returnShipment?.status);
   const borrowDeliveredAtIso = resolveOutboundBorrowDeliveredAtIso(
@@ -57,6 +62,7 @@ export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailView
               deliveredAtIso={borrowDeliveredAtIso}
               orderNumberCompact={detail.orderNumberCompact}
               membershipLabel={membershipLabel}
+              borrowExtensionDaysTotal={borrowExtensionDaysTotal}
             />
           ) : (
             <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">
@@ -71,6 +77,7 @@ export function EmpruntDetailView({ detail, membershipLabel }: EmpruntDetailView
         deliveredAtIso={borrowDeliveredAtIso}
         returnCommitmentMet={returnCommitmentMet}
         membershipLabel={membershipLabel}
+        borrowExtensionDaysTotal={borrowExtensionDaysTotal}
       />
 
       <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-4">

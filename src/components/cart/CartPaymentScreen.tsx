@@ -575,6 +575,13 @@ export function CartPaymentScreen({
         points?: Array<{ code: string; label: string; postalCode?: string; city?: string }>;
         error?: string;
         hint?: string;
+        plan_tri?: {
+          applied?: boolean;
+          excluded_count?: number;
+          excluded_samples?: { code: string; statut: string }[];
+          excluded_stat_histogram?: Record<string, number>;
+          skipped_reason?: string;
+        };
         diagnostics?: {
           mondial_relay_soap?: { missing?: string[] };
           deployment?: { vercel_env?: string | null; vercel_url?: string | null };
@@ -602,6 +609,9 @@ export function CartPaymentScreen({
         setRelaySearchError(j.hint ?? "Aucun point relais pour ce code postal.");
         setSelectedRelay(null);
         writeCheckoutRelaySelection(null);
+        if (j.plan_tri) {
+          console.warn("[relay-search] diagnostic plan_tri (réponse API)", j.plan_tri);
+        }
       } else {
         setSelectedRelay((cur) => {
           if (cur && list.some((x) => x.code === cur.code)) return cur;

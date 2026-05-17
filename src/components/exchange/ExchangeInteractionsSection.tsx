@@ -42,21 +42,31 @@ function OrderStatusPill({
   active: boolean;
   tone?: "success" | "return";
 }) {
+  const activeReturn = active && tone === "return";
+
   return (
     <span
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold leading-tight",
-        active
-          ? "border-amber-300/90 bg-amber-50 text-amber-950"
-          : tone === "success"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-            : tone === "return"
-              ? "border-red-200/90 bg-red-50 text-red-900"
-              : "border-zinc-200 bg-zinc-100 text-zinc-800",
+        activeReturn
+          ? "border-red-200/90 bg-red-50 text-red-900"
+          : active
+            ? "border-amber-300/90 bg-amber-50 text-amber-950"
+            : tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : tone === "return"
+                ? "border-red-200/90 bg-red-50 text-red-900"
+                : "border-zinc-200 bg-zinc-100 text-zinc-800",
       )}
     >
       {active ? (
-        <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+        <span
+          className={cn(
+            "inline-flex h-1.5 w-1.5 shrink-0 rounded-full",
+            activeReturn ? "bg-red-500" : "bg-amber-500",
+          )}
+          aria-hidden
+        />
       ) : null}
       <span className="truncate">{label}</span>
     </span>

@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { RetourDetailView } from "@/components/retour/RetourDetailView";
+import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -47,5 +48,13 @@ export default async function ExchangeRetourPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  return <RetourDetailView detail={detail} membershipLabel={membershipLabel} />;
+  const borrowExtensionDaysTotal = await fetchCartBorrowExtensionDaysTotal(supabase, cartId);
+
+  return (
+    <RetourDetailView
+      detail={detail}
+      membershipLabel={membershipLabel}
+      borrowExtensionDaysTotal={borrowExtensionDaysTotal}
+    />
+  );
 }

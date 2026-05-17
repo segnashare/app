@@ -160,7 +160,9 @@ export default function NewItemSizePage() {
         const existing = selectedSizeId
           ? options.find((o: SizeOption) => o.id === selectedSizeId)
           : selectedCode
-            ? options.find((o: SizeOption) => o.code === selectedCode)
+            ? options.find(
+                (o: SizeOption) => o.code === selectedCode || o.label === selectedCode,
+              )
             : null;
         setSelectedSize(existing ?? options[Math.floor(options.length / 2)]);
       } else {
@@ -181,7 +183,7 @@ export default function NewItemSizePage() {
 
   const goBackWithSize = () => {
     if (!selectedSize) return;
-    mergeItemInfoDraft({ size: selectedSize.code, sizeId: selectedSize.id });
+    mergeItemInfoDraft({ size: selectedSize.label, sizeId: selectedSize.id });
     const base = itemId ? `/items/new?itemId=${itemId}` : "/items/new";
     router.replace(withFromItemParam(base, searchParams));
   };

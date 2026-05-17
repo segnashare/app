@@ -62,3 +62,77 @@ export function withFromItemParam(
   if (path.includes("from=item")) return path;
   return `${path}${path.includes("?") ? "&" : "?"}from=item`;
 }
+
+const NEW_ITEM_SCROLL_KEY = "segna:new-item:scroll-y";
+const NEW_ITEM_SCROLL_RESTORE_PENDING = "segna:new-item:scroll-restore-pending";
+
+let strictModeScrollFallback: number | null = null;
+let strictModeScrollFallbackClearId: number | null = null;
+
+function scheduleClearNewItemScrollFallback() {
+  if (typeof window === "undefined") return;
+  if (strictModeScrollFallbackClearId != null) window.clearTimeout(strictModeScrollFallbackClearId);
+  strictModeScrollFallbackClearId = window.setTimeout(() => {
+    strictModeScrollFallback = null;
+    strictModeScrollFallbackClearId = null;
+  }, 280);
+}
+
+/** Avant une sous-route (catégorie, taille, …) : mémorise le scroll du formulaire principal. */
+export function persistNewItemScrollForSubPage(): void {
+  if (typeof window === "undefined") return;
+  const y = window.scrollY;
+  strictModeScrollFallback = y;
+  if (strictModeScrollFallbackClearId != null) {
+    window.clearTimeout(strictModeScrollFallbackClearId);
+    strictModeScrollFallbackClearId = null;
+  }
+  try {
+    window.sessionStorage.setItem(NEW_ITEM_SCROLL_KEY, String(y));
+    window.sessionStorage.setItem(NEW_ITEM_SCROLL_RESTORE_PENDING, "1");
+  } catch {
+    // ignore
+  }
+}
+
+export function stashNewItemScrollForStrictRemount(scrollY: number): void {
+  if (typeof window === "undefined") return;
+  strictModeScrollFallback = scrollY;
+  if (strictModeScrollFallbackClearId != null) {
+    window.clearTimeout(strictModeScrollFallbackClearId);
+    strictModeScrollFallbackClearId = null;
+  }
+  scheduleClearNewItemScrollFallback();
+}
+
+function takeNewItemScrollStrictRemountFallback(): number | null {
+  if (typeof window === "undefined") return null;
+  if (strictModeScrollFallbackClearId != null) {
+    window.clearTimeout(strictModeScrollFallbackClearId);
+    strictModeScrollFallbackClearId = null;
+  }
+  const y = strictModeScrollFallback;
+  strictModeScrollFallback = null;
+  return y;
+}
+
+/** Au retour sur `/items/new` : position à restaurer (ou null). */
+export function consumeNewItemScrollRestore(): number | null {
+  if (typeof window === "undefined") return null;
+
+  const fromSession = (() => {
+    try {
+      if (window.sessionStorage.getItem(NEW_ITEM_SCROLL_RESTORE_PENDING) !== "1") return null;
+      window.sessionStorage.removeItem(NEW_ITEM_SCROLL_RESTORE_PENDING);
+      const raw = window.sessionStorage.getItem(NEW_ITEM_SCROLL_KEY);
+      window.sessionStorage.removeItem(NEW_ITEM_SCROLL_KEY);
+      const y = raw != null ? Number(raw) : NaN;
+      return Number.isFinite(y) ? y : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  if (fromSession != null) return fromSession;
+  return takeNewItemScrollStrictRemountFallback();
+}

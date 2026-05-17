@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   BORROW_MS_PER_DAY,
+  applyBorrowExtensionDaysToDeadlineMs,
   computeBorrowDeadlineMs,
   formatBorrowLastHoursCountdown,
   type SegnaBorrowMembershipLabel,
@@ -15,6 +16,7 @@ type EmpruntBorrowCountdownProps = {
   membershipLabel: SegnaBorrowMembershipLabel;
   /** Colis retour déposé au relais (`dropped_out` ou statut ultérieur) : plus de rappel « retard ». */
   returnCommitmentMet?: boolean;
+  borrowExtensionDaysTotal?: number;
 };
 
 function clampRemaining(deadlineMs: number, now: number): number {
@@ -55,9 +57,13 @@ export function EmpruntBorrowCountdown({
   orderNumberCompact,
   membershipLabel,
   returnCommitmentMet,
+  borrowExtensionDaysTotal = 0,
 }: EmpruntBorrowCountdownProps) {
   const deliveredMs = Date.parse(deliveredAtIso);
-  const deadlineMs = computeBorrowDeadlineMs(deliveredMs, membershipLabel);
+  const deadlineMs = applyBorrowExtensionDaysToDeadlineMs(
+    computeBorrowDeadlineMs(deliveredMs, membershipLabel),
+    borrowExtensionDaysTotal,
+  );
 
   const [now, setNow] = useState(() => Date.now());
   const remainingForTick = Number.isFinite(deadlineMs) ? clampRemaining(deadlineMs, now) : 0;

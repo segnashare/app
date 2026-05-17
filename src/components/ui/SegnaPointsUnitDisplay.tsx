@@ -47,7 +47,7 @@ export function SegnaPointsUnitDisplay({
   unitDisplay = "label",
   iconColor = "fixed",
 }: SegnaPointsUnitDisplayProps) {
-  const n = Math.floor(points);
+  const n = Number.isFinite(points) ? Math.floor(points) : 0;
   const formatted = n.toLocaleString("fr-FR");
   const unitLabel = walletCreditKindLabel(creditKind);
   const showConsumptionIcon = creditKind === "consumption";

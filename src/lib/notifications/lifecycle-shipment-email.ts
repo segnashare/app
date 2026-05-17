@@ -1,4 +1,4 @@
-import { escapeHtml, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
+import { escapeHtml, resolvePublicOriginForEmailImages, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
 import type { BorrowReturnReminderPhase } from "@/lib/emprunt/borrow-return-reminder-buckets";
 
 function firstNameOrBonjour(firstName: string | null | undefined): string {
@@ -53,12 +53,20 @@ export function orderOutboundRelayPickupAvailableEmail(firstName: string | null)
 
 export type OrderOutboundDeliveredEmailInput = {
   firstName: string | null;
+  cartId: string;
   orderRef: string;
   itemLabels: string[];
   borrowPeriodLabel: string;
   returnDeadlineLabel: string;
   supportEmail: string;
 };
+
+/** URL page commande membre (`/commande/[id]`) pour e-mails transactionnels. */
+export function buildMemberCartOrderPageUrl(cartId: string): string | null {
+  const origin = resolvePublicOriginForEmailImages();
+  if (!origin || !cartId.trim()) return null;
+  return `${origin}/commande/${cartId.trim()}`;
+}
 
 export function orderOutboundDeliveredEmail(
   input: OrderOutboundDeliveredEmailInput,
@@ -68,6 +76,8 @@ export function orderOutboundDeliveredEmail(
   const borrowEsc = escapeHtml(input.borrowPeriodLabel);
   const deadlineEsc = escapeHtml(input.returnDeadlineLabel);
   const supportEsc = escapeHtml(input.supportEmail);
+  const orderUrl = buildMemberCartOrderPageUrl(input.cartId);
+  const orderUrlEsc = orderUrl ? escapeHtml(orderUrl) : null;
 
   const itemsText =
     input.itemLabels.length > 0
@@ -80,7 +90,14 @@ export function orderOutboundDeliveredEmail(
           .join("")}</ul>`
       : "<p style=\"margin:0 0 16px;\">Détail des pièces dans l’app Segna.</p>";
 
-  const subject = "Ta box Segna est livrée — récap de ton échange";
+  const subject = "Ta box Segna est livrée, récap de ton échange";
+  const orderLinkText = orderUrl
+    ? `Voir ma commande : ${orderUrl}`
+    : "Retrouve le détail de ta commande dans l’app Segna.";
+  const orderLinkHtml = orderUrl
+    ? `<a href="${orderUrlEsc}" style="color:#000;text-decoration:underline;font-weight:600;">Voir ma commande</a>`
+    : "Retrouve le détail de ta commande dans l’<strong>app Segna</strong>.";
+
   const { text, html } = shell(subject, "Récapitulatif de ton échange et date limite de retour", [
     { text: `Bonjour ${firstNameOrBonjour(input.firstName)},`, html: `Bonjour ${pEsc},` },
     {
@@ -90,6 +107,10 @@ export function orderOutboundDeliveredEmail(
     {
       text: `Commande ${input.orderRef}\n${itemsText}`,
       html: `<p style="margin:0 0 8px;"><strong>Commande ${orderRefEsc}</strong></p>${itemsHtml}`,
+    },
+    {
+      text: orderLinkText,
+      html: `<p style="margin:0 0 16px;">${orderLinkHtml}</p>`,
     },
     {
       text: `Durée de location : ${input.borrowPeriodLabel}.`,

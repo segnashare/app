@@ -2,7 +2,12 @@ import { notFound, redirect } from "next/navigation";
 
 import { EmpruntDetailView } from "@/components/emprunt/EmpruntDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
-import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
+import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
+import {
+  applyBorrowExtensionDaysToDeadlineMs,
+  computeBorrowDeadlineMs,
+  resolveOutboundBorrowDeliveredAtIso,
+} from "@/lib/emprunt/borrow-period";
 import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
@@ -50,9 +55,13 @@ export default async function EmpruntPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
+  const borrowExtensionDaysTotal = await fetchCartBorrowExtensionDaysTotal(supabase, cartId);
   const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(detail.shipment?.deliveredAt, detail.shipment?.updatedAt);
   const deliveredAtMs = borrowAnchorIso ? Date.parse(borrowAnchorIso) : Number.NaN;
-  const returnDeadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+  const returnDeadlineMs = applyBorrowExtensionDaysToDeadlineMs(
+    computeBorrowDeadlineMs(deliveredAtMs, membershipLabel),
+    borrowExtensionDaysTotal,
+  );
   const mustUseReturnPage =
     isActiveMemberReturnPhase(detail.returnShipment?.status) &&
     Number.isFinite(returnDeadlineMs) &&
@@ -62,5 +71,11 @@ export default async function EmpruntPage({ params }: PageProps) {
     redirect(`/exchange/retour/${cartId}`);
   }
 
-  return <EmpruntDetailView detail={detail} membershipLabel={membershipLabel} />;
+  return (
+    <EmpruntDetailView
+      detail={detail}
+      membershipLabel={membershipLabel}
+      borrowExtensionDaysTotal={borrowExtensionDaysTotal}
+    />
+  );
 }

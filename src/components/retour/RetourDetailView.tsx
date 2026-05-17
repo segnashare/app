@@ -17,9 +17,14 @@ import { cn } from "@/lib/utils/cn";
 type RetourDetailViewProps = {
   detail: MemberCartOrderDetail;
   membershipLabel: MembershipLabel;
+  borrowExtensionDaysTotal?: number;
 };
 
-export function RetourDetailView({ detail, membershipLabel }: RetourDetailViewProps) {
+export function RetourDetailView({
+  detail,
+  membershipLabel,
+  borrowExtensionDaysTotal = 0,
+}: RetourDetailViewProps) {
   const rs = detail.returnShipment;
   const statusForCopy = rs?.status ?? "pending";
   const creditKind = detail.walletCreditKind;
@@ -35,6 +40,7 @@ export function RetourDetailView({ detail, membershipLabel }: RetourDetailViewPr
       detail.shipment?.updatedAt,
     ),
     membershipLabel,
+    borrowExtensionDaysTotal,
   });
 
   return (
@@ -50,7 +56,7 @@ export function RetourDetailView({ detail, membershipLabel }: RetourDetailViewPr
               <X className="h-8 w-8" strokeWidth={2.25} />
             </Link>
             <div className="-mr-1 flex min-h-12 shrink-0 items-center">
-              <ExchangeOrderHelpSection placement="header" />
+              <ExchangeOrderHelpSection placement="header" triggerLabel="Aide échange" />
             </div>
           </div>
           <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>

@@ -23,7 +23,7 @@ export function getMemberReturnShipmentPhaseCopy(status: string): MemberReturnSh
   switch (s) {
     case "pending":
       return {
-        title: "Retour à préparer",
+        title: "Prépare ton retour",
         detail: "Ton bordereau d’envoi vers Segna sera généré automatiquement dès que possible.",
         pulse: true,
       };
