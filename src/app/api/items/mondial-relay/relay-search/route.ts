@@ -242,6 +242,7 @@ export async function POST(request: Request) {
             wsi3ReturnedHits: points.length > 0,
             excludedStatHistogram: meta.excluded_stat_histogram,
             excludedCount: meta.excluded_count,
+            firstWsi3RelayHit: points[0],
           }) ?? undefined;
 
         console.warn("[mondial-relay:relay-search] plan_tri_excluded_all_relays", {

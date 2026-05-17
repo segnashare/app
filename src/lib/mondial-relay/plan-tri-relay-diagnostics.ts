@@ -1,4 +1,6 @@
 import { getMondialRelayConnectEnv, type MondialRelaySoapEnv } from "@/lib/mondial-relay/config";
+import type { RelaySearchHit } from "@/lib/mondial-relay/soap-point-relais-search";
+import { mondialRelayLivRelSixDigits } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 
 const DEFAULT_WSI3_URL = "https://api.mondialrelay.com/Web_Services.asmx";
 const DEFAULT_PLAN_TRI_URL = "https://api.mondialrelay.com/WSI_PlanTri.asmx";
@@ -21,6 +23,15 @@ export type PlanTriRelayDiagnostics = {
     hub_dest_country: string;
     hub_dest_postcode_masked: string;
   };
+  /**
+   * `LIV_Rel_Pays` et `LIV_Rel` ne sont pas des variables d’environnement : une requête ObtenirPreTri
+   * par point, avec les valeurs dérivées du premier résultat WSI3 (exemple ci-dessous).
+   */
+  pretri_sample_first_wsi3_relay: {
+    relay_location_code: string;
+    liv_rel_pays_sent: string;
+    liv_rel_six_digits_sent: string;
+  } | null;
   checks: {
     /** `null` si Connect n’est pas configuré sur ce serveur. */
     soap_enseigne_matches_connect_brand_id: boolean | null;
@@ -28,6 +39,8 @@ export type PlanTriRelayDiagnostics = {
     soap_enseigne_had_leading_or_trailing_whitespace: boolean;
     soap_private_key_trimmed_char_count: number;
     soap_enseigne_trimmed_char_count: number;
+    /** Toujours `true` si WSI3 a réussi ; sinon les compteurs ci-dessus seraient incohérents. */
+    soap_enseigne_and_private_key_non_empty: boolean;
     wsi3_and_plan_tri_same_hostname: boolean;
     wsi3_url_differs_from_code_default: boolean;
     plan_tri_url_differs_from_code_default: boolean;
@@ -48,6 +61,8 @@ export function buildPlanTriRelayDiagnosticsWhenAllStat97(input: {
   wsi3ReturnedHits: boolean;
   excludedStatHistogram: Record<string, number> | undefined;
   excludedCount: number;
+  /** Premier point WSI3 : illustre les segments LIV_* du hash ObtenirPreTri. */
+  firstWsi3RelayHit: RelaySearchHit | null | undefined;
 }): PlanTriRelayDiagnostics | null {
   if (!input.wsi3ReturnedHits || input.excludedCount < 1) return null;
 
@@ -95,9 +110,27 @@ export function buildPlanTriRelayDiagnosticsWhenAllStat97(input: {
     "Confirmer avec MR ou la doc produit que le ModeLiv utilisé pour ObtenirPreTri est bien celui du contrat (souvent identique au champ Action WSI3 pour le même flux).",
   );
 
+  const hit = input.firstWsi3RelayHit ?? null;
+  const livRelPays = hit ? (hit.country || "FR").trim().toUpperCase() : "";
+  const livRel = hit ? mondialRelayLivRelSixDigits(hit.numRaw, hit.code) : "";
+  const pretri_sample_first_wsi3_relay =
+    hit && livRel
+      ? {
+          relay_location_code: hit.code,
+          liv_rel_pays_sent: livRelPays || "FR",
+          liv_rel_six_digits_sent: livRel,
+        }
+      : hit
+        ? {
+            relay_location_code: hit.code,
+            liv_rel_pays_sent: livRelPays || "FR",
+            liv_rel_six_digits_sent: "(vide — numéro relais introuvable pour ce point)",
+          }
+        : null;
+
   return {
     mr_api_limitation:
-      "Mondial Relay renvoie uniquement le statut 97 (« clé de sécurité invalide ») : il n’indique pas si l’erreur vient de la clé privée, de l’enseigne, du ModeLiv, du hub (Dest_CP / Dest_Pays) ou du numéro relais dans la chaîne du hash.",
+      "Mondial Relay renvoie uniquement le statut 97 (« clé de sécurité invalide ») : il n’indique pas si l’erreur vient de la clé privée, de l’enseigne, du ModeLiv, du hub (Dest_CP / Dest_Pays) ou des segments par relais LIV_Rel_Pays + LIV_Rel (issus de chaque point WSI3, pas du .env).",
     inference_when_wsi3_succeeded:
       "WSI3_PointRelais_Recherche a accepté la même enseigne et la même clé privée SOAP : le rejet 100 % sur ObtenirPreTri pointe en principe vers la construction du hash spécifique à ObtenirPreTri (champs ou ordre), vers un ModeLiv / hub incompatible avec le contrat, ou vers un endpoint PlanTri qui ne correspond pas à l’environnement du compte.",
     obtenir_pretri_concat_order:
@@ -107,12 +140,15 @@ export function buildPlanTriRelayDiagnosticsWhenAllStat97(input: {
       hub_dest_country: input.hubDestCountry.trim().toUpperCase() || "FR",
       hub_dest_postcode_masked: maskPostcode(input.hubDestPostcode),
     },
+    pretri_sample_first_wsi3_relay,
     checks: {
       soap_enseigne_matches_connect_brand_id: brandMatch,
       soap_private_key_had_leading_or_trailing_whitespace: rawKey !== rawKey.trim(),
       soap_enseigne_had_leading_or_trailing_whitespace: rawEns !== rawEns.trim(),
       soap_private_key_trimmed_char_count: input.soap.privateKey.length,
       soap_enseigne_trimmed_char_count: input.soap.enseigne.length,
+      soap_enseigne_and_private_key_non_empty:
+        input.soap.enseigne.length > 0 && input.soap.privateKey.length > 0,
       wsi3_and_plan_tri_same_hostname: wsi3Host === planHost,
       wsi3_url_differs_from_code_default: input.soap.endpoint.trim() !== DEFAULT_WSI3_URL,
       plan_tri_url_differs_from_code_default: input.soap.planTriEndpoint.trim() !== DEFAULT_PLAN_TRI_URL,
