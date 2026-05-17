@@ -56,6 +56,11 @@ function shouldNotifyOutboundDeliveredRecap(fromStatus: string): boolean {
 }
 
 export const OUTBOUND_DELIVERED_RECAP_IDEMPOTENCY_SUFFIX = "outbound_delivered_recap";
+export const OUTBOUND_DELIVERED_SMS_IDEMPOTENCY_SUFFIX = "outbound_delivered_sms";
+
+export type OutboundDeliveredRecapNotifyResult =
+  | { ok: true; emailAttempted: boolean; smsAttempted: boolean }
+  | { ok: false; reason: string };
 
 async function loadCartOrderItemLabels(admin: SupabaseClient, cartId: string): Promise<string[]> {
   const { data, error } = await admin
@@ -115,8 +120,10 @@ async function loadOutboundDeliveredNotificationContext(
     (ship as { delivered_at?: string | null } | null)?.delivered_at,
     (ship as { updated_at?: string | null } | null)?.updated_at,
   );
-  const deliveredAtMs = deliveredIso ? Date.parse(deliveredIso) : Date.now();
-  if (!Number.isFinite(deliveredAtMs)) return null;
+  let deliveredAtMs = deliveredIso ? Date.parse(deliveredIso) : Number.NaN;
+  if (!Number.isFinite(deliveredAtMs)) {
+    deliveredAtMs = Date.now();
+  }
 
   const membership = (await resolveMembershipLabelForServiceRole(admin, userId)) as SegnaBorrowMembershipLabel;
   const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membership);
@@ -132,6 +139,81 @@ async function loadOutboundDeliveredNotificationContext(
     returnDeadlineLabel: formatReturnDeadlineForEmail(deadlineMs),
     orderRef,
   };
+}
+
+/**
+ * Récap livraison aller — déclenché uniquement quand le statut passe à `delivered`
+ * (webhook Uber sur segna-app, ou rattrapage `POST /api/internal/shipment-lifecycle-notify`).
+ * Contrairement au SMS « colis prêt » (back-office → API interne), ce flux ne part pas du BO.
+ */
+export async function sendOutboundDeliveredRecap(
+  admin: SupabaseClient,
+  input: {
+    shipmentId: string;
+    cartId: string;
+    userId: string;
+    firstName: string | null;
+    fromStatus: string;
+    meta: Record<string, unknown>;
+  },
+): Promise<OutboundDeliveredRecapNotifyResult> {
+  if (!shouldNotifyOutboundDeliveredRecap(input.fromStatus)) {
+    return { ok: false, reason: `from_status_skip:${input.fromStatus}` };
+  }
+
+  const deliveredCtx = await loadOutboundDeliveredNotificationContext(
+    admin,
+    input.cartId,
+    input.userId,
+    input.shipmentId,
+  );
+  if (!deliveredCtx) {
+    console.warn("[notifications] outbound delivered recap: contexte incomplet", {
+      shipmentId: input.shipmentId,
+      cartId: input.cartId,
+      from: input.fromStatus,
+    });
+    return { ok: false, reason: "load_context_failed" };
+  }
+
+  const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
+  const { subject, text, html } = orderOutboundDeliveredEmail({
+    firstName: input.firstName,
+    orderRef: deliveredCtx.orderRef,
+    itemLabels: deliveredCtx.itemLabels,
+    borrowPeriodLabel: deliveredCtx.borrowPeriodLabel,
+    returnDeadlineLabel: deliveredCtx.returnDeadlineLabel,
+    supportEmail,
+  });
+
+  const recapMeta = {
+    ...input.meta,
+    membership: deliveredCtx.membershipLabel,
+    return_deadline: deliveredCtx.returnDeadlineLabel,
+  };
+
+  // E-mail et SMS séparés (comme « colis prêt » = SMS seul) : un échec Resend ne bloque plus le SMS.
+  await sendMemberOutreachNotification(admin, {
+    userId: input.userId,
+    kind: NotificationKind.orderOutboundDelivered,
+    idempotencyKey: `txn:lc:ship:${input.shipmentId}:${OUTBOUND_DELIVERED_RECAP_IDEMPOTENCY_SUFFIX}`,
+    metadata: recapMeta,
+    subject,
+    text,
+    html,
+    channels: "email",
+  });
+
+  await sendMemberSmsOnlyNotification(admin, {
+    userId: input.userId,
+    kind: NotificationKind.orderOutboundDelivered,
+    idempotencyKey: `txn:lc:ship:${input.shipmentId}:${OUTBOUND_DELIVERED_SMS_IDEMPOTENCY_SUFFIX}`,
+    metadata: recapMeta,
+    smsBody: SMS_OUTBOUND_DELIVERED,
+    transactionalSms: true,
+  });
+
+  return { ok: true, emailAttempted: true, smsAttempted: true };
 }
 
 async function loadCartMember(admin: SupabaseClient, shipmentId: string): Promise<{ userId: string; firstName: string | null } | null> {
@@ -228,48 +310,13 @@ export async function notifyShipmentLifecycleAfterTransition(
   }
 
   if (context === "cart_outbound" && to === "delivered") {
-    if (!shouldNotifyOutboundDeliveredRecap(from)) {
-      return;
-    }
-    const deliveredCtx = await loadOutboundDeliveredNotificationContext(
-      admin,
+    await sendOutboundDeliveredRecap(admin, {
+      shipmentId: input.shipmentId,
       cartId,
-      member.userId,
-      input.shipmentId,
-    );
-    if (!deliveredCtx) {
-      console.warn("[notifications] outbound delivered recap: contexte incomplet", {
-        shipmentId: input.shipmentId,
-        cartId,
-        from,
-      });
-      return;
-    }
-
-    const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
-    const { subject, text, html } = orderOutboundDeliveredEmail({
-      firstName: member.firstName,
-      orderRef: deliveredCtx.orderRef,
-      itemLabels: deliveredCtx.itemLabels,
-      borrowPeriodLabel: deliveredCtx.borrowPeriodLabel,
-      returnDeadlineLabel: deliveredCtx.returnDeadlineLabel,
-      supportEmail,
-    });
-    await sendMemberOutreachNotification(admin, {
       userId: member.userId,
-      kind: NotificationKind.orderOutboundDelivered,
-      idempotencyKey: `txn:lc:ship:${input.shipmentId}:${OUTBOUND_DELIVERED_RECAP_IDEMPOTENCY_SUFFIX}`,
-      metadata: {
-        ...meta,
-        membership: deliveredCtx.membershipLabel,
-        return_deadline: deliveredCtx.returnDeadlineLabel,
-      },
-      subject,
-      text,
-      html,
-      channels: "email+phone",
-      smsBody: SMS_OUTBOUND_DELIVERED,
-      transactionalSms: true,
+      firstName: member.firstName,
+      fromStatus: from,
+      meta,
     });
     return;
   }

@@ -14,7 +14,11 @@ import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines"
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
-import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
+import {
+  computeBorrowDeadlineMs,
+  isBorrowReturnUrgentForExchangeList,
+  resolveOutboundBorrowDeliveredAtIso,
+} from "@/lib/emprunt/borrow-period";
 import {
   getMemberOutboundShipmentPhaseCopy,
   getOutboundShipmentDeliverySubtitle,
@@ -628,6 +632,20 @@ export default async function ExchangePage() {
     }
   }
 
+  function borrowReturnDeadlineMsForShip(ship: {
+    status: string;
+    updated_at: string;
+    delivered_at: string | null;
+  }): number {
+    if (String(ship.status).toLowerCase() !== "delivered") return Number.NaN;
+    const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at);
+    if (!borrowAnchorIso) return Number.NaN;
+    const deliveredAtMs = Date.parse(borrowAnchorIso);
+    return computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+  }
+
+  const exchangeListNowMs = Date.now();
+
   function buildExchangeOrderCard(
     order: CartOrderListRow,
     thumbs: string[],
@@ -644,17 +662,17 @@ export default async function ExchangePage() {
     }
     const ret = returnShipmentByCartId.get(order.id);
     const ship = outboundShipmentByCartId.get(order.id);
+    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship) : Number.NaN;
+    const borrowReturnUrgent =
+      ship != null &&
+      Number.isFinite(borrowReturnDeadlineMs) &&
+      isBorrowReturnUrgentForExchangeList(exchangeListNowMs, borrowReturnDeadlineMs);
     const forceReturnNow = (() => {
       if (!ret || !ship) return false;
-      if (String(ship.status).toLowerCase() !== "delivered") return false;
-      const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at);
-      if (!borrowAnchorIso) return false;
-      const deliveredAtMs = Date.parse(borrowAnchorIso);
-      const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
-      if (!Number.isFinite(deadlineMs)) return false;
-      return deadlineMs - Date.now() <= RETURN_ENFORCE_WINDOW_MS;
+      if (!Number.isFinite(borrowReturnDeadlineMs)) return false;
+      return borrowReturnDeadlineMs - exchangeListNowMs <= RETURN_ENFORCE_WINDOW_MS;
     })();
-    if (ret && forceReturnNow) {
+    if (ret && (forceReturnNow || borrowReturnUrgent)) {
       const phase = getMemberReturnShipmentPhaseCopy(ret.status);
       const deliveryLabel = getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
       return {
@@ -665,6 +683,7 @@ export default async function ExchangePage() {
         itemThumbUrls: thumbs,
         detailHref: `/exchange/retour/${order.id}` as const,
         ...(phase.pulse ? { showPulse: true as const } : {}),
+        ...(borrowReturnUrgent ? { statusPillTone: "return" as const } : {}),
       };
     }
 
@@ -685,22 +704,42 @@ export default async function ExchangePage() {
     );
     const st = ship.status.toLowerCase();
     const detailHref = st === "delivered" ? (`/exchange/emprunt/${order.id}` as const) : undefined;
+    const deliveredBorrowUrgent = st === "delivered" && borrowReturnUrgent;
     return {
       id: order.id,
       orderNumberCompact: formatOrderNumberCompact(order.id),
-      statusLabel: phase.title,
+      statusLabel: deliveredBorrowUrgent ? "Retour" : phase.title,
       deliveryLabel,
       itemThumbUrls: thumbs,
       ...(detailHref ? { detailHref } : {}),
       ...(phase.pulse ? { showPulse: true as const } : {}),
-      ...(st === "delivered" ? { statusPillTone: "success" as const } : {}),
+      ...(deliveredBorrowUrgent
+        ? { statusPillTone: "return" as const }
+        : st === "delivered"
+          ? { statusPillTone: "success" as const }
+          : {}),
     };
   }
 
+  function exchangeOngoingOrderSortKey(orderId: string): { urgent: 0 | 1; deadlineMs: number } {
+    const ship = outboundShipmentByCartId.get(orderId);
+    if (!ship) return { urgent: 1, deadlineMs: Number.POSITIVE_INFINITY };
+    const deadlineMs = borrowReturnDeadlineMsForShip(ship);
+    const urgent =
+      Number.isFinite(deadlineMs) && isBorrowReturnUrgentForExchangeList(exchangeListNowMs, deadlineMs) ? 0 : 1;
+    return { urgent, deadlineMs: Number.isFinite(deadlineMs) ? deadlineMs : Number.POSITIVE_INFINITY };
+  }
+
   /** Pastille + sous-texte livraison : uniquement depuis l’expédition aller (`shipments`), pas le statut panier. */
-  const ongoingOrders = ongoingCartRows.map((order) =>
-    buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: false }),
-  );
+  const ongoingOrders = [...ongoingCartRows]
+    .sort((a, b) => {
+      const ka = exchangeOngoingOrderSortKey(a.id);
+      const kb = exchangeOngoingOrderSortKey(b.id);
+      if (ka.urgent !== kb.urgent) return ka.urgent - kb.urgent;
+      if (ka.urgent === 0 && ka.deadlineMs !== kb.deadlineMs) return ka.deadlineMs - kb.deadlineMs;
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    })
+    .map((order) => buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: false }));
 
   const recentOrders = historyCartRows.map((order) =>
     buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: true }),

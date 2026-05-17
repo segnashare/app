@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { notifyShipmentLifecycleAfterTransition } from "@/lib/notifications/lifecycle-shipment-notify";
+import {
+  notifyShipmentLifecycleAfterTransition,
+  sendOutboundDeliveredRecap,
+} from "@/lib/notifications/lifecycle-shipment-notify";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -55,6 +58,50 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient();
+
+  if (toStatus.toLowerCase() === "delivered") {
+    const { data: ship } = await admin
+      .from("shipments")
+      .select("cart_id, context")
+      .eq("id", shipmentId)
+      .maybeSingle();
+    const context = String((ship as { context?: unknown } | null)?.context ?? "");
+    const cartId = (ship as { cart_id?: string } | null)?.cart_id;
+    if (context !== "cart_outbound" || typeof cartId !== "string") {
+      return NextResponse.json({
+        ok: false as const,
+        error: "shipment_not_cart_outbound",
+        shipment_id: shipmentId,
+      });
+    }
+    const { data: cart } = await admin.from("carts").select("user_id").eq("id", cartId).maybeSingle();
+    const userId = (cart as { user_id?: string } | null)?.user_id;
+    if (typeof userId !== "string") {
+      return NextResponse.json({ ok: false as const, error: "cart_user_missing", shipment_id: shipmentId });
+    }
+    const { data: user } = await admin.from("users").select("first_name").eq("id", userId).maybeSingle();
+    const recap = await sendOutboundDeliveredRecap(admin, {
+      shipmentId,
+      cartId,
+      userId,
+      firstName: (user as { first_name?: string | null } | null)?.first_name ?? null,
+      fromStatus,
+      meta: {
+        shipment_id: shipmentId,
+        cart_id: cartId,
+        context,
+        from_status: fromStatus,
+        to_status: toStatus,
+        source,
+      },
+    });
+    return NextResponse.json({
+      ok: recap.ok,
+      shipment_id: shipmentId,
+      delivered_recap: recap,
+    });
+  }
+
   await notifyShipmentLifecycleAfterTransition(admin, {
     shipmentId,
     fromStatus,

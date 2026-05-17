@@ -48,14 +48,16 @@ export async function transitionShipmentStatus(
   }
   const parsed = parseTransitionShipmentStatusResult(data);
   if (parsed.ok) {
-    void notifyShipmentLifecycleAfterTransition(admin, {
-      shipmentId: params.shipmentId,
-      fromStatus: params.ifCurrentStatus,
-      toStatus: params.toStatus,
-      source: params.source,
-    }).catch((e) => {
+    try {
+      await notifyShipmentLifecycleAfterTransition(admin, {
+        shipmentId: params.shipmentId,
+        fromStatus: params.ifCurrentStatus,
+        toStatus: params.toStatus,
+        source: params.source,
+      });
+    } catch (e) {
       console.error("[transition_shipment_status] lifecycle notify", e);
-    });
+    }
   }
   return parsed;
 }

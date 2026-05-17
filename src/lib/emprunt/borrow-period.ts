@@ -7,6 +7,17 @@ export function borrowRemainingDaysDisplayed(remainingMs: number): number {
   return Math.ceil(remainingMs / MS_PER_DAY);
 }
 
+/**
+ * Liste Échange : emprunt livré avec au plus 3 jours restants (même règle que le décompte emprunt).
+ * Inclut l’échéance dépassée.
+ */
+export function isBorrowReturnUrgentForExchangeList(nowMs: number, deadlineMs: number): boolean {
+  if (!Number.isFinite(deadlineMs) || !Number.isFinite(nowMs)) return false;
+  const msLeft = deadlineMs - nowMs;
+  if (msLeft <= 0) return true;
+  return borrowRemainingDaysDisplayed(msLeft) <= 3;
+}
+
 /** Dernières heures avant échéance : compteur h / min / s (header + bloc central emprunt). */
 export function formatBorrowLastHoursCountdown(remainingMs: number): string {
   const totalSec = Math.max(0, Math.floor(remainingMs / 1000));

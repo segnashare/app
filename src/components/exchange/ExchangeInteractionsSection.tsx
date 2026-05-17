@@ -15,8 +15,8 @@ export type ExchangeOrderCard = {
   orderNumberCompact: string;
   /** État lisible (phase logistique, confirmée, archivée…). */
   statusLabel: string;
-  /** Pastille verte (ex. « Reçu » aller). */
-  statusPillTone?: "success";
+  /** Pastille verte (réception) ou rouge léger (retour urgent). */
+  statusPillTone?: "success" | "return";
   /** Sous-texte livraison (en transit / livré) ; absent tant que l’expédition n’y est pas. */
   deliveryLabel: string | null;
   /** Première photo de chaque article du panier (ordre des lignes). */
@@ -40,7 +40,7 @@ function OrderStatusPill({
 }: {
   label: string;
   active: boolean;
-  tone?: "success";
+  tone?: "success" | "return";
 }) {
   return (
     <span
@@ -50,7 +50,9 @@ function OrderStatusPill({
           ? "border-amber-300/90 bg-amber-50 text-amber-950"
           : tone === "success"
             ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-            : "border-zinc-200 bg-zinc-100 text-zinc-800",
+            : tone === "return"
+              ? "border-red-200/90 bg-red-50 text-red-900"
+              : "border-zinc-200 bg-zinc-100 text-zinc-800",
       )}
     >
       {active ? (
