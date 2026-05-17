@@ -210,7 +210,7 @@ export function CommandeDetailView({
             </div>
           </div>
           <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
-            Numéro de commande : {detail.orderNumberCompact}
+            Commande {detail.orderNumberCompact}
           </h1>
           <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">{headerDate}</p>
         </div>

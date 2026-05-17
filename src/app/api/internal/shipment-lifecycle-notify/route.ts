@@ -15,7 +15,8 @@ function internalShipmentNotifySecrets(): string[] {
 
 /**
  * Après `transition_shipment_status` depuis le **back-office** (RPC Supabase direct, sans passer par le wrapper segna-app).
- * Déclenche e-mails et/ou SMS selon la transition (ex. livraison aller → SMS seul).
+ * Déclenche e-mails et/ou SMS selon la transition (ex. livraison aller → récap e-mail + SMS).
+ * Rattrapage manuel : `{ "shipment_id", "from_status": "in_transit_in", "to_status": "delivered", "source": "manual" }`.
  *
  * Auth : `Authorization: Bearer` = `SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET` si défini, sinon le même secret que
  * `POST /api/internal/cart-outbound-launch-uber` (`SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET`).

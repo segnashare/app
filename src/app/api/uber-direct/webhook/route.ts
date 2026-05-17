@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { notifyShipmentLifecycleAfterTransition } from "@/lib/notifications/lifecycle-shipment-notify";
 import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -135,11 +136,11 @@ async function advanceStatus(
   target: "in_transit_in" | "delivered" | "failed",
   deliveryId: string,
   payload: JsonRecord,
-): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; status: string; didTransition: boolean } | { ok: false; error: string }> {
   const nowIso = new Date().toISOString();
   let expectedCurrent = current;
 
-  if (current === target) return { ok: true, status: current };
+  if (current === target) return { ok: true, status: current, didTransition: false };
 
   // Legacy enum `in_transit` → `in_transit_in` (certaines lignes n’ont pas reçu la migration).
   if (current === "in_transit") {
@@ -168,7 +169,7 @@ async function advanceStatus(
         expectedCurrent = "in_transit_in";
       }
     }
-    if (current === target) return { ok: true, status: current };
+    if (current === target) return { ok: true, status: current, didTransition: false };
   }
 
   // Cas courant Uber: ready -> in_transit_in -> delivered.
@@ -204,9 +205,25 @@ async function advanceStatus(
   if (!tr.ok && tr.error === "STATUS_MISMATCH") {
     const { data: fresh } = await admin.from("shipments").select("status").eq("id", shipmentId).maybeSingle();
     const freshSt = norm((fresh as { status?: unknown } | null)?.status);
-    if (freshSt === target) return { ok: true, status: target };
+    if (freshSt === target) return { ok: true, status: target, didTransition: false };
   }
-  return tr.ok ? { ok: true, status: target } : tr;
+  return tr.ok ? { ok: true, status: target, didTransition: true } : tr;
+}
+
+/** Si le colis est déjà `delivered` en base, le RPC ne tourne pas → rattrapage notif récap. */
+async function catchUpOutboundDeliveredRecap(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  shipmentId: string,
+  priorStatus: string,
+): Promise<void> {
+  const from =
+    priorStatus === "delivered" || priorStatus === "closed" ? "in_transit_in" : priorStatus;
+  await notifyShipmentLifecycleAfterTransition(admin, {
+    shipmentId,
+    fromStatus: from,
+    toStatus: "delivered",
+    source: "uber_direct_webhook_catchup",
+  });
 }
 
 export async function POST(request: Request) {
@@ -254,6 +271,10 @@ export async function POST(request: Request) {
   const res = await advanceStatus(admin, shipmentId, current, targetStatus, deliveryId, body);
   if (!res.ok) {
     return NextResponse.json({ ok: false as const, error: res.error, shipment_id: shipmentId }, { status: 500 });
+  }
+
+  if (targetStatus === "delivered" && !res.didTransition) {
+    await catchUpOutboundDeliveredRecap(admin, shipmentId, current);
   }
 
   const trackingUrl = extractTrackingUrl(body);

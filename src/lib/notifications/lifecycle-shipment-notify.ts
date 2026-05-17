@@ -48,10 +48,14 @@ function formatReturnDeadlineForEmail(ms: number): string {
   });
 }
 
-function isOutboundDeliveredFromInTransit(fromStatus: string): boolean {
+/** Statuts « avant livraison » pour lesquels on envoie le récap livré (Uber, relais, legacy). */
+function shouldNotifyOutboundDeliveredRecap(fromStatus: string): boolean {
   const f = normalizeOutboundShipmentStatusForUi(fromStatus);
-  return f === "in_transit_in" || f === "in_transit_out";
+  if (f === "delivered" || f === "closed") return false;
+  return true;
 }
+
+export const OUTBOUND_DELIVERED_RECAP_IDEMPOTENCY_SUFFIX = "outbound_delivered_recap";
 
 async function loadCartOrderItemLabels(admin: SupabaseClient, cartId: string): Promise<string[]> {
   const { data, error } = await admin
@@ -100,6 +104,10 @@ async function loadOutboundDeliveredNotificationContext(
     .maybeSingle();
   if (shipErr) {
     console.error("[notifications] loadOutboundDeliveredNotificationContext shipment", shipErr.message);
+    return null;
+  }
+  if (!ship) {
+    console.warn("[notifications] loadOutboundDeliveredNotificationContext: shipment introuvable", { shipmentId });
     return null;
   }
 
@@ -219,14 +227,24 @@ export async function notifyShipmentLifecycleAfterTransition(
     return;
   }
 
-  if (context === "cart_outbound" && to === "delivered" && isOutboundDeliveredFromInTransit(from)) {
+  if (context === "cart_outbound" && to === "delivered") {
+    if (!shouldNotifyOutboundDeliveredRecap(from)) {
+      return;
+    }
     const deliveredCtx = await loadOutboundDeliveredNotificationContext(
       admin,
       cartId,
       member.userId,
       input.shipmentId,
     );
-    if (!deliveredCtx) return;
+    if (!deliveredCtx) {
+      console.warn("[notifications] outbound delivered recap: contexte incomplet", {
+        shipmentId: input.shipmentId,
+        cartId,
+        from,
+      });
+      return;
+    }
 
     const supportEmail = getSegnaSupportContact().email ?? "contact@segnashare.com";
     const { subject, text, html } = orderOutboundDeliveredEmail({
@@ -240,7 +258,7 @@ export async function notifyShipmentLifecycleAfterTransition(
     await sendMemberOutreachNotification(admin, {
       userId: member.userId,
       kind: NotificationKind.orderOutboundDelivered,
-      idempotencyKey: `txn:lc:ship:${input.shipmentId}:delivered`,
+      idempotencyKey: `txn:lc:ship:${input.shipmentId}:${OUTBOUND_DELIVERED_RECAP_IDEMPOTENCY_SUFFIX}`,
       metadata: {
         ...meta,
         membership: deliveredCtx.membershipLabel,

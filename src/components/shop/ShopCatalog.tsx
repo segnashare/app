@@ -38,6 +38,7 @@ import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
@@ -292,6 +293,25 @@ function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
   return t ? `Taille ${t}` : "Taille unique";
 }
 
+function pieceCardPricePoints(
+  pricePoints: number | null,
+  options?: { numberClassName?: string; iconColor?: "fixed" | "current" },
+) {
+  if (typeof pricePoints === "number" && !Number.isNaN(pricePoints)) {
+    return (
+      <SegnaPointsUnitDisplay
+        points={pricePoints}
+        creditKind="consumption"
+        unitDisplay="icon"
+        iconColor={options?.iconColor ?? "fixed"}
+        className="shrink-0 gap-x-0.5"
+        numberClassName={cn("tabular-nums", options?.numberClassName)}
+      />
+    );
+  }
+  return <span className={cn("tabular-nums", options?.numberClassName)}>—</span>;
+}
+
 /** Style panneau gauche pour pièces mises en avant via CMS (À découvrir, bons coups, À la une…). */
 export type ShopCmsPieceSpotlight = { bgHex: string; textColor: "white" | "black" };
 
@@ -356,8 +376,6 @@ function ShopPieceSquareCatalogCard({
   const showMeta = !hideMetaUntilReady || imageReady;
 
   const brandName = (item.brand_label ?? "").trim();
-  const price =
-    typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
   const sizeLine = pieceCardSizeLine(item.size_label);
   const condBit = pieceCardConditionLabel(item);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
@@ -458,7 +476,7 @@ function ShopPieceSquareCatalogCard({
             "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug text-zinc-600",
           )}
         >
-          <span className="tabular-nums">{price}</span>
+          {pieceCardPricePoints(item.price_points)}
           <span className="text-zinc-400" aria-hidden>
             |
           </span>
@@ -528,9 +546,6 @@ function ShopPieceSplitCard({
   const useLightText = spotlight.textColor === "white";
 
   const brandName = (item.brand_label ?? "").trim();
-  const price =
-    typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? `${item.price_points}` : "—";
-  const sizeLine = pieceCardSizeLine(item.size_label);
   const condBit = pieceCardConditionLabel(item);
 
   const textMain = useLightText ? "text-white" : "text-zinc-900";
@@ -567,19 +582,15 @@ function ShopPieceSplitCard({
       <p
         className={cn(
           montserratPieceMedium.className,
-          "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
+          "flex flex-nowrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
           textMeta,
         )}
       >
-        <span className="tabular-nums">{price}</span>
-        <span className={sepClass} aria-hidden>
+        {pieceCardPricePoints(item.price_points, { iconColor: "current" })}
+        <span className={cn("shrink-0", sepClass)} aria-hidden>
           |
         </span>
-        <span className="max-w-[42%] truncate">{sizeLine}</span>
-        <span className={sepClass} aria-hidden>
-          |
-        </span>
-        <span className="min-w-0 max-w-full truncate">{condBit}</span>
+        <span className="min-w-0 shrink truncate">{condBit}</span>
       </p>
     </div>
   );

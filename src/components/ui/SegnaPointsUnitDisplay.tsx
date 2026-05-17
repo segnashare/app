@@ -1,21 +1,39 @@
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
-import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
+import { SEGNA_BRAND_LOGO_SRC, SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
 import { walletCreditKindLabel } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
 const SEGNA_CONSUMPTION_ICON_SRC = SEGNA_BRAND_LOGO_SRC;
+const SEGNA_CREDIT_TOKEN_ICON_SRC = SEGNA_CREDIT_ICON_SRC;
 
 type SegnaPointsUnitDisplayProps = {
   points: number;
   creditKind: WalletCreditKind;
   className?: string;
   numberClassName?: string;
+  iconClassName?: string;
   /**
    * `label` : consommation → icône Segna ; échange → libellé « crédits ».
    * `icon` : toujours chiffre + `icons/segna.svg` (détail commande / total).
    */
   unitDisplay?: "label" | "icon";
+  /**
+   * `fixed` : couleurs du fichier SVG.
+   * `current` : jeton teinté via `currentColor` (frames CMS fond coloré).
+   */
+  iconColor?: "fixed" | "current";
 };
+
+const segnaCreditTokenMaskStyle = {
+  maskImage: `url(${SEGNA_CREDIT_TOKEN_ICON_SRC})`,
+  WebkitMaskImage: `url(${SEGNA_CREDIT_TOKEN_ICON_SRC})`,
+  maskSize: "contain",
+  WebkitMaskSize: "contain",
+  maskRepeat: "no-repeat",
+  WebkitMaskRepeat: "no-repeat",
+  maskPosition: "left center",
+  WebkitMaskPosition: "left center",
+} as const;
 
 /**
  * Montant + icône Segna (consommation), ou montant + libellé « crédits ».
@@ -25,7 +43,9 @@ export function SegnaPointsUnitDisplay({
   creditKind,
   className,
   numberClassName,
+  iconClassName,
   unitDisplay = "label",
+  iconColor = "fixed",
 }: SegnaPointsUnitDisplayProps) {
   const n = Math.floor(points);
   const formatted = n.toLocaleString("fr-FR");
@@ -52,12 +72,28 @@ export function SegnaPointsUnitDisplay({
         {formatted}
       </span>
       {iconMode || showConsumptionIcon ? (
-        <img
-          src={SEGNA_CONSUMPTION_ICON_SRC}
-          alt=""
-          className="h-[1.15em] w-auto max-w-[4rem] shrink-0 self-center object-contain object-left"
-          aria-hidden
-        />
+        iconMode && iconColor === "current" ? (
+          <span
+            className={cn(
+              "inline-block shrink-0 self-center bg-current",
+              "h-[1.05em] w-[1.05em]",
+              iconClassName,
+            )}
+            style={segnaCreditTokenMaskStyle}
+            aria-hidden
+          />
+        ) : (
+          <img
+            src={iconMode ? SEGNA_CREDIT_TOKEN_ICON_SRC : SEGNA_CONSUMPTION_ICON_SRC}
+            alt=""
+            className={cn(
+              "w-auto shrink-0 self-center object-contain object-left",
+              iconMode ? "h-[1.05em] max-w-[2.75rem]" : "h-[1.15em] max-w-[4rem]",
+              iconClassName,
+            )}
+            aria-hidden
+          />
+        )
       ) : (
         <span className={cn("max-w-[9rem] text-left text-[11px] font-semibold leading-tight", numberClassName)}>
           {unitLabel}
