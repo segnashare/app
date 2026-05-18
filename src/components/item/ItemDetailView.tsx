@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, MoreVertical } from "lucide-react";
+import { ChevronLeft, MoreVertical, Plus } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
@@ -32,6 +32,7 @@ import {
   primeLendItemDetailCache,
   readLendItemDetailCache,
 } from "@/lib/items/lend-items-detail-cache";
+import { useToggleCartItem } from "@/hooks/useToggleCartItem";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -92,15 +93,6 @@ function ItemDetailLoadingBody({
           </div>
         </div>
         <div className="space-y-4 pt-4">
-          <SegnaSkeletonBlock
-            className={cn(ITEM_DETAIL_SKELETON_PHOTO_FRAME_CLASS, "w-full border border-zinc-200 shadow-sm")}
-            rounded="rounded-2xl"
-          />
-          <div className="rounded-2xl border border-zinc-200 py-9 pl-[50px] pr-[60px] shadow-sm">
-            <SegnaSkeletonBlock className="h-5 w-28" rounded="rounded-md" />
-            <SegnaSkeletonBlock className="mt-4 h-9 w-full max-w-[300px]" rounded="rounded-md" />
-            <SegnaSkeletonBlock className="mt-3 h-9 w-full max-w-[260px]" rounded="rounded-md" />
-          </div>
           <div className="overflow-hidden rounded-2xl border border-zinc-200 px-4 py-3 shadow-sm">
             <SegnaSkeletonBlock className="h-5 w-36" rounded="rounded-md" />
             <div className="mt-3 flex gap-2">
@@ -108,6 +100,11 @@ function ItemDetailLoadingBody({
                 <SegnaSkeletonBlock key={i} className="aspect-square w-20 shrink-0" rounded="rounded-xl" />
               ))}
             </div>
+          </div>
+          <div className="rounded-2xl border border-zinc-200 py-9 pl-[50px] pr-[60px] shadow-sm">
+            <SegnaSkeletonBlock className="h-5 w-28" rounded="rounded-md" />
+            <SegnaSkeletonBlock className="mt-4 h-9 w-full max-w-[300px]" rounded="rounded-md" />
+            <SegnaSkeletonBlock className="mt-3 h-9 w-full max-w-[260px]" rounded="rounded-md" />
           </div>
         </div>
       </div>
@@ -348,8 +345,15 @@ export function ItemDetailView({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [actionsMenuOpen]);
 
+  const { cartItemIds, cartBusyIds, toggleCart } = useToggleCartItem();
   const isOwner = Boolean(authUserId && data && data.ownerUserId === authUserId);
   const showHeaderActions = data ? canEditDraftItem(data.status) && isOwner : false;
+  const itemStatus = data?.status?.trim().toLowerCase() ?? "";
+  const showCartHeaderAction =
+    Boolean(itemId && data && !isOwner && !showHeaderActions) &&
+    (itemStatus === "available" || itemStatus === "in_cart");
+  const itemInCart = Boolean(itemId && cartItemIds.has(itemId));
+  const cartToggleBusy = Boolean(itemId && cartBusyIds.has(itemId));
   const intakeAckSessionKey =
     itemId && data?.intake?.listing_stage
       ? intakeSessionAckKey(itemId, data.intake.listing_stage)
@@ -407,7 +411,7 @@ export function ItemDetailView({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [data?.title, showHeaderActions, isLoading, errorMessage, isOwner]);
+  }, [data?.title, showHeaderActions, showCartHeaderAction, isLoading, errorMessage, isOwner]);
 
   useLayoutEffect(() => {
     if (!showIntakeStrip) return;
@@ -660,6 +664,22 @@ export function ItemDetailView({
                 </ul>
               ) : null}
             </div>
+          ) : showCartHeaderAction ? (
+            <button
+              type="button"
+              onClick={() => void toggleCart(itemId!)}
+              disabled={cartToggleBusy}
+              className={cn(
+                "absolute right-0 top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full shadow-sm transition-opacity disabled:opacity-50",
+                itemInCart
+                  ? "bg-zinc-900 text-white ring-1 ring-black/10"
+                  : "border border-zinc-900 bg-white text-zinc-900",
+              )}
+              title={itemInCart ? "Retirer du panier" : "Ajouter au panier"}
+              aria-label={itemInCart ? "Retirer du panier" : "Ajouter au panier"}
+            >
+              <Plus className={cn("h-4 w-4 transition-transform duration-200", itemInCart && "rotate-45")} aria-hidden />
+            </button>
           ) : (
             <div className="absolute right-0 top-1/2 h-11 w-11 -translate-y-1/2" aria-hidden />
           )}

@@ -18,6 +18,7 @@ import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } fr
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { cn } from "@/lib/utils/cn";
+import { persistProfileCompletionScore } from "@/lib/profile/profile-completion-score";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -362,13 +363,16 @@ export function ProfileTabs({
         });
       }
     }
+    const persistedScore = await persistProfileCompletionScore(supabase);
     const completionFromDb = fromDb.completionScore;
     const completionScore =
-      typeof completionFromDb === "number"
-        ? Math.max(0, Math.min(100, Math.round(completionFromDb)))
-        : onboardingRow?.status === "completed"
-          ? 100
-          : 0;
+      typeof persistedScore === "number"
+        ? persistedScore
+        : typeof completionFromDb === "number"
+          ? Math.max(0, Math.min(100, Math.round(completionFromDb)))
+          : onboardingRow?.status === "completed"
+            ? 100
+            : 0;
 
     const nextHeaderData: ProfileHeaderData = {
       displayName: fromDb.displayName || initialDisplayName || "Profil",

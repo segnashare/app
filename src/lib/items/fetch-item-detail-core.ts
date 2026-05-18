@@ -209,9 +209,6 @@ export async function fetchItemDetailPayloadForUser(
 
   await Promise.all(slotTasks);
 
-  const compactedSlots = slots.filter(Boolean);
-  const filledSlots: Array<ItemViewSlot | null> = [...compactedSlots, ...Array(6 - compactedSlots.length).fill(null)].slice(0, 6);
-
   let intake: ItemIntakeSnapshot | null = null;
   let outtake: { stage: string | null; deletedAt: string | null; metadata: unknown } | null = null;
 
@@ -248,7 +245,7 @@ export async function fetchItemDetailPayloadForUser(
       description: (row.description as string)?.trim() || "",
       status: (row.status as string) ?? "",
       outtake,
-      slots: filledSlots,
+      slots,
       intake,
       infoCard: {
         pricePoints: row.price_points != null ? Number(row.price_points) : null,

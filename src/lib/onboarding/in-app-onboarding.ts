@@ -51,3 +51,79 @@ export function isIntroSnoozedForAuthSession(
     return false;
   }
 }
+
+/** Cartes onboarding in-app sur la page Échange (pile header). */
+export const EXCHANGE_ONBOARDING_SHEET_KINDS = ["profile", "kyc", "panier", "exchange"] as const;
+export type ExchangeOnboardingSheetKind = (typeof EXCHANGE_ONBOARDING_SHEET_KINDS)[number];
+
+const EXCHANGE_SHEET_DISMISS_STORAGE_KEY = "segna_in_app_onboarding_exchange_sheet_dismiss_v1";
+
+type ExchangeSheetDismissPayload = {
+  dismissed: ExchangeOnboardingSheetKind[];
+};
+
+const exchangeSheetDismissListeners = new Set<() => void>();
+
+function notifyExchangeSheetDismissListeners() {
+  exchangeSheetDismissListeners.forEach((l) => l());
+}
+
+function readExchangeSheetDismissPayload(storage: Storage): ExchangeSheetDismissPayload {
+  const raw = storage.getItem(EXCHANGE_SHEET_DISMISS_STORAGE_KEY);
+  if (!raw) return { dismissed: [] };
+  try {
+    const parsed = JSON.parse(raw) as ExchangeSheetDismissPayload;
+    if (!Array.isArray(parsed.dismissed)) return { dismissed: [] };
+    const dismissed = parsed.dismissed.filter((k): k is ExchangeOnboardingSheetKind =>
+      (EXCHANGE_ONBOARDING_SHEET_KINDS as readonly string[]).includes(k),
+    );
+    return { dismissed };
+  } catch {
+    return { dismissed: [] };
+  }
+}
+
+export function dismissExchangeOnboardingSheetForSession(
+  storage: Storage,
+  kind: ExchangeOnboardingSheetKind,
+): void {
+  const payload = readExchangeSheetDismissPayload(storage);
+  if (payload.dismissed.includes(kind)) return;
+  storage.setItem(
+    EXCHANGE_SHEET_DISMISS_STORAGE_KEY,
+    JSON.stringify({ dismissed: [...payload.dismissed, kind] }),
+  );
+  notifyExchangeSheetDismissListeners();
+}
+
+export function isExchangeOnboardingSheetDismissedForSession(
+  storage: Storage | null | undefined,
+  kind: ExchangeOnboardingSheetKind,
+): boolean {
+  if (!storage) return false;
+  return readExchangeSheetDismissPayload(storage).dismissed.includes(kind);
+}
+
+export function getExchangeOnboardingSheetDismissSnapshot(): string {
+  if (typeof window === "undefined") return "[]";
+  return JSON.stringify(readExchangeSheetDismissPayload(window.sessionStorage).dismissed);
+}
+
+export function subscribeExchangeOnboardingSheetDismiss(onStoreChange: () => void): () => void {
+  exchangeSheetDismissListeners.add(onStoreChange);
+  return () => exchangeSheetDismissListeners.delete(onStoreChange);
+}
+
+export function parseExchangeOnboardingSheetDismissSnapshot(snapshot: string): Set<ExchangeOnboardingSheetKind> {
+  try {
+    const arr = JSON.parse(snapshot) as unknown;
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(
+      arr.filter((k): k is ExchangeOnboardingSheetKind =>
+        typeof k === "string" && (EXCHANGE_ONBOARDING_SHEET_KINDS as readonly string[]).includes(k),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}

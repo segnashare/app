@@ -18,10 +18,17 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
-
-
 const ITEM_STAGE_RATIO = 3 / 4;
 const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
+/** photo1–photo4 : vues produit ; photo5–photo6 : état / défauts (cf. création pièce). */
+const CATALOG_PHOTO_SLOT_INDICES = [1, 2, 3] as const;
+const CONDITION_PHOTO_SLOT_INDICES = [4, 5] as const;
+
+function normalizeItemPhotoSlots(slots: Array<ItemViewSlot | null>): Array<ItemViewSlot | null> {
+  const next = [...slots];
+  while (next.length < 6) next.push(null);
+  return next.slice(0, 6);
+}
 
 function FrameActionButton({
   variant = "heart",
@@ -94,6 +101,64 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
   );
 }
 
+function ItemViewPhotoFrame({
+  slot,
+  frameKey,
+  showPlaceholder,
+  hideFrameLikeButtons,
+  frameActionVariant,
+  frameActionActive,
+  forceDarkFrameAction,
+  likedFrames,
+  onFrameAction,
+  onLikeFrame,
+  onToggleFrameLike,
+}: {
+  slot: ItemViewSlot | null;
+  frameKey: string;
+  showPlaceholder?: boolean;
+  hideFrameLikeButtons: boolean;
+  frameActionVariant: "heart" | "plus";
+  frameActionActive: boolean;
+  forceDarkFrameAction: boolean;
+  likedFrames: Record<string, boolean>;
+  onFrameAction?: () => void;
+  onLikeFrame?: () => void;
+  onToggleFrameLike: (frameId: string) => void;
+}) {
+  if (!slot && !showPlaceholder) return null;
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
+      <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
+        {slot ? (
+          <ItemViewCoverPhoto slot={slot} />
+        ) : (
+          <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
+        )}
+      </div>
+      {slot && !hideFrameLikeButtons ? (
+        <FrameActionButton
+          variant={frameActionVariant}
+          isActive={frameActionVariant === "heart" ? Boolean(likedFrames[frameKey]) : frameActionActive}
+          forceDark={forceDarkFrameAction}
+          onPress={() => {
+            if (onFrameAction) {
+              onFrameAction();
+              return;
+            }
+            if (onLikeFrame) {
+              onLikeFrame();
+              return;
+            }
+            onToggleFrameLike(frameKey);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function ItemViewView({
   description,
   slots,
@@ -108,117 +173,54 @@ export function ItemViewView({
   segnaStockPropertyCmsFrames,
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
-  const filledSlots = slots.filter((s): s is ItemViewSlot => Boolean(s));
+  const normalizedSlots = normalizeItemPhotoSlots(slots);
   const isSegnaStockOwner = isSegnaCorporateInventoryUserId(ownerUserId);
   const fetchSegnaCmsClient = isSegnaStockOwner && segnaStockPropertyCmsFrames === undefined;
   const { rows: clientSegnaCmsRows, loading: segnaCmsLoading } = useSegnaStockPropertyCmsRows(fetchSegnaCmsClient);
   const segnaCmsRows = segnaStockPropertyCmsFrames !== undefined ? segnaStockPropertyCmsFrames : clientSegnaCmsRows;
   const { data: memberData, isLoading: memberLoading } = useItemMemberData(isSegnaStockOwner ? null : ownerUserId ?? null);
-  const photo2 = filledSlots[1];
-  const photo3 = filledSlots[2];
-  const remainingPhotos = filledSlots.slice(3);
+
+  const catalogExtraPhotos = CATALOG_PHOTO_SLOT_INDICES.map((index) => normalizedSlots[index]).filter(
+    (slot): slot is ItemViewSlot => Boolean(slot),
+  );
+  const conditionPhotos = CONDITION_PHOTO_SLOT_INDICES.map((index) => normalizedSlots[index]).filter(
+    (slot): slot is ItemViewSlot => Boolean(slot),
+  );
 
   function toggleFrameLike(frameId: string) {
     setLikedFrames((previous) => ({ ...previous, [frameId]: !previous[frameId] }));
   }
 
+  const photoFrameProps = {
+    hideFrameLikeButtons,
+    frameActionVariant,
+    frameActionActive,
+    forceDarkFrameAction,
+    likedFrames,
+    onFrameAction,
+    onLikeFrame,
+    onToggleFrameLike: toggleFrameLike,
+  };
+
   return (
     <div className="bg-white pb-2 pt-2">
-      {/* 1. Photo principale */}
+      {/* 1. Photo principale (photo1) */}
       <div className="pb-2">
-        {filledSlots[0] ? (
-          <div className={cn("relative w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm", ITEM_PHOTO_FRAME_CLASS)}>
-            <ItemViewCoverPhoto slot={filledSlots[0]} />
-            {!hideFrameLikeButtons ? (
-              <FrameActionButton
-                variant={frameActionVariant}
-                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_1) : frameActionActive}
-                forceDark={forceDarkFrameAction}
-                onPress={() => {
-                  if (onFrameAction) {
-                    onFrameAction();
-                    return;
-                  }
-                  if (onLikeFrame) {
-                    onLikeFrame();
-                    return;
-                  }
-                  toggleFrameLike("photo_1");
-                }}
-              />
-            ) : null}
-          </div>
-        ) : (
-          <div className={cn("relative w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-sm", ITEM_PHOTO_FRAME_CLASS)}>
-            <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
-          </div>
-        )}
+        <ItemViewPhotoFrame
+          slot={normalizedSlots[0]}
+          frameKey="photo_1"
+          showPlaceholder={!normalizedSlots[0]}
+          {...photoFrameProps}
+        />
       </div>
 
-      {/* 2. Fiche info */}
+      {/* 2. Infos */}
       <div className="pt-2">
         <ItemInfoCard data={infoCard} />
       </div>
 
       <div className="space-y-4 pt-4">
-        {/* 3. Photo 2 */}
-        {photo2 ? (
-          <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
-              <ItemViewCoverPhoto slot={photo2} />
-            </div>
-            {!hideFrameLikeButtons ? (
-              <FrameActionButton
-                variant={frameActionVariant}
-                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_2) : frameActionActive}
-                forceDark={forceDarkFrameAction}
-                onPress={() => {
-                  if (onFrameAction) {
-                    onFrameAction();
-                    return;
-                  }
-                  if (onLikeFrame) {
-                    onLikeFrame();
-                    return;
-                  }
-                  toggleFrameLike("photo_2");
-                }}
-              />
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* 4. Fiche description */}
-        <ItemDescriptionCard description={description} />
-
-        {/* 5. Photo 3 */}
-        {photo3 ? (
-          <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
-              <ItemViewCoverPhoto slot={photo3} />
-            </div>
-            {!hideFrameLikeButtons ? (
-              <FrameActionButton
-                variant={frameActionVariant}
-                isActive={frameActionVariant === "heart" ? Boolean(likedFrames.photo_3) : frameActionActive}
-                forceDark={forceDarkFrameAction}
-                onPress={() => {
-                  if (onFrameAction) {
-                    onFrameAction();
-                    return;
-                  }
-                  if (onLikeFrame) {
-                    onLikeFrame();
-                    return;
-                  }
-                  toggleFrameLike("photo_3");
-                }}
-              />
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* 6. Section propriétaire : stock Segna (détention) ou profil membre */}
+        {/* 3. Propriétaire */}
         {isSegnaStockOwner ? (
           <ItemSegnaPropertyCmsSection
             cmsRows={segnaCmsRows}
@@ -234,32 +236,33 @@ export function ItemViewView({
           />
         )}
 
-        {/* 7. Photos restantes (4, 5, 6) */}
-        {remainingPhotos.map((slot, index) => (
-          <div key={index} className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-            <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
-              <ItemViewCoverPhoto slot={slot} />
-            </div>
-            {!hideFrameLikeButtons ? (
-              <FrameActionButton
-                variant={frameActionVariant}
-                isActive={frameActionVariant === "heart" ? Boolean(likedFrames[`photo_${index + 4}`]) : frameActionActive}
-                forceDark={forceDarkFrameAction}
-                onPress={() => {
-                  if (onFrameAction) {
-                    onFrameAction();
-                    return;
-                  }
-                  if (onLikeFrame) {
-                    onLikeFrame();
-                    return;
-                  }
-                  toggleFrameLike(`photo_${index + 4}`);
-                }}
-              />
-            ) : null}
-          </div>
+        {/* 4. Description */}
+        <ItemDescriptionCard description={description} />
+
+        {/* 5. Autres photos produit (photo2–photo4) */}
+        {catalogExtraPhotos.map((slot, index) => (
+          <ItemViewPhotoFrame
+            key={`catalog-${index}`}
+            slot={slot}
+            frameKey={`photo_${index + 2}`}
+            {...photoFrameProps}
+          />
         ))}
+
+        {/* 6. Photos état (photo5–photo6) */}
+        {conditionPhotos.length > 0 ? (
+          <section className="space-y-3">
+            <p className={cn(montserrat.className, "text-[16px] font-semibold text-zinc-500")}>Photos état</p>
+            {conditionPhotos.map((slot, index) => (
+              <ItemViewPhotoFrame
+                key={`condition-${index}`}
+                slot={slot}
+                frameKey={`photo_${index + 5}`}
+                {...photoFrameProps}
+              />
+            ))}
+          </section>
+        ) : null}
       </div>
     </div>
   );
