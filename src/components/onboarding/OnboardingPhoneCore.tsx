@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useForm } from "react-hook-form";
 
 import { Input } from "@/components/ui/Input";
-import { normalizeFrenchLocalNumber } from "@/lib/phone/fr-mobile";
+import { normalizeFrenchLocalNumber, normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -107,7 +107,8 @@ export function OnboardingPhoneCore({
 
   const onSubmit = handleSubmit(async ({ phoneLocal }) => {
     setErrorMessage(null);
-    const normalizedPhone = `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
+    const normalizedPhone =
+      normalizeFrenchPhoneToE164(phoneLocal) ?? `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
     const isDuplicatePhoneException = normalizedPhone === DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164;
 
     const {
