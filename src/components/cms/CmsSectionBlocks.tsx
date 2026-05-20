@@ -65,8 +65,11 @@ function cmsLinkCardCtaClassName(tone: CmsLinkCardCtaTone): string {
 export const CMS_SHOP_HUB_FRAME_OUTER_CLASS =
   "w-[min(84vw,410px)] max-w-[410px] shrink-0 snap-start";
 
-/** Surfaces frames CMS : pas de border ni ring (petites cartes stack + grandes cartes hub). */
-export const CMS_FRAME_SURFACE_CLASS = "overflow-hidden shadow-sm";
+/** Surfaces frames CMS : pas de border, ring ni ombre (évite un faux contour sur fond clair). */
+export const CMS_FRAME_SURFACE_CLASS = "overflow-hidden";
+
+/** Wrapper lien des grandes cartes hub (`shop_link_card`, rail Catégories…). */
+export const CMS_HUB_LINK_CARD_WRAPPER_CLASS = "block w-full overflow-hidden rounded-2xl";
 
 const CMS_FRAME_STACK_CARD_CLASS = cn(
   "relative flex shrink-0 flex-col rounded-2xl p-4",
@@ -78,6 +81,10 @@ const CmsFrameHideChromeContext = createContext(false);
 
 export function useCmsFrameHideChrome(): boolean {
   return useContext(CmsFrameHideChromeContext);
+}
+
+export function CmsFrameHideChromeProvider({ children }: { children: ReactNode }) {
+  return <CmsFrameHideChromeContext.Provider value={true}>{children}</CmsFrameHideChromeContext.Provider>;
 }
 
 /**
@@ -196,7 +203,7 @@ function OfferCardInner({ payload }: { payload: CmsFramePayload }) {
         <ShopWideLinkCardBlock
           payload={hubWidePayloadFromOffer(payload)}
           aspectClassName="aspect-[2.32]"
-          wrapperClassName="block w-full rounded-2xl"
+          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
         />
       </div>
     );
@@ -299,7 +306,7 @@ export function ShopWideLinkCardBlock({
         visualOnly ? "p-0" : "p-4",
         pill && !visualOnly ? "justify-between" : "justify-start",
         surfaceAspectClass,
-        !bgUrl ? backgroundLayerClass(payload) : "bg-zinc-900",
+        !bgUrl ? backgroundLayerClass(payload) : "bg-white",
       )}
       style={!bgUrl ? backgroundSolidStyle(payload) : undefined}
     >
@@ -308,7 +315,7 @@ export function ShopWideLinkCardBlock({
           <div className="pointer-events-none absolute inset-0 z-0">
             <RemoteCoverThumb
               photoUrl={bgUrl}
-              frameClassName="absolute inset-0 h-full w-full"
+              frameClassName="absolute inset-0 h-full w-full bg-white"
               photoPosition={payload.background?.image?.position ?? null}
               photoCoverFill
               onLoadStateChange={setCoverState}
@@ -443,7 +450,7 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
         <ShopWideLinkCardBlock
           payload={hubWidePayloadFromPromo(payload)}
           aspectClassName="aspect-[2.32]"
-          wrapperClassName="block w-full rounded-2xl"
+          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
           visualOnly={visualOnly}
         />
       </div>
@@ -458,7 +465,7 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
     return (
       <Link
         href={href}
-        className="relative block w-full overflow-hidden rounded-2xl shadow-sm aspect-[2.32] not-italic"
+        className={cn("relative block w-full aspect-[2.32] not-italic", CMS_FRAME_SURFACE_CLASS, "rounded-2xl")}
         aria-label={label}
       >
         {bgUrl ? (
@@ -488,7 +495,8 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
       href={href}
       aria-label={button}
       className={cn(
-        "relative flex w-full flex-col overflow-hidden rounded-2xl px-4 py-4 text-left shadow-sm",
+        "relative flex w-full flex-col rounded-2xl px-4 py-4 text-left",
+        CMS_FRAME_SURFACE_CLASS,
         !bgUrl ? backgroundLayerClass(payload) : "",
         dark ? "text-white" : "text-zinc-900",
       )}
@@ -526,7 +534,7 @@ function EditorialCardInner({ payload }: { payload: CmsFramePayload }) {
         <ShopWideLinkCardBlock
           payload={hubWidePayloadFromEditorial(payload)}
           aspectClassName="aspect-[2.32]"
-          wrapperClassName="block w-full rounded-2xl"
+          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
         />
       </div>
     );
@@ -685,7 +693,7 @@ function CmsShopLinkCardFrame({ row, hub }: { row: CmsFrameRow; hub: CmsShopHubF
       <ShopWideLinkCardBlock
         payload={payload}
         aspectClassName="aspect-[2.32]"
-        wrapperClassName="block w-full rounded-2xl"
+        wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
       />
     </div>
   );

@@ -64,7 +64,7 @@ export function CommunityShareActions({ referralCode, referralBannerRow = null }
               <ShopWideLinkCardBlock
                 payload={referralBannerRow.payload}
                 aspectClassName="aspect-[2.35] min-h-[108px] w-full"
-                wrapperClassName="block w-full overflow-hidden rounded-3xl shadow-sm"
+                wrapperClassName="block w-full overflow-hidden rounded-3xl"
                 visualOnly
                 asStatic
                 surfaceRadiusClassName="rounded-3xl"

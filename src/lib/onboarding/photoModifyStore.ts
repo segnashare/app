@@ -24,16 +24,12 @@ export type PhotoModifyDraft = {
 
 const keyFor = (id: string) => `segna:photo-modify:${id}`;
 const DRAFT_STORAGE_PREFIX = "segna:photo-modify:";
+
+/** Message utilisateur quand sessionStorage refuse une photo (quota mobile ~5 Mo). */
+export const PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE =
+  "Stockage local saturé : choisis une image plus légère (JPEG, moins de 2 Mo) ou ferme d’autres onglets Segna.";
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.86;
-/** Brouillon new item (sessionStorage) : plus léger pour éviter le quota mobile (~5 Mo). */
-const ITEM_DRAFT_MAX_IMAGE_SIDE = 1080;
-const ITEM_DRAFT_JPEG_QUALITY = 0.72;
-
-type ImageNormalizeOptions = {
-  maxSide?: number;
-  quality?: number;
-};
 
 const runtimeFiles = new Map<string, File>();
 const runtimeObjectUrls = new Map<string, string>();
@@ -46,17 +42,15 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
-const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) =>
+const canvasToBlob = (canvas: HTMLCanvasElement) =>
   new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", quality);
+    canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
   });
 
-const normalizedImageBlobForStorage = async (src: string, options?: ImageNormalizeOptions) => {
-  const maxSide = options?.maxSide ?? MAX_IMAGE_SIDE;
-  const quality = options?.quality ?? JPEG_QUALITY;
+const normalizedImageBlobForStorage = async (src: string) => {
   const image = await loadImage(src);
   const largestSide = Math.max(image.width, image.height, 1);
-  const scale = Math.min(1, maxSide / largestSide);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / largestSide);
   const outputWidth = Math.max(1, Math.round(image.width * scale));
   const outputHeight = Math.max(1, Math.round(image.height * scale));
   const canvas = document.createElement("canvas");
@@ -65,12 +59,12 @@ const normalizedImageBlobForStorage = async (src: string, options?: ImageNormali
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.drawImage(image, 0, 0, outputWidth, outputHeight);
-  return canvasToBlob(canvas, quality);
+  return canvasToBlob(canvas);
 };
 
-const normalizeDataUrlForStorage = async (dataUrl: string, options?: ImageNormalizeOptions) => {
+const normalizeDataUrlForStorage = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
-  const blob = await normalizedImageBlobForStorage(dataUrl, options);
+  const blob = await normalizedImageBlobForStorage(dataUrl);
   if (!blob) return dataUrl;
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -79,25 +73,6 @@ const normalizeDataUrlForStorage = async (dataUrl: string, options?: ImageNormal
     reader.readAsDataURL(blob);
   });
 };
-
-/** Compression dédiée aux brouillons pièce (4–6 photos en sessionStorage). */
-export async function compressDataUrlForItemDraft(dataUrl: string): Promise<string> {
-  return normalizeDataUrlForStorage(dataUrl, {
-    maxSide: ITEM_DRAFT_MAX_IMAGE_SIDE,
-    quality: ITEM_DRAFT_JPEG_QUALITY,
-  });
-}
-
-export function purgeStalePhotoModifyDraftsFromSession(keepId?: string): void {
-  const keysToDelete: string[] = [];
-  for (let index = 0; index < window.sessionStorage.length; index += 1) {
-    const key = window.sessionStorage.key(index);
-    if (key?.startsWith(DRAFT_STORAGE_PREFIX) && key !== (keepId ? keyFor(keepId) : undefined)) {
-      keysToDelete.push(key);
-    }
-  }
-  keysToDelete.forEach((key) => window.sessionStorage.removeItem(key));
-}
 
 export const fileToDataUrl = (file: File) =>
   measureClientPhotoPerf("photo.fileToDataUrl", () =>
@@ -117,17 +92,13 @@ export const fileToDataUrl = (file: File) =>
     }),
   );
 
-export async function preparePhotoModifyImage(file: File, options?: { forItemDraft?: boolean }) {
-  const normalizeOpts: ImageNormalizeOptions | undefined = options?.forItemDraft
-    ? { maxSide: ITEM_DRAFT_MAX_IMAGE_SIDE, quality: ITEM_DRAFT_JPEG_QUALITY }
-    : undefined;
-
+export async function preparePhotoModifyImage(file: File) {
   return measureClientPhotoPerf(
     "photo.prepareLocalFile",
     async () => {
       const sourceUrl = URL.createObjectURL(file);
       try {
-        const blob = await normalizedImageBlobForStorage(sourceUrl, normalizeOpts);
+        const blob = await normalizedImageBlobForStorage(sourceUrl);
         const normalizedName = (file.name || "photo.jpg").replace(/\.[^.]+$/, "") || "photo";
         const normalizedFile =
           blob && blob.size > 0
@@ -174,36 +145,29 @@ export const dataUrlToFile = async (dataUrl: string, fileName: string, mimeType:
   return new File([blob], fileName, { type: mimeType || blob.type || "image/jpeg" });
 };
 
-export async function savePhotoModifyDraft(draft: PhotoModifyDraft): Promise<void> {
-  let payload = draft;
-  if (draft.source === "item" && draft.dataUrl.startsWith("data:image/")) {
-    try {
-      const dataUrl = await compressDataUrlForItemDraft(draft.dataUrl);
-      payload = { ...draft, dataUrl, mimeType: "image/jpeg" };
-    } catch {
-      // Garde l’original si la compression échoue.
+export const savePhotoModifyDraft = (draft: PhotoModifyDraft) => {
+  const serialized = JSON.stringify(draft);
+  try {
+    window.sessionStorage.setItem(keyFor(draft.id), serialized);
+    return;
+  } catch {}
+
+  // Best effort cleanup: remove older draft keys and retry once.
+  const keysToDelete: string[] = [];
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index);
+    if (key?.startsWith(DRAFT_STORAGE_PREFIX) && key !== keyFor(draft.id)) {
+      keysToDelete.push(key);
     }
   }
+  keysToDelete.forEach((key) => window.sessionStorage.removeItem(key));
 
-  const write = (serialized: string) => {
+  try {
     window.sessionStorage.setItem(keyFor(draft.id), serialized);
-  };
-
-  purgeStalePhotoModifyDraftsFromSession(draft.id);
-
-  try {
-    write(JSON.stringify(payload));
-    return;
   } catch {
-    // ignore
+    throw new Error(PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE);
   }
-
-  try {
-    write(JSON.stringify(payload));
-  } catch {
-    throw new Error("Stockage local saturé, choisis une image plus légère.");
-  }
-}
+};
 
 export const readPhotoModifyDraft = (id: string) => {
   const raw = window.sessionStorage.getItem(keyFor(id));

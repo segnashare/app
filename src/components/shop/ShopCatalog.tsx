@@ -27,8 +27,10 @@ import {
 } from "@/lib/shop/shop-catalog-session";
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import {
+  CMS_HUB_LINK_CARD_WRAPPER_CLASS,
   CMS_SHOP_HUB_FRAME_OUTER_CLASS,
   SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
+  CmsFrameHideChromeProvider,
   CmsFrameItem,
   ShopWideLinkCardBlock,
   useCmsFrameHideChrome,
@@ -1921,7 +1923,7 @@ export function ShopCatalog({
           <ShopWideLinkCardBlock
             payload={row.payload}
             aspectClassName="aspect-[2.32]"
-            wrapperClassName="block w-full rounded-2xl"
+            wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
             onNavigate={() =>
               persistShopCatalogStateForItemNavigation({
                 search,
@@ -2054,6 +2056,7 @@ export function ShopCatalog({
             ) : null}
                 <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
+              <CmsFrameHideChromeProvider>
               {categoriesHub.departmentRail.map((dept) => {
                     const persist = () =>
                       persistShopCatalogStateForItemNavigation({
@@ -2072,7 +2075,7 @@ export function ShopCatalog({
                           <ShopWideLinkCardBlock
                             payload={dept.linkFrame.payload}
                             aspectClassName="aspect-[2.32]"
-                            wrapperClassName="block w-full rounded-2xl"
+                            wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
                             onNavigate={persist}
                           />
                         </div>
@@ -2104,6 +2107,7 @@ export function ShopCatalog({
                       </Link>
                     );
                   })}
+              </CmsFrameHideChromeProvider>
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
@@ -2166,6 +2170,7 @@ export function ShopCatalog({
             ) : null}
                 <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
+                <CmsFrameHideChromeProvider>
                 {brandsForRail.map((entry) => {
                   if (entry.kind === "link") {
                     return (
@@ -2173,7 +2178,7 @@ export function ShopCatalog({
                         key={entry.frame.id}
                         payload={entry.frame.payload}
                         aspectClassName="aspect-[2.32]"
-                        wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}
+                        wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, CMS_HUB_LINK_CARD_WRAPPER_CLASS, "self-start")}
                         onNavigate={() =>
                           persistShopCatalogStateForItemNavigation({
                             search,
@@ -2212,6 +2217,7 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
+                </CmsFrameHideChromeProvider>
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
@@ -2383,6 +2389,7 @@ export function ShopCatalog({
             ) : null}
                 <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
+              <CmsFrameHideChromeProvider>
               {frenchHub.list.map((entry) => {
                 if (entry.kind === "link") {
                   return (
@@ -2390,7 +2397,7 @@ export function ShopCatalog({
                       key={entry.frame.id}
                       payload={entry.frame.payload}
                       aspectClassName="aspect-[2.32]"
-                      wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}
+                      wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, CMS_HUB_LINK_CARD_WRAPPER_CLASS, "self-start")}
                       onNavigate={() =>
                         persistShopCatalogStateForItemNavigation({
                           search,
@@ -2429,6 +2436,7 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
+              </CmsFrameHideChromeProvider>
                   <div className="w-3 shrink-0 snap-start" aria-hidden />
                 </div>
               </section>
