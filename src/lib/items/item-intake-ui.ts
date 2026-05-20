@@ -1,17 +1,22 @@
 /** Logique d’affichage pipeline item / item_intake (importable côté serveur). */
 
+import { normalizeIntakeFulfillmentStage } from "@/lib/items/intake-fulfillment-stages";
+
+function validatedIntakeShowsMemberPipelineUi(fulfillmentStage: string | null | undefined): boolean {
+  const fs = normalizeIntakeFulfillmentStage(fulfillmentStage);
+  if (!fs) return true;
+  return fs !== "verified" && fs !== "shipping" && fs !== "in_verification" && fs !== "refused";
+}
+
 export function needsItemIntakeUi(
   listingStage: string | null | undefined,
   fulfillmentStage: string | null | undefined,
 ): boolean {
+  const ls = String(listingStage ?? "").trim().toLowerCase();
   return Boolean(
-    listingStage &&
-      (["evaluation", "validation_pending", "evaluated", "refused"].includes(listingStage) ||
-        (listingStage === "validated" &&
-          fulfillmentStage != null &&
-          fulfillmentStage !== "verified" &&
-          fulfillmentStage !== "shipping" &&
-          fulfillmentStage !== "in_verification")),
+    ls &&
+      (["evaluation", "validation_pending", "evaluated", "refused"].includes(ls) ||
+        (ls === "validated" && validatedIntakeShowsMemberPipelineUi(fulfillmentStage))),
   );
 }
 

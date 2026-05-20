@@ -214,6 +214,8 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   degrade: "Dégradé",
 };
 const ITEM_STAGE_RATIO = 3 / 4;
+const MIN_ITEM_PHOTOS = 3;
+const MAX_ITEM_PHOTOS = 6;
 /** Cadre éditeur / payload : aligné sur l’affichage portrait des photos de pièce. */
 const ITEM_PHOTO_MODIFY_ASPECT = "portrait" as const;
 
@@ -374,7 +376,7 @@ export default function NewItemPage() {
 
   const showSizeLink = Boolean(categoryId && categorySizeScope && categorySizeScope !== "none");
 
-  const hasMinPhotos = filledPhotosCount >= 4;
+  const hasMinPhotos = filledPhotosCount >= MIN_ITEM_PHOTOS;
   const hasCondition = Boolean(infoDraft.condition?.trim());
   const sizeStepOk =
     Boolean(categoryId) && (!showSizeLink || Boolean(sizeId));
@@ -1834,7 +1836,7 @@ export default function NewItemPage() {
                   }}
                   className={cn(
                     "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
-                    index < 4 ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
+                    index < MIN_ITEM_PHOTOS ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
                     dragOverIndex === index ? "border-zinc-900 bg-zinc-100" : "",
                     slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
                     draggingIndex === index ? "opacity-30" : "",
@@ -1893,7 +1895,9 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1">
               <p className={cn(montserrat.className, "text-[14px] italic text-zinc-400")}>Fais glisser une photo pour réorganiser l&apos;ordre.</p>
-              <p className={cn(montserrat.className, "-mt-0.5 text-[14px] font-bold leading-none text-zinc-700")}>Ajoute 4 à 6 photos</p>
+              <p className={cn(montserrat.className, "-mt-0.5 text-[14px] font-bold leading-none text-zinc-700")}>
+                Ajoute {MIN_ITEM_PHOTOS} à {MAX_ITEM_PHOTOS} photos
+              </p>
             </div>
           </section>
 

@@ -13,6 +13,7 @@ import {
   readLogisticsRefusalNote,
   resolveEvaluationCountdownStartMs,
 } from "@/lib/items/intake-metadata";
+import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
 import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -151,9 +152,8 @@ export function ItemIntakePanel({
 
   const isLogisticsRefused = listingStage === "validated" && fulfillmentStage === "refused";
 
-  /** Bordereau / mutualisation : uniquement tant que l’envoi n’est pas encore parti (`ready`). */
-  const showFulfillment =
-    listingStage === "validated" && fulfillmentStage === "ready";
+  /** Bordereau / mutualisation : validated + `ready` (ou legacy `fulfillment_stage` null avant backfill). */
+  const showFulfillment = intakeShowsPrepareShipmentCard(listingStage, fulfillmentStage);
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;

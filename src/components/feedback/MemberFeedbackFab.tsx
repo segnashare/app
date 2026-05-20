@@ -12,13 +12,14 @@ import {
   segnaDialogMontserrat,
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
-import { shouldShowMemberFeedbackFab } from "@/components/layout/navigation";
+import { shouldShowMemberFeedbackFab, shouldShowTabBar } from "@/components/layout/navigation";
 import { MEMBER_FEEDBACK_CATEGORIES } from "@/lib/feedback/member-feedback-categories";
 import { isMemberFeedbackFabEnabled } from "@/lib/feedback/member-feedback-fab-enabled";
 import { cn } from "@/lib/utils/cn";
 
 const BOTTOM_ABOVE_TAB_BAR = "calc(56px + env(safe-area-inset-bottom, 0px) + 14px)";
-const BOTTOM_IN_TAB_BAR_SLOT = "calc(14px + env(safe-area-inset-bottom, 0px))";
+/** Pages sans tab bar (fiche pièce, checkout, etc.). */
+const BOTTOM_WITHOUT_TAB_BAR = "calc(14px + env(safe-area-inset-bottom, 0px))";
 
 const optionBtn = (active: boolean) =>
   cn(
@@ -40,6 +41,7 @@ export function MemberFeedbackFab() {
     () => enabled && shouldShowMemberFeedbackFab(pathname),
     [enabled, pathname],
   );
+  const hasTabBar = useMemo(() => shouldShowTabBar(pathname), [pathname]);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [tabBarVisible, setTabBarVisible] = useState(true);
@@ -206,7 +208,7 @@ export function MemberFeedbackFab() {
                   placeholder="Explique ce qui s’est passé, depuis quand, et ce que tu attends de Segna…"
                   className={cn(
                     segnaDialogMontserrat.className,
-                    "mt-2 w-full resize-y rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-[14px] text-zinc-900 outline-none",
+                    "mt-2 w-full resize-y rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none",
                     "placeholder:text-zinc-500 focus:border-zinc-900",
                   )}
                 />
@@ -256,7 +258,7 @@ export function MemberFeedbackFab() {
       <div
         className="pointer-events-none fixed right-3 z-[47] flex max-w-[430px] justify-end motion-reduce:transition-none md:right-[max(12px,calc((100vw-430px)/2+12px))]"
         style={{
-          bottom: tabBarVisible ? BOTTOM_ABOVE_TAB_BAR : BOTTOM_IN_TAB_BAR_SLOT,
+          bottom: hasTabBar && tabBarVisible ? BOTTOM_ABOVE_TAB_BAR : BOTTOM_WITHOUT_TAB_BAR,
           transition: "bottom 250ms ease-out",
         }}
       >

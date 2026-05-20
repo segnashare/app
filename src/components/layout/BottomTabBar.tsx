@@ -64,10 +64,9 @@ export function BottomTabBar() {
   }, [canRender]);
 
   useEffect(() => {
-    if (!canRender) return;
     window.dispatchEvent(
       new CustomEvent("segna:tabbar-visibility", {
-        detail: { visible: isVisible, pathname },
+        detail: { visible: canRender ? isVisible : false, pathname },
       }),
     );
   }, [canRender, isVisible, pathname]);

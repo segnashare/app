@@ -17,6 +17,16 @@ export function intakeAllowsShippingPreparation(fs: string | null | undefined): 
   return s === INTAKE_FULFILLMENT_READY || s === INTAKE_FULFILLMENT_SHIPPING;
 }
 
+/** Carte « Préparer ton envoi » sur fiche pièce / Échange (validated + ready ou legacy null). */
+export function intakeShowsPrepareShipmentCard(
+  listingStage: string | null | undefined,
+  fs: string | null | undefined,
+): boolean {
+  if (String(listingStage ?? "").trim().toLowerCase() !== "validated") return false;
+  const s = normalizeIntakeFulfillmentStage(fs);
+  return s === INTAKE_FULFILLMENT_READY || s === "";
+}
+
 /** Éligible à confirmer une mutualisation retour (avant dépôt effectif). */
 export function intakeEligibleForPiggybackLink(fs: string | null | undefined): boolean {
   const s = normalizeIntakeFulfillmentStage(fs);
