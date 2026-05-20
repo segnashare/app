@@ -27,6 +27,7 @@ import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-a
 import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { resolveSendcloudSenderAddressId } from "@/lib/sendcloud/integrations";
+import { cancelSendcloudOutboundParcel } from "@/lib/sendcloud/orders-api";
 import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
 import {
   buildReturnPortalIncomingBody,
@@ -40,8 +41,6 @@ import {
   cancelSendcloudShipment,
   createDummyOutboundShipmentForReturnPortal,
   fetchSendcloudReturnPortalUrl,
-  intakeReturnPortalCancelAfterMinutes,
-  intakeReturnPortalCancelAfterMs,
   stripReturnPortalUrlToBase,
 } from "@/lib/sendcloud/return-portal-shipment";
 import type { SendcloudOutboundRecipient } from "@/lib/sendcloud/shipments";
@@ -184,16 +183,18 @@ function readPortalFromMeta(metadata: unknown): {
   };
 }
 
-/** Session portail expirée (10 min par défaut) — étiquette déjà générée = toujours valide. */
+/**
+ * Session portail expirée (legacy : délai `sc_dummy_cancel_after_at` sans annulation immédiate).
+ * Étiquette retour déjà générée ou URL portail valide = session toujours utilisable.
+ * `sc_dummy_shipment_cancelled_at` = aller factice annulé (comportement normal), pas une expiration.
+ */
 export function isIntakeReturnPortalSessionExpired(
   portal: ReturnType<typeof readPortalFromMeta>,
 ): boolean {
   if (portal.labelUrl?.startsWith("http")) return false;
-  if (!portal.shipmentId) return false;
   if (!portal.portalUrl?.startsWith("http")) return false;
-  if (portal.cancelledAt) return true;
   const until = portal.cancelAfterAt ? Date.parse(portal.cancelAfterAt) : NaN;
-  if (Number.isFinite(until) && until <= Date.now()) return true;
+  if (Number.isFinite(until) && until <= Date.now() && !portal.cancelledAt) return true;
   return false;
 }
 
@@ -223,6 +224,21 @@ export async function cancelDueIntakeDummyShipments(
       });
     }
   }
+}
+
+/** Annule l’expédition aller factice créée pour débloquer l’URL portail (le retour membre est séparé). */
+async function cancelDummyOutboundAfterReturnPortalUrl(
+  env: NonNullable<ReturnType<typeof getSendcloudEnv>>,
+  created: { shipmentId: string; parcelId: number | null },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cancelled = await cancelSendcloudShipment(env, created.shipmentId);
+  if (!cancelled.ok) {
+    return { ok: false, error: cancelled.error };
+  }
+  if (created.parcelId != null) {
+    await cancelSendcloudOutboundParcel(env, created.parcelId).catch(() => undefined);
+  }
+  return { ok: true };
 }
 
 function collectPanelShipmentIdsFromRows(typed: ItemRow[]): string[] {
@@ -501,6 +517,15 @@ export async function runMemberIntakeReturnPortalStart(
     return { ok: false, error: portalRaw.error, status: 502, developerHint: SENDCLOUD_RETURN_PORTAL_ENV_HINT };
   }
 
+  const dummyCancelledAt = new Date().toISOString();
+  const cancelDummy = await cancelDummyOutboundAfterReturnPortalUrl(env, created);
+  if (!cancelDummy.ok) {
+    const msg =
+      "Le portail retour est prêt mais l’annulation de l’expédition technique Sendcloud a échoué. Réessaie ou contacte le support.";
+    await recordPortalFailure(service, sortedIds, cancelDummy.error);
+    return { ok: false, error: msg, status: 502, developerHint: cancelDummy.error };
+  }
+
   const postalCode = recipient.postalCode;
   const portalIdentifier = created.trackingNumber || orderNumber;
   const portalUrl = buildReturnPortalUrlWithPrefill(portalRaw.url, {
@@ -522,8 +547,11 @@ export async function runMemberIntakeReturnPortalStart(
     outboundParcelId: created.parcelId,
   });
 
-  const cancelAfterAt = new Date(Date.now() + intakeReturnPortalCancelAfterMs()).toISOString();
-  const notes = "Sendcloud portail retour — première ouverture (expédition technique, annulable).".slice(0, 2000);
+  const notes =
+    "Portail retour Sendcloud — expédition aller factice créée puis annulée (seul le retour membre compte).".slice(
+      0,
+      2000,
+    );
 
   const patched = await patchIntakeReturnPortalSession(service, {
     itemIds: sortedIds,
@@ -536,9 +564,9 @@ export async function runMemberIntakeReturnPortalStart(
     extraPatch: {
       sc_dummy_shipment_id: created.shipmentId,
       ...(created.parcelId != null ? { sc_outgoing_parcel_id: String(created.parcelId) } : {}),
-      sc_dummy_cancel_after_at: cancelAfterAt,
+      sc_dummy_shipment_cancelled_at: dummyCancelledAt,
     },
-    removeKeys: [],
+    removeKeys: ["sc_dummy_cancel_after_at"],
   });
   if (!patched.ok) {
     return { ok: false, error: patched.error, status: patched.status };
