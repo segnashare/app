@@ -8,6 +8,7 @@ import {
 import { fetchCartCheckoutPaymentDetail } from "@/lib/stripe/fetch-cart-checkout-payment-detail";
 import { cartOrderStripeInvoiceJsonToEuroDetail } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 
 type QueryResult = { data: unknown; error?: { message?: string } | null };
@@ -72,23 +73,11 @@ export type MemberCartOrderReturnShipment = {
   createdAt: string;
   updatedAt: string;
   trackingNumber: string | null;
+  memberTrackingUrl: string | null;
   labelUrl: string | null;
 };
 
-/** Dès que le colis retour est pris en charge au relais par le membre (`dropped_out` et suivants), le délai de retour est réputé respecté. */
-export function isCartReturnCommitmentMet(status: string | null | undefined): boolean {
-  if (!status) return false;
-  const s = status.toLowerCase();
-  return (
-    s === "dropped_out" ||
-    s === "in_transit_in" ||
-    s === "in_transit_out" ||
-    s === "returned" ||
-    s === "en_verification" ||
-    s === "return_validated" ||
-    s === "closed"
-  );
-}
+export { isCartReturnCommitmentMet } from "@/lib/cart/cart-return-status";
 
 /** Crédits Segna (wallet) — distinct des montants € carte. */
 export type MemberCartOrderCreditSplit = {
@@ -131,6 +120,10 @@ export type MemberCartOrderDetail = {
   cartId: string;
   orderNumberCompact: string;
   cartStatus: string;
+  /** Validation « bonne réception » par le membre (`carts.member_receipt_confirmed_at`). */
+  memberReceiptConfirmedAt: string | null;
+  /** Échéance de retour figée (`carts.borrow_return_due_at`), null avant livraison / legacy. */
+  borrowReturnDueAt: string | null;
   createdAtIso: string;
   lines: MemberCartOrderLine[];
   totalPoints: number;
@@ -208,7 +201,7 @@ export async function fetchMemberCartOrderDetail(
 ): Promise<MemberCartOrderDetail | null> {
   const cartRes = await supabase
     .from("carts")
-    .select("id,status,created_at,updated_at,user_id")
+    .select("id,status,created_at,updated_at,user_id,borrow_return_due_at,member_receipt_confirmed_at")
     .eq("id", cartId)
     .eq("user_id", userId)
     .is("deleted_at", null)
@@ -221,6 +214,8 @@ export async function fetchMemberCartOrderDetail(
         created_at: string;
         updated_at: string;
         user_id: string;
+        borrow_return_due_at?: string | null;
+        member_receipt_confirmed_at?: string | null;
       }
     | null;
 
@@ -254,7 +249,9 @@ export async function fetchMemberCartOrderDetail(
       .maybeSingle(),
     supabase
       .from("shipments")
-      .select("id, status, tracking_number, created_at, updated_at, shipment_labels(label_url)")
+      .select(
+        "id, status, tracking_number, member_tracking_url, created_at, updated_at, shipment_labels(label_url)",
+      )
       .eq("cart_id", cartId)
       .eq("context", "cart_return")
       .is("deleted_at", null)
@@ -384,12 +381,19 @@ export async function fetchMemberCartOrderDetail(
       }
     }
     const tn = returnShipRow.tracking_number;
+    const mtu = returnShipRow.member_tracking_url;
+    const rawStatus = returnShipRow.status;
+    const normalizedStatus =
+      typeof rawStatus === "string"
+        ? (normalizeCartReturnShipmentStatus(rawStatus) ?? rawStatus)
+        : "pending";
     return {
       id: String(returnShipRow.id ?? ""),
-      status: returnShipRow.status,
+      status: normalizedStatus,
       createdAt: String(returnShipRow.created_at ?? ""),
       updatedAt: String(returnShipRow.updated_at ?? ""),
       trackingNumber: typeof tn === "string" && tn.trim() ? tn.trim() : null,
+      memberTrackingUrl: typeof mtu === "string" && mtu.trim() ? mtu.trim() : null,
       labelUrl,
     };
   })();
@@ -493,6 +497,14 @@ export async function fetchMemberCartOrderDetail(
     cartId: cart.id,
     orderNumberCompact: formatOrderNumberCompact(cart.id),
     cartStatus: cart.status,
+    memberReceiptConfirmedAt:
+      typeof cart.member_receipt_confirmed_at === "string" && cart.member_receipt_confirmed_at.trim()
+        ? cart.member_receipt_confirmed_at
+        : null,
+    borrowReturnDueAt:
+      typeof cart.borrow_return_due_at === "string" && cart.borrow_return_due_at.trim()
+        ? cart.borrow_return_due_at
+        : null,
     createdAtIso: cart.created_at,
     lines,
     totalPoints,

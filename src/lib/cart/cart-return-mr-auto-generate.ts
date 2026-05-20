@@ -25,15 +25,7 @@ import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-sta
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const BLOCKED_RETURN_STATUSES = new Set([
-  "dropped_out",
-  "in_transit_in",
-  "in_transit_out",
-  "returned",
-  "en_verification",
-  "return_validated",
-  "closed",
-]);
+import { isCartReturnLockedForMemberSetup, normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 
 const DEFAULT_MAX_RELAYS = 25;
 const DELAY_MS_BETWEEN_RELAY_ATTEMPTS = 400;
@@ -196,7 +188,8 @@ export async function runCartReturnMrAutoGenerate(
 
   if (existingReturn?.id) {
     returnShipId = String(existingReturn.id);
-    returnStatus = String(existingReturn.status ?? "").toLowerCase();
+    returnStatus =
+      normalizeCartReturnShipmentStatus(String(existingReturn.status ?? "")) ?? "pending";
   } else {
     const { data: inserted, error: insErr } = await admin
       .from("shipments")
@@ -215,10 +208,10 @@ export async function runCartReturnMrAutoGenerate(
       };
     }
     returnShipId = String(inserted.id);
-    returnStatus = String(inserted.status ?? "pending").toLowerCase();
+    returnStatus = "pending";
   }
 
-  if (BLOCKED_RETURN_STATUSES.has(returnStatus)) {
+  if (isCartReturnLockedForMemberSetup(returnStatus)) {
     return { ok: false, error: "Cette expédition retour est déjà prise en charge.", status: 409 };
   }
 

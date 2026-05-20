@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
-import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
-import { computeBorrowDeadlineMs, resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import { fetchCartBorrowExtensionDaysByCartIds } from "@/lib/cart/fetch-cart-borrow-extension-days";
+import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
+import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { pickBorrowReturnReminder } from "@/lib/emprunt/borrow-return-reminder-buckets";
 import { notifyBorrowDeadlineReminder } from "@/lib/notifications/lifecycle-shipment-notify";
 import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
@@ -10,12 +11,11 @@ import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-members
 const MAX_CARTS = 400;
 const OUTBOUND_FETCH_MULT = 3;
 
-type CartRow = { id: string; user_id: string; status: string };
+type CartRow = { id: string; user_id: string; status: string; borrow_return_due_at?: string | null };
 
 /**
- * Rappels avant échéance de retour d’emprunt (selon profil : Guest J-3 / J-1 / JJ ;
- * Membre + / Membre X J-7 / J-3 / JJ) + un message par jour de retard après l’échéance,
- * tant que le retour n’est pas « engagé » (`dropped_out`+).
+ * Rappels avant échéance (Guest J-3 / J-1 / J-J ; Membre + / X : J-7 / J-3 / J-J).
+ * Les retards J+1+ sont notifiés par `runBorrowOverdueAccrual` (`borrow_overdue_daily`).
  */
 export async function runBorrowReturnReminders(
   admin: SupabaseClient,
@@ -51,7 +51,10 @@ export async function runBorrowReturnReminders(
 
   const cartIds = [...latestDeliveredAtByCart.keys()].slice(0, MAX_CARTS);
 
-  const { data: carts, error: cErr } = await admin.from("carts").select("id,user_id,status").in("id", cartIds);
+  const { data: carts, error: cErr } = await admin
+    .from("carts")
+    .select("id,user_id,status,borrow_return_due_at")
+    .in("id", cartIds);
   if (cErr) {
     throw new Error(cErr.message);
   }
@@ -60,6 +63,8 @@ export async function runBorrowReturnReminders(
   for (const row of (carts ?? []) as CartRow[]) {
     if (row?.id) cartById.set(row.id, row);
   }
+
+  const extensionDaysByCartId = await fetchCartBorrowExtensionDaysByCartIds(admin, cartIds);
 
   const { data: retRows, error: rErr } = await admin
     .from("shipments")
@@ -93,18 +98,20 @@ export async function runBorrowReturnReminders(
     const cart = cartById.get(cartId);
     if (!cart || (cart.status !== "confirmed" && cart.status !== "archived")) continue;
 
-    const ret = latestReturnByCart.get(cartId);
-    if (!ret || !isActiveMemberReturnPhase(ret.status)) continue;
-    if (isCartReturnCommitmentMet(ret.status)) continue;
-
     const outboundAnchor = latestDeliveredAtByCart.get(cartId);
     if (!outboundAnchor) continue;
-    const deliveredAtMs = Date.parse(outboundAnchor);
-    if (!Number.isFinite(deliveredAtMs)) continue;
+
+    const ret = latestReturnByCart.get(cartId);
+    if (ret && isCartReturnCommitmentMet(ret.status)) continue;
 
     const membership = await resolveMembershipLabelForServiceRole(admin, cart.user_id);
     const membershipLabel = membership as SegnaBorrowMembershipLabel;
-    const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
+    const deadlineMs = resolveCartBorrowReturnDueMs({
+      borrowReturnDueAtIso: cart.borrow_return_due_at,
+      outboundDeliveredAtIso: outboundAnchor,
+      membershipLabel,
+      borrowExtensionDaysTotal: extensionDaysByCartId.get(cartId) ?? 0,
+    });
     if (!Number.isFinite(deadlineMs)) continue;
 
     const pick = pickBorrowReturnReminder(nowMs, deadlineMs, membershipLabel);

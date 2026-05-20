@@ -3,7 +3,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
-import { RetourShippingFormClient } from "@/components/commande/RetourShippingFormClient";
+import { RetourReturnPortalButton } from "@/components/retour/RetourReturnPortalButton";
 import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
 import { RetourPhaseHeroSection } from "@/components/retour/RetourPhaseHeroSection";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
@@ -18,12 +18,16 @@ type RetourDetailViewProps = {
   detail: MemberCartOrderDetail;
   membershipLabel: MembershipLabel;
   borrowExtensionDaysTotal?: number;
+  showAvisSuccess?: boolean;
+  avisSuccessCredits?: number;
 };
 
 export function RetourDetailView({
   detail,
   membershipLabel,
   borrowExtensionDaysTotal = 0,
+  showAvisSuccess = false,
+  avisSuccessCredits = 0,
 }: RetourDetailViewProps) {
   const rs = detail.returnShipment;
   const statusForCopy = rs?.status ?? "pending";
@@ -33,6 +37,7 @@ export function RetourDetailView({
     cartId: detail.cartId,
     orderNumberCompact: detail.orderNumberCompact,
     trackingNumber: rs?.trackingNumber ?? null,
+    trackingUrl: rs?.memberTrackingUrl ?? null,
     labelUrl: rs?.labelUrl ?? null,
     updatedAtIso: rs?.updatedAt ?? null,
     outboundDeliveredAtIso: resolveOutboundBorrowDeliveredAtIso(
@@ -40,6 +45,7 @@ export function RetourDetailView({
       detail.shipment?.updatedAt,
     ),
     membershipLabel,
+    borrowReturnDueAtIso: detail.borrowReturnDueAt,
     borrowExtensionDaysTotal,
   });
 
@@ -66,14 +72,25 @@ export function RetourDetailView({
         </div>
       </header>
 
+      {showAvisSuccess ? (
+        <p className="mx-5 mb-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-[14px] font-medium text-emerald-900">
+          {avisSuccessCredits > 0
+            ? `Merci ! Tes avis sont enregistrés — ${avisSuccessCredits} crédits ajoutés à ton wallet.`
+            : "Merci ! Tes avis sont enregistrés."}
+        </p>
+      ) : null}
+
       <RetourPhaseHeroSection ui={ui} />
 
-      {ui.includeLabelClientBlock ? (
+      {ui.showReturnPrepareButton || ui.showReturnTrackingButton || ui.showReturnResetButton ? (
         <div className="flex flex-col items-center px-5 pb-2 pt-0">
-          <RetourShippingFormClient
+          <RetourReturnPortalButton
             cartId={detail.cartId}
-            initialReturn={detail.returnShipment}
-            showExplainer={false}
+            showPrepareButton={ui.showReturnPrepareButton}
+            showTrackingButton={ui.showReturnTrackingButton}
+            showResetButton={ui.showReturnResetButton ?? false}
+            trackingNumber={detail.returnShipment?.trackingNumber ?? null}
+            trackingUrl={detail.returnShipment?.memberTrackingUrl ?? null}
           />
         </div>
       ) : null}

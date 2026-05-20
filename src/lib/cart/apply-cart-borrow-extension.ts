@@ -9,12 +9,20 @@ type AdminLike = {
         column: string,
         value: string,
       ) => {
-        maybeSingle: () => Promise<{ data: { id?: string; user_id?: string } | null; error: { message?: string } | null }>;
+        maybeSingle: () => Promise<{
+          data: { id?: string; user_id?: string; borrow_return_due_at?: string | null } | null;
+          error: { message?: string } | null;
+        }>;
       };
     };
     insert: (row: Record<string, unknown>) => Promise<{ error: { message?: string; code?: string } | null }>;
+    update: (row: Record<string, unknown>) => {
+      eq: (column: string, value: string) => Promise<{ error: { message?: string; code?: string } | null }>;
+    };
   };
 };
+
+const MS_PER_DAY = 86_400_000;
 
 export type ApplyCartBorrowExtensionInput = {
   userId: string;
@@ -86,7 +94,11 @@ async function applyCartBorrowExtensionDirect(
     return { applied: true, reason: "already_applied", via: "direct" };
   }
 
-  const { data: cart, error: cartError } = await admin.from("carts").select("user_id").eq("id", input.cartId).maybeSingle();
+  const { data: cart, error: cartError } = await admin
+    .from("carts")
+    .select("user_id,borrow_return_due_at")
+    .eq("id", input.cartId)
+    .maybeSingle();
   if (cartError || !cart?.user_id) {
     return { applied: false, reason: "cart_not_found" };
   }
@@ -114,6 +126,16 @@ async function applyCartBorrowExtensionDirect(
       return { applied: false, reason: "migration_missing" };
     }
     return { applied: false, reason: rpcErrorMessage ?? "direct_insert_failed" };
+  }
+
+  const storedDue =
+    typeof cart.borrow_return_due_at === "string" && cart.borrow_return_due_at.trim()
+      ? cart.borrow_return_due_at
+      : null;
+  const baseMs = storedDue ? Date.parse(storedDue) : Number.NaN;
+  if (Number.isFinite(baseMs)) {
+    const nextIso = new Date(baseMs + input.extensionDays * MS_PER_DAY).toISOString();
+    await admin.from("carts").update({ borrow_return_due_at: nextIso }).eq("id", input.cartId);
   }
 
   return { applied: true, via: "direct" };

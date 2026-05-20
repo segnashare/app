@@ -9,10 +9,8 @@ import {
 } from "@/components/ui/SegnaAppDialog";
 import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+import { segnaInlineActionLinkClass } from "@/lib/ui/segna-inline-link";
 import { cn } from "@/lib/utils/cn";
-
-const learnMoreClass =
-  "font-semibold text-blue-600 underline decoration-blue-500/35 underline-offset-[0.18em] transition hover:text-blue-700 hover:decoration-blue-600/50";
 
 type EmpruntBorrowDelayLearnMoreProps = {
   membershipLabel: SegnaBorrowMembershipLabel;
@@ -38,7 +36,7 @@ export function EmpruntBorrowDelayLearnMore({ membershipLabel: _membershipLabel,
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={cn(learnMoreClass, className)}>
+      <button type="button" onClick={() => setOpen(true)} className={cn(segnaInlineActionLinkClass, className)}>
         En savoir plus
       </button>
 

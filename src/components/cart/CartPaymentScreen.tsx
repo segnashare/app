@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Briefcase, Check, ChevronLeft, ChevronRight, Home, Store, User } from "lucide-react";
+import { Briefcase, Check, ChevronLeft, ChevronRight, Store, User } from "lucide-react";
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServicePointPicker";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
@@ -23,8 +24,9 @@ import {
   type CheckoutDeliveryAddress,
   type CheckoutRelaySelection,
 } from "@/lib/cart/checkout-delivery-storage";
-import { CART_CHECKOUT_VAT_LABEL, computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
-import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
+import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
+import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
+import { computeCartCheckoutFeesWithServiceRoundUp } from "@/lib/cart/cart-payment-fees";
 import {
   computeCartCheckoutRoundTripShippingHtCents,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
@@ -34,12 +36,27 @@ import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 import {
-  centsToEuros,
-  computeExchangeRoundTripShippingCents,
-} from "@/lib/shipping/exchange-shipping-pricing";
+  readCheckoutSendcloudOutboundOption,
+  writeCheckoutSendcloudOutboundOption,
+} from "@/lib/cart/checkout-sendcloud-outbound-option";
+import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shipping-postal";
+import {
+  toHomeCheckoutSendcloudOutboundOption,
+  useCheckoutHomeSendcloudPricing,
+} from "@/lib/cart/use-checkout-home-sendcloud-pricing";
+import type { CheckoutHomeMethodOption } from "@/lib/sendcloud/checkout-home-delivery-options";
+import {
+  toRelayCheckoutSendcloudOutboundOption,
+  useCheckoutRelaySendcloudPricing,
+} from "@/lib/cart/use-checkout-relay-sendcloud-pricing";
+import { toCheckoutSendcloudOutboundOption } from "@/lib/cart/use-sendcloud-outbound-delivery-options";
+import { useSendcloudCheckoutShippingQuote } from "@/lib/cart/use-sendcloud-checkout-shipping-quote";
+import { formatCheckoutRelayDisplayLabel } from "@/lib/sendcloud/relay-point-ref";
+import { centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
-import { UberDirectQuotePanel, uberDirectUnavailablePriceLabel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
+import { CheckoutHomePlanCarrierIcon } from "@/components/cart/CheckoutHomePlanCarrierIcon";
+import { UberDirectQuotePanel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
 import { UberWordmarkIcon } from "@/components/icons/UberWordmarkIcon";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -104,6 +121,13 @@ type CartPaymentScreenProps = {
   postStripeSyncError?: { reason: string; detail?: string } | null;
   /** Adresse du profil, utilisée comme valeur par défaut tant que le checkout n'a pas sa propre adresse. */
   initialProfileDeliveryAddress?: CheckoutDeliveryAddress | null;
+  /** Flags Sendcloud (SSR) — évite le flash liste MR avant la carte relais. */
+  initialSendcloudFeatures?: {
+    relaySearch: boolean;
+    servicePointPicker: boolean;
+    checkoutLivePricing: boolean;
+    checkoutConfigured: boolean;
+  };
 };
 
 function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
@@ -125,6 +149,7 @@ export function CartPaymentScreen({
   includedShippingForfaitLine,
   postStripeSyncError = null,
   initialProfileDeliveryAddress = null,
+  initialSendcloudFeatures,
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
@@ -135,6 +160,21 @@ export function CartPaymentScreen({
   const relayListScrollRef = useRef<HTMLUListElement>(null);
   const [relayLoading, setRelayLoading] = useState(false);
   const [relaySearchError, setRelaySearchError] = useState<string | null>(null);
+  const [sendcloudRelaySearch, setSendcloudRelaySearch] = useState(
+    () => initialSendcloudFeatures?.relaySearch ?? false,
+  );
+  const [sendcloudSpp, setSendcloudSpp] = useState(
+    () => initialSendcloudFeatures?.servicePointPicker ?? false,
+  );
+  const [sendcloudLivePricing, setSendcloudLivePricing] = useState(
+    () => initialSendcloudFeatures?.checkoutLivePricing ?? false,
+  );
+  const [sendcloudCheckoutConfigured, setSendcloudCheckoutConfigured] = useState(
+    () => initialSendcloudFeatures?.checkoutConfigured ?? false,
+  );
+  const [sendcloudStatusLoaded, setSendcloudStatusLoaded] = useState(
+    () => initialSendcloudFeatures != null,
+  );
   const [selectedRelay, setSelectedRelay] = useState<CheckoutRelaySelection | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState<CheckoutDeliveryAddress | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -174,6 +214,34 @@ export function CartPaymentScreen({
   }, [refreshCheckoutLocalState]);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/items/sendcloud/status");
+        if (!res.ok) return;
+        const j = (await res.json()) as {
+          relay_search_enabled?: boolean;
+          service_point_picker_enabled?: boolean;
+          checkout_live_pricing_enabled?: boolean;
+          checkout_configuration_id?: string | null;
+        };
+        if (!cancelled) {
+          setSendcloudRelaySearch(Boolean(j.relay_search_enabled));
+          setSendcloudSpp(Boolean(j.service_point_picker_enabled));
+          setSendcloudLivePricing(Boolean(j.checkout_live_pricing_enabled));
+          setSendcloudCheckoutConfigured(j.checkout_configuration_id === "set");
+          setSendcloudStatusLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setSendcloudStatusLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (checkoutUiPrefsRestoredRef.current) return;
     checkoutUiPrefsRestoredRef.current = true;
     const ch = readCheckoutDeliveryChannel();
@@ -191,6 +259,12 @@ export function CartPaymentScreen({
     setHomeSpeed(sp);
     writeCheckoutHomeSpeed(sp);
   }, []);
+
+  const selectHomeSendcloudPlan = useCallback((plan: CheckoutHomeMethodOption) => {
+    persistHomeSpeed("standard");
+    setHomeOutboundOptionCode(plan.optionCode);
+    writeCheckoutSendcloudOutboundOption("home", toHomeCheckoutSendcloudOutboundOption(plan));
+  }, [persistHomeSpeed]);
 
   const deliveryAddressKey = useMemo(() => {
     if (!deliveryAddress) return "";
@@ -302,9 +376,9 @@ export function CartPaymentScreen({
     return "loading";
   }, [deliveryAddress, deliveryChannel, homeSpeed, uberQuote, uberQuoteFetch]);
 
-  /** Hors zone / erreur devis : masquer le prix sur la ligne Uber dès que le devis échoue (même si l’option standard est sélectionnée). */
-  const uberExpressShowsUnavailablePrice =
-    deliveryChannel === "home" && uberQuoteFetch === "error";
+  /** Pas d’offre Uber affichée si le devis échoue (config manquante, hors zone, etc.). */
+  const uberDeliveryOfferVisible =
+    deliveryChannel === "home" && uberQuoteFetch !== "error";
 
   const uberQuotePanelPhaseForPanel: UberDirectQuotePhase =
     deliveryChannel === "home" && uberQuoteFetch === "error"
@@ -344,19 +418,211 @@ export function CartPaymentScreen({
     [initialLines],
   );
   const walletAppliedMods = Math.min(cartTotalMods, Math.max(0, availableWalletMods));
-  const exchangeShipping = useMemo(
-    () =>
-      computeExchangeRoundTripShippingCents(itemCount, deliveryChannel === "relay" ? "relay" : "home"),
-    [itemCount, deliveryChannel],
+
+  const relayPostalNorm = relayPostal.replace(/\D/g, "").slice(0, 5);
+  const selectionPostalNorm = (selectedRelay?.postalCode ?? "").replace(/\D/g, "").slice(0, 5);
+  /** Centrage carte relais Sendcloud : CP de l’adresse profil / checkout (pas de saisie manuelle). */
+  const relayMapCenterPostalCode = useMemo(() => {
+    const fromDelivery = extractPostalCodeFromAddress(deliveryAddress);
+    if (fromDelivery.length === 5) return fromDelivery;
+    if (defaultRelayPostalCode.length === 5) return defaultRelayPostalCode;
+    return selectionPostalNorm.length === 5 ? selectionPostalNorm : "";
+  }, [defaultRelayPostalCode, deliveryAddress, selectionPostalNorm]);
+  const relayMapCenterPostalNorm = relayMapCenterPostalCode.replace(/\D/g, "").slice(0, 5);
+
+  const shippingQuotePostalCode = useMemo(() => {
+    const fromRelay =
+      selectionPostalNorm.length === 5
+        ? selectionPostalNorm
+        : relayMapCenterPostalNorm.length === 5
+          ? relayMapCenterPostalNorm
+          : relayPostalNorm.length === 5
+            ? relayPostalNorm
+            : "";
+    return memberPostalCodeForCheckoutShipping({
+      deliveryChannel,
+      relayPostalCode: fromRelay || defaultRelayPostalCode,
+      deliveryAddress,
+    });
+  }, [
+    defaultRelayPostalCode,
+    deliveryAddress,
+    deliveryChannel,
+    relayMapCenterPostalNorm,
+    relayPostalNorm,
+    selectionPostalNorm,
+  ]);
+
+  const [relayOutboundOptionCode, setRelayOutboundOptionCode] = useState<string | null>(
+    () => readCheckoutSendcloudOutboundOption("relay")?.optionCode ?? null,
   );
-  const relayRoundTrip = useMemo(
-    () => computeExchangeRoundTripShippingCents(itemCount, "relay"),
-    [itemCount],
+  const [homeOutboundOptionCode, setHomeOutboundOptionCode] = useState<string | null>(
+    () => readCheckoutSendcloudOutboundOption("home")?.optionCode ?? null,
   );
-  const standardHomeRoundTrip = useMemo(
-    () => computeExchangeRoundTripShippingCents(itemCount, "home"),
-    [itemCount],
-  );
+
+  const sendcloudRelayCheckoutActive =
+    sendcloudCheckoutConfigured && deliveryChannel === "relay";
+
+  const relaySendcloudPricing = useCheckoutRelaySendcloudPricing({
+    enabled: sendcloudRelayCheckoutActive && shippingQuotePostalCode.length === 5,
+    itemCount,
+    postalCode: shippingQuotePostalCode,
+  });
+
+  /** Retour relais (Shop2Shop) affiché sur domicile / Uber — même tarif DC que le relais. */
+  const relayReturnQuoteForHome = useCheckoutRelaySendcloudPricing({
+    enabled:
+      sendcloudCheckoutConfigured &&
+      deliveryChannel === "home" &&
+      shippingQuotePostalCode.length === 5,
+    itemCount,
+    postalCode: shippingQuotePostalCode,
+  });
+
+  const homeSendcloudPricingEnabled =
+    sendcloudCheckoutConfigured && deliveryChannel === "home" && shippingQuotePostalCode.length === 5;
+
+  const homeSendcloudPricing = useCheckoutHomeSendcloudPricing({
+    enabled: homeSendcloudPricingEnabled,
+    itemCount,
+    postalCode: shippingQuotePostalCode,
+  });
+
+  const homeSendcloudPlans = homeSendcloudPricing.methodOptions;
+
+  const homeDeliveryOptionsPending =
+    deliveryChannel === "home" &&
+    (homeSendcloudPricing.loading ||
+      (deliveryAddress != null && (uberQuoteFetch === "loading" || uberQuoteFetch === "idle")));
+
+  const homeDeliveryOptionsVisible =
+    uberDeliveryOfferVisible || homeSendcloudPlans.length > 0;
+
+  const homeDeliveryOptionsLoadingMessage =
+    homeDeliveryOptionsPending && !homeDeliveryOptionsVisible;
+
+  const homeDeliveryNoCarriersAvailable =
+    deliveryChannel === "home" &&
+    !homeDeliveryOptionsPending &&
+    !homeDeliveryOptionsVisible &&
+    deliveryAddress != null;
+
+  const selectedHomeSendcloudPlan = useMemo(() => {
+    if (!homeOutboundOptionCode) return null;
+    return homeSendcloudPlans.find((o) => o.optionCode === homeOutboundOptionCode) ?? null;
+  }, [homeOutboundOptionCode, homeSendcloudPlans]);
+
+  const homeSendcloudPlanSelected =
+    homeSpeed === "standard" && selectedHomeSendcloudPlan != null;
+
+  const selectedHomeMethodRoundTrip = useMemo(() => {
+    const picked = selectedHomeSendcloudPlan;
+    if (!picked) return null;
+    return {
+      outboundCents: picked.outboundHtCents,
+      returnRelayCents: picked.returnHtCents,
+      subtotalCents: picked.bundledRoundTripHtCents,
+    };
+  }, [selectedHomeSendcloudPlan]);
+
+  const selectedOutboundOptionCode =
+    deliveryChannel === "relay" ? relayOutboundOptionCode : homeOutboundOptionCode;
+
+  useEffect(() => {
+    if (deliveryChannel !== "relay" || !relaySendcloudPricing.pricing) return;
+    const stored = toRelayCheckoutSendcloudOutboundOption(
+      relaySendcloudPricing.pricing,
+      selectedRelay?.sendcloudCarrier,
+    );
+    setRelayOutboundOptionCode(stored.optionCode);
+    writeCheckoutSendcloudOutboundOption("relay", stored);
+  }, [deliveryChannel, relaySendcloudPricing.pricing, selectedRelay?.sendcloudCarrier]);
+
+  useEffect(() => {
+    if (deliveryChannel !== "home" || homeSendcloudPricing.loading) return;
+    if (homeSpeed !== "standard") return;
+    if (homeSendcloudPlans.length > 0) return;
+    setHomeOutboundOptionCode(null);
+    writeCheckoutSendcloudOutboundOption("home", null);
+    if (uberQuoteFetch !== "error") {
+      persistHomeSpeed("uber_direct");
+    }
+  }, [
+    deliveryChannel,
+    homeSendcloudPlans.length,
+    homeSendcloudPricing.loading,
+    homeSpeed,
+    persistHomeSpeed,
+    uberQuoteFetch,
+  ]);
+
+  useEffect(() => {
+    if (deliveryChannel !== "home" || uberQuoteFetch !== "error") return;
+    if (homeSpeed !== "uber_direct") return;
+    const first = homeSendcloudPlans[0];
+    if (first) {
+      selectHomeSendcloudPlan(first);
+    } else {
+      setHomeOutboundOptionCode(null);
+      writeCheckoutSendcloudOutboundOption("home", null);
+    }
+  }, [deliveryChannel, homeSendcloudPlans, homeSpeed, selectHomeSendcloudPlan, uberQuoteFetch]);
+
+  useEffect(() => {
+    if (deliveryChannel !== "home" || homeSendcloudPricing.loading) return;
+    if (homeOutboundOptionCode == null) return;
+    if (homeSendcloudPlans.some((p) => p.optionCode === homeOutboundOptionCode)) return;
+    setHomeOutboundOptionCode(null);
+    writeCheckoutSendcloudOutboundOption("home", null);
+    if (homeSpeed === "standard" && uberQuoteFetch !== "error") persistHomeSpeed("uber_direct");
+  }, [
+    deliveryChannel,
+    homeOutboundOptionCode,
+    homeSendcloudPlans,
+    homeSendcloudPricing.loading,
+    homeSpeed,
+    persistHomeSpeed,
+    uberQuoteFetch,
+  ]);
+
+  const sendcloudShippingQuote = useSendcloudCheckoutShippingQuote({
+    itemCount,
+    postalCode: shippingQuotePostalCode,
+    relayOutboundOptionCode,
+    homeOutboundOptionCode,
+  });
+
+  const relayRoundTrip = sendcloudShippingQuote.relayRoundTrip;
+  const standardHomeRoundTrip = sendcloudShippingQuote.homeRoundTrip;
+
+  const homeReturnHtCents = useMemo(() => {
+    if (selectedHomeSendcloudPlan?.returnHtCents != null) {
+      return selectedHomeSendcloudPlan.returnHtCents;
+    }
+    if (homeSendcloudPricing.returnHtCents != null) {
+      return homeSendcloudPricing.returnHtCents;
+    }
+    return relayReturnQuoteForHome.pricing?.returnHtCents ?? null;
+  }, [
+    homeSendcloudPricing.returnHtCents,
+    relayReturnQuoteForHome.pricing?.returnHtCents,
+    selectedHomeSendcloudPlan?.returnHtCents,
+  ]);
+
+  const homeReturnTtcCents = useMemo(() => {
+    if (selectedHomeSendcloudPlan?.returnTtcCents != null) {
+      return selectedHomeSendcloudPlan.returnTtcCents;
+    }
+    if (homeSendcloudPricing.returnTtcCents != null) {
+      return homeSendcloudPricing.returnTtcCents;
+    }
+    return relayReturnQuoteForHome.pricing?.returnTtcCents ?? null;
+  }, [
+    homeSendcloudPricing.returnTtcCents,
+    relayReturnQuoteForHome.pricing?.returnTtcCents,
+    selectedHomeSendcloudPlan?.returnTtcCents,
+  ]);
+
   /** Aller domicile en Uber : centimes issus du devis API (aligné facturation Stripe). */
   const uberOutboundCentsFromQuote = useMemo(() => {
     if (deliveryChannel !== "home") return null;
@@ -364,10 +630,68 @@ export function CartPaymentScreen({
     return uberQuoteFeeCentsFromRaw(uberQuote);
   }, [deliveryChannel, uberQuoteFetch, uberQuote]);
 
+  const exchangeShipping = useMemo(() => {
+    if (deliveryChannel === "relay") return relayRoundTrip;
+    if (homeSendcloudPlanSelected && selectedHomeMethodRoundTrip) {
+      return selectedHomeMethodRoundTrip;
+    }
+    if (
+      deliveryChannel === "home" &&
+      homeSpeed === "uber_direct" &&
+      uberOutboundCentsFromQuote != null &&
+      homeReturnHtCents != null
+    ) {
+      return {
+        outboundCents: uberOutboundCentsFromQuote,
+        returnRelayCents: homeReturnHtCents,
+        subtotalCents: uberOutboundCentsFromQuote + homeReturnHtCents,
+      };
+    }
+    return { outboundCents: 0, returnRelayCents: 0, subtotalCents: 0 };
+  }, [
+    deliveryChannel,
+    homeReturnHtCents,
+    homeSendcloudPlanSelected,
+    homeSpeed,
+    relayRoundTrip,
+    selectedHomeMethodRoundTrip,
+    uberOutboundCentsFromQuote,
+  ]);
+  const sendcloudPricingActive =
+    sendcloudLivePricing && sendcloudShippingQuote.pricingSource === "sendcloud";
+  const sendcloudQuoteLoading =
+    sendcloudLivePricing &&
+    shippingQuotePostalCode.length === 5 &&
+    (deliveryChannel === "relay" && sendcloudRelayCheckoutActive
+      ? relaySendcloudPricing.loading
+      : deliveryChannel !== "home"
+        ? sendcloudShippingQuote.loading
+        : false);
+  const sendcloudRelayUi = sendcloudSpp || sendcloudRelaySearch;
+
   const uberBillingReady =
     deliveryChannel !== "home" || homeSpeed !== "uber_direct" || uberOutboundCentsFromQuote != null;
 
+  const selectedRelayCarrierRoundTrip = useMemo(() => {
+    const p = relaySendcloudPricing.pricing;
+    if (!p) return null;
+    return {
+      outboundCents: p.outboundHtCents,
+      returnRelayCents: p.returnHtCents,
+      subtotalCents: p.bundledRoundTripHtCents,
+    };
+  }, [relaySendcloudPricing.pricing]);
+
   const billedRoundTripSubtotalCents = useMemo(() => {
+    const roundTripForBilling =
+      deliveryChannel === "relay" && sendcloudRelayCheckoutActive
+        ? selectedRelayCarrierRoundTrip
+        : homeSendcloudPlanSelected
+          ? selectedHomeMethodRoundTrip
+          : selectedRelayCarrierRoundTrip ?? exchangeShipping;
+    if (!roundTripForBilling) {
+      return 0;
+    }
     try {
       return computeCartCheckoutRoundTripShippingHtCents({
         itemCount,
@@ -375,7 +699,7 @@ export function CartPaymentScreen({
         homeSpeedBilling: homeSpeed,
         includedKind: includedExchangeShipping,
         relayRoundTrip,
-        currentRoundTrip: exchangeShipping,
+        currentRoundTrip: roundTripForBilling,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
       });
     } catch {
@@ -393,6 +717,10 @@ export function CartPaymentScreen({
     includedExchangeShipping,
     itemCount,
     relayRoundTrip,
+    selectedRelayCarrierRoundTrip,
+    homeSendcloudPlanSelected,
+    selectedHomeMethodRoundTrip,
+    sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
   ]);
 
@@ -401,23 +729,7 @@ export function CartPaymentScreen({
       ? `${includedOrdersUsedThisMonth(remainingIncludedOrdersThisMonth, includedOrdersLimitThisMonth)}/${includedOrdersLimitThisMonth}`
       : null;
 
-  const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
-
-  const standardOptionShippingHtCents = useMemo(() => {
-    try {
-      return computeCartCheckoutRoundTripShippingHtCents({
-        itemCount,
-        deliveryChannel: "home",
-        homeSpeedBilling: "standard",
-        includedKind: includedExchangeShipping,
-        relayRoundTrip,
-        currentRoundTrip: standardHomeRoundTrip,
-        uberOutboundHtCents: null,
-      });
-    } catch {
-      return standardHomeRoundTrip.subtotalCents;
-    }
-  }, [includedExchangeShipping, itemCount, relayRoundTrip, standardHomeRoundTrip]);
+  const creditsTtcCents = Math.round(exchangeCreditsChargeEuros * 100);
 
   const expressOptionShippingHtCents = useMemo(() => {
     try {
@@ -447,13 +759,18 @@ export function CartPaymentScreen({
     includedExchangeShipping === "member_all_modes" ||
     (includedExchangeShipping === "guest_relay_round_trip_equivalent" && deliveryChannel === "relay");
 
+  const relayHeaderPriceLoading =
+    deliveryChannel === "relay" &&
+    !relayInboundShowsZero &&
+    (sendcloudRelayCheckoutActive ? relaySendcloudPricing.loading : sendcloudQuoteLoading);
+
   const homeDeliveryShowsFullIncluded = includedExchangeShipping === "member_all_modes";
 
   const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
 
   const feesPricing = useMemo(
-    () => computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents),
-    [shippingHtCents, serviceHtCents],
+    () => computeCartCheckoutFeesWithServiceRoundUp(shippingHtCents, creditsTtcCents),
+    [creditsTtcCents, shippingHtCents],
   );
 
   const feesHtEuros = centsToEuros(feesPricing.feesHtCents);
@@ -461,22 +778,76 @@ export function CartPaymentScreen({
   const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
   const serviceTtcEuros = centsToEuros(feesPricing.serviceTtcCents);
   const shippingTtcEuros = centsToEuros(feesPricing.shippingTtcCents);
-  const standardOptionShippingTtcEuros = centsToEuros(
-    computeCartFeesHtVatTtc(standardOptionShippingHtCents, serviceHtCents).shippingTtcCents,
-  );
+
+  const shippingFeesSplit = useMemo((): { outboundEuros: number; returnEuros: number } | null => {
+    if (relayInboundShowsZero || homeDeliveryShowsFullIncluded) return null;
+
+    if (deliveryChannel === "relay" && sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
+      return {
+        outboundEuros: centsToEuros(relaySendcloudPricing.pricing.outboundTtcCents),
+        returnEuros: centsToEuros(relaySendcloudPricing.pricing.returnTtcCents),
+      };
+    }
+
+    if (deliveryChannel === "home" && homeSendcloudPlanSelected && selectedHomeSendcloudPlan) {
+      return {
+        outboundEuros: centsToEuros(selectedHomeSendcloudPlan.outboundTtcCents),
+        returnEuros: centsToEuros(selectedHomeSendcloudPlan.returnTtcCents),
+      };
+    }
+
+    if (
+      deliveryChannel === "home" &&
+      homeSpeed === "uber_direct" &&
+      uberOutboundCentsFromQuote != null &&
+      homeReturnTtcCents != null
+    ) {
+      return {
+        outboundEuros: centsToEuros(htToVatAndTtcCents(uberOutboundCentsFromQuote).ttcCents),
+        returnEuros: centsToEuros(homeReturnTtcCents),
+      };
+    }
+
+    return null;
+  }, [
+    deliveryChannel,
+    homeDeliveryShowsFullIncluded,
+    homeReturnTtcCents,
+    homeSendcloudPlanSelected,
+    homeSpeed,
+    relayInboundShowsZero,
+    relaySendcloudPricing.pricing,
+    selectedHomeSendcloudPlan,
+    sendcloudRelayCheckoutActive,
+    uberOutboundCentsFromQuote,
+  ]);
+  const relayHeaderShippingTtcEuros = useMemo(() => {
+    if (deliveryChannel !== "relay" || relayInboundShowsZero) return shippingTtcEuros;
+    if (sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
+      return centsToEuros(relaySendcloudPricing.pricing.bundledRoundTripTtcCents);
+    }
+    return shippingTtcEuros;
+  }, [
+    deliveryChannel,
+    relayInboundShowsZero,
+    relaySendcloudPricing.pricing,
+    sendcloudRelayCheckoutActive,
+    shippingTtcEuros,
+  ]);
+
   const expressOptionShippingTtcEuros = centsToEuros(
-    computeCartFeesHtVatTtc(expressOptionShippingHtCents, serviceHtCents).shippingTtcCents,
+    computeCartCheckoutFeesWithServiceRoundUp(expressOptionShippingHtCents, creditsTtcCents)
+      .shippingTtcCents,
   );
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
   const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
 
-  const relayPostalNorm = relayPostal.replace(/\D/g, "").slice(0, 5);
-  const selectionPostalNorm = (selectedRelay?.postalCode ?? "").replace(/\D/g, "").slice(0, 5);
-  /** CP saisi = CP du point choisi (évite un relais « fantôme » issu du stockage alors que l’utilisateur a changé de CP). */
-  const relayPostalMatchesSelection =
-    selectedRelay != null &&
-    relayPostalNorm.length === 5 &&
-    relayPostalNorm === selectionPostalNorm;
+  /** Liste MR : CP de recherche = CP du point choisi. Carte Sendcloud : sélection sur la carte suffit. */
+  const relayPostalMatchesSelection = sendcloudSpp
+    ? selectedRelay != null
+    : selectedRelay != null &&
+      relayPostalNorm.length === 5 &&
+      relayPostalNorm === selectionPostalNorm;
   /**
    * Si une liste de résultats est affichée, le point choisi doit en faire partie (recherche actuelle).
    * Liste vide : OK si relais + CP déjà alignés (retour sur la page sans relancer la recherche).
@@ -486,14 +857,20 @@ export function CartPaymentScreen({
       ? true
       : selectedRelay != null && relayPoints.some((p) => p.code === selectedRelay.code);
 
-  const deliveryReady =
+  const carrierPickReady =
     deliveryChannel === "relay"
-      ? relayPostalMatchesSelection && relayPickMatchesVisibleResults
-      : deliveryAddress != null;
+      ? !sendcloudRelayCheckoutActive || relaySendcloudPricing.pricing != null
+      : homeSpeed === "uber_direct" || homeSendcloudPlanSelected;
+
+  const outboundDeliveryReady =
+    deliveryChannel === "relay"
+      ? relayPostalMatchesSelection && relayPickMatchesVisibleResults && carrierPickReady
+      : deliveryAddress != null && carrierPickReady;
+  const deliveryReady = outboundDeliveryReady;
 
   const startStripeCheckout = useCallback(async () => {
     setStripeCheckoutError(null);
-    if (!deliveryReady) {
+    if (!outboundDeliveryReady) {
       setStripeCheckoutError(
         deliveryChannel === "relay"
           ? "Choisis un point relais avant de payer."
@@ -511,6 +888,24 @@ export function CartPaymentScreen({
       );
       return;
     }
+    if (!carrierPickReady) {
+      setStripeCheckoutError(
+        deliveryChannel === "home"
+          ? "Choisis une option de livraison (Uber ou offre domicile disponible)."
+          : "Choisis un transporteur pour l’expédition aller.",
+      );
+      return;
+    }
+    if (deliveryChannel === "home" && homeSpeed === "standard" && !homeSendcloudPlanSelected) {
+      setStripeCheckoutError("Choisis une offre de livraison à domicile.");
+      return;
+    }
+    const sendcloudOutboundSelection =
+      deliveryChannel === "relay" && sendcloudRelayCheckoutActive
+        ? readCheckoutSendcloudOutboundOption("relay")
+        : deliveryChannel === "home" && homeSendcloudPlanSelected
+          ? readCheckoutSendcloudOutboundOption("home")
+          : null;
     setStripeCheckoutBusy(true);
     try {
       const res = await fetch("/api/stripe/cart/checkout", {
@@ -522,6 +917,7 @@ export function CartPaymentScreen({
           relaySelection: deliveryChannel === "relay" ? selectedRelay : undefined,
           deliveryAddress: deliveryChannel === "home" ? deliveryAddress : undefined,
           deliveryInstructions: deliveryChannel === "home" ? instructionsSaved.trim() : undefined,
+          sendcloudOutboundSelection: sendcloudOutboundSelection ?? undefined,
           acceptRentalTerms: true,
         }),
       });
@@ -543,11 +939,16 @@ export function CartPaymentScreen({
   }, [
     deliveryAddress,
     deliveryChannel,
-    deliveryReady,
+    outboundDeliveryReady,
     homeSpeed,
     instructionsSaved,
     rentalTermsAccepted,
+    carrierPickReady,
+    deliveryChannel,
     selectedRelay,
+    homeSendcloudPlanSelected,
+    selectedOutboundOptionCode,
+    sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
   ]);
 
@@ -561,18 +962,32 @@ export function CartPaymentScreen({
     setRelayLoading(true);
     setRelaySearchError(null);
     try {
-      const res = await fetch("/api/items/mondial-relay/relay-search", {
+      const searchUrl = sendcloudRelaySearch
+        ? "/api/items/sendcloud/relay-search"
+        : "/api/items/mondial-relay/relay-search";
+      const searchBody = sendcloudRelaySearch
+        ? { postal_code: pc, country: "FR" }
+        : {
+            postal_code: pc,
+            country: "FR",
+            weight_g: RELAY_SEARCH_WEIGHT_G,
+            action: "24R",
+            purpose: "cart_outbound",
+          };
+      const res = await fetch(searchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postal_code: pc,
-          country: "FR",
-          weight_g: RELAY_SEARCH_WEIGHT_G,
-          action: "24R",
-        }),
+        body: JSON.stringify(searchBody),
       });
       const j = (await res.json()) as {
-        points?: Array<{ code: string; label: string; postalCode?: string; city?: string }>;
+        points?: Array<{
+          code: string;
+          label: string;
+          postalCode?: string;
+          city?: string;
+          sendcloudServicePointId?: number;
+          sendcloudCode?: string;
+        }>;
         error?: string;
         hint?: string;
         plan_tri?: {
@@ -581,6 +996,9 @@ export function CartPaymentScreen({
           excluded_samples?: { code: string; statut: string }[];
           excluded_stat_histogram?: Record<string, number>;
           skipped_reason?: string;
+          destination_postcode?: string;
+          search_postcodes?: string[];
+          wsi3_total_before_plan_tri?: number;
         };
         diagnostics?: {
           mondial_relay_soap?: { missing?: string[] };
@@ -603,10 +1021,23 @@ export function CartPaymentScreen({
         label: p.label,
         postalCode: p.postalCode ?? pc,
         city: p.city,
+        sendcloudServicePointId:
+          typeof p.sendcloudServicePointId === "number" && p.sendcloudServicePointId > 0
+            ? p.sendcloudServicePointId
+            : undefined,
+        sendcloudCarrier: undefined,
       }));
       setRelayPoints(list);
       if (list.length === 0) {
-        setRelaySearchError(j.hint ?? "Aucun point relais pour ce code postal.");
+        const hubCp = j.plan_tri?.destination_postcode?.trim();
+        const searched = j.plan_tri?.search_postcodes?.join(", ");
+        const extra =
+          searched && hubCp
+            ? ` (zones testées : ${searched}, hub ${hubCp})`
+            : hubCp
+              ? ` (hub Segna : ${hubCp})`
+              : "";
+        setRelaySearchError((j.hint ?? "Aucun point relais compatible pour ce secteur.") + extra);
         setSelectedRelay(null);
         writeCheckoutRelaySelection(null);
         if (j.plan_tri) {
@@ -627,20 +1058,31 @@ export function CartPaymentScreen({
     } finally {
       setRelayLoading(false);
     }
-  }, [relayPostal]);
+  }, [relayPostal, sendcloudRelaySearch]);
 
-  const onSelectRelay = useCallback((r: CheckoutRelaySelection) => {
-    setSelectedRelay(r);
-    writeCheckoutRelaySelection(r);
-    setRelayPoints((prev) => {
-      if (prev.length === 0) return prev;
-      const others = prev.filter((x) => x.code !== r.code);
-      return [r, ...others];
-    });
-    window.setTimeout(() => {
-      relayListScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    }, 0);
-  }, []);
+  const onSelectRelay = useCallback(
+    (r: CheckoutRelaySelection) => {
+      setSelectedRelay(r);
+      writeCheckoutRelaySelection(r);
+      if (sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
+        const stored = toRelayCheckoutSendcloudOutboundOption(
+          relaySendcloudPricing.pricing,
+          r.sendcloudCarrier,
+        );
+        setRelayOutboundOptionCode(stored.optionCode);
+        writeCheckoutSendcloudOutboundOption("relay", stored);
+      }
+      setRelayPoints((prev) => {
+        if (prev.length === 0) return prev;
+        const others = prev.filter((x) => x.code !== r.code);
+        return [r, ...others];
+      });
+      window.setTimeout(() => {
+        relayListScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      }, 0);
+    },
+    [relaySendcloudPricing.pricing, sendcloudRelayCheckoutActive],
+  );
 
   useEffect(() => {
     if (!instructionsOpen) return;
@@ -774,7 +1216,10 @@ export function CartPaymentScreen({
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
-                    <p className="text-[15px] font-semibold text-zinc-900">Mondial Relay</p>
+                    <p className="text-[15px] font-semibold text-zinc-900">Livraison point relais</p>
+                    <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">
+                      Choisis ton point relais sur la carte (Chronopost ou Mondial Relay).
+                    </p>
                     {includedExchangeShipping !== "none" && includedShippingForfaitLine ? (
                       <p className="mt-0.5 text-[14px] font-bold leading-snug text-zinc-900">{includedShippingForfaitLine}</p>
                     ) : null}
@@ -787,65 +1232,114 @@ export function CartPaymentScreen({
                     ) : (
                       <span className="text-emerald-700">Offert</span>
                     )
+                  ) : relayHeaderPriceLoading ? (
+                    <span className="text-[13px] font-medium text-zinc-500">…</span>
                   ) : (
                     <>
-                      {euros(shippingTtcEuros)}
+                      {euros(relayHeaderShippingTtcEuros)}
                       <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
                     </>
                   )}
                 </span>
               </div>
-              <label className="block">
-                <span className="text-[13px] font-medium text-zinc-600">Code postal (Mondial Relay)</span>
-                <div className="mt-1.5 flex gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={5}
-                    value={relayPostal}
-                    onChange={(e) => setRelayPostal(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                    placeholder="ex. 75017"
-                    className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 text-[16px] outline-none focus:border-zinc-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void searchRelayPoints()}
-                    disabled={relayLoading}
-                    className="shrink-0 rounded-xl bg-zinc-950 px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-60"
-                  >
-                    {relayLoading ? "…" : "Rechercher"}
-                  </button>
-                </div>
-              </label>
-              {relaySearchError ? <p className="mt-2 text-[13px] text-red-600">{relaySearchError}</p> : null}
-              {relayPoints.length > 0 ? (
-                <ul
-                  ref={relayListScrollRef}
-                  className="mt-3 max-h-[240px] space-y-2 overflow-y-auto pr-0.5"
-                >
-                  {relayPoints.map((r) => {
-                    const isSelected = selectedRelay?.code === r.code;
-                    return (
-                      <li key={r.code}>
-                        <button
-                          type="button"
-                          aria-pressed={isSelected}
-                          onClick={() => onSelectRelay(r)}
-                          className={cn(
-                            "w-full rounded-xl border-2 bg-white px-3 py-3 text-left transition",
-                            isSelected ? "border-zinc-950" : "border-zinc-200",
-                          )}
-                        >
-                          <p className="text-[15px] font-semibold text-zinc-900">{r.label}</p>
-                          <p className="text-[13px] text-zinc-600">
-                            {[r.postalCode, r.city].filter(Boolean).join(" · ")}
-                          </p>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+              {sendcloudRelayCheckoutActive && relaySendcloudPricing.error ? (
+                <p className="mb-3 text-[13px] text-red-700">{relaySendcloudPricing.error}</p>
               ) : null}
+              {!sendcloudStatusLoaded ? (
+                <div className="mt-4 h-12 animate-pulse rounded-xl bg-zinc-100" aria-hidden />
+              ) : sendcloudSpp ? (
+                <div className="mt-4 space-y-3">
+                  {(!sendcloudRelayCheckoutActive || relaySendcloudPricing.pricing) &&
+                  !relaySendcloudPricing.loading ? (
+                    <>
+                      <SendcloudServicePointPicker
+                        postalCode={relayMapCenterPostalCode}
+                        onSelect={(r) => onSelectRelay(r)}
+                      />
+                      {selectedRelay ? (
+                        <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 px-3 py-3 text-left">
+                          <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
+                            Point relais sélectionné
+                          </p>
+                          <p className="mt-1 text-[14px] font-medium leading-snug text-zinc-900">
+                            {formatCheckoutRelayDisplayLabel(selectedRelay.label)}
+                          </p>
+                          <p className="mt-0.5 text-[13px] text-zinc-600">
+                            {[selectedRelay.postalCode, selectedRelay.city].filter(Boolean).join(" · ")}
+                          </p>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-[13px] text-zinc-500">
+                      {relaySendcloudPricing.loading
+                        ? "Calcul du tarif relais…"
+                        : "Tarif relais indisponible — vérifie la méthode Sendcloud « Livraison en Relais »."}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <label className="block">
+                    <span className="text-[13px] font-medium text-zinc-600">Code postal</span>
+                    <p className="mt-1 text-[12px] leading-snug text-zinc-500">
+                      {sendcloudRelaySearch
+                        ? "Recherche les points relais proches de chez toi."
+                        : "Recherche les points relais compatibles avec l’expédition Segna."}
+                    </p>
+                    <div className="mt-1.5 flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={5}
+                        value={relayPostal}
+                        onChange={(e) => setRelayPostal(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                        placeholder="ex. 75017"
+                        className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 text-[16px] outline-none focus:border-zinc-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void searchRelayPoints()}
+                        disabled={relayLoading}
+                        className="shrink-0 rounded-xl bg-zinc-950 px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-60"
+                      >
+                        {relayLoading ? "…" : "Rechercher"}
+                      </button>
+                    </div>
+                  </label>
+                  {relaySearchError ? <p className="mt-2 text-[13px] text-red-600">{relaySearchError}</p> : null}
+                  {relayPoints.length > 0 ? (
+                    <ul
+                      ref={relayListScrollRef}
+                      className="mt-3 max-h-[240px] space-y-2 overflow-y-auto pr-0.5"
+                    >
+                      {relayPoints.map((r) => {
+                        const isSelected = selectedRelay?.code === r.code;
+                        return (
+                          <li key={r.code}>
+                            <button
+                              type="button"
+                              aria-pressed={isSelected}
+                              onClick={() => onSelectRelay(r)}
+                              className={cn(
+                                "w-full rounded-xl border-2 bg-white px-3 py-3 text-left transition",
+                                isSelected ? "border-zinc-950" : "border-zinc-200",
+                              )}
+                            >
+                              <p className="text-[15px] font-semibold text-zinc-900">
+                                {formatCheckoutRelayDisplayLabel(r.label)}
+                              </p>
+                              <p className="text-[13px] text-zinc-600">
+                                {[r.postalCode, r.city].filter(Boolean).join(" · ")}
+                              </p>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </>
+              )}
             </section>
           </>
         ) : (
@@ -886,6 +1380,13 @@ export function CartPaymentScreen({
                 Options de livraison
               </h2>
               <div className="mt-3 grid gap-2">
+                {homeDeliveryOptionsLoadingMessage ? (
+                  <p className="text-[13px] text-zinc-500">Chargement des options…</p>
+                ) : null}
+                {homeDeliveryNoCarriersAvailable ? (
+                  <p className="text-[13px] text-zinc-500">Aucun transporteur disponible</p>
+                ) : null}
+                {uberDeliveryOfferVisible ? (
                 <div
                   className={cn(
                     "rounded-xl border transition",
@@ -910,13 +1411,15 @@ export function CartPaymentScreen({
                             ) : (
                               <span className="text-emerald-700">Offert</span>
                             )
-                          ) : uberExpressShowsUnavailablePrice ? (
-                            <span className="tabular-nums">{uberDirectUnavailablePriceLabel(uberQuoteErrorCode)}</span>
-                          ) : (
+                          ) : uberQuoteFetch === "loading" || uberQuoteFetch === "idle" ? (
+                            <span className="text-[13px] font-medium text-zinc-500">…</span>
+                          ) : uberQuoteFetch === "ok" && uberQuote ? (
                             <>
                               {euros(expressOptionShippingTtcEuros)}
                               <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
                             </>
+                          ) : (
+                            <span className="text-[13px] font-medium text-zinc-500">…</span>
                           )}
                         </span>
                       </div>
@@ -925,13 +1428,8 @@ export function CartPaymentScreen({
                       ) : null}
                     </div>
                   </button>
-                  {showUberQuoteBelowCard ? (
-                    <div
-                      className={cn(
-                        "px-3 pb-3",
-                        uberQuotePanelPhaseForPanel === "error" ? "text-center" : "pl-[calc(1.25rem+0.75rem)]",
-                      )}
-                    >
+                  {showUberQuoteBelowCard && uberQuotePanelPhaseForPanel !== "error" ? (
+                    <div className="px-3 pb-3 pl-[calc(1.25rem+0.75rem)]">
                       <UberDirectQuotePanel
                         phase={uberQuotePanelPhaseForPanel}
                         errorMessage={uberQuoteError}
@@ -940,37 +1438,55 @@ export function CartPaymentScreen({
                     </div>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => persistHomeSpeed("standard")}
-                  className={cn(
-                    "flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition",
-                    homeSpeed === "standard" ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200",
-                  )}
-                >
-                  <Home className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
-                  <div className="min-w-0 flex-1 pr-1">
-                    <p className="text-[15px] font-semibold leading-tight text-zinc-900">
-                      Aller - Retour Standard
-                    </p>
-                    <p className="mt-0.5 text-[13px] text-zinc-500">(2-3 jours ouvrés)</p>
-                  </div>
-                  <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                    {homeDeliveryShowsFullIncluded ? (
-                      includedShippingQuotaLabel ? (
-                        <span className="tabular-nums">{includedShippingQuotaLabel}</span>
-                      ) : (
-                        <span className="text-emerald-700">Offert</span>
-                      )
-                    ) : (
-                      <>
-                        {euros(standardOptionShippingTtcEuros)}
-                        <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
-                      </>
-                    )}
-                  </span>
-                </button>
+                ) : null}
+                {homeSendcloudPlans.map((plan) => {
+                  const planSelected =
+                    homeSpeed === "standard" && homeOutboundOptionCode === plan.optionCode;
+                  const planShippingTtcEuros = centsToEuros(
+                    computeCartCheckoutFeesWithServiceRoundUp(plan.bundledRoundTripHtCents, creditsTtcCents)
+                      .shippingTtcCents,
+                  );
+                  return (
+                    <button
+                      key={plan.optionCode}
+                      type="button"
+                      onClick={() => selectHomeSendcloudPlan(plan)}
+                      className={cn(
+                        "flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition",
+                        planSelected ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200",
+                      )}
+                    >
+                      <CheckoutHomePlanCarrierIcon plan={plan} className="mt-0.5" />
+                      <div className="min-w-0 flex-1 pr-1">
+                        <p className="text-[15px] font-semibold leading-tight text-zinc-900">{plan.title}</p>
+                        <p className="mt-0.5 text-[13px] text-zinc-500">
+                          {checkoutHomePlanEtaSubtitle(plan)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
+                        {homeDeliveryShowsFullIncluded ? (
+                          includedShippingQuotaLabel ? (
+                            <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                          ) : (
+                            <span className="text-emerald-700">Offert</span>
+                          )
+                        ) : (
+                          <>
+                            {euros(planShippingTtcEuros)}
+                            <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+              {homeSendcloudPlanSelected || homeSpeed === "uber_direct" ? (
+                <p className="mt-2 text-[12px] leading-snug text-zinc-500">
+                  Le retour se fait dans un point relais de notre réseau (défini par Segna, hors de ton choix de
+                  livraison).
+                </p>
+              ) : null}
             </section>
           </>
         )}
@@ -1049,10 +1565,27 @@ export function CartPaymentScreen({
               <span className="min-w-0 pr-2">Frais de service (TTC)</span>
               <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
             </div>
-            <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-              <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
-              <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
-            </div>
+            {shippingFeesSplit ? (
+              <>
+                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                  <span className="min-w-0 pr-2">Frais aller (TTC)</span>
+                  <span className="shrink-0 font-medium tabular-nums text-zinc-900">
+                    {euros(shippingFeesSplit.outboundEuros)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                  <span className="min-w-0 pr-2">Frais de retour (TTC)</span>
+                  <span className="shrink-0 font-medium tabular-nums text-zinc-900">
+                    {euros(shippingFeesSplit.returnEuros)}
+                  </span>
+                </div>
+              </>
+            ) : deliveryChannel !== "home" || homeDeliveryShowsFullIncluded ? (
+              <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
+                <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
+              </div>
+            ) : null}
             {feesVatEuros > 0 ? (
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">dont TVA (frais)</span>
@@ -1113,7 +1646,13 @@ export function CartPaymentScreen({
           ) : null}
           <button
             type="button"
-            disabled={stripeCheckoutBusy || !deliveryReady || !rentalTermsAccepted || !uberBillingReady}
+            disabled={
+              stripeCheckoutBusy ||
+              !deliveryReady ||
+              !rentalTermsAccepted ||
+              !uberBillingReady ||
+              sendcloudQuoteLoading
+            }
             onClick={() => void startStripeCheckout()}
             className="flex h-[52px] w-full items-center justify-center rounded-xl bg-zinc-950 text-[16px] font-bold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-50"
           >
@@ -1148,13 +1687,15 @@ export function CartPaymentScreen({
                   <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
                 </div>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  {deliveryChannel === "relay"
-                    ? `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € par article au-delà de 3 (base HT, TVA comprise dans le montant TTC).`
-                    : deliveryChannel === "home"
-                      ? homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
-                        ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
-                        : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
-                      : null}
+                  {sendcloudPricingActive
+                    ? `Aller + retour en point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : tarifs transporteurs via Sendcloud (TTC). Le retour est toujours en point relais vers notre centre logistique.`
+                    : deliveryChannel === "relay"
+                      ? `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € par article au-delà de 3 (base HT, TVA comprise dans le montant TTC).`
+                      : deliveryChannel === "home"
+                        ? homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
+                          ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
+                          : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
+                        : null}
                   {billedRoundTripSubtotalCents === 0 && includedExchangeShipping !== "none" ? (
                     <span className="mt-1 block text-emerald-800/90">
                       {includedExchangeShipping === "guest_relay_round_trip_equivalent"

@@ -3,20 +3,24 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
+import { EmpruntBorrowOverdueSection } from "@/components/emprunt/EmpruntBorrowOverdueSection";
 import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowSummarySection";
+import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import { EmpruntBorrowCountdown } from "@/components/emprunt/EmpruntBorrowCountdown";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
+import { resolveMemberCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
-import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
+import { segnaHeaderInlineLinkClass } from "@/lib/ui/segna-inline-link";
 import { cn } from "@/lib/utils/cn";
 
 type EmpruntDetailViewProps = {
   detail: MemberCartOrderDetail;
   membershipLabel: SegnaBorrowMembershipLabel;
   borrowExtensionDaysTotal?: number;
+  borrowOverdue?: MemberCartBorrowOverdueSnapshot | null;
 };
 
 function formatEuros(n: number): string {
@@ -30,6 +34,7 @@ export function EmpruntDetailView({
   detail,
   membershipLabel,
   borrowExtensionDaysTotal = 0,
+  borrowOverdue = null,
 }: EmpruntDetailViewProps) {
   const creditKind = detail.walletCreditKind;
   const returnCommitmentMet = isCartReturnCommitmentMet(detail.returnShipment?.status);
@@ -37,6 +42,9 @@ export function EmpruntDetailView({
     detail.shipment?.deliveredAt,
     detail.shipment?.updatedAt,
   );
+  const returnDueMs = resolveMemberCartBorrowReturnDueMs(detail, membershipLabel, borrowExtensionDaysTotal);
+  const hasReturnDue = Number.isFinite(returnDueMs);
+  const showBorrowOverdue = Boolean(borrowOverdue && !returnCommitmentMet);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
@@ -51,19 +59,23 @@ export function EmpruntDetailView({
               <X className="h-8 w-8" strokeWidth={2.25} />
             </Link>
             <div className="-mr-1 flex min-h-12 shrink-0 items-center">
-              <ExchangeOrderHelpSection placement="header" />
+              <Link
+                href={`/commande/${detail.cartId}/probleme`}
+                className={cn(segnaHeaderInlineLinkClass, "text-right whitespace-nowrap")}
+              >
+                Un problème avec votre échange ?
+              </Link>
             </div>
           </div>
           <h1 className={cn("mt-5 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
-            Emprunt en cours
+            {showBorrowOverdue ? "Retourne ta box!" : "Emprunt en cours"}
           </h1>
-          {borrowDeliveredAtIso ? (
-            <EmpruntBorrowCountdown
-              deliveredAtIso={borrowDeliveredAtIso}
-              orderNumberCompact={detail.orderNumberCompact}
-              membershipLabel={membershipLabel}
-              borrowExtensionDaysTotal={borrowExtensionDaysTotal}
-            />
+          {hasReturnDue ? (
+            <EmpruntBorrowCountdown returnDueMs={returnDueMs} returnCommitmentMet={returnCommitmentMet} />
+          ) : borrowDeliveredAtIso ? (
+            <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">
+              Commande {detail.orderNumberCompact} — pièces livrées chez toi
+            </p>
           ) : (
             <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">
               Commande {detail.orderNumberCompact} — pièces livrées chez toi
@@ -74,11 +86,13 @@ export function EmpruntDetailView({
 
       <EmpruntBorrowSummarySection
         cartId={detail.cartId}
-        deliveredAtIso={borrowDeliveredAtIso}
+        returnDueMs={hasReturnDue ? returnDueMs : null}
         returnCommitmentMet={returnCommitmentMet}
-        membershipLabel={membershipLabel}
-        borrowExtensionDaysTotal={borrowExtensionDaysTotal}
       />
+
+      {showBorrowOverdue && borrowOverdue ? (
+        <EmpruntBorrowOverdueSection overdue={borrowOverdue} />
+      ) : null}
 
       <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-4">
         {/* Pas de border-t : EmpruntBorrowSummarySection a déjà border-b (évite double trait). */}

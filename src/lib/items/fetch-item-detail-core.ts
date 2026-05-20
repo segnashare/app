@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- même chaîne PostgREST côté navigateur (SSR/client). */
 import type { ItemInfoCardData } from "@/components/item/ItemInfoCard";
+import {
+  fetchItemFeedbacksForDisplay,
+  fetchItemWornPhotosForDisplay,
+} from "@/lib/feedback/fetch-item-feedbacks-display";
+import type { ItemFeedbackDisplayRow, ItemWornPhotoDisplayRow } from "@/lib/feedback/item-feedback-types";
 import type { ItemViewSlot } from "@/components/item/ItemViewView";
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
@@ -98,6 +103,8 @@ export type ItemDetailPayload = {
   slots: Array<ItemViewSlot | null>;
   intake: ItemIntakeSnapshot | null;
   infoCard: ItemInfoCardData;
+  itemFeedbacks: ItemFeedbackDisplayRow[];
+  wornPhotos: ItemWornPhotoDisplayRow[];
   ownerUserId: string;
 };
 
@@ -137,7 +144,7 @@ export async function fetchItemDetailPayloadForUser(
   const materialsId = row.item_materiaux_id as string | null;
   const colorId = row.item_couleur_id as string | null;
 
-  const [brandRes, sizeRes, materialsRes, colorRes, conditionRes, likesRes, exchangeCount, itemRatingSummary] =
+  const [brandRes, sizeRes, materialsRes, colorRes, conditionRes, likesRes, exchangeCount, itemRatingSummary, itemFeedbacks, wornPhotos] =
     await Promise.all([
     brandId ? supabase.from("item_brands").select("label,slug").eq("id", brandId).maybeSingle() : { data: null },
     sizeId ? supabase.from("sizes").select("label").eq("id", sizeId).maybeSingle() : { data: null },
@@ -158,6 +165,8 @@ export async function fetchItemDetailPayloadForUser(
       .is("deleted_at", null),
     fetchArchivedExchangeCountForItem(supabase, trimmed),
     fetchItemFeedbackSummary(supabase, trimmed),
+    fetchItemFeedbacksForDisplay(supabase, trimmed),
+    fetchItemWornPhotosForDisplay(supabase, trimmed),
   ]);
 
   const conditionScore = (conditionRes.data as { condition_score?: string } | null)?.condition_score ?? null;
@@ -253,14 +262,14 @@ export async function fetchItemDetailPayloadForUser(
         exchangeCount,
         itemRatingAverage: itemRatingSummary.average,
         itemRatingCount: itemRatingSummary.count,
-        ratingValue: "5.0",
-        ratingStars: 5,
         size: sizeLabel,
         materials: materialsLabel,
         color: colorLabel,
         brand: brandLabel,
         condition: conditionLabel,
       },
+      itemFeedbacks,
+      wornPhotos,
       ownerUserId,
     },
   };

@@ -1,14 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ExternalLink, LifeBuoy, Loader2, Store } from "lucide-react";
+import { ChevronLeft, ExternalLink, LifeBuoy, Loader2, Package } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { IntakeNewBordereauButton } from "@/components/shipping/IntakeNewBordereauButton";
 import {
-  mondialRelayLabelMatchesItemGroup,
-  parseMondialRelayFromIntakeMetadata,
+  IntakeShippingExpeditionSection,
+  resolveIntakeTrackingHref,
+} from "@/components/shipping/IntakeShippingExpeditionSection";
+import {
+  type IntakeShippingOptionsSnapshot,
+  readIntakePiggybackFromMetadata,
+  SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK,
+} from "@/lib/items/intake-cart-return-piggyback";
+import { parseIntakeReturnPortalFromRows } from "@/lib/items/member-intake-return-portal";
+import {
+  isIntakeMemberReturnTrackingNumber,
+  parseIntakeShippingLabelFromMetadata,
+  parseSendcloudFromIntakeMetadata,
+  readMemberIntakeShipmentIdFromMetadata,
 } from "@/lib/items/intake-shipping-metadata";
-import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
@@ -20,150 +32,6 @@ const playfair = segnaPlayfairDisplay;
 /** Message API `member-mr-auto-generate` quand `users.adress` est incomplet. */
 const PROFILE_ADDRESS_INCOMPLETE_HINT = "Complète ton adresse postale dans ton profil";
 
-/** Même ordre de grandeur que le paiement panier (WSI3 recherche relais). */
-const MR_RELAY_SEARCH_WEIGHT_G = 900;
-
-function userFacingShippingRelaySearchError(status: number, raw?: string): string {
-  const t = (raw ?? "").trim();
-  if (status === 501 || /MONDR_RELAY|configuration transporteur|indisponible\s*:\s*configuration/i.test(t)) {
-    return "Recherche indisponible pour le moment — réessaie plus tard.";
-  }
-  if (status === 401) return "Connecte-toi pour lancer une recherche.";
-  if (status === 502 || status === 503) {
-    return "Service relais injoignable — réessaie dans quelques instants.";
-  }
-  if (t) return t;
-  return `Erreur ${status}`;
-}
-
-type ShippingRelayHit = { code: string; label: string; postalCode?: string; city?: string };
-
-type ShippingRelaySearchPanelProps = {
-  /** CP extrait de `users.adress` (5 chiffres) quand disponible. */
-  defaultPostalCode?: string;
-};
-
-function ShippingRelaySearchPanel({ defaultPostalCode = "" }: ShippingRelaySearchPanelProps) {
-  const [postal, setPostal] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [points, setPoints] = useState<ShippingRelayHit[]>([]);
-
-  useEffect(() => {
-    const pc = (defaultPostalCode ?? "").replace(/\D/g, "").slice(0, 5);
-    if (pc.length !== 5) return;
-    setPostal((prev) => (prev === "" ? pc : prev));
-  }, [defaultPostalCode]);
-
-  const searchRelays = useCallback(async () => {
-    const pc = postal.replace(/\D/g, "").slice(0, 5);
-    if (pc.length !== 5) {
-      setError("Saisis un code postal à 5 chiffres.");
-      setPoints([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/items/mondial-relay/relay-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          postal_code: pc,
-          country: "FR",
-          weight_g: MR_RELAY_SEARCH_WEIGHT_G,
-          action: "24R",
-        }),
-      });
-      const j = (await res.json()) as {
-        points?: Array<{ code: string; label: string; postalCode?: string; city?: string }>;
-        error?: string;
-        hint?: string;
-      };
-      if (!res.ok) {
-        setError(userFacingShippingRelaySearchError(res.status, j.error));
-        setPoints([]);
-        return;
-      }
-      const raw = Array.isArray(j.points) ? j.points : [];
-      const list: ShippingRelayHit[] = raw.map((p) => ({
-        code: p.code,
-        label: p.label,
-        postalCode: p.postalCode ?? pc,
-        city: p.city,
-      }));
-      setPoints(list);
-      if (list.length === 0) {
-        setError(j.hint ?? "Aucun point relais pour ce code postal.");
-      }
-    } catch {
-      setError("Recherche impossible. Réessaie dans un instant.");
-      setPoints([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [postal]);
-
-  return (
-    <section className="bg-white px-5 pb-6 pt-8">
-      <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>Relais près de toi</h2>
-      <div className="mt-3 flex items-start gap-3">
-        <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
-        <div className="min-w-0">
-          <p className={cn(montserrat.className, "text-[15px] font-semibold text-zinc-900")}>Mondial Relay</p>
-          <p className={cn(montserrat.className, "mt-0.5 text-[13px] font-medium leading-snug text-zinc-600")}>
-            Liste indicative autour d’un code postal (France).
-          </p>
-        </div>
-      </div>
-
-      <label className={cn(montserrat.className, "mt-5 block")}>
-        <span className="text-[13px] font-medium text-zinc-600">Code postal</span>
-        <div className="mt-1.5 flex gap-2">
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={5}
-            value={postal}
-            onChange={(e) => setPostal(e.target.value.replace(/\D/g, "").slice(0, 5))}
-            placeholder="ex. 75017"
-            autoComplete="postal-code"
-            className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 text-[16px] text-zinc-900 outline-none focus:border-zinc-400"
-          />
-          <button
-            type="button"
-            onClick={() => void searchRelays()}
-            disabled={loading}
-            className={cn(
-              montserrat.className,
-              "shrink-0 rounded-xl bg-zinc-950 px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:bg-zinc-900 disabled:opacity-60",
-            )}
-          >
-            {loading ? "…" : "Rechercher"}
-          </button>
-        </div>
-      </label>
-      {error ? <p className="mt-2 text-[13px] font-medium text-red-600">{error}</p> : null}
-      {points.length > 0 ? (
-        <ul className="mt-4 max-h-[260px] space-y-2 overflow-y-auto pr-0.5">
-          {points.map((p) => (
-            <li
-              key={p.code}
-              className="rounded-xl border border-zinc-200 bg-zinc-50/40 px-3 py-3"
-            >
-              <p className={cn(montserrat.className, "text-[15px] font-semibold leading-snug text-zinc-900")}>
-                {p.label}
-              </p>
-              <p className={cn(montserrat.className, "mt-0.5 text-[13px] font-medium text-zinc-600")}>
-                {[p.postalCode, p.city].filter(Boolean).join(" · ")}
-              </p>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  );
-}
 
 type IntakeSnap = {
   listing_stage: string | null;
@@ -184,19 +52,34 @@ export type ShippingBordereauExperienceProps = {
   backHref: string;
   /** Libellé accessibilité du retour. */
   backLabel?: string;
-  /** Une ou plusieurs pièces (même étiquette MR attendue si fusion BO). */
+  /** Une ou plusieurs pièces (même étiquette Sendcloud si fusion BO). */
   itemIds: string[];
 };
 
-function pickMondialFromRows(rows: LoadedRow[], groupItemIds: string[]) {
+const portalSessionKey = (ids: string[]) => `segna-intake-return-portal:${[...ids].sort().join(",")}`;
+
+function readStoredSendcloudError(rows: LoadedRow[]): string | null {
   for (const row of rows) {
-    const m = parseMondialRelayFromIntakeMetadata(row.intake?.metadata ?? null);
-    if (m?.label_url && mondialRelayLabelMatchesItemGroup(groupItemIds, m)) return { mondial: m, intake: row.intake };
+    const sc = parseSendcloudFromIntakeMetadata(row.intake?.metadata ?? null);
+    const msg = sc?.last_member_error_message?.trim();
+    if (msg) return msg;
   }
-  const firstIntake = rows[0]?.intake ?? null;
-  const fallback = parseMondialRelayFromIntakeMetadata(firstIntake?.metadata ?? null);
-  const mondial = mondialRelayLabelMatchesItemGroup(groupItemIds, fallback) ? fallback : null;
-  return { mondial, intake: firstIntake };
+  return null;
+}
+
+const PORTAL_VALID_MINUTES = 10;
+
+function pickPortalFromRows(rows: LoadedRow[]) {
+  const portal = parseIntakeReturnPortalFromRows(rows);
+  return {
+    portalUrl: portal.portalUrl,
+    labelUrl: portal.labelUrl,
+    portalReady: portal.portalReady,
+    portalExpired: portal.portalExpired,
+    orderNumber: portal.orderNumber,
+    postalCode: portal.postalCode,
+    intake: rows[0]?.intake ?? null,
+  };
 }
 
 export function ShippingBordereauExperience({
@@ -226,8 +109,21 @@ export function ShippingBordereauExperience({
   const [autoError, setAutoError] = useState<string | null>(null);
   const [autoDeveloperHint, setAutoDeveloperHint] = useState<string | null>(null);
   const [helpPhase, setHelpPhase] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  /** CP à 5 chiffres issu du profil (`users.adress`) pour préremplir la recherche relais. */
-  const [profilePostalCode, setProfilePostalCode] = useState("");
+  const [shippingOptions, setShippingOptions] = useState<IntakeShippingOptionsSnapshot | null>(null);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [selectedPiggybackCartId, setSelectedPiggybackCartId] = useState<string | null>(null);
+  const [piggybackConfirmChecked, setPiggybackConfirmChecked] = useState(false);
+  const [piggybackPhase, setPiggybackPhase] = useState<"idle" | "saving" | "error">("idle");
+  const [piggybackError, setPiggybackError] = useState<string | null>(null);
+  const [returnShipmentTracking, setReturnShipmentTracking] = useState<{
+    trackingNumber: string | null;
+    trackingHref: string | null;
+  } | null>(null);
+  const [memberIntakeDbTracking, setMemberIntakeDbTracking] = useState<{
+    trackingNumber: string | null;
+    trackingHref: string | null;
+  } | null>(null);
+  const [newBordereauShimmer, setNewBordereauShimmer] = useState(false);
 
   const itemIdsKey = itemIds.join(",");
   useEffect(() => {
@@ -237,6 +133,14 @@ export function ShippingBordereauExperience({
     setAutoError(null);
     setAutoDeveloperHint(null);
     setHelpPhase("idle");
+    setShippingOptions(null);
+    setOptionsLoading(true);
+    setSelectedPiggybackCartId(null);
+    setPiggybackConfirmChecked(false);
+    setPiggybackPhase("idle");
+    setPiggybackError(null);
+    setMemberIntakeDbTracking(null);
+    setNewBordereauShimmer(false);
   }, [itemIdsKey]);
 
   const headerRef = useRef<HTMLElement | null>(null);
@@ -245,7 +149,6 @@ export function ShippingBordereauExperience({
   const fetchData = useCallback(async () => {
     if (itemIds.length === 0) {
       setIsLoading(false);
-      setProfilePostalCode("");
       return;
     }
     setIsLoading(true);
@@ -255,19 +158,9 @@ export function ShippingBordereauExperience({
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      setProfilePostalCode("");
       setIsLoading(false);
       return;
     }
-
-    const { data: profileRow } = await supabase.from("users").select("adress").eq("id", user.id).maybeSingle();
-    const rawAdress =
-      profileRow && typeof profileRow === "object" && "adress" in profileRow
-        ? (profileRow as { adress?: string | null }).adress
-        : null;
-    const parsed = parseMemberAdressForShipment(typeof rawAdress === "string" ? rawAdress : null);
-    const pcFromProfile = (parsed?.sender_postcode ?? "").replace(/\D/g, "").slice(0, 5);
-    setProfilePostalCode(pcFromProfile.length === 5 ? pcFromProfile : "");
 
     const loaded: LoadedRow[] = [];
     for (const id of itemIds) {
@@ -298,7 +191,69 @@ export function ShippingBordereauExperience({
       });
     }
     setRows(loaded);
+
+    const memberShipId = loaded
+      .map((r) => readMemberIntakeShipmentIdFromMetadata(r.intake?.metadata ?? null))
+      .find((id): id is string => Boolean(id));
+    if (memberShipId) {
+      const { data: shipRow } = await supabase
+        .from("shipments")
+        .select("tracking_number, member_tracking_url")
+        .eq("id", memberShipId)
+        .maybeSingle();
+      setMemberIntakeDbTracking(
+        resolveIntakeTrackingHref(
+          typeof shipRow?.tracking_number === "string" ? shipRow.tracking_number : null,
+          typeof shipRow?.member_tracking_url === "string" ? shipRow.member_tracking_url : null,
+        ),
+      );
+    } else {
+      setMemberIntakeDbTracking(null);
+    }
+
+    if (loaded.length > 0) {
+      try {
+        await fetch("/api/items/sendcloud/return-portal/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ item_ids: itemIds }),
+        });
+      } catch {
+        /* ignore */
+      }
+    }
     setIsLoading(false);
+  }, [itemIds]);
+
+  const fetchShippingOptions = useCallback(async () => {
+    if (itemIds.length === 0) {
+      setOptionsLoading(false);
+      return;
+    }
+    setOptionsLoading(true);
+    try {
+      const qs = new URLSearchParams({ item_ids: itemIds.join(",") });
+      const res = await fetch(`/api/items/shipping/options?${qs.toString()}`, {
+        headers: { Accept: "application/json" },
+      });
+      const data = (await res.json().catch(() => ({}))) as IntakeShippingOptionsSnapshot & {
+        ok?: boolean;
+      };
+      if (res.ok && data.ok !== false) {
+        const { ok: _ok, ...snapshot } = data;
+        setShippingOptions(snapshot);
+        if (data.piggyback?.cart_id) {
+          setSelectedPiggybackCartId(data.piggyback.cart_id);
+          setPiggybackConfirmChecked(true);
+        } else if (data.eligible_cart_returns?.length === 1) {
+          setSelectedPiggybackCartId(data.eligible_cart_returns[0]!.cartId);
+        }
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setOptionsLoading(false);
+    }
   }, [itemIds]);
 
   const rowsRef = useRef<LoadedRow[]>([]);
@@ -306,25 +261,27 @@ export function ShippingBordereauExperience({
 
   useEffect(() => {
     void fetchData();
-  }, [fetchData]);
+    void fetchShippingOptions();
+  }, [fetchData, fetchShippingOptions]);
 
-  const runGeneration = useCallback(
-    async (signal?: AbortSignal) => {
+  const runPortalStart = useCallback(
+    async (signal?: AbortSignal, force = false) => {
       if (itemIds.length === 0) return;
       setAutoPhase("trying");
       setAutoError(null);
       setAutoDeveloperHint(null);
       try {
-        const res = await fetch("/api/items/mondial-relay/auto-generate", {
+        const res = await fetch("/api/items/sendcloud/return-portal/start", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ item_ids: itemIds }),
+          body: JSON.stringify({ item_ids: itemIds, force }),
           signal,
         });
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           error?: string;
           developer_hint?: string;
+          return_portal_url?: string;
         };
         if (signal?.aborted) return;
         if (res.ok && data.ok) {
@@ -334,57 +291,266 @@ export function ShippingBordereauExperience({
           await fetchData();
           return;
         }
+        console.error("[return-portal/start] client", {
+          httpStatus: res.status,
+          body: data,
+        });
         setAutoPhase("failed");
-        setAutoError(typeof data.error === "string" ? data.error : "Génération impossible pour le moment.");
+        setAutoError(typeof data.error === "string" ? data.error : "Préparation impossible pour le moment.");
         setAutoDeveloperHint(typeof data.developer_hint === "string" ? data.developer_hint : null);
       } catch (e) {
         if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
         setAutoPhase("failed");
-        setAutoError("Génération impossible pour le moment.");
+        setAutoError("Préparation impossible pour le moment.");
         setAutoDeveloperHint(null);
       }
     },
     [itemIds, fetchData],
   );
 
-  const triggerManualGeneration = useCallback(() => {
+  const triggerPortalStart = useCallback(() => {
+    try {
+      sessionStorage.removeItem(portalSessionKey(itemIds));
+    } catch {
+      /* ignore */
+    }
     generationAbortRef.current?.abort();
     const ac = new AbortController();
     generationAbortRef.current = ac;
-    void runGeneration(ac.signal);
-  }, [runGeneration]);
+    void runPortalStart(ac.signal, false);
+  }, [runPortalStart, itemIds]);
+
+  const resetPortal = useCallback(async () => {
+    setAutoPhase("trying");
+    setAutoError(null);
+    setAutoDeveloperHint(null);
+    try {
+      sessionStorage.removeItem(portalSessionKey(itemIds));
+    } catch {
+      /* ignore */
+    }
+    try {
+      const res = await fetch("/api/items/sendcloud/return-portal/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ item_ids: itemIds }),
+      });
+      if (!res.ok) {
+        setAutoPhase("failed");
+        setAutoError("Nouveau bordereau impossible pour le moment.");
+        return;
+      }
+      generationAbortRef.current?.abort();
+      const ac = new AbortController();
+      generationAbortRef.current = ac;
+      await runPortalStart(ac.signal, false);
+    } catch {
+      setAutoPhase("failed");
+      setAutoError("Nouveau bordereau impossible pour le moment.");
+    }
+  }, [itemIds, runPortalStart]);
+
+  const handleNewBordereau = useCallback(() => {
+    setNewBordereauShimmer(true);
+    void resetPortal().finally(() => {
+      window.setTimeout(() => setNewBordereauShimmer(false), 2900);
+    });
+  }, [resetPortal]);
+
+  const piggybackActive =
+    shippingOptions?.shipping_mode === SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK &&
+    Boolean(shippingOptions.piggyback?.cart_id);
+
+  const expeditionMode = useMemo(() => {
+    if (rows.length === 0 || rows.length !== itemIds.length) return false;
+    return rows.every(
+      (r) =>
+        r.intake?.listing_stage === "validated" &&
+        String(r.intake?.fulfillment_stage ?? "").trim().toLowerCase() === "shipping",
+    );
+  }, [rows, itemIds.length]);
+
+  const intakeLabelTracking = useMemo(() => {
+    const meta = parseIntakeShippingLabelFromMetadata(rows[0]?.intake?.metadata ?? null);
+    return resolveIntakeTrackingHref(meta?.numero_suivi, meta?.lien_suivi);
+  }, [rows]);
+
+  const prepareTracking = useMemo(() => {
+    if (memberIntakeDbTracking?.trackingNumber || memberIntakeDbTracking?.trackingHref) {
+      return memberIntakeDbTracking;
+    }
+    return intakeLabelTracking;
+  }, [memberIntakeDbTracking, intakeLabelTracking]);
+
+  const returnCreated = useMemo(
+    () => isIntakeMemberReturnTrackingNumber(prepareTracking.trackingNumber),
+    [prepareTracking.trackingNumber],
+  );
+
+  const expeditionTracking = useMemo(() => {
+    if (returnShipmentTracking?.trackingNumber || returnShipmentTracking?.trackingHref) {
+      return returnShipmentTracking;
+    }
+    return intakeLabelTracking;
+  }, [returnShipmentTracking, intakeLabelTracking]);
 
   useEffect(() => {
-    if (isLoading || itemIds.length === 0) return;
-    const curRows = rowsRef.current;
-    const { mondial: m0 } = pickMondialFromRows(curRows, itemIds);
-    if (m0?.label_url?.trim()) {
-      setAutoPhase("done");
-      setAutoError(null);
-      setAutoDeveloperHint(null);
+    if (!expeditionMode || !piggybackActive) {
+      setReturnShipmentTracking(null);
       return;
     }
+    const piggy = readIntakePiggybackFromMetadata(rows[0]?.intake?.metadata);
+    if (!piggy.shipmentId) return;
+    if (intakeLabelTracking.trackingNumber || intakeLabelTracking.trackingHref) return;
+
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
+      const supabase = createSupabaseBrowserClient() as any;
+      const { data } = await supabase
+        .from("shipments")
+        .select("tracking_number, member_tracking_url")
+        .eq("id", piggy.shipmentId)
+        .maybeSingle();
+      if (cancelled) return;
+      const resolved = resolveIntakeTrackingHref(
+        typeof data?.tracking_number === "string" ? data.tracking_number : null,
+        typeof data?.member_tracking_url === "string" ? data.member_tracking_url : null,
+      );
+      setReturnShipmentTracking(resolved);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [expeditionMode, piggybackActive, rows, intakeLabelTracking.trackingHref, intakeLabelTracking.trackingNumber]);
+
+  const confirmPiggyback = useCallback(async () => {
+    if (!selectedPiggybackCartId || !piggybackConfirmChecked) return;
+    setPiggybackPhase("saving");
+    setPiggybackError(null);
+    try {
+      const res = await fetch("/api/items/shipping/piggyback-cart-return", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ item_ids: itemIds, cart_id: selectedPiggybackCartId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setPiggybackPhase("error");
+        setPiggybackError(typeof data.error === "string" ? data.error : "Enregistrement impossible.");
+        return;
+      }
+      setPiggybackPhase("idle");
+      await Promise.all([fetchData(), fetchShippingOptions()]);
+    } catch {
+      setPiggybackPhase("error");
+      setPiggybackError("Enregistrement impossible.");
+    }
+  }, [itemIds, selectedPiggybackCartId, piggybackConfirmChecked, fetchData, fetchShippingOptions]);
+
+  const revertToReturnPortal = useCallback(async () => {
+    setPiggybackPhase("saving");
+    setPiggybackError(null);
+    try {
+      const res = await fetch("/api/items/shipping/piggyback-cart-return", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ item_ids: itemIds, use_return_portal: true }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setPiggybackPhase("error");
+        setPiggybackError(typeof data.error === "string" ? data.error : "Réinitialisation impossible.");
+        return;
+      }
+      setPiggybackConfirmChecked(false);
+      setSelectedPiggybackCartId(null);
+      setPiggybackPhase("idle");
+      try {
+        sessionStorage.removeItem(portalSessionKey(itemIds));
+      } catch {
+        /* ignore */
+      }
+      await Promise.all([fetchData(), fetchShippingOptions()]);
+      generationAbortRef.current?.abort();
+      const ac = new AbortController();
+      generationAbortRef.current = ac;
+      void runPortalStart(ac.signal, false);
+    } catch {
+      setPiggybackPhase("error");
+      setPiggybackError("Réinitialisation impossible.");
+    }
+  }, [itemIds, fetchData, fetchShippingOptions, runPortalStart]);
+
+  useEffect(() => {
+    if (isLoading || optionsLoading || itemIds.length === 0) return;
+    if (expeditionMode) {
+      setAutoPhase("skipped");
+      return;
+    }
+    if (piggybackActive) {
+      setAutoPhase("skipped");
+      return;
+    }
+    const curRows = rowsRef.current;
     const complete = curRows.length === itemIds.length && curRows.length > 0;
     const shippingReady =
       complete &&
       curRows.every(
         (r) =>
           r.intake?.listing_stage === "validated" &&
-          String(r.intake?.fulfillment_stage ?? "").trim().toLowerCase() === "shipping",
+          ["ready", "shipping"].includes(
+            String(r.intake?.fulfillment_stage ?? "").trim().toLowerCase(),
+          ),
       );
     if (!shippingReady) {
       setAutoPhase((prev) => (prev === "trying" || prev === "failed" ? prev : "skipped"));
       return;
     }
 
+    if (
+      isIntakeMemberReturnTrackingNumber(memberIntakeDbTracking?.trackingNumber) ||
+      curRows.some((r) => {
+        const meta = parseIntakeShippingLabelFromMetadata(r.intake?.metadata ?? null);
+        return isIntakeMemberReturnTrackingNumber(meta?.numero_suivi);
+      })
+    ) {
+      setAutoPhase("done");
+      return;
+    }
+
+    const { portalReady: existingReady, portalExpired: existingExpired } = pickPortalFromRows(curRows);
+    if (existingReady && !existingExpired) {
+      setAutoPhase("done");
+      return;
+    }
+
+    const storedError = readStoredSendcloudError(curRows);
+    if (storedError) {
+      setAutoPhase("failed");
+      setAutoError(storedError);
+      return;
+    }
+
+    const sessionKey = portalSessionKey(itemIds);
+    try {
+      if (sessionStorage.getItem(sessionKey) === "1") {
+        setAutoPhase("skipped");
+        return;
+      }
+      sessionStorage.setItem(sessionKey, "1");
+    } catch {
+      /* sessionStorage indisponible */
+    }
+
     const ac = new AbortController();
     generationAbortRef.current?.abort();
     generationAbortRef.current = ac;
-    void runGeneration(ac.signal);
+    void runPortalStart(ac.signal, false);
     return () => {
       ac.abort();
     };
-  }, [isLoading, itemIds, fetchData, runGeneration]);
+  }, [isLoading, optionsLoading, itemIdsKey, runPortalStart, piggybackActive, expeditionMode, memberIntakeDbTracking?.trackingNumber]);
 
   useLayoutEffect(() => {
     const el = headerRef.current;
@@ -397,18 +563,22 @@ export function ShippingBordereauExperience({
   }, [headerTitleProp, rows]);
 
   const headerTitle = useMemo(() => {
+    if (expeditionMode) return "Expédition";
     const t = headerTitleProp?.trim();
     if (t) return t;
     return rows[0]?.title ?? "Envoi";
-  }, [headerTitleProp, rows]);
+  }, [expeditionMode, headerTitleProp, rows]);
 
-  const { mondial, intake } = useMemo(() => pickMondialFromRows(rows, itemIds), [rows, itemIds]);
+  const { portalUrl, labelUrl, portalExpired, orderNumber, postalCode, intake } = useMemo(
+    () => pickPortalFromRows(rows),
+    [rows],
+  );
   const inVerification = intake?.fulfillment_stage === "in_verification";
 
   const requestHelp = useCallback(async (message = "") => {
     setHelpPhase("sending");
     try {
-      const res = await fetch("/api/items/mondial-relay/help-request", {
+      const res = await fetch("/api/items/sendcloud/help-request", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ item_ids: itemIds, message }),
@@ -425,38 +595,65 @@ export function ShippingBordereauExperience({
   }, [itemIds, fetchData]);
   const plural = itemIds.length > 1;
 
-  const labelUrl = mondial?.label_url?.trim() ?? "";
-  const showPdfDock = Boolean(labelUrl);
+  const portalHref = portalUrl?.trim() ?? "";
+  const labelHref = labelUrl?.trim() ?? "";
+  const showPortalCta = Boolean(portalHref && !labelHref && !returnCreated);
+  const showPortalExpired = portalExpired && !labelHref && !returnCreated;
 
   const pageSubtitle = useMemo(() => {
     if (isLoading) return "Chargement…";
-    if (labelUrl) return "Imprime avant dépôt au relais.";
+    if (expeditionMode) {
+      return piggybackActive
+        ? "Ta pièce voyage avec ton retour d’échange."
+        : "Ton colis est en route vers Segna.";
+    }
+    if (piggybackActive) {
+      return "Tu envoies ta pièce avec le retour d’un échange en cours.";
+    }
+    if (returnCreated) return "Ton retour est enregistré.";
+    if (labelHref) return "Ton étiquette retour est prête.";
+    if (showPortalExpired) return "Ton accès au portail a expiré.";
+    if (showPortalCta) return "Imprime ton bordereau d’envoi sur le portail Sendcloud.";
+    if (portalHref) return "Chrono 2Shop Retour — crée ton étiquette.";
     if (inVerification) return "Colis reçu — vérification en cours.";
-    if (autoPhase === "trying") return "Génération en cours…";
+    if (autoPhase === "trying") return "Préparation de ton envoi…";
     if (autoPhase === "failed") return "Une action est nécessaire.";
-    if (autoPhase === "skipped") return "Génère ton bordereau pour l’imprimer avant dépôt au relais.";
-    return "Bordereau en préparation.";
-  }, [isLoading, labelUrl, inVerification, autoPhase]);
+    if (autoPhase === "skipped") return "Ouvre le portail pour créer ton étiquette retour.";
+    return "Envoi en préparation.";
+  }, [isLoading, expeditionMode, piggybackActive, returnCreated, labelHref, showPortalCta, showPortalExpired, portalHref, inVerification, autoPhase]);
 
   const prepareHint = useMemo(() => {
     if (isLoading) return "Chargement…";
-    if (labelUrl) {
+    if (piggybackActive && shippingOptions?.piggyback) {
+      return `Glisse ta pièce dans la pochette retour de l’échange ${shippingOptions.piggyback.order_number_compact} si tu as de la place, puis dépose le colis au relais comme d’habitude. Segna la récupérera avec ton retour.`;
+    }
+    if (returnCreated) {
+      return "Imprime ton étiquette si besoin, puis dépose ton colis au relais. Tu peux suivre l’acheminement avec le numéro ci-dessous.";
+    }
+    if (labelHref) {
+      return "Imprime l’étiquette, colle-la sur ton colis et dépose-le au relais choisi.";
+    }
+    if (showPortalExpired) {
+      return `L’expédition technique a été annulée après ${PORTAL_VALID_MINUTES} minutes. Utilise « Nouveau Bordereau » pour rouvrir le portail.`;
+    }
+    if (showPortalCta) {
+      const base = `Ouvre le portail, choisis ton point relais Chronopost et imprime ton bordereau d’envoi (lien valable ${PORTAL_VALID_MINUTES} minutes).`;
       if (plural && rows.length > 0) {
-        return "Un seul colis pour toutes les pièces — imprime l’étiquette (bouton en bas), puis dépose au relais.";
+        return `Un seul colis pour toutes les pièces. ${base}`;
       }
-      return "Imprime l’étiquette depuis le bouton en bas de l’écran, puis dépose au relais.";
+      return base;
+    }
+    if (portalHref) {
+      return "Ouvre le portail Sendcloud pour finaliser ton envoi.";
     }
     if (autoPhase === "trying") {
-      return "Emballe ton colis en attendant la génération d’étiquette.";
+      return "Préparation du lien vers le portail d’envoi…";
     }
     if (autoPhase === "failed") {
-      return "Corrige le point bloquant ci-dessous, puis relance la génération.";
+      return "Corrige le point bloquant ci-dessous, ou lance un nouveau bordereau.";
     }
-    if (plural && rows.length > 0) {
-      return "Emballe ton colis en attendant la génération d’étiquette — toutes les pièces listées ci-dessus dans le même carton.";
-    }
-    return "Emballe ton colis en attendant la génération d’étiquette.";
-  }, [isLoading, labelUrl, autoPhase, plural, rows.length]);
+    return "Nous préparons ton accès au portail Sendcloud pour générer l’étiquette retour vers Segna.";
+  }, [isLoading, piggybackActive, shippingOptions, returnCreated, labelHref, showPortalCta, showPortalExpired, portalHref, autoPhase, plural, rows.length]);
 
   const goBack = () => {
     if (backHref.startsWith("/")) {
@@ -467,7 +664,7 @@ export function ShippingBordereauExperience({
   };
 
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col bg-zinc-100">
+    <div className="flex min-h-[100dvh] w-full flex-col bg-white">
       <header
         ref={headerRef}
         className="fixed left-1/2 top-0 z-[60] w-full max-w-[430px] -translate-x-1/2 border-b border-zinc-200 bg-white"
@@ -498,9 +695,7 @@ export function ShippingBordereauExperience({
       />
 
       <div
-        className={cn(
-          "mx-auto flex w-full max-w-[430px] flex-1 flex-col space-y-[4.5px] pt-[4.5px]",
-        )}
+        className="mx-auto flex w-full max-w-[430px] flex-1 flex-col bg-white"
       >
         {plural && rows.length > 0 ? (
           <section className="bg-white px-5 pb-6 pt-8">
@@ -525,7 +720,31 @@ export function ShippingBordereauExperience({
           </section>
         ) : null}
 
-        <section className="bg-white px-5 pb-6 pt-8">
+        <section
+          className={cn(
+            "flex min-h-0 flex-1 flex-col bg-white",
+            expeditionMode ? "pb-8" : "px-5 pb-8 pt-8",
+          )}
+        >
+          {expeditionMode ? (
+            <IntakeShippingExpeditionSection
+              statusLine={
+                piggybackActive
+                  ? "Colis retour déposé, ta pièce est avec lui jusqu’à Segna."
+                  : "Colis déposé, en route vers Segna."
+              }
+              detailLine={
+                piggybackActive && shippingOptions?.piggyback
+                  ? `Envoi mutualisé avec l’échange ${shippingOptions.piggyback.order_number_compact}.`
+                  : null
+              }
+              trackingNumber={expeditionTracking.trackingNumber}
+              trackingHref={expeditionTracking.trackingHref}
+              piggybackOrderCompact={shippingOptions?.piggyback?.order_number_compact ?? null}
+              returnHref={shippingOptions?.piggyback?.return_href ?? null}
+            />
+          ) : (
+            <>
           <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
             Prépare ton envoi
           </h2>
@@ -533,13 +752,107 @@ export function ShippingBordereauExperience({
             {prepareHint}
           </p>
 
-          {labelUrl ? (
+          {piggybackActive && shippingOptions?.piggyback ? (
             <div className={cn(montserrat.className, "mt-6 space-y-4")}>
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-200/90 bg-emerald-50 px-4 py-3.5">
+                <Package className="mt-0.5 h-5 w-5 shrink-0 text-emerald-900" aria-hidden />
+                <p className="text-[14px] font-medium leading-snug text-emerald-950">
+                  Envoi mutualisé avec la commande{" "}
+                  <span className="font-mono font-semibold">{shippingOptions.piggyback.order_number_compact}</span>.
+                  Pas d’étiquette séparée : ta pièce voyage dans la pochette retour de l’échange.
+                </p>
+              </div>
+              <Link
+                href={shippingOptions.piggyback.return_href}
+                className={cn(
+                  montserrat.className,
+                  "flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
+                )}
+              >
+                Voir mon retour d’échange
+              </Link>
+              <button
+                type="button"
+                onClick={() => void revertToReturnPortal()}
+                disabled={piggybackPhase === "saving"}
+                className={cn(
+                  montserrat.className,
+                  "flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 disabled:opacity-50",
+                )}
+              >
+                {piggybackPhase === "saving" ? "Mise à jour…" : "Pas assez de place (bordereau dédié)"}
+              </button>
+              {piggybackError ? (
+                <p className="text-center text-[13px] font-medium text-rose-600">{piggybackError}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!piggybackActive && returnCreated ? (
+            <div className={cn(montserrat.className, "mt-6 space-y-4")}>
+              {labelHref ? (
+                <a
+                  href={labelHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    montserrat.className,
+                    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
+                  )}
+                >
+                  Télécharger mon étiquette
+                  <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
+                </a>
+              ) : prepareTracking.trackingHref ? (
+                <a
+                  href={prepareTracking.trackingHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    montserrat.className,
+                    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
+                  )}
+                >
+                  Suivre mon colis
+                  <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
+                </a>
+              ) : null}
+              <IntakeNewBordereauButton
+                onClick={handleNewBordereau}
+                shimmer={newBordereauShimmer}
+                disabled={autoPhase === "trying"}
+              />
+            </div>
+          ) : !piggybackActive && labelHref ? (
+            <div className={cn(montserrat.className, "mt-6 space-y-4")}>
+              <a
+                href={labelHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  montserrat.className,
+                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
+                )}
+              >
+                Télécharger mon étiquette
+                <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
+              </a>
+              {orderNumber ? (
+                <p className="text-center text-[13px] font-medium text-zinc-600">
+                  N° commande : <span className="font-mono font-semibold text-zinc-900">{orderNumber}</span>
+                  {postalCode ? ` · CP ${postalCode}` : ""}
+                </p>
+              ) : null}
+              <IntakeNewBordereauButton
+                onClick={handleNewBordereau}
+                shimmer={newBordereauShimmer}
+                disabled={autoPhase === "trying"}
+              />
               <button
                 type="button"
                 onClick={() =>
                   void requestHelp(
-                    "Demande de régénération du bordereau (PDF illisible, erreur à l’ouverture, ou besoin d’un nouveau fichier côté Segna).",
+                    "Problème avec l’étiquette retour (téléchargement, relais, ou besoin d’aide côté Segna).",
                   )
                 }
                 disabled={helpPhase === "sending" || helpPhase === "sent"}
@@ -550,7 +863,7 @@ export function ShippingBordereauExperience({
                   ? "Envoi…"
                   : helpPhase === "sent"
                     ? "Demande envoyée"
-                    : "PDF illisible ? Contacter Segna"}
+                    : "Problème avec l’étiquette ? Contacter Segna"}
               </button>
               {helpPhase === "error" ? (
                 <p className="text-center text-[13px] font-medium text-rose-600">Réessaie plus tard ou écris-nous.</p>
@@ -558,35 +871,70 @@ export function ShippingBordereauExperience({
               {helpPhase === "sent" ? (
                 <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
               ) : null}
-              {mondial?.numero_suivi ? (
-                <div className="rounded-2xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">Suivi</p>
-                  <p className="mt-1 font-mono text-[15px] font-semibold text-zinc-900">{mondial.numero_suivi}</p>
-                  {mondial?.lien_suivi ? (
-                    <a
-                      href={mondial.lien_suivi}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex items-center gap-1 text-[14px] font-semibold text-zinc-900 underline underline-offset-2"
-                    >
-                      Suivre le colis
-                      <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                    </a>
-                  ) : null}
-                </div>
-              ) : mondial?.lien_suivi ? (
-                <a
-                  href={mondial.lien_suivi}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[14px] font-semibold text-zinc-900 underline underline-offset-2"
-                >
-                  Suivre le colis
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                </a>
+            </div>
+          ) : !piggybackActive && showPortalExpired ? (
+            <div className={cn(montserrat.className, "mt-6 space-y-4")}>
+              <p
+                className={cn(
+                  montserrat.className,
+                  "rounded-2xl border border-amber-200/90 bg-amber-50 px-4 py-3 text-[14px] font-medium leading-snug text-amber-950",
+                )}
+              >
+                Ton lien portail n’est plus actif ({PORTAL_VALID_MINUTES} minutes écoulées). L’expédition
+                technique a été annulée chez Sendcloud.
+              </p>
+              <IntakeNewBordereauButton
+                onClick={handleNewBordereau}
+                shimmer={newBordereauShimmer}
+                variant="primary"
+                disabled={autoPhase === "trying"}
+              />
+            </div>
+          ) : !piggybackActive && showPortalCta ? (
+            <div className={cn(montserrat.className, "mt-6 space-y-4")}>
+              <a
+                href={portalHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  montserrat.className,
+                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
+                )}
+              >
+                Imprimer Bordereau d&apos;envoi
+                <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
+              </a>
+              {orderNumber ? (
+                <p className="text-center text-[13px] font-medium text-zinc-600">
+                  N° commande : <span className="font-mono font-semibold text-zinc-900">{orderNumber}</span>
+                  {postalCode ? ` · CP ${postalCode}` : ""}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={() =>
+                  void requestHelp(
+                    "Problème avec le portail d’envoi (lien inaccessible, erreur à l’ouverture, ou besoin d’aide côté Segna).",
+                  )
+                }
+                disabled={helpPhase === "sending" || helpPhase === "sent"}
+                className="flex w-full items-center justify-center gap-2 text-center text-[14px] font-semibold text-zinc-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+              >
+                <LifeBuoy className="h-4 w-4 shrink-0" aria-hidden />
+                {helpPhase === "sending"
+                  ? "Envoi…"
+                  : helpPhase === "sent"
+                    ? "Demande envoyée"
+                    : "Problème avec le portail ? Contacter Segna"}
+              </button>
+              {helpPhase === "error" ? (
+                <p className="text-center text-[13px] font-medium text-rose-600">Réessaie plus tard ou écris-nous.</p>
+              ) : null}
+              {helpPhase === "sent" ? (
+                <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
               ) : null}
             </div>
-          ) : autoPhase === "trying" ? (
+          ) : !piggybackActive && autoPhase === "trying" ? (
             <div
               className={cn(
                 montserrat.className,
@@ -594,9 +942,9 @@ export function ShippingBordereauExperience({
               )}
             >
               <Loader2 className="h-5 w-5 shrink-0 animate-spin text-zinc-900" aria-hidden />
-              <p className="leading-snug">Génération du bordereau…</p>
+              <p className="leading-snug">Préparation du portail d’envoi…</p>
             </div>
-          ) : autoPhase === "failed" ? (
+          ) : !piggybackActive && autoPhase === "failed" ? (
             <div className="mt-6 space-y-3">
               <p
                 className={cn(
@@ -605,7 +953,7 @@ export function ShippingBordereauExperience({
                 )}
               >
                 {(() => {
-                  const msg = autoError ?? "Génération impossible pour le moment.";
+                  const msg = autoError ?? "Préparation impossible pour le moment.";
                   if (!msg.includes(PROFILE_ADDRESS_INCOMPLETE_HINT)) return msg;
                   return (
                     <>
@@ -637,7 +985,7 @@ export function ShippingBordereauExperience({
                 onClick={() => {
                   setHelpPhase("idle");
                   setAutoDeveloperHint(null);
-                  triggerManualGeneration();
+                  triggerPortalStart();
                 }}
                 className={cn(
                   montserrat.className,
@@ -647,93 +995,171 @@ export function ShippingBordereauExperience({
                 Réessayer
               </button>
             </div>
-          ) : (
+          ) : !piggybackActive ? (
             <div className="mt-6 space-y-3">
               <button
                 type="button"
-                onClick={triggerManualGeneration}
+                onClick={triggerPortalStart}
                 disabled={isLoading || itemIds.length === 0 || inVerification}
                 className={cn(
                   montserrat.className,
                   "flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50",
                 )}
               >
-                Générer le bordereau
+                Envoyer ma pièce
               </button>
               {inVerification ? (
                 <p className={cn(montserrat.className, "text-center text-[13px] font-medium text-zinc-500")}>
-                  Le bordereau sera proposé après la vérification de ton colis par Segna.
+                  L’envoi sera proposé après la vérification de ton colis par Segna.
                 </p>
               ) : null}
-              <button
-                type="button"
-                onClick={() => void fetchData()}
-                disabled={isLoading}
-                className={cn(
-                  montserrat.className,
-                  "flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 disabled:opacity-50",
-                )}
-              >
-                Actualiser
-              </button>
+              <IntakeNewBordereauButton
+                onClick={handleNewBordereau}
+                shimmer={newBordereauShimmer}
+                disabled={isLoading || autoPhase === "trying"}
+              />
             </div>
-          )}
+          ) : null}
 
           {isLoading ? (
             <p className={cn(montserrat.className, "mt-4 text-[13px] font-medium text-zinc-500")}>Chargement…</p>
           ) : null}
+            </>
+          )}
         </section>
 
-        <ShippingRelaySearchPanel defaultPostalCode={profilePostalCode} />
-
-        <section
-          className={cn(
-            "flex min-h-0 flex-1 flex-col bg-white px-5 pt-8",
-            showPdfDock
-              ? "pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]"
-              : "pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]",
-          )}
-        >
+        {!piggybackActive && !expeditionMode ? (
+        <section className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-8">
           <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
             Mutualiser tes envois
           </h2>
-          <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
-            Tu prépares plusieurs prêts ? Depuis l’échange, tu peux suivre tes pièces en cours et regrouper les envois
-            lorsque la logistique le permet.
-          </p>
-          <Link
-            href="/exchange"
-            className={cn(
-              montserrat.className,
-              "mt-4 inline-flex text-[15px] font-semibold text-zinc-900 underline underline-offset-2 decoration-zinc-400 hover:decoration-zinc-900",
-            )}
-          >
-            Nouvel échange
-          </Link>
-          <div className="min-h-0 flex-1" aria-hidden />
-        </section>
-      </div>
+          {optionsLoading ? (
+            <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium text-zinc-500")}>Chargement…</p>
+          ) : (
+            <div className="mt-5 space-y-8">
+              <div>
+                <h3 className={cn(playfair.className, "text-[17px] font-bold text-zinc-900")}>
+                  Plusieurs pièces au prêt
+                </h3>
+                <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
+                  Tu peux proposer d’autres pièces et les envoyer ensemble dans un seul colis vers Segna.
+                </p>
+                {(shippingOptions?.other_intake_shipping_peers?.length ?? 0) > 0 ? (
+                  <ul className={cn(montserrat.className, "mt-3 space-y-1.5 text-[14px] font-medium text-zinc-700")}>
+                    {shippingOptions!.other_intake_shipping_peers.map((peer) => (
+                      <li key={peer.id}>· {peer.title}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className={cn(montserrat.className, "mt-4 flex flex-col gap-2.5")}>
+                  {shippingOptions?.merge_intake_shipping_href ? (
+                    <Link
+                      href={shippingOptions.merge_intake_shipping_href}
+                      className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900"
+                    >
+                      Regrouper dans un seul envoi
+                    </Link>
+                  ) : null}
+                  <Link
+                    href="/items/new?fresh=1"
+                    className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+                  >
+                    Nouvelle pièce
+                  </Link>
+                </div>
+              </div>
 
-      {showPdfDock ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center">
-          <div className="pointer-events-auto w-full max-w-[430px] border-t border-zinc-200 bg-white shadow-[0_-12px_32px_rgba(0,0,0,0.06)] pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-3">
-            <div className="px-4">
-              <a
-                href={labelUrl}
-                target="_blank"
-                rel="noreferrer"
+              {!piggybackActive ? (
+              <div>
+                <h3 className={cn(playfair.className, "text-[17px] font-bold text-zinc-900")}>
+                  Retour d’échange en cours
+                </h3>
+                {(shippingOptions?.eligible_cart_returns?.length ?? 0) > 0 ? (
+                  <div className="mt-4 space-y-4">
+              <p className={cn(montserrat.className, "text-[14px] font-medium leading-snug text-zinc-600")}>
+                Tu as un échange reçu pas encore renvoyé ? Glisse ta pièce dans la pochette retour (si tu as de la place)
+                au lieu de créer une étiquette séparée.
+              </p>
+              <fieldset className="space-y-2">
+                <legend className="sr-only">Échange à utiliser pour le retour</legend>
+                {shippingOptions!.eligible_cart_returns.map((target) => (
+                  <label
+                    key={target.cartId}
+                    className={cn(
+                      montserrat.className,
+                      "flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 transition",
+                      selectedPiggybackCartId === target.cartId
+                        ? "border-zinc-900 bg-zinc-50"
+                        : "border-zinc-200 bg-white",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="piggyback_cart"
+                      className="h-4 w-4 shrink-0 accent-zinc-900"
+                      checked={selectedPiggybackCartId === target.cartId}
+                      onChange={() => setSelectedPiggybackCartId(target.cartId)}
+                    />
+                    <span className="min-w-0 flex-1 text-[14px] font-semibold text-zinc-900">
+                      Échange {target.orderNumberCompact}
+                    </span>
+                    <Link
+                      href={target.returnHref}
+                      className="shrink-0 text-[13px] font-semibold text-zinc-600 underline underline-offset-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Voir
+                    </Link>
+                  </label>
+                ))}
+              </fieldset>
+              <label
                 className={cn(
                   montserrat.className,
-                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800",
+                  "flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3.5",
                 )}
               >
-                Ouvrir le bordereau (PDF)
-                <ExternalLink className="h-4 w-4" aria-hidden />
-              </a>
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-zinc-900"
+                  checked={piggybackConfirmChecked}
+                  onChange={(e) => setPiggybackConfirmChecked(e.target.checked)}
+                />
+                <span className="text-[14px] font-medium leading-snug text-zinc-800">
+                  Je confirme glisser ma pièce dans la pochette retour de cet échange, s’il y a la place.
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => void confirmPiggyback()}
+                disabled={
+                  piggybackPhase === "saving" || !selectedPiggybackCartId || !piggybackConfirmChecked
+                }
+                className={cn(
+                  montserrat.className,
+                  "flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50",
+                )}
+              >
+                {piggybackPhase === "saving" ? "Enregistrement…" : "Envoyer avec ce retour"}
+              </button>
+                    {piggybackError ? (
+                      <p className="text-center text-[13px] font-medium text-rose-600">{piggybackError}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
+                    Aucun échange reçu en attente de retour pour le moment.
+                  </p>
+                )}
+              </div>
+              ) : null}
             </div>
-          </div>
-        </div>
-      ) : null}
+          )}
+          <div className="min-h-0 flex-1" aria-hidden />
+        </section>
+        ) : null}
+      </div>
+
     </div>
   );
 }

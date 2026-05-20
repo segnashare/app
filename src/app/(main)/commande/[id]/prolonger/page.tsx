@@ -4,6 +4,11 @@ import { notFound, redirect } from "next/navigation";
 import { CommandeProlongerClient } from "@/components/commande/CommandeProlongerClient";
 import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import {
+  ensureMemberReceiptAutoConfirmed,
+  isMemberReceiptValidated,
+  memberReceiptAnchorFromOrderShipment,
+} from "@/lib/cart/member-receipt-validation";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -42,6 +47,22 @@ export default async function CommandeProlongerPage({ params }: PageProps) {
 
   const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
   if (shipSt !== "delivered") {
+    redirect(`/commande/${cartId}`);
+  }
+
+  const receiptAnchor = memberReceiptAnchorFromOrderShipment(detail.shipment);
+  const confirmedAt = await ensureMemberReceiptAutoConfirmed(supabase, {
+    cartId,
+    userId,
+    memberReceiptConfirmedAt: detail.memberReceiptConfirmedAt,
+    shipment: receiptAnchor,
+  });
+  if (
+    !isMemberReceiptValidated(
+      confirmedAt ?? detail.memberReceiptConfirmedAt,
+      receiptAnchor,
+    )
+  ) {
     redirect(`/commande/${cartId}`);
   }
 

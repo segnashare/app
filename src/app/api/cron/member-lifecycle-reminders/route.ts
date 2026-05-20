@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCronRouteBearerSecret } from "@/lib/config/env";
+import { runBorrowOverdueAccrual } from "@/lib/cron/run-borrow-overdue-accrual";
 import { runBorrowReturnReminders } from "@/lib/cron/run-borrow-return-reminders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -9,8 +10,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
  * Planifier côté hébergeur : `vercel.json` → `crons` (ex. 1×/jour) ou équivalent ; header
  * `Authorization: Bearer` = `SEGNA_CRON_SECRET` ou `CRON_SECRET` (Vercel envoie automatiquement ce dernier).
  *
- * Recommandation : exécution **quotidienne** (buckets relatifs à l’échéance : Guest J-3 / J-1 / JJ ;
- * Membre + / X J-7 / J-3 / JJ, puis `overdue_N` jour par jour après l’échéance).
+ * Recommandation : exécution **quotidienne** (J-3, J-1, J-J, puis `overdue_N` après l’échéance).
+ * Planifié aussi via `pg_cron` Supabase (migration `schedule_borrow_return_reminders_cron`).
  */
 export async function GET(request: Request) {
   const expected = getCronRouteBearerSecret();
@@ -26,8 +27,11 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdminClient();
 
   try {
-    const summary = await runBorrowReturnReminders(admin);
-    return NextResponse.json({ ok: true as const, ...summary });
+    const [reminders, overdue] = await Promise.all([
+      runBorrowReturnReminders(admin),
+      runBorrowOverdueAccrual(admin),
+    ]);
+    return NextResponse.json({ ok: true as const, reminders, overdue });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false as const, error: msg }, { status: 500 });

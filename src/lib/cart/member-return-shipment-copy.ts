@@ -1,5 +1,13 @@
 /** Libellés suivi retour panier (`context = cart_return`) — alignés liste Échange & page dédiée. */
 
+import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
+
+export {
+  isCartReturnCommitmentMet,
+  isReturnExchangeFinishedForMemberList,
+  isReturnShipmentPreDeposit,
+} from "@/lib/cart/cart-return-status";
+
 export type MemberReturnShipmentPhaseCopy = {
   title: string;
   detail: string;
@@ -19,7 +27,7 @@ export function isActiveMemberReturnPhase(status: string | null | undefined): bo
  * La distinction reste en base pour le back-office.
  */
 export function getMemberReturnShipmentPhaseCopy(status: string): MemberReturnShipmentPhaseCopy {
-  const s = status.toLowerCase();
+  const s = normalizeCartReturnShipmentStatus(status) ?? status.toLowerCase();
   switch (s) {
     case "pending":
       return {
@@ -44,10 +52,10 @@ export function getMemberReturnShipmentPhaseCopy(status: string): MemberReturnSh
         detail: "Ton colis est en route vers Segna.",
       };
     case "dropped_in":
-    case "in_transit_in":
       return {
-        title: "Retour en transit",
-        detail: "Ton colis est pris en charge vers Segna.",
+        title: "Échange terminé",
+        detail:
+          "Ton retour est pris en charge, plus rien à faire de ton côté. Nous vérifions le colis chez Segna et te recontactons seulement en cas d’écart.",
       };
     case "returned":
     case "en_verification":
@@ -84,7 +92,7 @@ export function getReturnShipmentSubtitle(
   updatedAtIso: string,
   formatDate: (iso: string) => string,
 ): string | null {
-  const s = status.toLowerCase();
+  const s = normalizeCartReturnShipmentStatus(status) ?? status.toLowerCase();
   if (s === "pending" || s === "ready") return null;
   return `Dernière mise à jour le ${formatDate(updatedAtIso)}`;
 }

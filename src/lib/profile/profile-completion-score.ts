@@ -78,10 +78,10 @@ function sizesOkFromRows(
   return toDisplayOk(sizesValue);
 }
 
-/** Au moins un pseudo / lien réseau renseigné (champ unique « Réseaux »). */
+/** Pseudo Instagram renseigné (seul réseau affiché sur le profil public). */
 export function isReseauxFieldComplete(profileData: Record<string, unknown>): boolean {
   const h = readSocialHandlesFromProfileData(profileData);
-  return Boolean(h.instagram || h.tiktok || h.pinterest || h.threads);
+  return Boolean(h.instagram);
 }
 
 export function computeProfileCompletionPercent(s: ProfileCompletionSignals): number {

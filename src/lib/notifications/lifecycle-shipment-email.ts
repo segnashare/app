@@ -20,20 +20,58 @@ function shell(
   };
 }
 
-export function orderOutboundReadyEmail(firstName: string | null): { subject: string; text: string; html: string } {
-  const pEsc = escapeHtml(firstNameOrBonjour(firstName));
+export type OrderOutboundReadyEmailInput = {
+  firstName: string | null;
+  orderRef: string;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+};
+
+export function orderOutboundReadyEmail(
+  input: OrderOutboundReadyEmailInput,
+): { subject: string; text: string; html: string } {
+  const pEsc = escapeHtml(firstNameOrBonjour(input.firstName));
+  const orderRefEsc = escapeHtml(input.orderRef);
+  const trackingEsc = input.trackingNumber ? escapeHtml(input.trackingNumber) : null;
+  const trackingUrlEsc = input.trackingUrl ? escapeHtml(input.trackingUrl) : null;
+  const orderPageUrl = input.trackingUrl;
   const subject = "Commande prête à partir";
-  const { text, html } = shell(subject, "Ta commande est prête pour l’expédition", [
-    { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
+
+  const refLineText = input.orderRef ? `Commande ${input.orderRef}.` : null;
+  const refLineHtml = input.orderRef ? `<strong>Commande ${orderRefEsc}</strong>.` : null;
+
+  const suiviLineText = input.trackingNumber
+    ? `Numéro de suivi : ${input.trackingNumber}.`
+    : "Le numéro de suivi sera disponible dans l’app Segna.";
+  const suiviLineHtml = trackingEsc
+    ? `<strong>Numéro de suivi :</strong> ${trackingEsc}.`
+    : "Le numéro de suivi sera disponible dans l’<strong>app Segna</strong>.";
+
+  const linkText = orderPageUrl
+    ? `Suivre l’expédition : ${orderPageUrl}`
+    : "Retrouve le suivi dans l’app Segna.";
+  const linkHtml = orderPageUrl
+    ? `<a href="${trackingUrlEsc}" style="color:#000;text-decoration:underline;font-weight:600;">Suivre l’expédition</a>`
+    : "Retrouve le suivi dans l’<strong>app Segna</strong>.";
+
+  const paragraphs: { text: string; html: string }[] = [
+    { text: `Bonjour ${firstNameOrBonjour(input.firstName)},`, html: `Bonjour ${pEsc},` },
     {
       text: "Ta commande a été préparée et est prête à être expédiée.",
       html: "Ta commande a été <strong>préparée</strong> et est <strong>prête à être expédiée</strong>.",
     },
-    {
-      text: "Tu recevras un nouveau message dès que le transport sera en cours.",
-      html: "Tu recevras un nouveau message dès que le transport sera en cours.",
-    },
-  ]);
+  ];
+  if (refLineText && refLineHtml) {
+    paragraphs.push({ text: refLineText, html: refLineHtml });
+  }
+  paragraphs.push({ text: suiviLineText, html: suiviLineHtml });
+  paragraphs.push({ text: linkText, html: linkHtml });
+  paragraphs.push({
+    text: "Tu recevras un nouveau message dès que le transport sera en cours.",
+    html: "Tu recevras un nouveau message dès que le transport sera en cours.",
+  });
+
+  const { text, html } = shell(subject, "Ta commande est prête pour l’expédition", paragraphs);
   return { subject, text, html };
 }
 
@@ -210,5 +248,65 @@ export function borrowDeadlineReminderEmail(
       html: "Détail et étiquette : rubrique <strong>Échange</strong> ou fiche commande / emprunt.",
     },
   ]);
+  return { subject, text, html, smsBody };
+}
+
+function formatPenaltyEuros(cents: number): string {
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(
+    Math.max(0, cents) / 100,
+  );
+}
+
+export function borrowOverdueDailyEmail(
+  firstName: string | null,
+  opts: {
+    cartLabel: string;
+    lateDayIndex: number;
+    penaltyCents: number;
+    penaltyCredits: number;
+    ratePercent: number;
+    chargeStatus: string;
+    chargedViaStripe?: boolean;
+  },
+): { subject: string; text: string; html: string; smsBody: string } {
+  const pEsc = escapeHtml(firstNameOrBonjour(firstName));
+  const labelEsc = escapeHtml(opts.cartLabel);
+  const day = Math.max(1, Math.trunc(opts.lateDayIndex));
+  const amountLabel = formatPenaltyEuros(opts.penaltyCents);
+  const amountEsc = escapeHtml(amountLabel);
+  const rateEsc = escapeHtml(String(opts.ratePercent));
+  const tier =
+    day <= 7
+      ? "Une pénalité de retard de 3 % de la valeur de ton panier s’applique chaque jour cette première semaine."
+      : "À partir du 8ᵉ jour de retard, la pénalité passe à 5 % de la valeur de ton panier par jour.";
+
+  const subject =
+    day === 1
+      ? "Retour en retard — 1er jour de pénalité"
+      : `Retour en retard — jour ${day}`;
+
+  const chargeNote =
+    opts.chargeStatus === "failed"
+      ? "Nous n’avons pas pu prélever ta carte : mets à jour ton moyen de paiement depuis l’app."
+      : opts.chargeStatus === "charged"
+        ? `Montant du jour : ${amountLabel} (prélevé sur ta carte enregistrée).`
+        : opts.chargeStatus === "pending"
+          ? `Montant du jour : ${amountLabel} (prélèvement en attente — cumul minimum 0,50 €).`
+          : `Montant du jour : ${amountLabel}.`;
+
+  const bodyP2Text = `Jour ${day} de retard pour ${opts.cartLabel} (${rateEsc} % / jour). ${chargeNote} ${tier} Dépose ton colis au relais ou prolonge l’échange depuis l’app.`;
+  const bodyP2Html = `Jour <strong>${day}</strong> de retard pour <strong>${labelEsc}</strong> (<strong>${rateEsc} %</strong> / jour). ${escapeHtml(chargeNote)} ${escapeHtml(tier)} Dépose ton colis au relais ou prolonge l’échange depuis l’app.`;
+
+  const { text, html } = shell(subject, subject, [
+    { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
+    { text: bodyP2Text, html: bodyP2Html },
+    {
+      text: "Détail : rubrique Échange → emprunt en cours.",
+      html: "Détail : rubrique <strong>Échange</strong> → emprunt en cours.",
+    },
+  ]);
+
+  const smsBody = `Segna : retard retour J${day} — ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}). Ouvre l’app.`;
+
   return { subject, text, html, smsBody };
 }

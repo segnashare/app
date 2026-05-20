@@ -10,15 +10,18 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ avis?: string; credits?: string }>;
+};
 
 function isOutboundDelivered(detail: Awaited<ReturnType<typeof fetchMemberCartOrderDetail>>): boolean {
   if (!detail?.shipment) return false;
   return detail.shipment.status.toLowerCase() === "delivered";
 }
 
-export default async function ExchangeRetourPage({ params }: PageProps) {
-  const { id: cartId } = await params;
+export default async function ExchangeRetourPage({ params, searchParams }: PageProps) {
+  const [{ id: cartId }, query] = await Promise.all([params, searchParams]);
   if (!CART_ID_RE.test(cartId)) {
     notFound();
   }
@@ -49,12 +52,16 @@ export default async function ExchangeRetourPage({ params }: PageProps) {
   }
 
   const borrowExtensionDaysTotal = await fetchCartBorrowExtensionDaysTotal(supabase, cartId);
+  const showAvisSuccess = query.avis === "ok";
+  const avisSuccessCredits = Math.max(0, Math.floor(Number(query.credits ?? 0)));
 
   return (
     <RetourDetailView
       detail={detail}
       membershipLabel={membershipLabel}
       borrowExtensionDaysTotal={borrowExtensionDaysTotal}
+      showAvisSuccess={showAvisSuccess}
+      avisSuccessCredits={avisSuccessCredits}
     />
   );
 }

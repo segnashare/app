@@ -30,6 +30,7 @@ const API_MIDDLEWARE_BYPASS_PREFIXES = [
   "/api/internal/",
   "/api/stripe/webhook",
   "/api/uber-direct/webhook",
+  "/api/sendcloud/webhook",
 ] as const;
 const ONBOARDING_PATHS = [
   "/onboarding/1",

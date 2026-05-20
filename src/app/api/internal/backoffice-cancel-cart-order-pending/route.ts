@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
+import { cancelCartOutboundSendcloudOrder } from "@/lib/cart/cancel-cart-outbound-sendcloud-order";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -167,6 +168,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false as const, error: "rpc_forbidden" }, { status: 403 });
     }
     return NextResponse.json({ ok: false as const, error: "cancel_failed", detail: msg.slice(0, 200) }, { status: 500 });
+  }
+
+  try {
+    const scCancel = await cancelCartOutboundSendcloudOrder(admin, cartId);
+    if (scCancel.notices.length > 0) {
+      console.info("[internal/backoffice-cancel-cart-order-pending] sendcloud", scCancel.notices.join(" · "));
+    }
+  } catch (e) {
+    console.error("[internal/backoffice-cancel-cart-order-pending] sendcloud cancel", e);
   }
 
   const idempotencyKey = `txn:${NotificationKind.cartOrderCanceledBackofficePrep}:${cartId}`;

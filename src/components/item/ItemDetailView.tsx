@@ -830,6 +830,8 @@ export function ItemDetailView({
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
           segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
+          itemFeedbacks={data.itemFeedbacks}
+          wornPhotos={data.wornPhotos}
         />
       </div>
 

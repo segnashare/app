@@ -7,7 +7,11 @@ export function needsItemIntakeUi(
   return Boolean(
     listingStage &&
       (["evaluation", "validation_pending", "evaluated", "refused"].includes(listingStage) ||
-        (listingStage === "validated" && fulfillmentStage != null && fulfillmentStage !== "verified")),
+        (listingStage === "validated" &&
+          fulfillmentStage != null &&
+          fulfillmentStage !== "verified" &&
+          fulfillmentStage !== "shipping" &&
+          fulfillmentStage !== "in_verification")),
   );
 }
 
@@ -55,7 +59,8 @@ export function lendPipelineRank(
   if (ls === "validated") {
     if (fs === "verified") return 0;
     if (fs === "in_verification") return 1;
-    if (fs === "shipping" || fs === "") return 2;
+    if (fs === "shipping") return 2;
+    if (fs === "ready" || fs === "") return 3;
   }
   if (ls === "validation_pending") return 3;
   if (ls === "evaluated") return 4;

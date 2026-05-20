@@ -46,26 +46,31 @@ export function getSegnaRecipientFromEnv(): MrPerson | null {
   };
 }
 
+export type SegnaReturnHubRelayEntry = { code: string; label: string };
+
 /**
- * Codes PR hub **destination** retour, dans l’ordre (cascade MR).
- * `MONDR_SEGNA_RETURN_DELIVERY_RELAY_CODE` : soit `FR-xxxxxx`, soit un JSON tableau
- * comme `MONDR_RELAY_PREFERRED_JSON` : `[{"code":"FR-…","label":"…"},…]`.
+ * Points relais hub retour Segna (ordre = priorité).
+ * `MONDR_SEGNA_RETURN_DELIVERY_RELAY_CODE` : `FR-xxxxxx` ou JSON `[{"code":"FR-…","label":"…"},…]`.
  */
-export function getSegnaReturnDeliveryRelayCodesFromEnv(): string[] {
+export function getSegnaReturnDeliveryRelayHubEntriesFromEnv(): SegnaReturnHubRelayEntry[] {
   const raw = process.env.MONDR_SEGNA_RETURN_DELIVERY_RELAY_CODE?.trim();
   if (!raw) return [];
   if (raw.startsWith("[")) {
     try {
       const arr = JSON.parse(raw) as unknown;
       if (!Array.isArray(arr)) return [];
-      const out: string[] = [];
+      const out: SegnaReturnHubRelayEntry[] = [];
       for (const el of arr) {
         if (typeof el === "string") {
           const c = el.trim();
-          if (c) out.push(c);
+          if (c) out.push({ code: c, label: c });
         } else if (el && typeof el === "object" && "code" in el) {
           const c = String((el as { code: unknown }).code).trim();
-          if (c) out.push(c);
+          const labelRaw =
+            "label" in el && typeof (el as { label: unknown }).label === "string"
+              ? String((el as { label: unknown }).label).trim()
+              : "";
+          if (c) out.push({ code: c, label: labelRaw || c });
         }
       }
       return out;
@@ -73,7 +78,12 @@ export function getSegnaReturnDeliveryRelayCodesFromEnv(): string[] {
       return [];
     }
   }
-  return [raw];
+  return [{ code: raw, label: raw }];
+}
+
+/** Codes PR hub **destination** retour, dans l’ordre (cascade MR / Sendcloud). */
+export function getSegnaReturnDeliveryRelayCodesFromEnv(): string[] {
+  return getSegnaReturnDeliveryRelayHubEntriesFromEnv().map((e) => e.code);
 }
 
 export function getSegnaReturnRelayProductFromEnv(): RelayDeliveryProduct {

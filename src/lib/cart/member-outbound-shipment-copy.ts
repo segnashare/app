@@ -1,3 +1,5 @@
+import { formatBorrowReturnDueDateShortFr } from "@/lib/cart/cart-borrow-return-due";
+
 /** Libellés phase logistique (expédition aller panier) — cohérents bandeau Échange + liste « En cours ». */
 export type MemberOutboundShipmentPhaseCopy = {
   title: string;
@@ -48,8 +50,8 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
       };
     case "delivered":
       return {
-        title: "Réception de commande",
-        detail: "Le transporteur confirme la réception du colis. Vérifie tes pièces et signale un souci depuis l’app si besoin.",
+        title: "Échange en cours",
+        detail: "Confirme la bonne réception de ta commande pour accéder à ton emprunt.",
       };
     case "closed":
       return { title: "Expédition terminée", detail: "Ce suivi est clos." };
@@ -70,15 +72,24 @@ export function isOutboundShipmentInTransit(status: string): boolean {
 /**
  * Texte secondaire « livraison » sous la carte commande.
  * Aucune ligne tant que l’expédition n’est pas en transit (ou livrée / close).
- * @param receptionAtIso Date affichée pour « Réception effective » : `delivered_at` ou repli `updated_at`.
+ * @param receptionAtIso Repli date pour statut `closed` (`delivered_at` ou `updated_at`).
+ * @param opts.borrowReturnDueMs Échéance retour pour « Retour prévu » quand livré.
  */
 export function getOutboundShipmentDeliverySubtitle(
   status: string,
   receptionAtIso: string,
   formatDate: (iso: string) => string,
+  opts?: { borrowReturnDueMs?: number },
 ): string | null {
   const s = status.toLowerCase();
-  if (s === "delivered" || s === "closed") {
+  if (s === "delivered") {
+    const dueMs = opts?.borrowReturnDueMs;
+    if (dueMs != null && Number.isFinite(dueMs)) {
+      return `Retour prévu : ${formatBorrowReturnDueDateShortFr(dueMs)}`;
+    }
+    return null;
+  }
+  if (s === "closed") {
     return `Réception effective le ${formatDate(receptionAtIso)}`;
   }
   if (isOutboundShipmentInTransit(s)) {

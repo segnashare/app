@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getMondialRelaySoapEnv } from "@/lib/mondial-relay/config";
 import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
+import { searchRelayPointsForCartOutbound } from "@/lib/mondial-relay/cart-outbound-relay-search";
 import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pretri";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
@@ -75,6 +76,8 @@ export async function POST(request: Request) {
 
   const o = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const skipPlanTri = o.skip_plan_tri === true;
+  const purposeRaw = typeof o.purpose === "string" ? o.purpose.trim().toLowerCase() : "";
+  const purposeCartOutbound = purposeRaw === "cart_outbound";
   const postalCode = typeof o.postal_code === "string" ? o.postal_code.trim() : "";
   const country =
     (typeof o.country === "string" ? o.country.trim().toUpperCase() : "") || "FR";
@@ -152,12 +155,15 @@ export async function POST(request: Request) {
   };
 
   try {
+    const hub = getSegnaRecipientFromEnv();
+
     mondialRelayDebugLog("relay-search:request", {
       country,
       postal_code: maskPostalForLog(postalCode),
       action,
       weight_g: weightG,
       skip_plan_tri: skipPlanTri,
+      purpose: purposeRaw || "generic",
       wsi3_endpoint_host: (() => {
         try {
           return new URL(soap.endpoint).hostname;
@@ -167,108 +173,165 @@ export async function POST(request: Request) {
       })(),
     });
 
-    const { points, rawStat } = await searchRelayPointsSoap(soap, {
+    if (skipPlanTri) {
+      const wsi3 = await searchRelayPointsSoap(soap, {
+        country,
+        postalCode,
+        weightGrams: weightG,
+        action,
+      });
+      if (wsi3.rawStat && wsi3.rawStat !== "0" && wsi3.points.length === 0) {
+        return NextResponse.json(
+          {
+            points: [],
+            search_context: searchContext,
+            mondial_relay_stat: wsi3.rawStat,
+            hint: `Mondial Relay a renvoyé STAT=${wsi3.rawStat} (aucun point). Vérifier CP, poids, produit Action=${action} et identifiants API 1.`,
+          },
+          { status: 200 },
+        );
+      }
+      return NextResponse.json({
+        points: wsi3.points,
+        search_context: searchContext,
+        mondial_relay_stat: wsi3.rawStat ?? null,
+        plan_tri: {
+          applied: false,
+          excluded_count: 0,
+          excluded_samples: [],
+          skipped_reason: "skip_plan_tri=true : liste brute WSI3 (risque erreur plan de tri à l’étiquette).",
+        },
+      });
+    }
+
+    if (!hub) {
+      const wsi3 = await searchRelayPointsSoap(soap, {
+        country,
+        postalCode,
+        weightGrams: weightG,
+        action,
+      });
+      return NextResponse.json({
+        points: wsi3.points,
+        search_context: searchContext,
+        mondial_relay_stat: wsi3.rawStat ?? null,
+        plan_tri: {
+          applied: false,
+          excluded_count: 0,
+          excluded_samples: [],
+          skipped_reason:
+            "Filtrage plan de tri désactivé : hub Segna incomplet. La liste provient uniquement de WSI3.",
+        },
+      });
+    }
+
+    if (purposeCartOutbound) {
+      const outbound = await searchRelayPointsForCartOutbound(soap, {
+        memberPostalCode: postalCode,
+        country,
+        weightGrams: weightG,
+        action,
+        hubPostCode: hub.PostCode,
+        hubCountry: hub.CountryCode,
+      });
+
+      mondialRelayDebugLog("relay-search:cart_outbound", {
+        search_postcodes: outbound.search_postcodes,
+        wsi3_total: outbound.wsi3_total_before_plan_tri,
+        kept: outbound.points.length,
+      });
+
+      if (outbound.wsi3_total_before_plan_tri > 0 && outbound.points.length === 0) {
+        return NextResponse.json({
+          points: [],
+          search_context: searchContext,
+          plan_tri: {
+            ...outbound.plan_tri,
+            destination_postcode: hub.PostCode,
+            search_postcodes: outbound.search_postcodes,
+            wsi3_total_before_plan_tri: outbound.wsi3_total_before_plan_tri,
+          },
+          hint: `Aucun relais compatible pour l’expédition depuis le hub Segna (${hub.PostCode}) en ${action}. Essaie un code postal proche de chez toi, le CP ${hub.PostCode}, ou contacte le support.`,
+        });
+      }
+
+      return NextResponse.json({
+        points: outbound.points,
+        search_context: searchContext,
+        plan_tri: {
+          ...outbound.plan_tri,
+          destination_postcode: hub.PostCode,
+          search_postcodes: outbound.search_postcodes,
+          wsi3_total_before_plan_tri: outbound.wsi3_total_before_plan_tri,
+        },
+      });
+    }
+
+    const wsi3 = await searchRelayPointsSoap(soap, {
       country,
       postalCode,
       weightGrams: weightG,
       action,
     });
 
-    mondialRelayDebugLog("relay-search:wsi3_result", {
-      points_count: points.length,
-      mondial_relay_stat: rawStat ?? null,
-    });
-
-    if (rawStat && rawStat !== "0" && points.length === 0) {
+    if (wsi3.rawStat && wsi3.rawStat !== "0" && wsi3.points.length === 0) {
       return NextResponse.json(
         {
           points: [],
           search_context: searchContext,
-          mondial_relay_stat: rawStat,
-          hint: `Mondial Relay a renvoyé STAT=${rawStat} (aucun point). Vérifier CP, poids, produit Action=${action} et identifiants API 1.`,
+          mondial_relay_stat: wsi3.rawStat,
+          hint: `Mondial Relay a renvoyé STAT=${wsi3.rawStat} (aucun point). Vérifier CP, poids, produit Action=${action} et identifiants API 1.`,
         },
         { status: 200 },
       );
     }
 
-    let outPoints = points;
-    let planTri: {
-      applied: boolean;
-      excluded_count: number;
-      excluded_samples: { code: string; statut: string }[];
-      excluded_stat_histogram?: Record<string, number>;
-      skipped_reason?: string;
-      destination_postcode?: string;
-    } | null = null;
+    const { kept, meta } = await filterRelayHitsByPlanTri(soap, wsi3.points, {
+      modeLiv: action,
+      destPostcode: hub.PostCode,
+      destCountry: hub.CountryCode,
+    });
 
-    const hub = getSegnaRecipientFromEnv();
-    if (skipPlanTri) {
-      planTri = {
-        applied: false,
-        excluded_count: 0,
-        excluded_samples: [],
-        skipped_reason: "skip_plan_tri=true : liste brute WSI3 (risque erreur plan de tri à l’étiquette).",
-      };
-    } else if (!hub) {
-      planTri = {
-        applied: false,
-        excluded_count: 0,
-        excluded_samples: [],
-        skipped_reason:
-          "Filtrage plan de tri désactivé : hub Segna incomplet. La liste provient uniquement de WSI3.",
-      };
-    } else {
-      const { kept, meta } = await filterRelayHitsByPlanTri(soap, points, {
-        modeLiv: action,
-        destPostcode: hub.PostCode,
-        destCountry: hub.CountryCode,
+    if (wsi3.points.length > 0 && kept.length === 0) {
+      console.warn("[mondial-relay:relay-search] plan_tri_excluded_all_relays", {
+        search_country: country,
+        search_postal_masked: maskPostalForLog(postalCode),
+        action,
+        weight_g: weightG,
+        wsi3_points: wsi3.points.length,
+        hub_country: hub.CountryCode,
+        hub_postal_masked: maskPostalForLog(hub.PostCode),
+        plan_tri_host: planTriHost(soap),
+        excluded_stat_histogram: meta.excluded_stat_histogram ?? {},
+        excluded_samples: meta.excluded_samples,
       });
-      outPoints = kept;
-      planTri = {
+      return NextResponse.json({
+        points: [],
+        search_context: searchContext,
+        mondial_relay_stat: wsi3.rawStat ?? null,
+        plan_tri: {
+          applied: meta.applied,
+          excluded_count: meta.excluded_count,
+          excluded_samples: meta.excluded_samples,
+          excluded_stat_histogram: meta.excluded_stat_histogram,
+          destination_postcode: hub.PostCode,
+        },
+        hint:
+          "Aucun point ne passe le contrôle plan de tri pour le hub Segna et ce produit. Tu peux relancer avec skip_plan_tri=true pour voir la liste WSI3 brute (à tes risques).",
+      });
+    }
+
+    return NextResponse.json({
+      points: kept,
+      search_context: searchContext,
+      mondial_relay_stat: wsi3.rawStat ?? null,
+      plan_tri: {
         applied: meta.applied,
         excluded_count: meta.excluded_count,
         excluded_samples: meta.excluded_samples,
         excluded_stat_histogram: meta.excluded_stat_histogram,
         destination_postcode: hub.PostCode,
-      };
-      if (points.length > 0 && kept.length === 0) {
-        console.warn("[mondial-relay:relay-search] plan_tri_excluded_all_relays", {
-          search_country: country,
-          search_postal_masked: maskPostalForLog(postalCode),
-          action,
-          weight_g: weightG,
-          wsi3_points: points.length,
-          mondial_relay_stat: rawStat ?? null,
-          hub_country: hub.CountryCode,
-          hub_postal_masked: maskPostalForLog(hub.PostCode),
-          plan_tri_host: planTriHost(soap),
-          wsi3_host: (() => {
-            try {
-              return new URL(soap.endpoint).hostname;
-            } catch {
-              return "invalid";
-            }
-          })(),
-          excluded_stat_histogram: meta.excluded_stat_histogram ?? {},
-          excluded_samples: meta.excluded_samples,
-          doc: "Interpréter les codes Statut avec Mondial Relay ; vérifier hub MONDR_SEGNA_RECIP_*, MONDR_RELAY_SOAP_ACTION et MONDR_RELAY_SOAP_PLAN_TRI_URL. Logs détaillés : MONDR_MR_DEBUG_LOG=1.",
-        });
-        return NextResponse.json({
-          points: [],
-          search_context: searchContext,
-          mondial_relay_stat: rawStat ?? null,
-          plan_tri: planTri,
-          hint:
-            "Aucun point ne passe le contrôle plan de tri pour le hub Segna et ce produit. Tu peux relancer avec skip_plan_tri=true pour voir la liste WSI3 brute (à tes risques).",
-        });
-      }
-    }
-
-    return NextResponse.json({
-      points: outPoints,
-      search_context: searchContext,
-      mondial_relay_stat: rawStat ?? null,
-      plan_tri: planTri,
+      },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur inconnue";

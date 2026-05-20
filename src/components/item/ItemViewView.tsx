@@ -6,8 +6,11 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
+import { ItemFeedbacksSection } from "./ItemFeedbacksSection";
 import { ItemInfoCard } from "./ItemInfoCard";
 import type { ItemInfoCardData } from "./ItemInfoCard";
+import { ItemWornPhotosSection } from "./ItemWornPhotosSection";
+import type { ItemFeedbackDisplayRow, ItemWornPhotoDisplayRow } from "@/lib/feedback/item-feedback-types";
 import { ItemMemberSection } from "./ItemMemberSection";
 import { ItemSegnaPropertyCmsSection } from "./ItemSegnaPropertyCmsSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
@@ -85,6 +88,8 @@ type ItemViewViewProps = {
    * Frames CMS section `segna_stock_property` (Propriété Segna). Si défini (ex. SSR fiche pièce), pas de chargement client.
    */
   segnaStockPropertyCmsFrames?: CmsFrameRow[];
+  itemFeedbacks?: ItemFeedbackDisplayRow[];
+  wornPhotos?: ItemWornPhotoDisplayRow[];
 };
 
 function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
@@ -171,6 +176,8 @@ export function ItemViewView({
   forceDarkFrameAction = false,
   hideFrameLikeButtons = true,
   segnaStockPropertyCmsFrames,
+  itemFeedbacks = [],
+  wornPhotos = [],
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
@@ -263,6 +270,9 @@ export function ItemViewView({
             ))}
           </section>
         ) : null}
+
+        <ItemFeedbacksSection feedbacks={itemFeedbacks} />
+        <ItemWornPhotosSection photos={wornPhotos} />
       </div>
     </div>
   );

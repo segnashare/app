@@ -22,7 +22,7 @@ function intakeAllowsShippingBordereauPage(listingStage: string, fulfillmentStag
   }
   const fs = String(fulfillmentStage).trim().toLowerCase();
   if (fs === "verified" || fs === "refused") return false;
-  return fs === "shipping" || fs === "in_verification";
+  return fs === "ready" || fs === "shipping" || fs === "in_verification";
 }
 
 export function ShippingPageContent() {

@@ -10,25 +10,26 @@ import { persistProfileCompletionScore } from "@/lib/profile/profile-completion-
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   isValidInstagramHandle,
-  isValidPinterestHandle,
-  isValidThreadsHandle,
-  isValidTiktokHandle,
   normalizeInstagramHandleInput,
-  normalizePinterestHandleInput,
-  normalizeThreadsHandleInput,
-  normalizeTiktokHandleInput,
   readSocialHandlesFromProfileData,
 } from "@/lib/profile/social-handles";
 import { cn } from "@/lib/utils/cn";
 
-type FieldErrors = Partial<Record<"instagram" | "tiktok" | "pinterest" | "threads", string>>;
+type FieldErrors = Partial<Record<"instagram", string>>;
 
-/** Même clé que `ProfileTabs` / `ProfileKycCore` pour forcer un rechargement du score après sauvegarde. */
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
 const RESEAUX_HANDLE_PLACEHOLDER = "ex : segnashare";
 
-function SocialNetworkIcon({ id }: { id: keyof FieldErrors }) {
-  const cls = "h-5 w-5 shrink-0 text-zinc-900";
+const DEPRECATED_NETWORKS = [
+  { id: "tiktok", label: "TikTok" },
+  { id: "pinterest", label: "Pinterest" },
+  { id: "threads", label: "Threads" },
+] as const;
+
+type NetworkIconId = "instagram" | (typeof DEPRECATED_NETWORKS)[number]["id"];
+
+function SocialNetworkIcon({ id, muted = false }: { id: NetworkIconId; muted?: boolean }) {
+  const cls = cn("h-5 w-5 shrink-0", muted ? "text-zinc-400" : "text-zinc-900");
   switch (id) {
     case "instagram":
       return (
@@ -64,6 +65,68 @@ function SocialNetworkIcon({ id }: { id: keyof FieldErrors }) {
   }
 }
 
+function ReseauField({
+  id,
+  label,
+  iconId,
+  placeholder,
+  value,
+  onChange,
+  error,
+  obsolete = false,
+}: {
+  id: string;
+  label: string;
+  iconId: NetworkIconId;
+  placeholder: string;
+  value: string;
+  onChange?: (v: string) => void;
+  error?: string;
+  obsolete?: boolean;
+}) {
+  return (
+    <div className={cn("space-y-2", obsolete && "opacity-50")}>
+      <label
+        htmlFor={id}
+        className={cn(
+          montserrat.className,
+          "flex items-center gap-2.5 text-[15px] font-semibold",
+          obsolete ? "text-zinc-400" : "text-zinc-900",
+        )}
+      >
+        <SocialNetworkIcon id={iconId} muted={obsolete} />
+        <span>{label}</span>
+        {obsolete ? (
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500">Obsolète</span>
+        ) : null}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="text"
+        autoComplete="off"
+        placeholder={obsolete ? "Non affiché sur le profil" : placeholder}
+        value={value}
+        disabled={obsolete}
+        readOnly={obsolete}
+        onChange={obsolete || !onChange ? undefined : (e) => onChange(e.target.value)}
+        aria-disabled={obsolete}
+        className={cn(
+          montserrat.className,
+          "h-11 w-full rounded-xl border px-3 text-sm outline-none",
+          obsolete
+            ? "cursor-not-allowed border-zinc-100 bg-zinc-50 text-zinc-400 placeholder:text-zinc-300"
+            : "border-zinc-200 bg-white text-zinc-900 ring-zinc-900 focus-visible:ring-2",
+        )}
+      />
+      {obsolete ? (
+        <p className={cn(montserrat.className, "text-xs text-zinc-400")}>Seul Instagram apparaît sur ton profil public.</p>
+      ) : null}
+      {error ? <p className="text-xs text-[#E44D3E]">{error}</p> : null}
+    </div>
+  );
+}
+
 export function ProfileReseauxClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -71,9 +134,6 @@ export function ProfileReseauxClient() {
   const returnPath = searchParams.get("returnPath") ?? "/profile/complete?tab=me";
 
   const [instagram, setInstagram] = useState("");
-  const [tiktok, setTiktok] = useState("");
-  const [pinterest, setPinterest] = useState("");
-  const [threads, setThreads] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,9 +163,6 @@ export function ProfileReseauxClient() {
       const h = readSocialHandlesFromProfileData(profileData);
       if (!cancelled) {
         setInstagram(h.instagram);
-        setTiktok(h.tiktok);
-        setPinterest(h.pinterest);
-        setThreads(h.threads);
         setIsLoading(false);
       }
     })();
@@ -117,13 +174,7 @@ export function ProfileReseauxClient() {
   const validate = (): boolean => {
     const next: FieldErrors = {};
     const ig = normalizeInstagramHandleInput(instagram);
-    const tk = normalizeTiktokHandleInput(tiktok);
-    const pin = normalizePinterestHandleInput(pinterest);
-    const th = normalizeThreadsHandleInput(threads);
     if (ig && !isValidInstagramHandle(ig)) next.instagram = "Pseudo Instagram invalide.";
-    if (tk && !isValidTiktokHandle(tk)) next.tiktok = "Pseudo TikTok invalide.";
-    if (pin && !isValidPinterestHandle(pin)) next.pinterest = "Pseudo Pinterest invalide.";
-    if (th && !isValidThreadsHandle(th)) next.threads = "Pseudo Threads invalide.";
     setFieldErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -134,16 +185,13 @@ export function ProfileReseauxClient() {
     setIsSaving(true);
     try {
       const ig = normalizeInstagramHandleInput(instagram) || null;
-      const tk = normalizeTiktokHandleInput(tiktok) || null;
-      const pin = normalizePinterestHandleInput(pinterest) || null;
-      const th = normalizeThreadsHandleInput(threads) || null;
       const { error } = await supabase.rpc("update_user_profile_public", {
         p_profile_json: {
           profile_data: {
             instagram_username: ig,
-            tiktok_username: tk,
-            pinterest_username: pin,
-            threads_username: th,
+            tiktok_username: null,
+            pinterest_username: null,
+            threads_username: null,
           },
         },
         p_request_id: crypto.randomUUID(),
@@ -162,32 +210,6 @@ export function ProfileReseauxClient() {
       setIsSaving(false);
     }
   };
-
-  const field = (opts: { id: keyof FieldErrors; label: string; placeholder: string; value: string; onChange: (v: string) => void }) => (
-    <div className="space-y-2">
-      <label htmlFor={opts.id} className={cn(montserrat.className, "flex items-center gap-2.5 text-[15px] font-semibold text-zinc-900")}>
-        <SocialNetworkIcon id={opts.id} />
-        <span>{opts.label}</span>
-      </label>
-      <input
-        id={opts.id}
-        type="text"
-        inputMode="text"
-        autoComplete="off"
-        placeholder={opts.placeholder}
-        value={opts.value}
-        onChange={(e) => {
-          opts.onChange(e.target.value);
-          setFieldErrors((prev) => ({ ...prev, [opts.id]: undefined }));
-        }}
-        className={cn(
-          montserrat.className,
-          "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none ring-zinc-900 focus-visible:ring-2",
-        )}
-      />
-      {fieldErrors[opts.id] ? <p className="text-xs text-[#E44D3E]">{fieldErrors[opts.id]}</p> : null}
-    </div>
-  );
 
   return (
     <main className="min-h-[100dvh] bg-white">
@@ -216,37 +238,30 @@ export function ProfileReseauxClient() {
           </div>
         ) : (
           <>
-            {field({
-              id: "instagram",
-              label: "Instagram",
-              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
-              value: instagram,
-              onChange: setInstagram,
-            })}
+            <ReseauField
+              id="instagram"
+              label="Instagram"
+              iconId="instagram"
+              placeholder={RESEAUX_HANDLE_PLACEHOLDER}
+              value={instagram}
+              onChange={(v) => {
+                setInstagram(v);
+                setFieldErrors((prev) => ({ ...prev, instagram: undefined }));
+              }}
+              error={fieldErrors.instagram}
+            />
 
-            {field({
-              id: "tiktok",
-              label: "TikTok",
-              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
-              value: tiktok,
-              onChange: setTiktok,
-            })}
-
-            {field({
-              id: "pinterest",
-              label: "Pinterest",
-              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
-              value: pinterest,
-              onChange: setPinterest,
-            })}
-
-            {field({
-              id: "threads",
-              label: "Threads",
-              placeholder: RESEAUX_HANDLE_PLACEHOLDER,
-              value: threads,
-              onChange: setThreads,
-            })}
+            {DEPRECATED_NETWORKS.map((network) => (
+              <ReseauField
+                key={network.id}
+                id={network.id}
+                label={network.label}
+                iconId={network.id}
+                placeholder=""
+                value=""
+                obsolete
+              />
+            ))}
 
             {errorMessage ? <p className={cn(montserrat.className, "text-sm text-[#E44D3E]")}>{errorMessage}</p> : null}
           </>

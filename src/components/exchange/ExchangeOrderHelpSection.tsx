@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Mail, Phone } from "lucide-react";
 
@@ -36,8 +37,13 @@ export function ExchangeOrderHelpSection({
   triggerLabel = "Aide commande",
 }: ExchangeOrderHelpSectionProps) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const titleId = useId();
   const { phone, email } = getSegnaSupportContact();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -63,7 +69,7 @@ export function ExchangeOrderHelpSection({
   const modal =
     open ? (
         <div
-          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]"
           role="presentation"
           onClick={close}
         >
@@ -99,11 +105,14 @@ export function ExchangeOrderHelpSection({
         </div>
       ) : null;
 
+  const modalPortal =
+    open && mounted && typeof document !== "undefined" ? createPortal(modal, document.body) : null;
+
   if (placement === "header") {
     return (
       <div className="shrink-0">
         {trigger}
-        {modal}
+        {modalPortal}
       </div>
     );
   }
@@ -111,8 +120,7 @@ export function ExchangeOrderHelpSection({
   return (
     <footer className="mt-3 border-0 bg-transparent px-0 pb-1 pt-0">
       {trigger}
-
-      {modal}
+      {modalPortal}
     </footer>
   );
 }

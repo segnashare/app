@@ -1,5 +1,10 @@
 import type Stripe from "stripe";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendcloud-outbound-option";
+import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
+import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
+import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
 import { upsertCartOrderStripeInvoiceFromSession } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 
 /** Même valeur en metadata expédition que pour un paiement 100 % wallet (pas de session Checkout). */
@@ -89,6 +94,27 @@ export async function debitCartWalletOnly(
 /**
  * Confirmation panier sans Stripe (même RPC que post-Checkout, métadonnées traçables).
  */
+export type ConfirmCartReturnRelayFields = {
+  returnRelayPointId: string;
+  returnRelayLabel: string;
+  returnRelaySearchPostalCode: string;
+};
+
+function sendcloudOutboundFromStripeMetadata(
+  meta: Stripe.Metadata | null | undefined,
+): CheckoutSendcloudOutboundOption | null {
+  const code = (meta?.sendcloud_outbound_option_code ?? "").trim();
+  if (!code) return null;
+  return {
+    optionCode: code,
+    optionId: (meta?.sendcloud_outbound_option_id ?? "").trim(),
+    title: (meta?.sendcloud_outbound_method_title ?? "").trim() || "Livraison",
+    carrierCode: (meta?.sendcloud_outbound_carrier ?? "").trim(),
+    carrierName: (meta?.sendcloud_outbound_carrier ?? "").trim(),
+    shippingRateCents: null,
+  };
+}
+
 export async function confirmCartPaidWalletOnly(
   admin: AdminClientWithTable,
   userId: string,
@@ -96,6 +122,7 @@ export async function confirmCartPaidWalletOnly(
   deliveryChannel: "relay" | "home",
   relayPointId: string,
   deliveryLine1: string,
+  returnRelay?: ConfirmCartReturnRelayFields,
 ): Promise<void> {
   const { error } = await admin.rpc("confirm_cart_paid_from_stripe", {
     p_cart_id: cartId,
@@ -104,11 +131,15 @@ export async function confirmCartPaidWalletOnly(
     p_delivery_channel: deliveryChannel,
     p_relay_point_id: relayPointId.trim() ? relayPointId.trim() : null,
     p_delivery_line1: deliveryLine1.trim() ? deliveryLine1.trim() : null,
+    p_return_relay_point_id: returnRelay?.returnRelayPointId?.trim() || null,
+    p_return_relay_label: returnRelay?.returnRelayLabel?.trim() || null,
+    p_return_relay_search_postal_code: returnRelay?.returnRelaySearchPostalCode?.trim() || null,
   });
 
   if (error) {
     throw new Error(error.message);
   }
+
 }
 
 /**
@@ -132,6 +163,9 @@ export async function confirmCartPaidFromStripeSession(
   const deliveryChannel = session.metadata?.delivery_channel === "home" ? "home" : "relay";
   const relayPointId = (session.metadata?.relay_code ?? "").trim();
   const deliveryLine1 = (session.metadata?.delivery_line1 ?? "").trim();
+  const returnRelayPointId = (session.metadata?.return_relay_code ?? "").trim();
+  const returnRelayLabel = (session.metadata?.return_relay_label ?? "").trim();
+  const returnRelaySearchPostalCode = (session.metadata?.return_relay_search_postal_code ?? "").trim();
 
   const { data: confirmData, error } = await admin.rpc("confirm_cart_paid_from_stripe", {
     p_cart_id: cartId,
@@ -140,10 +174,22 @@ export async function confirmCartPaidFromStripeSession(
     p_delivery_channel: deliveryChannel,
     p_relay_point_id: relayPointId || null,
     p_delivery_line1: deliveryLine1 || null,
+    p_return_relay_point_id: returnRelayPointId || null,
+    p_return_relay_label: returnRelayLabel || null,
+    p_return_relay_search_postal_code: returnRelaySearchPostalCode || null,
   });
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  const scOutbound = sendcloudOutboundFromStripeMetadata(session.metadata);
+  if (scOutbound) {
+    await persistCartOutboundSendcloudCheckoutMeta(
+      admin as unknown as Parameters<typeof persistCartOutboundSendcloudCheckoutMeta>[0],
+      cartId,
+      sendcloudOutboundMetaFromSelection(scOutbound),
+    );
   }
 
   const alreadyConfirmed =
@@ -156,6 +202,17 @@ export async function confirmCartPaidFromStripeSession(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     console.error("[cart-order] cart_order_stripe_invoices upsert failed", msg);
+  }
+
+  const homeSpeed = (session.metadata?.home_speed ?? "").trim() || null;
+  try {
+    await provisionCartOutboundSendcloudOrder(admin as unknown as SupabaseClient, {
+      cartId,
+      deliveryChannel,
+      homeSpeed,
+    });
+  } catch (e) {
+    console.error("[cart-order] sendcloud provision after stripe confirm", e);
   }
 
   return { ok: true, alreadyConfirmed };

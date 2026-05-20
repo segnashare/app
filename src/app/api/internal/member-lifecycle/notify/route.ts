@@ -7,20 +7,28 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function internalMemberLifecycleSecrets(): string[] {
+  const primary = process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET?.trim() ?? "";
+  const itemIntake = process.env.SEGNA_INTERNAL_ITEM_INTAKE_EVALUATION_SECRET?.trim() ?? "";
+  const uber = process.env.SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET?.trim() ?? "";
+  return [...new Set([primary, itemIntake, uber].filter(Boolean))];
+}
+
 /**
  * Déclenche une notification membre pour une étape « pièce » (évaluation / logistique).
- * Auth : `Authorization: Bearer ${SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET}`.
- * Body JSON : `{ "item_id": "uuid", "event": "item_evaluated" | "item_received_segna" | "item_validated_segna" }`
- * À appeler depuis le backoffice ou n8n quand `item_intake` / logistique change côté serveur.
+ * Auth : Bearer = `SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET` (ou repli item-intake / Uber interne).
+ * Body JSON : `{ "item_id": "uuid", "event": "item_evaluated" | … | "item_intake_verified" }`
+ * `item_intake_verified` : déclenché par le back-office (bouton Vérification), pas par trigger DB.
  */
 export async function POST(request: Request) {
-  const expected = process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET?.trim() ?? "";
-  if (!expected) {
+  const candidates = internalMemberLifecycleSecrets();
+  if (candidates.length === 0) {
     return NextResponse.json({ ok: false as const, error: "internal_secret_not_configured" }, { status: 503 });
   }
 
   const auth = request.headers.get("authorization")?.trim() ?? "";
-  if (auth !== `Bearer ${expected}`) {
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token || !candidates.includes(token)) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 

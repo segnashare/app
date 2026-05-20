@@ -12,6 +12,12 @@ import {
   parseRemainingIncludedOrdersThisMonth,
 } from "@/lib/billing/membership-included-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getSendcloudEnv,
+  isSendcloudCheckoutLivePricingEnabled,
+  isSendcloudRelaySearchEnabled,
+  isSendcloudServicePointPickerEnabled,
+} from "@/lib/sendcloud/config";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
@@ -141,6 +147,14 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalMods - availableWalletMods) : 0;
   const exchangeCreditsChargeEuros = (missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD) / 100;
 
+  const sendcloudEnv = getSendcloudEnv();
+  const initialSendcloudFeatures = {
+    relaySearch: isSendcloudRelaySearchEnabled(),
+    servicePointPicker: isSendcloudServicePointPickerEnabled(),
+    checkoutLivePricing: isSendcloudCheckoutLivePricingEnabled(),
+    checkoutConfigured: Boolean(sendcloudEnv?.checkoutConfigurationId),
+  };
+
   return (
     <main className="min-h-[100dvh] w-full bg-white">
       <CartPaymentScreen
@@ -155,6 +169,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         includedShippingForfaitLine={includedShippingForfaitLine}
         postStripeSyncError={postStripeSyncError}
         initialProfileDeliveryAddress={profileDeliveryAddress}
+        initialSendcloudFeatures={initialSendcloudFeatures}
       />
     </main>
   );
