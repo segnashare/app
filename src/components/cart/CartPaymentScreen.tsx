@@ -26,7 +26,11 @@ import {
 } from "@/lib/cart/checkout-delivery-storage";
 import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
 import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
-import { computeCartCheckoutFeesWithServiceRoundUp } from "@/lib/cart/cart-payment-fees";
+import {
+  computeCartCheckoutFeesWithServiceRoundUp,
+  computeCartCheckoutIncludedFeeReductions,
+  computeCartCheckoutNetFees,
+} from "@/lib/cart/cart-payment-fees";
 import {
   computeCartCheckoutRoundTripShippingHtCents,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
@@ -768,16 +772,80 @@ export function CartPaymentScreen({
 
   const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
 
+  const waiveServiceFeeForIncludedExchange = includedExchangeShipping !== "none";
+
+  const fullRoundTripHtCents = useMemo(() => {
+    const roundTripForBilling =
+      deliveryChannel === "relay" && sendcloudRelayCheckoutActive
+        ? selectedRelayCarrierRoundTrip
+        : homeSendcloudPlanSelected
+          ? selectedHomeMethodRoundTrip
+          : selectedRelayCarrierRoundTrip ?? exchangeShipping;
+    if (!roundTripForBilling) return 0;
+    try {
+      return computeCartCheckoutRoundTripShippingHtCents({
+        itemCount,
+        deliveryChannel,
+        homeSpeedBilling: homeSpeed,
+        includedKind: "none",
+        relayRoundTrip,
+        currentRoundTrip: roundTripForBilling,
+        uberOutboundHtCents: uberOutboundCentsFromQuote,
+      });
+    } catch {
+      if (deliveryChannel === "home" && homeSpeed === "uber_direct") {
+        return uberOutboundCentsFromQuote != null
+          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+          : exchangeShipping.subtotalCents;
+      }
+      return exchangeShipping.subtotalCents;
+    }
+  }, [
+    deliveryChannel,
+    exchangeShipping,
+    homeSpeed,
+    itemCount,
+    relayRoundTrip,
+    selectedRelayCarrierRoundTrip,
+    homeSendcloudPlanSelected,
+    selectedHomeMethodRoundTrip,
+    sendcloudRelayCheckoutActive,
+    uberOutboundCentsFromQuote,
+  ]);
+
   const feesPricing = useMemo(
-    () => computeCartCheckoutFeesWithServiceRoundUp(shippingHtCents, creditsTtcCents),
-    [creditsTtcCents, shippingHtCents],
+    () =>
+      computeCartCheckoutNetFees({
+        billedShippingHtCents: shippingHtCents,
+        creditsTtcCents,
+        waiveServiceFeeForIncludedExchange,
+      }),
+    [creditsTtcCents, shippingHtCents, waiveServiceFeeForIncludedExchange],
   );
+
+  const grossFeesPricing = useMemo(
+    () => computeCartCheckoutFeesWithServiceRoundUp(fullRoundTripHtCents, creditsTtcCents),
+    [creditsTtcCents, fullRoundTripHtCents],
+  );
+
+  const includedFeeReductions = useMemo(
+    () => computeCartCheckoutIncludedFeeReductions(grossFeesPricing, feesPricing),
+    [feesPricing, grossFeesPricing],
+  );
+
+  const showIncludedFeeReductionLines = includedFeeReductions.totalTtcCents > 0;
 
   const feesHtEuros = centsToEuros(feesPricing.feesHtCents);
   const feesVatEuros = centsToEuros(feesPricing.feesVatCents);
   const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
-  const serviceTtcEuros = centsToEuros(feesPricing.serviceTtcCents);
-  const shippingTtcEuros = centsToEuros(feesPricing.shippingTtcCents);
+  const serviceTtcEuros = centsToEuros(
+    showIncludedFeeReductionLines ? grossFeesPricing.serviceTtcCents : feesPricing.serviceTtcCents,
+  );
+  const shippingTtcEuros = centsToEuros(
+    showIncludedFeeReductionLines ? grossFeesPricing.shippingTtcCents : feesPricing.shippingTtcCents,
+  );
+  const includedServiceReductionEuros = centsToEuros(includedFeeReductions.serviceTtcCents);
+  const includedShippingReductionEuros = centsToEuros(includedFeeReductions.shippingTtcCents);
 
   const shippingFeesSplit = useMemo((): { outboundEuros: number; returnEuros: number } | null => {
     if (relayInboundShowsZero || homeDeliveryShowsFullIncluded) return null;
@@ -1570,7 +1638,13 @@ export function CartPaymentScreen({
               <span className="min-w-0 pr-2">Frais de service (TTC)</span>
               <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
             </div>
-            {shippingFeesSplit ? (
+            {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
+              <IncludedExchangeFeeReductionLine
+                label="Échange inclus — frais de service (TTC)"
+                amountEuros={includedServiceReductionEuros}
+              />
+            ) : null}
+            {shippingFeesSplit && !showIncludedFeeReductionLines ? (
               <>
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                   <span className="min-w-0 pr-2">Frais aller (TTC)</span>
@@ -1585,11 +1659,17 @@ export function CartPaymentScreen({
                   </span>
                 </div>
               </>
-            ) : deliveryChannel !== "home" || homeDeliveryShowsFullIncluded ? (
+            ) : (
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
                 <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
               </div>
+            )}
+            {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
+              <IncludedExchangeFeeReductionLine
+                label="Échange inclus — livraison (TTC)"
+                amountEuros={includedShippingReductionEuros}
+              />
             ) : null}
             {feesVatEuros > 0 ? (
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
@@ -1678,6 +1758,13 @@ export function CartPaymentScreen({
                   <span className="text-[15px] font-semibold text-zinc-900">Frais de service (TTC)</span>
                   <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
                 </div>
+                {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
+                  <IncludedExchangeFeeReductionLine
+                    label="Échange inclus — frais de service (TTC)"
+                    amountEuros={includedServiceReductionEuros}
+                    className="mt-1.5"
+                  />
+                ) : null}
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                   Frais fixes pour le traitement et le suivi de ta commande (TVA 20 % incluse).
                 </p>
@@ -1691,6 +1778,13 @@ export function CartPaymentScreen({
                   </span>
                   <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
                 </div>
+                {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
+                  <IncludedExchangeFeeReductionLine
+                    label="Échange inclus — livraison (TTC)"
+                    amountEuros={includedShippingReductionEuros}
+                    className="mt-1.5"
+                  />
+                ) : null}
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                   {sendcloudPricingActive
                     ? `Aller + retour en point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : tarifs transporteurs via Sendcloud (TTC). Le retour est toujours en point relais vers notre centre logistique.`
@@ -1701,11 +1795,11 @@ export function CartPaymentScreen({
                           ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
                           : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
                         : null}
-                  {billedRoundTripSubtotalCents === 0 && includedExchangeShipping !== "none" ? (
+                  {showIncludedFeeReductionLines ? (
                     <span className="mt-1 block text-emerald-800/90">
                       {includedExchangeShipping === "guest_relay_round_trip_equivalent"
-                        ? "La partie point relais du barème aller-retour est prise en charge pour cette commande"
-                        : "Le trajet aller-retour du barème est pris en charge par ton abonnement"}
+                        ? "La partie point relais du barème aller-retour et les frais de service sont pris en charge pour cette commande"
+                        : "Le trajet aller-retour du barème et les frais de service sont pris en charge par ton forfait"}
                       {remainingIncludedOrdersThisMonth > 0
                         ? ` (${remainingIncludedOrdersThisMonth} inclusion${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} restante${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} ce mois-ci avant paiement)`
                         : ""}
@@ -1773,6 +1867,24 @@ export function CartPaymentScreen({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function IncludedExchangeFeeReductionLine({
+  label,
+  amountEuros,
+  className,
+}: {
+  label: string;
+  amountEuros: number;
+  className?: string;
+}) {
+  if (amountEuros <= 0) return null;
+  return (
+    <div className={cn("flex items-baseline justify-between gap-3", className)}>
+      <span className="min-w-0 pr-2 text-[14px] font-medium leading-snug text-emerald-700">{label}</span>
+      <span className="shrink-0 tabular-nums text-[14px] font-semibold text-emerald-700">−{euros(amountEuros)}</span>
     </div>
   );
 }

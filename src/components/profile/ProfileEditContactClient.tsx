@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { e164ToFrenchNationalDigits, frenchLocalToE164, normalizeFrenchLocalNumber } from "@/lib/phone/fr-mobile";
+import { isMultiAccountPhoneException } from "@/lib/phone/multi-account-phone-exception";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -133,7 +134,7 @@ export function ProfileEditContactClient() {
           setError(phoneAvailErr.message ?? "Impossible de vérifier le numéro.");
           return;
         }
-        if (phoneOk !== true) {
+        if (phoneOk !== true && !isMultiAccountPhoneException(nextE164)) {
           setError("Ce numéro de téléphone est déjà utilisé par un autre compte.");
           return;
         }

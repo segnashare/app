@@ -7,13 +7,14 @@ import {
   checkoutRelayProviderPointId,
   checkoutReturnRelayFields,
 } from "@/lib/cart/checkout-delivery-storage";
-import { computeCartCheckoutFeesWithServiceRoundUp } from "@/lib/cart/cart-payment-fees";
+import { computeCartCheckoutNetFees } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
 import {
   computeCartCheckoutRoundTripShippingHtCents,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import {
@@ -188,6 +189,18 @@ export async function POST(request: Request) {
     }
 
     const userId = user.id as string;
+
+    const paymentEligibility = await fetchCartPaymentEligibility(supabase as any, admin, userId);
+    if (!paymentEligibility.canAccessPayment) {
+      const message =
+        !paymentEligibility.profileComplete && !paymentEligibility.kycVerified
+          ? "Complète ton profil et valide ton identité (KYC) avant de payer."
+          : !paymentEligibility.profileComplete
+            ? "Complète ton profil avant de payer."
+            : "Valide ton identité (KYC) avant de payer.";
+      return NextResponse.json({ message, code: "payment_gate" }, { status: 403 });
+    }
+
     const membershipLabel = await resolveMembershipLabel(supabase, userId);
 
     const activeCart = await fetchActiveCartForUser(
@@ -369,7 +382,11 @@ export async function POST(request: Request) {
     const priorityCents = 0;
 
     const shippingHtCents = billedRoundTripHtCents + priorityCents;
-    const fees = computeCartCheckoutFeesWithServiceRoundUp(shippingHtCents, creditsCents);
+    const fees = computeCartCheckoutNetFees({
+      billedShippingHtCents: shippingHtCents,
+      creditsTtcCents: creditsCents,
+      waiveServiceFeeForIncludedExchange: includedExchangeShipping !== "none",
+    });
     const serviceHtCents = fees.serviceHtCents;
     const totalCents = creditsCents + fees.feesTtcCents;
 

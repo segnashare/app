@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartPaymentScreen } from "@/components/cart/CartPaymentScreen";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import type { CheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-storage";
@@ -11,6 +12,7 @@ import {
   parseIncludedOrdersLimitThisMonth,
   parseRemainingIncludedOrdersThisMonth,
 } from "@/lib/billing/membership-included-orders";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   getSendcloudEnv,
@@ -79,6 +81,12 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   }
 
   const userId = user.id as string;
+  const admin = createSupabaseAdminClient() as any;
+  const paymentEligibility = await fetchCartPaymentEligibility(supabase as any, admin, userId);
+  if (!paymentEligibility.canAccessPayment) {
+    redirect("/cart");
+  }
+
   const membershipLabel = await resolveMembershipLabel(supabase, userId);
   const { data: profileRow } = await supabase
     .from("user_profiles")

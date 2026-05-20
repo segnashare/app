@@ -5,14 +5,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useForm } from "react-hook-form";
 
 import { Input } from "@/components/ui/Input";
+import { isMultiAccountPhoneException } from "@/lib/phone/multi-account-phone-exception";
 import { normalizeFrenchLocalNumber, normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = segnaMontserrat;
-/** Numéro de test : contourne l’unicité seulement si le numéro est déjà pris par un autre compte (pas d’OTP). */
-const DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164 = "+33781774735";
 
 type PhoneFormValues = {
   phoneLocal: string;
@@ -63,6 +62,16 @@ function mapPhoneProviderError(message?: string): string {
   return message ?? "Impossible d'envoyer le code SMS.";
 }
 
+/** Supabase Auth refuse un même `phone` sur plusieurs comptes (422). */
+function isSupabaseAuthPhoneAlreadyRegistered(message?: string): boolean {
+  const normalized = (message ?? "").toLowerCase();
+  return (
+    normalized.includes("already been registered") ||
+    normalized.includes("already registered") ||
+    normalized.includes("phone number has already")
+  );
+}
+
 export function OnboardingPhoneCore({
   formId,
   onCanContinueChange,
@@ -109,7 +118,7 @@ export function OnboardingPhoneCore({
     setErrorMessage(null);
     const normalizedPhone =
       normalizeFrenchPhoneToE164(phoneLocal) ?? `+33${normalizeFrenchLocalNumber(phoneLocal)}`;
-    const isDuplicatePhoneException = normalizedPhone === DUPLICATE_PHONE_ONBOARDING_EXCEPTION_E164;
+    const isDuplicatePhoneException = isMultiAccountPhoneException(normalizedPhone);
 
     const {
       data: { user },
@@ -133,8 +142,7 @@ export function OnboardingPhoneCore({
       return;
     }
 
-    // Passe-droit dev : uniquement si le numéro est encore pris ailleurs (sinon flux SMS normal).
-    if (isDuplicatePhoneException && phoneOk !== true) {
+    const skipPhoneVerificationForMultiAccount = async () => {
       const { error } = await supabase.rpc("upsert_onboarding_progress", {
         p_current_step: "/onboarding/name",
         p_progress_json: {
@@ -151,6 +159,11 @@ export function OnboardingPhoneCore({
       }
 
       router.push("/onboarding/name");
+    };
+
+    // Numéro exception : pris dans public.users OU déjà lié à un autre compte Auth → pas d’OTP.
+    if (isDuplicatePhoneException && phoneOk !== true) {
+      await skipPhoneVerificationForMultiAccount();
       return;
     }
 
@@ -158,6 +171,10 @@ export function OnboardingPhoneCore({
       phone: normalizedPhone,
     });
     if (otpError) {
+      if (isDuplicatePhoneException && isSupabaseAuthPhoneAlreadyRegistered(otpError.message)) {
+        await skipPhoneVerificationForMultiAccount();
+        return;
+      }
       setErrorMessage(mapPhoneProviderError(otpError.message));
       return;
     }

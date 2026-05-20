@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartScreen } from "@/components/cart/CartScreen";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -14,6 +15,7 @@ import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-u
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel, type MembershipLabel } from "@/lib/user/resolve-membership-label";
@@ -48,7 +50,8 @@ export default async function CartPage() {
   }
 
   const userId = user.id as string;
-  const [userState, membershipLabel, walletRes] = (await Promise.all([
+  const admin = createSupabaseAdminClient() as any;
+  const [userState, membershipLabel, walletRes, paymentEligibility] = (await Promise.all([
     perf.measure("users.appState", () => getCurrentUserAppState(userId)),
     perf.measure("membership.label", () => resolveMembershipLabel(supabase, userId)),
     perf.measure("wallet.read", () =>
@@ -59,10 +62,12 @@ export default async function CartPage() {
         .is("deleted_at", null)
         .maybeSingle(),
     ),
+    perf.measure("cart.paymentEligibility", () => fetchCartPaymentEligibility(supabase as any, admin, userId)),
   ])) as [
     Awaited<ReturnType<typeof getCurrentUserAppState>>,
     MembershipLabel,
     { data: unknown },
+    Awaited<ReturnType<typeof fetchCartPaymentEligibility>>,
   ];
 
   const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
@@ -155,6 +160,8 @@ export default async function CartPage() {
         cmsShopHubCatalogItems={cmsShopHubCatalogItems}
         cartShopSystemForYouItems={cartShopSystemForYouItems}
         showOfferOnboarding={showOfferInAppOnboarding}
+        profileComplete={paymentEligibility.profileComplete}
+        kycVerified={paymentEligibility.kycVerified}
       />
     </main>
   );

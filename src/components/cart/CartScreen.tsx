@@ -9,6 +9,7 @@ import { Info, X } from "lucide-react";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import { SegnaConsumptionCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
+import { CartPaymentGateModal } from "@/components/cart/CartPaymentGateModal";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
@@ -58,6 +59,9 @@ type CartScreenProps = {
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
+  /** Profil à 100 % + KYC validé requis pour le paiement. */
+  profileComplete?: boolean;
+  kycVerified?: boolean;
 };
 
 const OFFERS: OfferCardData[] = [
@@ -109,6 +113,8 @@ export function CartScreen({
   cmsShopHubCatalogItems = [],
   cartShopSystemForYouItems = [],
   showOfferOnboarding = false,
+  profileComplete = true,
+  kycVerified = true,
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
@@ -118,6 +124,8 @@ export function CartScreen({
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [exchangeCreditsModalOpen, setExchangeCreditsModalOpen] = useState(false);
+  const [paymentGateModalOpen, setPaymentGateModalOpen] = useState(false);
+  const canAccessPayment = profileComplete && kycVerified;
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
@@ -192,7 +200,16 @@ export function CartScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [exchangeCreditsModalOpen]);
 
+  const openPaymentGateOrProceed = () => {
+    if (!canAccessPayment) {
+      setPaymentGateModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
   const goToPayment = () => {
+    if (!openPaymentGateOrProceed()) return;
     if (hasReservedElsewhere) {
       setReserveError("Une pièce n’est plus disponible — retire-la du panier.");
       return;
@@ -244,6 +261,10 @@ export function CartScreen({
         }
       }
       if (payload?.ok) {
+        if (!canAccessPayment) {
+          setPaymentGateModalOpen(true);
+          return;
+        }
         const isNewReservation = !payload.already_reserved && !payload.idempotent;
         if (isNewReservation) {
           setCartReservationTimerStart();
@@ -533,12 +554,21 @@ export function CartScreen({
                   Une pièce a été réservée par ailleurs — retire-la avant le paiement.
                 </p>
               ) : (
-                <Link
-                  href="/cart/payment"
-                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800"
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!openPaymentGateOrProceed()) return;
+                    router.push("/cart/payment");
+                  }}
+                  className={cn(
+                    "flex h-12 w-full items-center justify-center rounded-2xl text-[15px] font-bold text-white shadow-sm transition",
+                    canAccessPayment
+                      ? "bg-zinc-950 active:bg-zinc-800"
+                      : "cursor-pointer bg-zinc-400",
+                  )}
                 >
                   Passer au paiement
-                </Link>
+                </button>
               )
             ) : (
               <div className="w-full space-y-2">
@@ -546,7 +576,12 @@ export function CartScreen({
                   type="button"
                   disabled={reserveBusy || !activeCartId || hasReservedElsewhere}
                   onClick={() => goToPayment()}
-                  className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800 disabled:opacity-60"
+                  className={cn(
+                    "flex h-12 w-full items-center justify-center rounded-2xl text-[15px] font-bold text-white shadow-sm transition disabled:opacity-60",
+                    canAccessPayment
+                      ? "bg-zinc-950 active:bg-zinc-800"
+                      : "cursor-pointer bg-zinc-400",
+                  )}
                 >
                   {reserveBusy ? "Réservation…" : "Réserver le panier"}
                 </button>
@@ -559,6 +594,13 @@ export function CartScreen({
           </div>
         </div>
       )}
+
+      <CartPaymentGateModal
+        open={paymentGateModalOpen}
+        onClose={() => setPaymentGateModalOpen(false)}
+        profileComplete={profileComplete}
+        kycVerified={kycVerified}
+      />
 
       {exchangeCreditsModalOpen && cartExceedsWallet ? (
         <div
