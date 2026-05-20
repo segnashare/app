@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
+import { MemberFeedbackFab } from "@/components/feedback/MemberFeedbackFab";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
@@ -42,6 +43,7 @@ export function MainShell({
         <div className={cn("flex min-h-[100dvh] flex-col md:min-h-[calc(100dvh-48px)]")}>{children}</div>
       </div>
       <FloatingViewCartButton />
+      <MemberFeedbackFab />
       <BottomTabBar />
       {inAppOnboardingIntro ? (
         <InAppOnboardingIntroModal

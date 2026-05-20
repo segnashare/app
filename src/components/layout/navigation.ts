@@ -38,6 +38,12 @@ export function shouldShowFloatingCartButton(pathname: string): boolean {
   return pathname === "/shop" || pathname.startsWith("/shop/") || pathname === "/exchange";
 }
 
+/** Pastille « aide / signalement » (MainShell, membre connecté). */
+export function shouldShowMemberFeedbackFab(pathname: string): boolean {
+  if (pathname === "/cart" || pathname.startsWith("/cart/")) return false;
+  return true;
+}
+
 export function isShopTabActive(pathname: string): boolean {
   return pathname === "/shop" || pathname.startsWith("/shop/");
 }
