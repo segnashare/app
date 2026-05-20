@@ -18,8 +18,12 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import {
   dataUrlToFile,
   fileToDataUrl,
+  compressDataUrlForItemDraft,
+  purgeStalePhotoModifyDraftsFromSession,
   readPhotoModifyDraft,
   removePhotoModifyDraft,
+  preparePhotoModifyImage,
+  registerPhotoModifyRuntimeFile,
   savePhotoModifyDraft,
 } from "@/lib/onboarding/photoModifyStore";
 import {
@@ -117,9 +121,25 @@ function shouldSkipDbPhotoHydration(
   }
 }
 
-function persistItemSlotsDraft(slotsToPersist: Array<ItemPhotoSlot | null>): boolean {
+async function persistItemSlotsDraft(slotsToPersist: Array<ItemPhotoSlot | null>): Promise<boolean> {
+  const compressSlot = async (slot: ItemPhotoSlot | null): Promise<ItemPhotoSlot | null> => {
+    if (!slot?.dataUrl?.startsWith("data:image/")) return slot;
+    try {
+      const dataUrl = await compressDataUrlForItemDraft(slot.dataUrl);
+      return { ...slot, dataUrl, mimeType: "image/jpeg" };
+    } catch {
+      return slot;
+    }
+  };
+
+  const tryWrite = (payload: Array<ItemPhotoSlot | null>) => {
+    purgeStalePhotoModifyDraftsFromSession();
+    sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  };
+
   try {
-    sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slotsToPersist));
+    const compressed = await Promise.all(slotsToPersist.map(compressSlot));
+    tryWrite(compressed);
     return true;
   } catch {
     const slim = slotsToPersist.map((slot) => {
@@ -127,12 +147,24 @@ function persistItemSlotsDraft(slotsToPersist: Array<ItemPhotoSlot | null>): boo
       return { ...slot, dataUrl: "" };
     });
     try {
-      sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slim));
+      tryWrite(slim);
       return true;
     } catch {
       return false;
     }
   }
+}
+
+function countFilledSlots(slotsToCount: Array<ItemPhotoSlot | null>): number {
+  return slotsToCount.filter(Boolean).length;
+}
+
+function mergeSlotsPreferMorePhotos(
+  current: Array<ItemPhotoSlot | null>,
+  incoming: Array<ItemPhotoSlot | null>,
+): Array<ItemPhotoSlot | null> {
+  if (countFilledSlots(current) >= countFilledSlots(incoming)) return current;
+  return compactSlotsLeft(incoming);
 }
 /** Parcours /items/proposal → première ligne `items` avec `pre_subscribe_proposal` (pas d’expédition auto à la validation). */
 const PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY = "segna:new-item:pre-subscribe-proposal";
@@ -527,7 +559,7 @@ export default function NewItemPage() {
               if (rawLocalSlots) {
                 const parsedLocalSlots = JSON.parse(rawLocalSlots) as Array<ItemPhotoSlot | null>;
                 if (Array.isArray(parsedLocalSlots) && parsedLocalSlots.length === 6) {
-                  setSlots(compactSlotsLeft(parsedLocalSlots));
+                  setSlots((prev) => mergeSlotsPreferMorePhotos(prev, parsedLocalSlots));
                 }
               }
             } catch {
@@ -762,7 +794,7 @@ export default function NewItemPage() {
 
         // Ne pas écraser les slots pendant / juste après /modify (course avec ensureDraft).
         if (!isUnmounted && !shouldSkipDbPhotoHydration(searchParamsRef.current, skipDbPhotoHydrationRef.current)) {
-          setSlots(compactSlotsLeft(nextSlots));
+          setSlots((prev) => mergeSlotsPreferMorePhotos(prev, nextSlots));
         }
         setIsInitializingDraft(false);
         return;
@@ -914,7 +946,7 @@ export default function NewItemPage() {
             };
           }
           if (!isUnmounted && !shouldSkipDbPhotoHydration(searchParamsRef.current, skipDbPhotoHydrationRef.current)) {
-            setSlots(compactSlotsLeft(nextSlots));
+            setSlots((prev) => mergeSlotsPreferMorePhotos(prev, nextSlots));
           }
         }
         setIsInitializingDraft(false);
@@ -965,6 +997,10 @@ export default function NewItemPage() {
   }, [pathname, isInitializingDraft]);
 
   useEffect(() => {
+    if (searchParamsRef.current.get("photoModifyId")) {
+      setHasHydratedSlots(true);
+      return;
+    }
     try {
       const raw = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
       if (!raw) {
@@ -973,7 +1009,7 @@ export default function NewItemPage() {
       }
       const parsed = JSON.parse(raw) as Array<ItemPhotoSlot | null>;
       if (Array.isArray(parsed) && parsed.length === 6) {
-        setSlots(compactSlotsLeft(parsed));
+        setSlots((prev) => mergeSlotsPreferMorePhotos(prev, parsed));
       }
     } catch {
       // Ignore malformed local draft.
@@ -983,7 +1019,14 @@ export default function NewItemPage() {
 
   useEffect(() => {
     if (!hasHydratedSlots) return;
-    persistItemSlotsDraft(slots);
+    void (async () => {
+      const ok = await persistItemSlotsDraft(slots);
+      if (!ok && slots.filter(Boolean).length >= 4) {
+        setErrorMessage(
+          "Photos enregistrées à l’écran, mais le navigateur n’a plus de place en mémoire locale. Valide la fiche sans quitter la page, ou utilise des photos plus légères.",
+        );
+      }
+    })();
   }, [hasHydratedSlots, slots]);
 
   useEffect(() => {
@@ -1053,19 +1096,20 @@ export default function NewItemPage() {
           mergedSlots = compactSlotsLeft(next);
           return mergedSlots;
         });
-        if (!persistItemSlotsDraft(mergedSlots)) {
+        const persisted = await persistItemSlotsDraft(mergedSlots);
+        if (!persisted) {
           setErrorMessage(
-            "Photo ajoutée à l’écran, mais la sauvegarde locale a échoué (stockage saturé). Évite de quitter la page avant d’avoir validé la fiche.",
+            "Photo ajoutée à l’écran, mais la sauvegarde locale a échoué (stockage saturé). Évite de quitter la page avant d’avoir validé la fiche, ou choisis une photo plus légère.",
           );
         }
         setPhotoEditVersion((v) => v + 1);
         removePhotoModifyDraft(modifiedId);
         pendingSlotRef.current = null;
-        skipDbPhotoHydrationRef.current = false;
-        clearSkipDbPhotoHydration();
         const itemIdForUrl = requestedItemId || draft.itemId || draftItemId || null;
         const returnTo = itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new";
         router.replace(returnTo);
+        skipDbPhotoHydrationRef.current = false;
+        clearSkipDbPhotoHydration();
       } catch {
         skipDbPhotoHydrationRef.current = false;
         clearSkipDbPhotoHydration();
@@ -1088,17 +1132,24 @@ export default function NewItemPage() {
     const slotIndex = pendingSlotRef.current ?? activeSlotRef.current;
     skipDbPhotoHydrationRef.current = true;
     markSkipDbPhotoHydration();
-    const dataUrl = await fileToDataUrl(file);
+    const prepared = await preparePhotoModifyImage(file, { forItemDraft: true });
     const draftId = crypto.randomUUID();
     const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
+    registerPhotoModifyRuntimeFile(draftId, prepared.file, prepared.previewUrl);
+    let dataUrl = "";
     try {
-      savePhotoModifyDraft({
+      dataUrl = await fileToDataUrl(prepared.file);
+    } catch {
+      dataUrl = prepared.previewUrl;
+    }
+    try {
+      await savePhotoModifyDraft({
         id: draftId,
         source: "item",
         returnPath: returnPathWithParams,
         dataUrl,
-        fileName: file.name,
-        mimeType: file.type || "image/jpeg",
+        fileName: prepared.fileName,
+        mimeType: prepared.mimeType,
         itemId: draftItemId ?? undefined,
         slot: slotIndex,
         aspect: ITEM_PHOTO_MODIFY_ASPECT,
@@ -1815,28 +1866,30 @@ export default function NewItemPage() {
                     if (slot) {
                       const draftId = crypto.randomUUID();
                       const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
-                      try {
-                        savePhotoModifyDraft({
-                          id: draftId,
-                          source: "item",
-                          returnPath: returnPathWithParams,
-                          dataUrl: slot.dataUrl,
-                          originalStoragePath: slot.storagePath,
-                          fileName: slot.fileName,
-                          mimeType: slot.mimeType,
-                          itemId: draftItemId ?? undefined,
-                          slot: index,
-                          aspect: ITEM_PHOTO_MODIFY_ASPECT,
-                          offset: { x: slot.offset.x, y: slot.offset.y },
-                          zoom: slot.zoom,
-                          status: "pending",
-                        });
-                      } catch (error) {
-                        setErrorMessage(error instanceof Error ? error.message : "Impossible de préparer la photo.");
-                        return;
-                      }
-                      persistNewItemScrollForSubPage();
-                      router.push(`/modify?id=${encodeURIComponent(draftId)}`);
+                      void (async () => {
+                        try {
+                          await savePhotoModifyDraft({
+                            id: draftId,
+                            source: "item",
+                            returnPath: returnPathWithParams,
+                            dataUrl: slot.dataUrl,
+                            originalStoragePath: slot.storagePath,
+                            fileName: slot.fileName,
+                            mimeType: slot.mimeType,
+                            itemId: draftItemId ?? undefined,
+                            slot: index,
+                            aspect: ITEM_PHOTO_MODIFY_ASPECT,
+                            offset: { x: slot.offset.x, y: slot.offset.y },
+                            zoom: slot.zoom,
+                            status: "pending",
+                          });
+                        } catch (error) {
+                          setErrorMessage(error instanceof Error ? error.message : "Impossible de préparer la photo.");
+                          return;
+                        }
+                        persistNewItemScrollForSubPage();
+                        router.push(`/modify?id=${encodeURIComponent(draftId)}`);
+                      })();
                       return;
                     }
                     openPickerForSlot(index);

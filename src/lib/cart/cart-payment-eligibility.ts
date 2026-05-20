@@ -1,4 +1,9 @@
 import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
+import {
+  cartPaymentProfileGateMessage,
+  fetchOnboardingProfileRequirements,
+  isOnboardingProfileReady,
+} from "@/lib/profile/onboarding-profile-requirements";
 
 export type CartPaymentEligibility = {
   profileComplete: boolean;
@@ -6,40 +11,20 @@ export type CartPaymentEligibility = {
   canAccessPayment: boolean;
 };
 
-function parseProfileCompletionScore(row: Record<string, unknown> | null | undefined): number {
-  if (!row) return 0;
-  const profileData = (row.profile_data ?? {}) as Record<string, unknown>;
-  const raw =
-    row.score ??
-    row.completion_score ??
-    profileData.completion_score ??
-    profileData.profile_completion ??
-    profileData.score ??
-    profileData.progress_score;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string" && raw.trim().length > 0) {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return n;
-  }
-  return 0;
-}
-
 /**
- * Profil à 100 % + KYC validé requis pour accéder au paiement panier (UI + API).
+ * Profil « prêt » comme à l’onboarding (1 photo + infos essentielles) + KYC validé pour le paiement panier.
  */
 export async function fetchCartPaymentEligibility(
-  supabase: { from: (t: string) => { select: (cols: string) => { eq: (col: string, val: string) => { maybeSingle: () => Promise<{ data: unknown }> } } } },
+  supabase: Parameters<typeof fetchOnboardingProfileRequirements>[0],
   admin: { from: (t: string) => unknown },
   userId: string,
 ): Promise<CartPaymentEligibility> {
-  const [kycVerified, profileRes] = await Promise.all([
+  const [kycVerified, requirements] = await Promise.all([
     fetchUserKycVerified(admin as Parameters<typeof fetchUserKycVerified>[0], userId),
-    supabase.from("user_profiles").select("score, completion_score, profile_data").eq("user_id", userId).maybeSingle(),
+    fetchOnboardingProfileRequirements(supabase, userId),
   ]);
 
-  const profileRow = (profileRes.data ?? null) as Record<string, unknown> | null;
-  const score = parseProfileCompletionScore(profileRow);
-  const profileComplete = score >= 100;
+  const profileComplete = requirements != null && isOnboardingProfileReady(requirements);
 
   return {
     profileComplete,
@@ -47,3 +32,5 @@ export async function fetchCartPaymentEligibility(
     canAccessPayment: profileComplete && kycVerified,
   };
 }
+
+export { cartPaymentProfileGateMessage };

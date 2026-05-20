@@ -38,9 +38,9 @@ export function CartPaymentGateModal({
 
   const body =
     needsProfile && needsKyc
-      ? "Pour payer ta commande, complète ton profil et valide ton identité (KYC)."
+      ? "Pour payer ta commande, ajoute une photo de profil, renseigne tes infos essentielles (comme à l’onboarding) et valide ton identité (KYC)."
       : needsProfile
-        ? "Pour payer ta commande, complète d’abord ton profil (photos et informations)."
+        ? "Pour payer ta commande, ajoute une photo de profil et renseigne tes infos essentielles (prénom, âge, ville, profession, tailles). Pas besoin d’atteindre 100 %."
         : "Pour payer ta commande, valide d’abord ton identité (KYC).";
 
   const primaryHref = needsProfile ? PROFILE_COMPLETE_HREF : KYC_HREF;

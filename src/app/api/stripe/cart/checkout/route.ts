@@ -14,7 +14,8 @@ import {
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
-import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
+import { cartPaymentProfileGateMessage, fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
+import { fetchOnboardingProfileRequirements } from "@/lib/profile/onboarding-profile-requirements";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import {
@@ -192,11 +193,14 @@ export async function POST(request: Request) {
 
     const paymentEligibility = await fetchCartPaymentEligibility(supabase as any, admin, userId);
     if (!paymentEligibility.canAccessPayment) {
+      const profileRequirements = !paymentEligibility.profileComplete
+        ? await fetchOnboardingProfileRequirements(supabase as any, userId)
+        : null;
       const message =
         !paymentEligibility.profileComplete && !paymentEligibility.kycVerified
-          ? "Complète ton profil et valide ton identité (KYC) avant de payer."
+          ? `${cartPaymentProfileGateMessage(profileRequirements)} Valide aussi ton identité (KYC).`
           : !paymentEligibility.profileComplete
-            ? "Complète ton profil avant de payer."
+            ? cartPaymentProfileGateMessage(profileRequirements)
             : "Valide ton identité (KYC) avant de payer.";
       return NextResponse.json({ message, code: "payment_gate" }, { status: 403 });
     }

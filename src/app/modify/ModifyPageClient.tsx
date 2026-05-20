@@ -68,8 +68,8 @@ export function ModifyPageClient() {
     setZoom(value.zoom);
   }, [id]);
 
-  const navigateBack = (nextDraft: PhotoModifyDraft) => {
-    savePhotoModifyDraft(nextDraft);
+  const navigateBack = async (nextDraft: PhotoModifyDraft) => {
+    await savePhotoModifyDraft(nextDraft);
     const separator = nextDraft.returnPath.includes("?") ? "&" : "?";
     router.push(`${nextDraft.returnPath}${separator}photoModifyId=${encodeURIComponent(nextDraft.id)}`);
   };
@@ -79,7 +79,7 @@ export function ModifyPageClient() {
       router.back();
       return;
     }
-    navigateBack({ ...draft, status: "cancelled" });
+    void navigateBack({ ...draft, status: "cancelled" });
   };
 
   const handleDone = async () => {
@@ -136,7 +136,7 @@ export function ModifyPageClient() {
     }
 
     try {
-      navigateBack({
+      await navigateBack({
         ...draft,
         originalStoragePath: storagePath ?? undefined,
         offset,
@@ -156,7 +156,7 @@ export function ModifyPageClient() {
     event.currentTarget.value = "";
     if (!file || !draft) return;
 
-    const prepared = await preparePhotoModifyImage(file);
+    const prepared = await preparePhotoModifyImage(file, { forItemDraft: draft.source === "item" });
     const nextDraft: PhotoModifyDraft = {
       ...draft,
       dataUrl: prepared.previewUrl,
@@ -172,7 +172,7 @@ export function ModifyPageClient() {
     setOffset(nextDraft.offset);
     setZoom(nextDraft.zoom);
     registerPhotoModifyRuntimeFile(nextDraft.id, prepared.file, prepared.previewUrl);
-    savePhotoModifyDraft(nextDraft);
+    void savePhotoModifyDraft(nextDraft);
   };
 
   if (!draft) {
