@@ -7,6 +7,11 @@ import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import { loadFauxProfileLenders } from "@/lib/shop/load-faux-profile-lenders";
+import {
+  isShopFeaturedRealMember,
+  mergeFeaturedLendersReplacingFaux,
+} from "@/lib/shop/merge-featured-lenders";
 import {
   fetchShopFeaturedLendersWithProfilePhotos,
   type FetchShopFeaturedLendersOptions,
@@ -208,27 +213,33 @@ async function ShopPageAsync() {
   const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
   const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
 
-  /** Top 9 prêteuses : plus de pièces `available`, avec photo de profil (pas de factices). */
+  /** Grille 9 : membres avec photo de profil, complétée par faux_profils si besoin. */
   const featuredLenderDb = catalogSb as unknown as FetchShopFeaturedLendersOptions["catalogDb"];
-  let featuredLenders: Awaited<ReturnType<typeof fetchShopFeaturedLendersWithProfilePhotos>> = [];
+  let realFeaturedLenders: Awaited<ReturnType<typeof fetchShopFeaturedLendersWithProfilePhotos>> = [];
   try {
-    featuredLenders = await perf.measure("shop.featuredLenders", () =>
+    realFeaturedLenders = await perf.measure("shop.featuredLenders", () =>
       fetchShopFeaturedLendersWithProfilePhotos({
         catalogDb: featuredLenderDb,
         maxMembers: 9,
+        excludeUserId: user.id,
       }),
     );
   } catch (err) {
     console.error("[shop] featuredLenders failed:", err);
   }
+  const featuredLenders = mergeFeaturedLendersReplacingFaux(
+    loadFauxProfileLenders(),
+    realFeaturedLenders,
+  );
   if (process.env.SEGNA_DEBUG_CMS === "1") {
     console.info("[shop] featuredLenders", {
-      count: featuredLenders.length,
+      real: realFeaturedLenders.length,
+      total: featuredLenders.length,
       ids: featuredLenders.map((l) => l.userId),
     });
   }
 
-  const featuredLenderUserIds = featuredLenders.map((l) => l.userId);
+  const featuredLenderUserIds = featuredLenders.filter(isShopFeaturedRealMember).map((l) => l.userId);
   let featuredLenderSectionItemIds: string[] = [];
   if (featuredLenderUserIds.length > 0) {
     const { data: itemRows } = await supabase
@@ -236,7 +247,7 @@ async function ShopPageAsync() {
       .select("id")
       .in("owner_user_id", featuredLenderUserIds)
       .is("deleted_at", null)
-      .eq("status", "available")
+      .in("status", ["available", "in_cart", "reserved"])
       .limit(80);
     featuredLenderSectionItemIds = (itemRows ?? [])
       .map((r) => (r as { id?: string }).id)

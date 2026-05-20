@@ -14,3 +14,8 @@ export function mergeFeaturedLendersReplacingFaux(
   const faux = padFeaturedLendersToNine(fauxSlots).slice(0, TARGET);
   return Array.from({ length: TARGET }, (_, index) => realMembers[index] ?? faux[index]!);
 }
+
+/** Membre réel (UUID) avec lien /membre — hors factices et placeholders. */
+export function isShopFeaturedRealMember(lender: ShopFeaturedLender): boolean {
+  return !lender.isPlaceholder && !lender.skipMemberProfileLink && !lender.userId.startsWith("__");
+}

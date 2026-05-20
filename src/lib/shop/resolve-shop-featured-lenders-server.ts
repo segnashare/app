@@ -13,11 +13,9 @@ import {
 
 const PROFILE_SELECT = "user_id, display_name, photos, looks";
 const FEATURED_LENDER_TARGET = 9;
-/** Pièces effectivement prêtées au catalogue (disponibles à l’emprunt). */
-const LENDER_ITEM_STATUS = "available" as const;
 const SIGN_TTL_SEC = 60 * 60 * 24;
-/** Candidats à parcourir pour remplir 9 profils avec photo (au-delà du top 9 strict). */
-const OWNER_CANDIDATE_POOL = 80;
+/** Profils récents parcourus pour trouver des photos (sans critère de pièce prêtée). */
+const PROFILE_CANDIDATE_POOL = 200;
 
 type ProfileRow = {
   user_id: string;
@@ -28,12 +26,6 @@ type ProfileRow = {
 
 type ShopDbClient = StorageSignClient & {
   from: (table: string) => unknown;
-};
-
-type OwnerRank = {
-  userId: string;
-  availableCount: number;
-  lastItemAt: string;
 };
 
 function displayNameFromRow(row: ProfileRow): string {
@@ -67,51 +59,37 @@ async function resolveAvatarUrl(
   return null;
 }
 
-async function rankOwnersByAvailableItemCount(db: ShopDbClient): Promise<OwnerRank[]> {
-  const { data: itemRows, error } = await (db.from("items") as {
+async function fetchRecentProfileCandidates(db: ShopDbClient, limit: number): Promise<ProfileRow[]> {
+  const { data, error } = await (db.from("user_profiles") as {
     select: (c: string) => {
-      eq: (col: string, val: string) => {
-        is: (col: string, val: null) => Promise<{ data: unknown; error: { message?: string } | null }>;
+      order: (
+        col: string,
+        opts?: { ascending?: boolean },
+      ) => {
+        limit: (n: number) => Promise<{ data: unknown; error: { message?: string } | null }>;
       };
     };
   })
-    .select("owner_user_id, updated_at")
-    .eq("status", LENDER_ITEM_STATUS)
-    .is("deleted_at", null);
+    .select(PROFILE_SELECT)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
 
-  if (error || !Array.isArray(itemRows)) {
-    if (error) console.error("[shop.featuredLenders] items:", error.message);
+  if (error) {
+    console.error("[shop.featuredLenders] profiles:", error.message);
     return [];
   }
-
-  const counts = new Map<string, { cnt: number; lastItemAt: string }>();
-  for (const raw of itemRows as Array<{ owner_user_id?: string; updated_at?: string }>) {
-    const ownerId = typeof raw.owner_user_id === "string" ? raw.owner_user_id.trim() : "";
-    if (!ownerId) continue;
-    const updatedAt = typeof raw.updated_at === "string" ? raw.updated_at : "";
-    const prev = counts.get(ownerId);
-    if (!prev) {
-      counts.set(ownerId, { cnt: 1, lastItemAt: updatedAt });
-      continue;
-    }
-    counts.set(ownerId, {
-      cnt: prev.cnt + 1,
-      lastItemAt: updatedAt > prev.lastItemAt ? updatedAt : prev.lastItemAt,
-    });
-  }
-
-  return [...counts.entries()]
-    .map(([userId, { cnt, lastItemAt }]) => ({
-      userId,
-      availableCount: cnt,
-      lastItemAt,
-    }))
-    .sort((a, b) => b.availableCount - a.availableCount || b.lastItemAt.localeCompare(a.lastItemAt));
+  if (!Array.isArray(data)) return [];
+  return data as ProfileRow[];
 }
 
-async function filterExcludedOwnerIds(db: ShopDbClient, ownerIds: string[]): Promise<Set<string>> {
+async function filterExcludedUserIds(
+  db: ShopDbClient,
+  userIds: string[],
+  excludeUserId?: string,
+): Promise<Set<string>> {
   const excluded = new Set<string>();
-  if (ownerIds.length === 0) return excluded;
+  if (excludeUserId) excluded.add(excludeUserId);
+  if (userIds.length === 0) return excluded;
 
   const [usersRes, rolesRes] = await Promise.all([
     (db.from("users") as {
@@ -119,8 +97,8 @@ async function filterExcludedOwnerIds(db: ShopDbClient, ownerIds: string[]): Pro
         in: (col: string, vals: string[]) => Promise<{ data: unknown; error: { message?: string } | null }>;
       };
     })
-      .select("id, status, email")
-      .in("id", ownerIds),
+      .select("id, status, email, deleted_at")
+      .in("id", userIds),
     (db.from("user_roles") as {
       select: (c: string) => {
         in: (col: string, vals: string[]) => {
@@ -131,15 +109,21 @@ async function filterExcludedOwnerIds(db: ShopDbClient, ownerIds: string[]): Pro
       };
     })
       .select("user_id")
-      .in("user_id", ownerIds)
+      .in("user_id", userIds)
       .eq("role", "organization")
       .is("deleted_at", null),
   ]);
 
   if (Array.isArray(usersRes.data)) {
-    for (const row of usersRes.data as Array<{ id?: string; status?: string; email?: string | null }>) {
+    for (const row of usersRes.data as Array<{
+      id?: string;
+      status?: string;
+      email?: string | null;
+      deleted_at?: string | null;
+    }>) {
       const id = typeof row.id === "string" ? row.id : "";
       if (!id) continue;
+      if (row.deleted_at != null) excluded.add(id);
       if (isSegnaCorporateInventoryUserId(id)) excluded.add(id);
       if (row.status === "corporate_inventory") excluded.add(id);
       const email = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
@@ -157,35 +141,17 @@ async function filterExcludedOwnerIds(db: ShopDbClient, ownerIds: string[]): Pro
   return excluded;
 }
 
-async function fetchProfilesByUserIds(db: ShopDbClient, userIds: string[]): Promise<Map<string, ProfileRow>> {
-  if (userIds.length === 0) return new Map();
-
-  const { data, error } = await (db.from("user_profiles") as {
-    select: (c: string) => {
-      in: (col: string, vals: string[]) => Promise<{ data: unknown; error: { message?: string } | null }>;
-    };
-  })
-    .select(PROFILE_SELECT)
-    .in("user_id", userIds);
-
-  if (error) {
-    console.error("[shop.featuredLenders] profiles:", error.message);
-    return new Map();
-  }
-  if (!Array.isArray(data)) return new Map();
-
-  return new Map((data as ProfileRow[]).map((p) => [p.user_id, p] as const));
-}
-
 export type FetchShopFeaturedLendersOptions = {
   /** Base catalogue (admin démo ou service role prod). */
   catalogDb: ShopDbClient;
   maxMembers?: number;
+  /** Membre connecté : exclu de la grille. */
+  excludeUserId?: string;
 };
 
 /**
- * Top N prêteuses : plus de pièces `available`, avec photo de profil résolvable.
- * Pas de profils factices — moins de 9 si pas assez de membres éligibles.
+ * Jusqu’à N membres avec au moins une photo de profil (looks ou photos).
+ * Aucune pièce prêtée requise. Compléter côté page avec des factices via mergeFeaturedLendersReplacingFaux.
  */
 export async function fetchShopFeaturedLendersWithProfilePhotos(
   options: FetchShopFeaturedLendersOptions,
@@ -196,46 +162,31 @@ export async function fetchShopFeaturedLendersWithProfilePhotos(
   const signClients: StorageSignClient[] = [options.catalogDb];
   if (adminSigner) signClients.unshift(adminSigner as StorageSignClient);
 
-  const rankedOwners = await rankOwnersByAvailableItemCount(db);
-  if (rankedOwners.length === 0) return [];
+  const candidates = await fetchRecentProfileCandidates(db, PROFILE_CANDIDATE_POOL);
+  if (candidates.length === 0) return [];
 
-  const candidatePool = rankedOwners.slice(0, OWNER_CANDIDATE_POOL);
-  const excluded = await filterExcludedOwnerIds(
+  const excluded = await filterExcludedUserIds(
     db,
-    candidatePool.map((o) => o.userId),
+    candidates.map((p) => p.user_id),
+    options.excludeUserId,
   );
-  const eligibleRanked = candidatePool.filter((o) => !excluded.has(o.userId));
 
   const result: ShopFeaturedLender[] = [];
-  let scanFrom = 0;
 
-  while (result.length < maxMembers && scanFrom < eligibleRanked.length) {
-    const batchSize = Math.min(maxMembers - result.length + 12, eligibleRanked.length - scanFrom);
-    const batch = eligibleRanked.slice(scanFrom, scanFrom + batchSize);
-    scanFrom += batchSize;
+  for (const profile of candidates) {
+    if (result.length >= maxMembers) break;
+    if (excluded.has(profile.user_id)) continue;
 
-    const profiles = await fetchProfilesByUserIds(
-      db,
-      batch.map((o) => o.userId),
-    );
+    const source = profileRowToSource(profile);
+    if (!memberHasProfilePhotoSource(source)) continue;
 
-    for (const { userId } of batch) {
-      if (result.length >= maxMembers) break;
-      const profile = profiles.get(userId);
-      if (!profile) continue;
+    const avatarUrl = await resolveAvatarUrl(signClients, source);
 
-      const source = profileRowToSource(profile);
-      if (!memberHasProfilePhotoSource(source)) continue;
-
-      const avatarUrl = await resolveAvatarUrl(signClients, source);
-      if (!avatarUrl) continue;
-
-      result.push({
-        userId,
-        displayName: displayNameFromRow(profile),
-        avatarUrl,
-      });
-    }
+    result.push({
+      userId: profile.user_id,
+      displayName: displayNameFromRow(profile),
+      avatarUrl,
+    });
   }
 
   return result;

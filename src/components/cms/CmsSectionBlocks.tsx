@@ -65,6 +65,21 @@ function cmsLinkCardCtaClassName(tone: CmsLinkCardCtaTone): string {
 export const CMS_SHOP_HUB_FRAME_OUTER_CLASS =
   "w-[min(84vw,410px)] max-w-[410px] shrink-0 snap-start";
 
+/** Surfaces frames CMS : pas de border ni ring (petites cartes stack + grandes cartes hub). */
+export const CMS_FRAME_SURFACE_CLASS = "overflow-hidden shadow-sm";
+
+const CMS_FRAME_STACK_CARD_CLASS = cn(
+  "relative flex shrink-0 flex-col rounded-2xl p-4",
+  CMS_FRAME_SURFACE_CLASS,
+);
+
+/** Active le masquage des contours catalogue (split / carré) pour tout le sous-arbre frame CMS. */
+const CmsFrameHideChromeContext = createContext(false);
+
+export function useCmsFrameHideChrome(): boolean {
+  return useContext(CmsFrameHideChromeContext);
+}
+
 /**
  * Rails pièces split hub (À découvrir, bons coups…) : même largeur que le rail Catégories
  * pour laisser voir l’aperçu de la frame suivante sur petits écrans.
@@ -200,7 +215,8 @@ function OfferCardInner({ payload }: { payload: CmsFramePayload }) {
     <Link
       href={href}
       className={cn(
-        "relative flex min-h-[120px] shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200/80 p-4 shadow-sm",
+        CMS_FRAME_STACK_CARD_CLASS,
+        "min-h-[120px]",
         layout === "stack" ? "w-full max-w-none min-w-0" : "w-[min(240px,calc(100vw-4rem))]",
         !bgUrl ? backgroundLayerClass(payload) : "bg-zinc-100",
       )}
@@ -277,7 +293,8 @@ export function ShopWideLinkCardBlock({
   const surface = (
     <div
       className={cn(
-        "shop-wide-link-card-surface relative flex min-h-0 flex-col overflow-hidden text-left shadow-sm",
+        "shop-wide-link-card-surface relative flex min-h-0 flex-col text-left",
+        CMS_FRAME_SURFACE_CLASS,
         surfaceRadiusClassName,
         visualOnly ? "p-0" : "p-4",
         pill && !visualOnly ? "justify-between" : "justify-start",
@@ -376,7 +393,8 @@ function CategoryCapsuleInner({ payload }: { payload: CmsFramePayload }) {
     <Link
       href={href}
       className={cn(
-        "relative flex min-h-[112px] shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200/80 p-4 text-left shadow-sm",
+        CMS_FRAME_STACK_CARD_CLASS,
+        "min-h-[112px] text-left",
         layout === "stack" ? "w-full max-w-none min-w-0" : "w-[min(200px,calc(100vw-5rem))]",
         backgroundLayerClass(payload),
       )}
@@ -524,7 +542,8 @@ function EditorialCardInner({ payload }: { payload: CmsFramePayload }) {
     <Link
       href={href}
       className={cn(
-        "relative flex min-h-[100px] shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200/80 p-4 shadow-sm",
+        CMS_FRAME_STACK_CARD_CLASS,
+        "min-h-[100px]",
         layout === "stack" ? "w-full max-w-none min-w-0" : "w-[min(260px,calc(100vw-4rem))]",
         backgroundLayerClass(payload),
       )}
@@ -639,7 +658,7 @@ function CmsShopItemRefStandalone({ row }: { row: CmsFrameRow }) {
   return (
     <Link href={`/items/${id}?from=cms`} className={cn(cmsRefOuterClass(layout, hubOuter), "block")}>
       <div className="w-full space-y-2">
-        <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-black/[0.06]">
+        <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-white">
           {spotUrl ? (
             <RemoteCoverThumb
               photoUrl={spotUrl}
@@ -695,7 +714,8 @@ function ProfilePlusHeroInner({ payload }: { payload: CmsFramePayload }) {
     <Link href={href} className="block w-full min-w-0 max-w-none not-italic">
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-3xl shadow-sm ring-1 ring-black/[0.06]",
+          "relative w-full rounded-3xl",
+          CMS_FRAME_SURFACE_CLASS,
           CMS_PROFILE_PLUS_HERO_ASPECT_CLASS,
           !bgUrl ? backgroundLayerClass(payload) : "bg-zinc-900",
         )}
@@ -806,7 +826,11 @@ function renderCmsFrameContent(row: CmsFrameRow, hub: CmsShopHubFramesEnv | null
 export function CmsFrameItem({ row, layoutMode = "hub" }: { row: CmsFrameRow; layoutMode?: CmsFrameLayoutMode }) {
   const hub = useCmsShopHubFramesOptional();
   return (
-    <CmsFrameLayoutModeProvider mode={layoutMode}>{renderCmsFrameContent(row, hub)}</CmsFrameLayoutModeProvider>
+    <CmsFrameLayoutModeProvider mode={layoutMode}>
+      <CmsFrameHideChromeContext.Provider value={true}>
+        {renderCmsFrameContent(row, hub)}
+      </CmsFrameHideChromeContext.Provider>
+    </CmsFrameLayoutModeProvider>
   );
 }
 

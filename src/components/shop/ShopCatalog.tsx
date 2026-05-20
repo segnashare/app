@@ -31,6 +31,7 @@ import {
   SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
   CmsFrameItem,
   ShopWideLinkCardBlock,
+  useCmsFrameHideChrome,
   useCmsHubFrameOuterOverride,
 } from "@/components/cms/CmsSectionBlocks";
 import { pickPseudoFrame } from "@/lib/cms/cms-pseudo-frame";
@@ -360,6 +361,8 @@ type ShopPieceSquareCatalogCardProps = {
   onToggleLike: (itemId: string) => Promise<void>;
   onToggleCart: (itemId: string) => Promise<void>;
   hideMetaUntilReady: boolean;
+  /** Frames CMS (`shop_item_ref`) : pas de contour sur la carte. */
+  hideFrameBorder?: boolean;
 };
 
 function ShopPieceSquareCatalogCard({
@@ -374,7 +377,10 @@ function ShopPieceSquareCatalogCard({
   onToggleLike,
   onToggleCart,
   hideMetaUntilReady,
+  hideFrameBorder = false,
 }: ShopPieceSquareCatalogCardProps) {
+  const cmsHideChrome = useCmsFrameHideChrome();
+  const noFrameChrome = hideFrameBorder || cmsHideChrome;
   const hasPhotoPath = Boolean(getFirstPhotoStoragePath(item.photos));
   const [loadState, setLoadState] = useState<RemoteCoverLoadState>(() =>
     !cover && !hasPhotoPath ? "ready" : "loading",
@@ -393,11 +399,16 @@ function ShopPieceSquareCatalogCard({
 
   return (
     <div className="w-full">
-      <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-black/[0.06]">
+      <div
+        className={cn(
+          "relative aspect-square w-full overflow-hidden rounded-2xl",
+          noFrameChrome ? "bg-white" : "bg-zinc-100 ring-1 ring-black/[0.06]",
+        )}
+      >
         {cover ? (
           <RemoteCoverThumb
             photoUrl={cover}
-            frameClassName="absolute inset-0 h-full w-full"
+            frameClassName={cn("absolute inset-0 h-full w-full", noFrameChrome && "bg-white")}
             className="h-full w-full"
             coverStyle={{
               backgroundSize: "cover",
@@ -518,6 +529,7 @@ type ShopPieceSplitCardProps = {
   /** Photo à droite = image CMS signée (pas la cover catalogue). */
   useCmsSpotlightImage?: boolean;
   spotlightPhotoPosition?: CmsPhotoPosition;
+  hideFrameBorder?: boolean;
 };
 
 function ShopPieceSplitCard({
@@ -535,7 +547,10 @@ function ShopPieceSplitCard({
   spotlight,
   useCmsSpotlightImage = false,
   spotlightPhotoPosition = null,
+  hideFrameBorder = false,
 }: ShopPieceSplitCardProps) {
+  const cmsHideChrome = useCmsFrameHideChrome();
+  const noFrameChrome = hideFrameBorder || cmsHideChrome;
   const hasPhotoPath = Boolean(getFirstPhotoStoragePath(item.photos));
   const [loadState, setLoadState] = useState<RemoteCoverLoadState>(() => (cover ? "loading" : "ready"));
 
@@ -643,19 +658,35 @@ function ShopPieceSplitCard({
   );
 
   return (
-    <div className="relative flex aspect-[2.12] min-h-[128px] w-full overflow-hidden rounded-2xl bg-zinc-200 ring-1 ring-black/[0.06]">
+    <div
+      className={cn(
+        "relative flex aspect-[2.12] min-h-[128px] w-full overflow-hidden rounded-2xl",
+        noFrameChrome ? "bg-transparent" : "bg-zinc-200 ring-1 ring-black/[0.06]",
+      )}
+    >
       <div
-        className="flex min-w-0 w-[60%] shrink-0 flex-col pl-3.5 pr-2.5 pb-3 pt-3.5"
+        className={cn(
+          "flex min-w-0 w-[60%] shrink-0 flex-col pl-3.5 pr-2.5 pb-3 pt-3.5",
+          noFrameChrome && "rounded-l-2xl",
+        )}
         style={{ backgroundColor: hex }}
       >
         <div className="min-h-0 min-w-0 flex-1">{metaBlock}</div>
         {actionRow}
       </div>
-      <div className="relative h-full min-h-0 w-[40%] shrink-0 bg-zinc-50">
+      <div
+        className={cn(
+          "relative h-full min-h-0 w-[40%] shrink-0 overflow-hidden",
+          noFrameChrome ? "rounded-r-2xl bg-white" : "bg-zinc-50",
+        )}
+      >
         {cover ? (
           <RemoteCoverThumb
             photoUrl={cover}
-            frameClassName="absolute inset-0 h-full w-full"
+            frameClassName={cn(
+              "absolute inset-0 h-full w-full",
+              noFrameChrome && "bg-white",
+            )}
             className="h-full w-full"
             suppressLoadSkeleton
             {...(useCmsSpotlightImage
@@ -677,16 +708,6 @@ function ShopPieceSplitCard({
         ) : (
           <div className="h-full w-full bg-zinc-100" aria-hidden />
         )}
-        <div className="pointer-events-none absolute right-2 top-2 z-[4] sm:right-2.5 sm:top-2.5">
-          <img
-            src="/ressources/signature_segna.svg"
-            alt=""
-            width={120}
-            height={40}
-            className="h-5 w-auto max-w-[min(42vw,96px)] select-none object-contain opacity-[0.92] sm:h-6 sm:max-w-[104px]"
-            aria-hidden
-          />
-        </div>
       </div>
       {showFullCardShimmer ? (
         <SegnaSkeletonBlock
@@ -3272,6 +3293,7 @@ export function ShopCapsuleItemRefFrame({
     onToggleLike,
     onToggleCart,
     hideMetaUntilReady: true as const,
+    hideFrameBorder: true as const,
   };
 
   const itemRefLinkClassName =
@@ -3411,6 +3433,7 @@ function HubRail({
                   spotlight={spotlight}
                   useCmsSpotlightImage={useCmsSpotlightImage}
                   spotlightPhotoPosition={spotlightPhotoPositions?.[index] ?? null}
+                  hideFrameBorder
                 />
               ) : (
                 <ShopPieceSquareCatalogCard {...railCardProps} />
