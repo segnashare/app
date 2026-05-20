@@ -135,13 +135,19 @@ export function ModifyPageClient() {
       return;
     }
 
-    navigateBack({
-      ...draft,
-      originalStoragePath: storagePath ?? undefined,
-      offset,
-      zoom,
-      status: "confirmed",
-    });
+    try {
+      navigateBack({
+        ...draft,
+        originalStoragePath: storagePath ?? undefined,
+        offset,
+        zoom,
+        status: "confirmed",
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Impossible d'enregistrer la photo.");
+      setIsSaving(false);
+      return;
+    }
     setIsSaving(false);
   };
 

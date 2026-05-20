@@ -86,6 +86,54 @@ function compactSlotsLeft(next: Array<ItemPhotoSlot | null>): Array<ItemPhotoSlo
 const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
 const ITEM_SLOTS_DRAFT_STORAGE_KEY = "segna:new-item:slots-draft";
 const ITEM_TEXT_DRAFT_STORAGE_KEY = "segna:new-item:text-draft";
+/** Évite qu’un chargement DB tardif écrase une photo fraîchement confirmée dans /modify. */
+const ITEM_SLOTS_SKIP_DB_HYDRATE_KEY = "segna:new-item:slots-skip-db-hydrate";
+
+function markSkipDbPhotoHydration(): void {
+  try {
+    sessionStorage.setItem(ITEM_SLOTS_SKIP_DB_HYDRATE_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
+function clearSkipDbPhotoHydration(): void {
+  try {
+    sessionStorage.removeItem(ITEM_SLOTS_SKIP_DB_HYDRATE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function shouldSkipDbPhotoHydration(
+  searchParams: { get: (key: string) => string | null },
+  skipRefActive = false,
+): boolean {
+  if (skipRefActive || searchParams.get("photoModifyId")) return true;
+  try {
+    return sessionStorage.getItem(ITEM_SLOTS_SKIP_DB_HYDRATE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistItemSlotsDraft(slotsToPersist: Array<ItemPhotoSlot | null>): boolean {
+  try {
+    sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slotsToPersist));
+    return true;
+  } catch {
+    const slim = slotsToPersist.map((slot) => {
+      if (!slot?.storagePath?.trim()) return slot;
+      return { ...slot, dataUrl: "" };
+    });
+    try {
+      sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slim));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 /** Parcours /items/proposal → première ligne `items` avec `pre_subscribe_proposal` (pas d’expédition auto à la validation). */
 const PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY = "segna:new-item:pre-subscribe-proposal";
 
@@ -271,6 +319,7 @@ export default function NewItemPage() {
   const activeSlotRef = useRef(0);
   const pendingSlotRef = useRef<number | null>(null);
   const handledPhotoModifyIdsRef = useRef<Set<string>>(new Set());
+  const skipDbPhotoHydrationRef = useRef(false);
   const [slots, setSlots] = useState<Array<ItemPhotoSlot | null>>([null, null, null, null, null, null]);
   const [mode, setMode] = useState<"edit" | "view">("edit");
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -472,7 +521,7 @@ export default function NewItemPage() {
           setDescription(nextDescription);
           // Ne pas charger les slots depuis sessionStorage si on revient avec photoModifyId
           // (l'effet photoModifyId ajoutera la nouvelle photo aux slots existants)
-          if (!searchParamsRef.current.get("photoModifyId")) {
+          if (!shouldSkipDbPhotoHydration(searchParamsRef.current, skipDbPhotoHydrationRef.current)) {
             try {
               const rawLocalSlots = sessionStorage.getItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
               if (rawLocalSlots) {
@@ -711,8 +760,8 @@ export default function NewItemPage() {
           };
         }
 
-        // Ne pas écraser les slots si on revient de modify avec une nouvelle photo (photoModifyId)
-        if (!isUnmounted && !searchParamsRef.current.get("photoModifyId")) {
+        // Ne pas écraser les slots pendant / juste après /modify (course avec ensureDraft).
+        if (!isUnmounted && !shouldSkipDbPhotoHydration(searchParamsRef.current, skipDbPhotoHydrationRef.current)) {
           setSlots(compactSlotsLeft(nextSlots));
         }
         setIsInitializingDraft(false);
@@ -864,7 +913,9 @@ export default function NewItemPage() {
               zoom,
             };
           }
-          if (!isUnmounted && !searchParamsRef.current.get("photoModifyId")) setSlots(compactSlotsLeft(nextSlots));
+          if (!isUnmounted && !shouldSkipDbPhotoHydration(searchParamsRef.current, skipDbPhotoHydrationRef.current)) {
+            setSlots(compactSlotsLeft(nextSlots));
+          }
         }
         setIsInitializingDraft(false);
         return;
@@ -932,11 +983,7 @@ export default function NewItemPage() {
 
   useEffect(() => {
     if (!hasHydratedSlots) return;
-    try {
-      sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slots));
-    } catch {
-      // Best effort only.
-    }
+    persistItemSlotsDraft(slots);
   }, [hasHydratedSlots, slots]);
 
   useEffect(() => {
@@ -962,35 +1009,70 @@ export default function NewItemPage() {
     const modifiedId = photoModifyIdFromUrl;
     if (!modifiedId) return;
     if (handledPhotoModifyIdsRef.current.has(modifiedId)) return;
-    const draft = readPhotoModifyDraft(modifiedId);
-    if (!draft || draft.source !== "item" || draft.status !== "confirmed") return;
-    const slotFromDraft = typeof draft.slot === "number" && draft.slot >= 0 && draft.slot <= 5 ? draft.slot : null;
-    const resolvedSlot = slotFromDraft ?? pendingSlotRef.current;
-    if (resolvedSlot == null || resolvedSlot < 0 || resolvedSlot > 5) return;
-    handledPhotoModifyIdsRef.current.add(modifiedId);
+    skipDbPhotoHydrationRef.current = true;
+    markSkipDbPhotoHydration();
 
     void (async () => {
-      const imageRatio = await getImageRatio(draft.dataUrl);
-      setSlots((prev) => {
-        const next = [...prev];
-        next[resolvedSlot] = {
-          dataUrl: draft.dataUrl,
-          fileName: draft.fileName,
-          mimeType: draft.mimeType,
-          storagePath: draft.originalStoragePath,
-          imageRatio,
-          offset: { x: draft.offset.x, y: draft.offset.y },
-          zoom: draft.zoom,
-        };
-        return compactSlotsLeft(next);
-      });
-      setPhotoEditVersion((v) => v + 1);
-      removePhotoModifyDraft(modifiedId);
-      pendingSlotRef.current = null;
-      // Garder l'itemId depuis l'URL : draftItemId peut être null si ensureDraft n'a pas encore fini
-      const itemIdForUrl = requestedItemId || draftItemId || null;
-      const returnTo = itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new";
-      router.replace(returnTo);
+      const draft = readPhotoModifyDraft(modifiedId);
+      if (!draft || draft.source !== "item" || draft.status !== "confirmed") {
+        skipDbPhotoHydrationRef.current = false;
+        clearSkipDbPhotoHydration();
+        setErrorMessage(
+          "La photo n’a pas pu être récupérée (mémoire du navigateur saturée). Réessaie avec une image plus légère ou ferme d’autres onglets.",
+        );
+        const itemIdForUrl = requestedItemId || draftItemId || null;
+        router.replace(itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new");
+        return;
+      }
+      const slotFromDraft = typeof draft.slot === "number" && draft.slot >= 0 && draft.slot <= 5 ? draft.slot : null;
+      const resolvedSlot = slotFromDraft ?? pendingSlotRef.current;
+      if (resolvedSlot == null || resolvedSlot < 0 || resolvedSlot > 5) {
+        skipDbPhotoHydrationRef.current = false;
+        clearSkipDbPhotoHydration();
+        setErrorMessage("Impossible de placer la photo (emplacement invalide). Réessaie.");
+        const itemIdForUrl = requestedItemId || draft.itemId || draftItemId || null;
+        router.replace(itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new");
+        return;
+      }
+      handledPhotoModifyIdsRef.current.add(modifiedId);
+
+      try {
+        const imageRatio = await getImageRatio(draft.dataUrl);
+        let mergedSlots: Array<ItemPhotoSlot | null> = [null, null, null, null, null, null];
+        setSlots((prev) => {
+          const next = [...prev];
+          next[resolvedSlot] = {
+            dataUrl: draft.dataUrl,
+            fileName: draft.fileName,
+            mimeType: draft.mimeType,
+            storagePath: draft.originalStoragePath,
+            imageRatio,
+            offset: { x: draft.offset.x, y: draft.offset.y },
+            zoom: draft.zoom,
+          };
+          mergedSlots = compactSlotsLeft(next);
+          return mergedSlots;
+        });
+        if (!persistItemSlotsDraft(mergedSlots)) {
+          setErrorMessage(
+            "Photo ajoutée à l’écran, mais la sauvegarde locale a échoué (stockage saturé). Évite de quitter la page avant d’avoir validé la fiche.",
+          );
+        }
+        setPhotoEditVersion((v) => v + 1);
+        removePhotoModifyDraft(modifiedId);
+        pendingSlotRef.current = null;
+        skipDbPhotoHydrationRef.current = false;
+        clearSkipDbPhotoHydration();
+        const itemIdForUrl = requestedItemId || draft.itemId || draftItemId || null;
+        const returnTo = itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new";
+        router.replace(returnTo);
+      } catch {
+        skipDbPhotoHydrationRef.current = false;
+        clearSkipDbPhotoHydration();
+        setErrorMessage("Impossible d’ajouter cette photo. Réessaie.");
+        const itemIdForUrl = requestedItemId || draft.itemId || draftItemId || null;
+        router.replace(itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new");
+      }
     })();
   }, [draftItemId, photoModifyIdFromUrl, requestedItemId, router]);
 
@@ -1004,6 +1086,8 @@ export default function NewItemPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     const slotIndex = pendingSlotRef.current ?? activeSlotRef.current;
+    skipDbPhotoHydrationRef.current = true;
+    markSkipDbPhotoHydration();
     const dataUrl = await fileToDataUrl(file);
     const draftId = crypto.randomUUID();
     const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
