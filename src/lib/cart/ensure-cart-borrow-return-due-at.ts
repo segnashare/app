@@ -31,9 +31,10 @@ export async function ensureCartBorrowReturnDueAt(
   const membershipLabel =
     input.membershipLabel ?? (await resolveMembershipLabelForServiceRole(admin, input.userId));
 
-  const extensionDays =
-    input.borrowExtensionDaysTotal ??
-    (await fetchCartBorrowExtensionDaysTotal(admin, input.cartId));
+  let extensionDays = input.borrowExtensionDaysTotal;
+  if (extensionDays == null) {
+    extensionDays = await fetchCartBorrowExtensionDaysTotal(admin, input.cartId);
+  }
 
   const dueMs = resolveCartBorrowReturnDueMs({
     borrowReturnDueAtIso: null,

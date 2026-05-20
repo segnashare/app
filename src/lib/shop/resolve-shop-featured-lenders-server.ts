@@ -193,7 +193,8 @@ export async function fetchShopFeaturedLendersWithProfilePhotos(
   const maxMembers = options.maxMembers ?? FEATURED_LENDER_TARGET;
   const adminSigner = tryCreateSupabaseAdminClient();
   const db = (adminSigner ?? options.catalogDb) as ShopDbClient;
-  const signClients = [adminSigner, options.catalogDb].filter((c): c is StorageSignClient => c != null);
+  const signClients: StorageSignClient[] = [options.catalogDb];
+  if (adminSigner) signClients.unshift(adminSigner as StorageSignClient);
 
   const rankedOwners = await rankOwnersByAvailableItemCount(db);
   if (rankedOwners.length === 0) return [];

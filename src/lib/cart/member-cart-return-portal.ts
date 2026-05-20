@@ -547,12 +547,16 @@ export async function runCartReturnPortalSync(
   const outboundParcelId = parsePositiveInt(ctx.destMeta.sendcloud_parcel_id);
   const dummyParcelId = parsePositiveInt(ctx.destMeta.sc_cart_return_dummy_parcel_id);
 
-  return syncCartReturnFromSendcloudByOrder(admin, env, {
+  const sync = await syncCartReturnFromSendcloudByOrder(admin, env, {
     cartId,
     orderNumber,
     outboundParcelId,
     dummyParcelId,
   });
+  if (!sync.ok) {
+    return { ok: false, error: sync.error, status: 502 };
+  }
+  return sync;
 }
 
 function parsePositiveInt(raw: unknown): number | null {

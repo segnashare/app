@@ -1,13 +1,17 @@
 type ExtensionRow = { cart_id?: string; extension_days: number | null };
 
-type SupabaseLike = {
+type ExtensionsQueryClient = {
   from: (table: string) => {
     select: (columns: string) => {
-      eq: (column: string, value: string) => Promise<{ data: ExtensionRow[] | null; error: { message?: string } | null }>;
-      in: (column: string, values: string[]) => Promise<{ data: ExtensionRow[] | null; error: { message?: string } | null }>;
+      eq: (column: string, value: string) => PromiseLike<{ data: ExtensionRow[] | null; error: { message?: string } | null }>;
+      in: (column: string, values: string[]) => PromiseLike<{ data: ExtensionRow[] | null; error: { message?: string } | null }>;
     };
   };
 };
+
+function asExtensionsClient(supabase: unknown): ExtensionsQueryClient {
+  return supabase as ExtensionsQueryClient;
+}
 
 function sumExtensionDays(rows: ExtensionRow[]): number {
   return rows.reduce(
@@ -17,24 +21,23 @@ function sumExtensionDays(rows: ExtensionRow[]): number {
 }
 
 /** Somme des jours de prolongation payés pour un panier (toutes extensions confondues). */
-export async function fetchCartBorrowExtensionDaysTotal(
-  supabase: SupabaseLike,
-  cartId: string,
-): Promise<number> {
-  const { data, error } = await supabase.from("cart_borrow_extensions").select("extension_days").eq("cart_id", cartId);
+export async function fetchCartBorrowExtensionDaysTotal(supabase: unknown, cartId: string): Promise<number> {
+  const client = asExtensionsClient(supabase);
+  const { data, error } = await client.from("cart_borrow_extensions").select("extension_days").eq("cart_id", cartId);
   if (error || !data?.length) return 0;
   return sumExtensionDays(data);
 }
 
 /** Jours de prolongation par panier (batch liste Échange). */
 export async function fetchCartBorrowExtensionDaysByCartIds(
-  supabase: SupabaseLike,
+  supabase: unknown,
   cartIds: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (cartIds.length === 0) return out;
 
-  const { data, error } = await supabase
+  const client = asExtensionsClient(supabase);
+  const { data, error } = await client
     .from("cart_borrow_extensions")
     .select("cart_id, extension_days")
     .in("cart_id", cartIds);
