@@ -13,6 +13,7 @@ import { fetchCmsCatalogSectionResolved } from "@/lib/cms/fetch-cms-catalog-sect
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { SHOP_HUB_SECTION_KEYS } from "@/lib/cms/shop-hub-sections";
+import { enrichShopFilterSizesWithCode } from "@/lib/shop/enrich-shop-filter-sizes";
 import { tryCreateSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -42,7 +43,7 @@ async function fetchShopFilterFacetsAdminUncached(): Promise<Record<string, unkn
   return data as Record<string, unknown>;
 }
 
-const fetchShopFilterFacetsAdminCached = unstable_cache(fetchShopFilterFacetsAdminUncached, ["shop-boutique-filter-facets-v1"], {
+const fetchShopFilterFacetsAdminCached = unstable_cache(fetchShopFilterFacetsAdminUncached, ["shop-boutique-filter-facets-v3"], {
   revalidate: 120,
   tags: ["shop-boutique-filter-facets"],
 });
@@ -63,6 +64,15 @@ function facetResponsesFromBundle(bundle: Record<string, unknown>): {
   };
 }
 
+async function enrichSizeFacetResponse(
+  db: SupabaseClient<Database>,
+  sizeRes: ShopFilterFacetQueryResponse,
+): Promise<ShopFilterFacetQueryResponse> {
+  if (sizeRes.error || sizeRes.data == null) return sizeRes;
+  const data = await enrichShopFilterSizesWithCode(db, sizeRes.data);
+  return { ...sizeRes, data };
+}
+
 /**
  * Filtres boutique : 1 RPC (+ cache admin optionnel) sur le projet principal, ou 5 requêtes en mode démo / repli.
  */
@@ -80,14 +90,14 @@ export async function loadShopBoutiqueFilterFacetResponses(
     const db = await catalogClientForFilters(true);
     const [c, s, b, col, m] = await Promise.all([
       db.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
-      db.from("sizes").select("id,label").order("label", { ascending: true }),
+      db.from("sizes").select("id,label,code").order("code", { ascending: true }),
       db.from("item_brands").select("id,label").order("label", { ascending: true }),
       db.from("item_couleurs").select("id,label").order("label", { ascending: true }),
       db.from("item_materiaux").select("id,label").order("label", { ascending: true }),
     ]);
     return {
       catResFinal: c,
-      sizeResFinal: s,
+      sizeResFinal: await enrichSizeFacetResponse(db, s),
       brandResFinal: b,
       colResFinal: col,
       matResFinal: m,
@@ -97,7 +107,12 @@ export async function loadShopBoutiqueFilterFacetResponses(
   if (tryCreateSupabaseAdminClient()) {
     try {
       const bundle = await fetchShopFilterFacetsAdminCached();
-      return facetResponsesFromBundle(bundle);
+      const facets = facetResponsesFromBundle(bundle);
+      const admin = tryCreateSupabaseAdminClient();
+      if (admin) {
+        facets.sizeResFinal = await enrichSizeFacetResponse(admin, facets.sizeResFinal);
+      }
+      return facets;
     } catch {
       /* migration pas encore poussée ou RPC indisponible : repli ci-dessous */
     }
@@ -105,20 +120,22 @@ export async function loadShopBoutiqueFilterFacetResponses(
 
   const { data, error } = await supabaseForRpc.rpc("get_shop_boutique_filter_facets");
   if (!error && data && typeof data === "object" && !Array.isArray(data)) {
-    return facetResponsesFromBundle(data as Record<string, unknown>);
+    const facets = facetResponsesFromBundle(data as Record<string, unknown>);
+    facets.sizeResFinal = await enrichSizeFacetResponse(supabaseForRpc, facets.sizeResFinal);
+    return facets;
   }
 
   const db = await catalogClientForFilters(false);
   const [c, s, b, col, m] = await Promise.all([
     db.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
-    db.from("sizes").select("id,label").order("label", { ascending: true }),
+    db.from("sizes").select("id,label,code").order("code", { ascending: true }),
     db.from("item_brands").select("id,label").order("label", { ascending: true }),
     db.from("item_couleurs").select("id,label").order("label", { ascending: true }),
     db.from("item_materiaux").select("id,label").order("label", { ascending: true }),
   ]);
   return {
     catResFinal: c,
-    sizeResFinal: s,
+    sizeResFinal: await enrichSizeFacetResponse(db, s),
     brandResFinal: b,
     colResFinal: col,
     matResFinal: m,
@@ -132,7 +149,7 @@ export async function fetchShopFilterCategoriesCached(isDemoMode: boolean) {
 
 export async function fetchShopFilterSizesCached(isDemoMode: boolean) {
   const db = await catalogClientForFilters(isDemoMode);
-  return db.from("sizes").select("id,label").order("label", { ascending: true });
+  return db.from("sizes").select("id,label,code").order("code", { ascending: true });
 }
 
 export async function fetchShopFilterBrandsCached(isDemoMode: boolean) {

@@ -49,9 +49,17 @@ import {
   departmentSlugForCategoryId,
 } from "@/lib/shop/shop-department-categories";
 import { mergeShopHubSectionDisplay, type ShopHubSectionSlug } from "@/lib/cms/shop-hub-sections";
+import { SizeFilterSections } from "@/components/shop/SizeFilterSections";
 import { cn } from "@/lib/utils/cn";
+import {
+  initSizeSheetBrowseCategory,
+  type SizeFilterCategory,
+  type SizeFilterOption,
+} from "@/lib/shop/size-filter-groups";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
+
+export type { SizeFilterOption };
 
 const montserratHubWideCard = segnaMontserrat;
 const montserratPieceBold = segnaMontserrat;
@@ -155,7 +163,7 @@ type ShopCatalogProps = {
   initialItems: ShopCatalogItem[];
   initialLikedItemIds: string[];
   categories: CategoryFilterOption[];
-  sizes: FilterOption[];
+  sizes: SizeFilterOption[];
   brands: FilterOption[];
   colors: FilterOption[];
   materials: FilterOption[];
@@ -803,6 +811,8 @@ export function ShopCatalog({
   const [sortSheetDraft, setSortSheetDraft] = useState<SortMode>("recent");
   const [categorySheetBrowseL1, setCategorySheetBrowseL1] = useState<string | null>(null);
   const [categorySheetBrowseL2, setCategorySheetBrowseL2] = useState<string | null>(null);
+  const [sizeSheetBrowseCategory, setSizeSheetBrowseCategory] = useState<SizeFilterCategory | null>(null);
+  const [modalSizeBrowseCategory, setModalSizeBrowseCategory] = useState<SizeFilterCategory | null>(null);
   const [availableVisibleCount, setAvailableVisibleCount] = useState(40);
   const [gridVisibleCount, setGridVisibleCount] = useState(SHOP_GRID_INITIAL_VISIBLE_COUNT);
 
@@ -817,9 +827,6 @@ export function ShopCatalog({
   const sortModeRef = useRef(sortMode);
   filtersRef.current = filters;
   sortModeRef.current = sortMode;
-  const searchHeaderRef = useRef<HTMLElement | null>(null);
-  const [searchHeaderHeight, setSearchHeaderHeight] = useState(0);
-
   useEffect(() => {
     setLocalCartItemIds(new Set(cartItemIds));
   }, [cartItemIds]);
@@ -932,16 +939,6 @@ export function ShopCatalog({
   }, [hasPendingCovers]);
 
   const shimmerDurationSec = 2.85 + shimmerSlowStep * 0.55;
-
-  useLayoutEffect(() => {
-    const el = searchHeaderRef.current;
-    if (!el) return;
-    const measure = () => setSearchHeaderHeight(el.getBoundingClientRect().height);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [mode, sectionPageTitle]);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -1303,11 +1300,25 @@ export function ShopCatalog({
       );
       setCategorySheetBrowseL1(b.l1);
       setCategorySheetBrowseL2(b.l2);
+      setSizeSheetBrowseCategory(null);
+    } else if (filterDetailSheet === "sizeIds") {
+      setCategorySheetBrowseL1(null);
+      setCategorySheetBrowseL2(null);
+      setSizeSheetBrowseCategory(initSizeSheetBrowseCategory(filtersRef.current.sizeIds, sizes));
     } else {
       setCategorySheetBrowseL1(null);
       setCategorySheetBrowseL2(null);
+      setSizeSheetBrowseCategory(null);
     }
-  }, [filterDetailSheet, categories]);
+  }, [filterDetailSheet, categories, sizes]);
+
+  const modalFilterFamilyRef = useRef(modalFilterFamily);
+  useEffect(() => {
+    if (modalFilterFamily === "size" && modalFilterFamilyRef.current !== "size") {
+      setModalSizeBrowseCategory(initSizeSheetBrowseCategory(modalFilters.sizeIds, sizes));
+    }
+    modalFilterFamilyRef.current = modalFilterFamily;
+  }, [modalFilterFamily, modalFilters.sizeIds, sizes]);
 
   const applyModal = useCallback(() => {
     setFilters({ ...modalFilters });
@@ -1317,7 +1328,19 @@ export function ShopCatalog({
   const resetModalFilters = useCallback(() => {
     setModalFilters({ ...emptyShopCatalogFilters });
     setModalCategoryBrowseParentId(null);
+    setModalSizeBrowseCategory(null);
     setModalFilterFamily("category");
+  }, []);
+
+  const toggleSizeIds = useCallback((current: string[], id: string) => {
+    return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+  }, []);
+
+  const toggleAllSizeIdsInCategory = useCallback((current: string[], categoryIds: string[]) => {
+    if (categoryIds.length === 0) return current;
+    const allSelected = categoryIds.every((id) => current.includes(id));
+    if (allSelected) return current.filter((id) => !categoryIds.includes(id));
+    return [...new Set([...current, ...categoryIds])];
   }, []);
 
   /** Filtres catalogue (chips + Disponibles / Cœurs) — hors recherche et tri. */
@@ -1375,12 +1398,17 @@ export function ShopCatalog({
       setCategorySheetBrowseL2(null);
       return;
     }
+    if (filterDetailSheet === "sizeIds") {
+      setFilterSheetDraft((d) => ({ ...d, sizeIds: [] }));
+      setSizeSheetBrowseCategory(initSizeSheetBrowseCategory([], sizes));
+      return;
+    }
     if (isMultiFilterKey(filterDetailSheet)) {
       setFilterSheetDraft((d) => ({ ...d, [filterDetailSheet]: [] }));
       return;
     }
     setFilterSheetDraft((d) => ({ ...d, [filterDetailSheet]: null }));
-  }, [filterDetailSheet]);
+  }, [filterDetailSheet, sizes]);
 
   const chipLabel = useCallback(
     (key: MenuKey) => {
@@ -1542,26 +1570,26 @@ export function ShopCatalog({
         );
       case "size":
         return (
-          <div className={FILTER_DETAIL_ROW_SCROLL}>
-            <FilterModalRowChip
-              label="Tous"
-              active={modalFilters.sizeIds.length === 0}
-              onClick={() => setModalFilters((f) => ({ ...f, sizeIds: [] }))}
-            />
-            {sizes.map((c) => (
-              <FilterModalRowChip
-                key={c.id}
-                label={c.label}
-                active={modalFilters.sizeIds.includes(c.id)}
-                onClick={() =>
-                  setModalFilters((f) => ({
-                    ...f,
-                    sizeIds: f.sizeIds.includes(c.id) ? f.sizeIds.filter((x) => x !== c.id) : [...f.sizeIds, c.id],
-                  }))
-                }
-              />
-            ))}
-          </div>
+          <SizeFilterSections
+            sizes={sizes}
+            selectedIds={modalFilters.sizeIds}
+            browseCategory={modalSizeBrowseCategory}
+            onBrowseCategoryChange={setModalSizeBrowseCategory}
+            onClearAll={() => setModalFilters((f) => ({ ...f, sizeIds: [] }))}
+            onToggle={(id) =>
+              setModalFilters((f) => ({ ...f, sizeIds: toggleSizeIds(f.sizeIds, id) }))
+            }
+            onSelectAllInCategory={(categoryIds) =>
+              setModalFilters((f) => ({ ...f, sizeIds: toggleAllSizeIdsInCategory(f.sizeIds, categoryIds) }))
+            }
+            scrollRowClassName={FILTER_DETAIL_ROW_SCROLL}
+            renderRayonChip={({ label, active, onClick }) => (
+              <FilterModalRowChip label={label} active={active} onClick={onClick} />
+            )}
+            renderSizeChip={({ option, active, onClick }) => (
+              <FilterModalRowChip label={option.label} active={active} onClick={onClick} />
+            )}
+          />
         );
       default:
         return null;
@@ -1573,12 +1601,15 @@ export function ShopCatalog({
     modalFilters.brandIds,
     modalFilters.colorIds,
     modalFilters.sizeIds,
+    modalSizeBrowseCategory,
     categoryChildOptions,
     categoryRootOptions,
     categoryHasChildren,
     brands,
     colors,
     sizes,
+    toggleSizeIds,
+    toggleAllSizeIdsInCategory,
   ]);
 
   const showHub =
@@ -2442,12 +2473,10 @@ export function ShopCatalog({
 
   return (
     <div className={cn("min-h-0 bg-white text-zinc-900", guideCartOnboarding && "segna-guidance-shimmer-active")}>
-      {/* En-tête recherche : fixe, le reste défile en dessous. */}
-      <header
-        ref={searchHeaderRef}
-        className="fixed left-0 right-0 top-0 z-40 flex justify-center bg-white px-4 pt-[max(0.75rem,env(safe-area-inset-top))]"
-      >
-        <div className="w-full max-w-[430px]">
+      {/* En-tête recherche + filtres : sticky dans la colonne (comme /exchange). */}
+      <div className="sticky top-0 z-40 bg-white">
+      <header className="px-4 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-8">
+        <div className="w-full">
           {mode === "section" && sectionPageTitle ? (
             <div className="border-b border-zinc-200 pb-4">
               <div className="relative flex min-h-[52px] items-center justify-center">
@@ -2543,13 +2572,6 @@ export function ShopCatalog({
                               </div>
       </header>
 
-      <div
-        className="min-h-0"
-        style={{
-          paddingTop:
-            searchHeaderHeight > 0 ? searchHeaderHeight : "max(5.5rem, calc(env(safe-area-inset-top) + 4.25rem))",
-        }}
-      >
         {/* Filtres */}
         <div className="border-b border-zinc-200/70 bg-white text-zinc-900">
           <div className="flex items-stretch gap-2 py-2 pl-2 pr-0">
@@ -2601,7 +2623,8 @@ export function ShopCatalog({
               En savoir plus
             </button>
           </p>
-              </div>
+        </div>
+      </div>
 
         {/* Contenu principal : hub sections (par défaut) ou grille filtrée */}
         <div className={cn("min-w-0 bg-white pb-28 pt-4", showHub ? "px-0" : "px-3")}>
@@ -2678,7 +2701,6 @@ export function ShopCatalog({
             </>
           )}
         </div>
-      </div>
 
       {/* Modal filtres (feuille bas) */}
       {filterModalOpen ? (
@@ -2877,6 +2899,30 @@ export function ShopCatalog({
                     </div>
                   ) : null}
                 </div>
+              ) : filterDetailSheet === "sizeIds" ? (
+                <SizeFilterSections
+                  sizes={sizes}
+                  selectedIds={filterSheetDraft.sizeIds}
+                  browseCategory={sizeSheetBrowseCategory}
+                  onBrowseCategoryChange={setSizeSheetBrowseCategory}
+                  onClearAll={() => setFilterSheetDraft((d) => ({ ...d, sizeIds: [] }))}
+                  onToggle={(id) =>
+                    setFilterSheetDraft((d) => ({ ...d, sizeIds: toggleSizeIds(d.sizeIds, id) }))
+                  }
+                  onSelectAllInCategory={(categoryIds) =>
+                    setFilterSheetDraft((d) => ({
+                      ...d,
+                      sizeIds: toggleAllSizeIdsInCategory(d.sizeIds, categoryIds),
+                    }))
+                  }
+                  scrollRowClassName={FILTER_DETAIL_ROW_SCROLL}
+                  renderRayonChip={({ label, active, onClick }) => (
+                    <FilterDetailHChip label={label} active={active} onClick={onClick} />
+                  )}
+                  renderSizeChip={({ option, active, onClick }) => (
+                    <FilterDetailHChip label={option.label} active={active} onClick={onClick} />
+                  )}
+                />
               ) : isMultiFilterKey(filterDetailSheet) ? (
                 <div className={FILTER_DETAIL_ROW_SCROLL}>
                   <FilterDetailHChip

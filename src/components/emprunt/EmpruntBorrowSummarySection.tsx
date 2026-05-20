@@ -1,18 +1,18 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
-import { EmpruntBorrowRemainingCountdown } from "@/components/emprunt/EmpruntBorrowRemainingCountdown";
-import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import { formatBorrowReturnDueDateFr } from "@/lib/cart/cart-borrow-return-due";
+import { isBorrowReturnAlertPhaseParis } from "@/lib/cart/borrow-return-calendar";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 type EmpruntBorrowSummarySectionProps = {
   cartId: string;
-  /** Instant de réception aller pour le décompte : `delivered_at` (prioritaire) ou `updated_at`. */
-  deliveredAtIso: string | null;
+  returnDueMs: number | null;
   returnCommitmentMet?: boolean;
-  membershipLabel: SegnaBorrowMembershipLabel;
-  borrowExtensionDaysTotal?: number;
 };
 
 const BODY_GRAY = "text-[#545454]";
@@ -26,16 +26,28 @@ const btnSecondary = cn(
   "inline-flex min-w-0 flex-1 items-center justify-center rounded-full border border-black bg-white px-4 py-2.5 text-center text-[15px] font-bold leading-none text-black transition hover:bg-zinc-50 active:scale-[0.99] sm:px-5 sm:py-3 sm:text-[16px]",
 );
 
-/**
- * Bloc « Gère ton panier » sous le header (style empty-state Uber : Montserrat, noir / gris).
- */
 export function EmpruntBorrowSummarySection({
   cartId,
-  deliveredAtIso,
+  returnDueMs,
   returnCommitmentMet,
-  membershipLabel,
-  borrowExtensionDaysTotal = 0,
 }: EmpruntBorrowSummarySectionProps) {
+  const hasDue = returnDueMs != null && Number.isFinite(returnDueMs);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const alertPhase = hasDue && isBorrowReturnAlertPhaseParis(now, returnDueMs);
+  const dueDateLabel = hasDue ? formatBorrowReturnDueDateFr(returnDueMs) : "";
+
+  const body = cn(
+    segnaMontserrat.className,
+    "text-center text-[16px] font-normal leading-snug sm:text-[17px] sm:leading-relaxed",
+    BODY_GRAY,
+  );
+
   return (
     <section
       className={cn(
@@ -46,7 +58,7 @@ export function EmpruntBorrowSummarySection({
     >
       <div className="relative mx-auto w-full max-w-[220px] shrink-0">
         <Image
-          src="/ressources/oeil_charme.png"
+          src={alertPhase ? "/ressources/Alerte_oeil.png" : "/ressources/oeil_charme.png"}
           alt=""
           width={480}
           height={480}
@@ -57,26 +69,33 @@ export function EmpruntBorrowSummarySection({
         id="emprunt-borrow-summary-title"
         className="mt-5 max-w-[20rem] text-[22px] font-bold leading-tight tracking-tight text-black sm:text-[24px]"
       >
-        Gère ton panier
+        {alertPhase ? "Retourne ta box" : "Gère ton panier"}
       </h2>
       <div className="mt-3 max-w-[22rem] space-y-2">
-        {deliveredAtIso ? (
-          <EmpruntBorrowRemainingCountdown
-            deliveredAtIso={deliveredAtIso}
-            returnCommitmentMet={returnCommitmentMet}
-            membershipLabel={membershipLabel}
-            borrowExtensionDaysTotal={borrowExtensionDaysTotal}
-          />
+        {returnCommitmentMet ? (
+          <p className={body}>
+            Retour enregistré au relais —{" "}
+            <span className="font-bold text-black">engagement sur les délais respecté</span>.
+          </p>
+        ) : alertPhase ? (
+          <p className={body}>
+            Renvoie ta box le <span className="font-bold text-black">{dueDateLabel}</span> ou prolonge ton
+            échange.
+          </p>
+        ) : hasDue ? (
+          <p className={body}>
+            À retourner avant le <span className="font-bold text-black">{dueDateLabel}</span>.
+          </p>
         ) : (
           <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
-            {membershipLabel === "Guest"
-              ? "Emprunt de 10 jours à partir de la livraison."
-              : `Emprunt d'un mois à partir de la livraison.`}
+            La date de retour s&apos;affichera dès la livraison de ta commande.
           </p>
         )}
-        <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
-          Prolonge ou renvoie ton panier quand tu veux.
-        </p>
+        {!alertPhase && !returnCommitmentMet ? (
+          <p className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
+            Prolonge ou renvoie ton panier quand tu veux.
+          </p>
+        ) : null}
       </div>
       <div className="mt-8 flex w-full max-w-md flex-row items-stretch justify-center gap-2 sm:gap-2.5">
         <Link href={`/commande/${cartId}/prolonger`} className={btnSecondary}>

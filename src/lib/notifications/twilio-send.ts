@@ -2,18 +2,21 @@ import twilio from "twilio";
 
 import { getServerEnv } from "@/lib/config/env";
 
-export async function sendTransactionalSms(input: { toE164: string; body: string }): Promise<void> {
+/** `false` si Twilio n’est pas configuré (pas d’envoi silencieux). */
+export async function sendTransactionalSms(input: { toE164: string; body: string }): Promise<boolean> {
   const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_MESSAGING_SERVICE_SID, TWILIO_FROM_NUMBER } =
     getServerEnv();
 
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-    console.info("[notifications] Twilio désactivé (TWILIO_ACCOUNT_SID ou TWILIO_AUTH_TOKEN manquant).");
-    return;
+    console.warn("[notifications] Twilio désactivé (TWILIO_ACCOUNT_SID ou TWILIO_AUTH_TOKEN manquant).");
+    return false;
   }
 
   if (!TWILIO_MESSAGING_SERVICE_SID && !TWILIO_FROM_NUMBER) {
-    console.info("[notifications] Twilio désactivé (TWILIO_MESSAGING_SERVICE_SID ou TWILIO_FROM_NUMBER requis).");
-    return;
+    console.warn(
+      "[notifications] Twilio désactivé (TWILIO_MESSAGING_SERVICE_SID ou TWILIO_FROM_NUMBER requis).",
+    );
+    return false;
   }
 
   const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -28,4 +31,5 @@ export async function sendTransactionalSms(input: { toE164: string; body: string
   }
 
   await client.messages.create(payload);
+  return true;
 }

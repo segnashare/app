@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   loadShopBoutiqueFilterFacetResponses,
 } from "@/lib/shop/shop-boutique-data-cache";
-import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
+import { mapCategoryFilterRows, mapFilterRows, mapSizeFilterRows } from "@/lib/shop/shop-filter-options";
 import {
   isShopSectionSlug,
   loadShopSectionItems,
@@ -135,7 +135,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
         initialCoverUrlById={initialCoverUrlById}
         initialLikedItemIds={initialLikedItemIds}
         categories={categoryRows}
-        sizes={mapFilterRows(sizeRes.data)}
+        sizes={mapSizeFilterRows(sizeRes.data)}
         brands={mapFilterRows(brandRes.data)}
         colors={mapFilterRows(colRes.data)}
         materials={mapFilterRows(matRes.data)}

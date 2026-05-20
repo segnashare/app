@@ -22,6 +22,8 @@ export type ExchangeOrderCard = {
   /** Première photo de chaque article du panier (ordre des lignes). */
   itemThumbUrls: string[];
   showPulse?: boolean;
+  /** Pastille + vignettes : frémissement (J-J ou retard), comme poubelle / wallet panier. */
+  showReturnVibrate?: boolean;
   /** Cible du tap : commande, emprunt (livré sans retour actif), ou suivi retour. */
   detailHref?: string;
 };
@@ -37,10 +39,12 @@ function OrderStatusPill({
   label,
   active,
   tone,
+  vibrate,
 }: {
   label: string;
   active: boolean;
   tone?: "success" | "return";
+  vibrate?: boolean;
 }) {
   const activeReturn = active && tone === "return";
 
@@ -48,14 +52,15 @@ function OrderStatusPill({
     <span
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold leading-tight",
+        vibrate && "exchange-return-urgent-vibrate",
         activeReturn
-          ? "border-red-200/90 bg-red-50 text-red-900"
+          ? "segna-urgent-red-shimmer-active segna-urgent-red-shimmer-target border-red-600 bg-red-600 text-white"
           : active
             ? "border-amber-300/90 bg-amber-50 text-amber-950"
             : tone === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : tone === "return"
-                ? "border-red-200/90 bg-red-50 text-red-900"
+                ? "segna-urgent-red-shimmer-active segna-urgent-red-shimmer-target border-red-600 bg-red-600 text-white"
                 : "border-zinc-200 bg-zinc-100 text-zinc-800",
       )}
     >
@@ -63,12 +68,12 @@ function OrderStatusPill({
         <span
           className={cn(
             "inline-flex h-1.5 w-1.5 shrink-0 rounded-full",
-            activeReturn ? "bg-red-500" : "bg-amber-500",
+            activeReturn ? "bg-white" : "bg-amber-500",
           )}
           aria-hidden
         />
       ) : null}
-      <span className="truncate">{label}</span>
+      <span className="relative z-[2] truncate">{label}</span>
     </span>
   );
 }
@@ -99,6 +104,7 @@ function OrderCards({ orders }: { orders: ExchangeOrderCard[] }) {
                 label={order.statusLabel}
                 active={Boolean(order.showPulse)}
                 tone={order.statusPillTone}
+                vibrate={order.showReturnVibrate}
               />
               {order.deliveryLabel ? (
                 <p className="min-w-0 text-[13px] font-medium leading-snug text-zinc-500">{order.deliveryLabel}</p>
@@ -114,7 +120,10 @@ function OrderCards({ orders }: { orders: ExchangeOrderCard[] }) {
                     key={`${order.id}-thumb-${i}`}
                     src={url}
                     alt=""
-                    className="h-14 w-14 shrink-0 rounded-lg border border-zinc-100 object-cover"
+                    className={cn(
+                      "h-14 w-14 shrink-0 rounded-lg border border-zinc-100 object-cover",
+                      order.showReturnVibrate && "exchange-return-urgent-vibrate",
+                    )}
                   />
                 ))}
               </div>

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { promoteIntakeItemsToShippingOnDummyShipmentDeposited } from "@/lib/items/intake-fulfillment-from-shipment";
+import { syncIntakePiggybackFulfillmentFromCartReturn } from "@/lib/items/intake-cart-return-piggyback";
 import {
   notifyShipmentLifecycleAfterTransition,
   sendOutboundDeliveredRecap,
@@ -17,8 +19,9 @@ function internalShipmentNotifySecrets(): string[] {
 }
 
 /**
- * Après `transition_shipment_status` depuis le **back-office** (RPC Supabase direct, sans passer par le wrapper segna-app).
+ * Après `transition_shipment_status` (back-office, ou trigger DB `member_intake` → `dropped_in` via pg_net).
  * Déclenche e-mails et/ou SMS selon la transition (ex. livraison aller → récap e-mail + SMS).
+ * `member_intake` / `dropped_in` : promotion `item_intake` côté trigger SQL ; cet endpoint envoie le SMS.
  * Rattrapage manuel : `{ "shipment_id", "from_status": "in_transit_in", "to_status": "delivered", "source": "manual" }`.
  *
  * Auth : `Authorization: Bearer` = `SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET` si défini, sinon le même secret que
@@ -100,6 +103,28 @@ export async function POST(request: Request) {
       shipment_id: shipmentId,
       delivered_recap: recap,
     });
+  }
+
+  try {
+    const { data: ship } = await admin
+      .from("shipments")
+      .select("cart_id, context")
+      .eq("id", shipmentId)
+      .maybeSingle();
+    const context = String((ship as { context?: unknown } | null)?.context ?? "");
+    const cartId = (ship as { cart_id?: string } | null)?.cart_id;
+    if (context === "cart_return" && typeof cartId === "string") {
+      await syncIntakePiggybackFulfillmentFromCartReturn(admin, {
+        cartId,
+        returnShipmentId: shipmentId,
+        returnStatus: toStatus,
+      });
+    }
+    if (context === "member_intake" && toStatus.toLowerCase() === "dropped_in") {
+      await promoteIntakeItemsToShippingOnDummyShipmentDeposited(admin, shipmentId);
+    }
+  } catch (e) {
+    console.error("[shipment-lifecycle-notify] intake piggyback sync", e);
   }
 
   await notifyShipmentLifecycleAfterTransition(admin, {

@@ -151,11 +151,9 @@ export function ItemIntakePanel({
 
   const isLogisticsRefused = listingStage === "validated" && fulfillmentStage === "refused";
 
+  /** Bordereau / mutualisation : uniquement tant que l’envoi n’est pas encore parti (`ready`). */
   const showFulfillment =
-    listingStage === "validated" &&
-    fulfillmentStage != null &&
-    fulfillmentStage !== "verified" &&
-    fulfillmentStage !== "refused";
+    listingStage === "validated" && fulfillmentStage === "ready";
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;

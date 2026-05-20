@@ -1,9 +1,12 @@
 import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
 import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
 import { ExchangeMergeShippingBanner } from "@/components/exchange/ExchangeMergeShippingBanner";
+import { ExchangePiggybackDepositConfirmModal } from "@/components/exchange/ExchangePiggybackDepositConfirmModal";
 import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
+import { BorrowReturnJjDayBanner } from "@/components/exchange/BorrowReturnJjDayBanner";
+import { BorrowReturnOverdueBanner } from "@/components/exchange/BorrowReturnOverdueBanner";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
@@ -11,14 +14,30 @@ import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamic
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
+import { fetchMemberBorrowReturnJjAlerts } from "@/lib/cart/fetch-member-borrow-return-jj-alerts";
+import { fetchMemberBorrowReturnOverdueAlerts } from "@/lib/cart/fetch-member-borrow-return-overdue-alerts";
+import { formatBorrowOverdueDaysLabelFr } from "@/lib/cart/format-borrow-overdue-copy";
+import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
+import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
 import { fetchCartBorrowExtensionDaysByCartIds } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import {
-  applyBorrowExtensionDaysToDeadlineMs,
-  computeBorrowDeadlineMs,
+  fetchCartBorrowReturnDueAtByCartIds,
+  fetchCartMemberReceiptConfirmedAtByCartIds,
+} from "@/lib/cart/fetch-cart-borrow-return-due-at";
+import {
+  ensureMemberReceiptAutoConfirmed,
+  isMemberReceiptAutoConfirmDue,
+  isMemberReceiptValidated,
+} from "@/lib/cart/member-receipt-validation";
+import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
+import { isBorrowReturnAlertPhaseParis, isBorrowReturnOverdueParis } from "@/lib/cart/borrow-return-calendar";
+import { borrowOverdueLateDayIndex } from "@/lib/emprunt/borrow-overdue-penalty";
+import {
   isBorrowReturnUrgentForExchangeList,
+  isBorrowReturnVibrateForExchangeList,
   resolveOutboundBorrowDeliveredAtIso,
 } from "@/lib/emprunt/borrow-period";
 import {
@@ -28,6 +47,8 @@ import {
 import {
   getMemberReturnShipmentPhaseCopy,
   getReturnShipmentSubtitle,
+  isReturnExchangeFinishedForMemberList,
+  isReturnShipmentPreDeposit,
 } from "@/lib/cart/member-return-shipment-copy";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -51,7 +72,9 @@ import {
   lendPipelineRank,
   needsItemIntakeUi,
 } from "@/lib/items/item-intake-ui";
+import { fetchMemberPiggybackDepositConfirmQueue } from "@/lib/items/intake-cart-return-piggyback";
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
@@ -104,8 +127,6 @@ function toMembershipLabelFromBilling(state: MembershipState | null | undefined)
   if (planCode === "segna_plus") return "Membre +";
   return "Guest";
 }
-
-const RETURN_ENFORCE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -471,7 +492,7 @@ export default async function ExchangePage() {
     .filter((l) => {
       const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
       const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
-      return ls === "validated" && (fs === "shipping" || fs === "");
+      return ls === "validated" && (fs === "ready" || fs === "shipping" || fs === "");
     })
     .map((l) => l.id);
 
@@ -573,7 +594,14 @@ export default async function ExchangePage() {
 
   const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
 
-  const [thumbUrlsByCartId, outboundShipRes, returnShipRes, borrowExtensionDaysByCartId] = (await Promise.all([
+  const [
+    thumbUrlsByCartId,
+    outboundShipRes,
+    returnShipRes,
+    borrowExtensionDaysByCartId,
+    borrowReturnDueAtByCartId,
+    memberReceiptConfirmedAtByCartId,
+  ] = (await Promise.all([
     perf.measure("orders.thumbs", () => fetchSignedFirstPhotoUrlsByCartIds(supabase, orderCardCartIds)),
     orderCardCartIds.length > 0
       ? perf.measure("shipments.outbound", () => supabase
@@ -595,6 +623,10 @@ export default async function ExchangePage() {
           .is("deleted_at", null))
       : Promise.resolve({ data: [] as { cart_id: string; status: string; updated_at: string }[], error: null }),
     perf.measure("borrow.extensions", () => fetchCartBorrowExtensionDaysByCartIds(supabase, orderCardCartIds)),
+    perf.measure("borrow.dueAt", () => fetchCartBorrowReturnDueAtByCartIds(supabase, orderCardCartIds)),
+    perf.measure("receipt.confirmed", () =>
+      fetchCartMemberReceiptConfirmedAtByCartIds(supabase, orderCardCartIds),
+    ),
   ])) as any[];
 
   const outboundShipmentByCartId = new Map<
@@ -624,6 +656,20 @@ export default async function ExchangePage() {
     }
   }
 
+  for (const row of ongoingCartRows) {
+    const ship = outboundShipmentByCartId.get(row.id);
+    if (!ship || ship.status.toLowerCase() !== "delivered") continue;
+    const confirmedAt = memberReceiptConfirmedAtByCartId.get(row.id) ?? null;
+    if (confirmedAt?.trim() || !isMemberReceiptAutoConfirmDue(ship, null, Date.now())) continue;
+    const persisted = await ensureMemberReceiptAutoConfirmed(supabase, {
+      cartId: row.id,
+      userId,
+      memberReceiptConfirmedAt: confirmedAt,
+      shipment: ship,
+    });
+    if (persisted) memberReceiptConfirmedAtByCartId.set(row.id, persisted);
+  }
+
   const returnShipmentByCartId = new Map<string, { status: string; updated_at: string }>();
   if (returnShipRes.error == null && Array.isArray(returnShipRes.data)) {
     for (const row of returnShipRes.data as { cart_id: string; status: string; updated_at: string }[]) {
@@ -644,11 +690,13 @@ export default async function ExchangePage() {
     cartId: string,
   ): number {
     if (String(ship.status).toLowerCase() !== "delivered") return Number.NaN;
-    const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at);
-    if (!borrowAnchorIso) return Number.NaN;
-    const deliveredAtMs = Date.parse(borrowAnchorIso);
-    const base = computeBorrowDeadlineMs(deliveredAtMs, membershipLabel);
-    return applyBorrowExtensionDaysToDeadlineMs(base, borrowExtensionDaysByCartId.get(cartId) ?? 0);
+    return resolveCartBorrowReturnDueMs({
+      borrowReturnDueAtIso: borrowReturnDueAtByCartId.get(cartId) ?? null,
+      outboundDeliveredAtIso: ship.delivered_at,
+      outboundUpdatedAtIso: ship.updated_at,
+      membershipLabel,
+      borrowExtensionDaysTotal: borrowExtensionDaysByCartId.get(cartId) ?? 0,
+    });
   }
 
   const exchangeListNowMs = Date.now();
@@ -668,29 +716,60 @@ export default async function ExchangePage() {
       };
     }
     const ret = returnShipmentByCartId.get(order.id);
-    const ship = outboundShipmentByCartId.get(order.id);
-    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship, order.id) : Number.NaN;
-    const borrowReturnUrgent =
-      ship != null &&
-      Number.isFinite(borrowReturnDeadlineMs) &&
-      isBorrowReturnUrgentForExchangeList(exchangeListNowMs, borrowReturnDeadlineMs);
-    const forceReturnNow = (() => {
-      if (!ret || !ship) return false;
-      if (!Number.isFinite(borrowReturnDeadlineMs)) return false;
-      return borrowReturnDeadlineMs - exchangeListNowMs <= RETURN_ENFORCE_WINDOW_MS;
-    })();
-    if (ret && (forceReturnNow || borrowReturnUrgent)) {
+    if (ret && isReturnExchangeFinishedForMemberList(ret.status)) {
       const phase = getMemberReturnShipmentPhaseCopy(ret.status);
-      const deliveryLabel = getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
       return {
         id: order.id,
         orderNumberCompact: formatOrderNumberCompact(order.id),
         statusLabel: phase.title,
+        deliveryLabel:
+          getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate) ?? phase.detail,
+        itemThumbUrls: thumbs,
+        detailHref: `/exchange/retour/${order.id}` as const,
+        statusPillTone: "success" as const,
+      };
+    }
+    const ship = outboundShipmentByCartId.get(order.id);
+    const returnCommitmentMet = ret != null && isCartReturnCommitmentMet(ret.status);
+    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship, order.id) : Number.NaN;
+    const borrowReturnUrgentRaw =
+      ship != null &&
+      Number.isFinite(borrowReturnDeadlineMs) &&
+      isBorrowReturnUrgentForExchangeList(exchangeListNowMs, borrowReturnDeadlineMs);
+    const borrowReturnVibrateRaw =
+      Number.isFinite(borrowReturnDeadlineMs) &&
+      isBorrowReturnVibrateForExchangeList(exchangeListNowMs, borrowReturnDeadlineMs);
+    const borrowReturnOverdueRaw =
+      Number.isFinite(borrowReturnDeadlineMs) &&
+      isBorrowReturnOverdueParis(exchangeListNowMs, borrowReturnDeadlineMs);
+    const borrowReturnUrgent = borrowReturnUrgentRaw && !returnCommitmentMet;
+    const borrowReturnVibrate = borrowReturnVibrateRaw && !returnCommitmentMet;
+    const borrowReturnOverdue = borrowReturnOverdueRaw && !returnCommitmentMet;
+    const borrowLateDayIndex = borrowReturnOverdue
+      ? borrowOverdueLateDayIndex(exchangeListNowMs, borrowReturnDeadlineMs)
+      : 0;
+    const borrowOverdueSubtitle =
+      borrowReturnOverdue && borrowLateDayIndex >= 1
+        ? formatBorrowOverdueDaysLabelFr(borrowLateDayIndex)
+        : null;
+    const forceReturnNow = (() => {
+      if (!ret || !ship || returnCommitmentMet) return false;
+      if (!Number.isFinite(borrowReturnDeadlineMs)) return false;
+      return isBorrowReturnAlertPhaseParis(exchangeListNowMs, borrowReturnDeadlineMs);
+    })();
+    if (ret && !isReturnShipmentPreDeposit(ret.status) && (forceReturnNow || borrowReturnUrgent)) {
+      const phase = getMemberReturnShipmentPhaseCopy(ret.status);
+      const deliveryLabel = borrowOverdueSubtitle ?? getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
+      return {
+        id: order.id,
+        orderNumberCompact: formatOrderNumberCompact(order.id),
+        statusLabel: borrowReturnOverdue ? "Retard" : phase.title,
         deliveryLabel,
         itemThumbUrls: thumbs,
         detailHref: `/exchange/retour/${order.id}` as const,
         ...(phase.pulse ? { showPulse: true as const } : {}),
         ...(borrowReturnUrgent ? { statusPillTone: "return" as const } : {}),
+        ...(borrowReturnVibrate ? { showReturnVibrate: true as const } : {}),
       };
     }
 
@@ -704,19 +783,31 @@ export default async function ExchangePage() {
       };
     }
     const phase = getMemberOutboundShipmentPhaseCopy(ship.status);
+    const st = ship.status.toLowerCase();
+    const receiptConfirmedAt = memberReceiptConfirmedAtByCartId.get(order.id) ?? null;
+    const exchangeReceiptValidated = isMemberReceiptValidated(
+      receiptConfirmedAt,
+      ship,
+      exchangeListNowMs,
+    );
     const deliveryLabel = getOutboundShipmentDeliverySubtitle(
       ship.status,
       resolveOutboundBorrowDeliveredAtIso(ship.delivered_at, ship.updated_at) ?? ship.updated_at,
       fmtOrderDate,
+      Number.isFinite(borrowReturnDeadlineMs) ? { borrowReturnDueMs: borrowReturnDeadlineMs } : undefined,
     );
-    const st = ship.status.toLowerCase();
-    const detailHref = st === "delivered" ? (`/exchange/emprunt/${order.id}` as const) : undefined;
+    const detailHref =
+      st === "delivered"
+        ? exchangeReceiptValidated
+          ? (`/exchange/emprunt/${order.id}` as const)
+          : (`/commande/${order.id}` as const)
+        : undefined;
     const deliveredBorrowUrgent = st === "delivered" && borrowReturnUrgent;
     return {
       id: order.id,
       orderNumberCompact: formatOrderNumberCompact(order.id),
-      statusLabel: deliveredBorrowUrgent ? "Retour" : phase.title,
-      deliveryLabel,
+      statusLabel: borrowReturnOverdue ? "Retard" : deliveredBorrowUrgent ? "Retour" : phase.title,
+      deliveryLabel: borrowOverdueSubtitle ?? deliveryLabel,
       itemThumbUrls: thumbs,
       ...(detailHref ? { detailHref } : {}),
       ...(phase.pulse ? { showPulse: true as const } : {}),
@@ -725,6 +816,7 @@ export default async function ExchangePage() {
         : st === "delivered"
           ? { statusPillTone: "success" as const }
           : {}),
+      ...(borrowReturnVibrate ? { showReturnVibrate: true as const } : {}),
     };
   }
 
@@ -737,8 +829,16 @@ export default async function ExchangePage() {
     return { urgent, deadlineMs: Number.isFinite(deadlineMs) ? deadlineMs : Number.POSITIVE_INFINITY };
   }
 
+  function isOngoingExchangeCartRow(cartId: string): boolean {
+    const ret = returnShipmentByCartId.get(cartId);
+    return !ret || !isReturnExchangeFinishedForMemberList(ret.status);
+  }
+
+  const ongoingCartRowsForList = ongoingCartRows.filter((row) => isOngoingExchangeCartRow(row.id));
+  const finishedExchangeHistoryRows = ongoingCartRows.filter((row) => !isOngoingExchangeCartRow(row.id));
+
   /** Pastille + sous-texte livraison : uniquement depuis l’expédition aller (`shipments`), pas le statut panier. */
-  const ongoingOrders = [...ongoingCartRows]
+  const ongoingOrders = [...ongoingCartRowsForList]
     .sort((a, b) => {
       const ka = exchangeOngoingOrderSortKey(a.id);
       const kb = exchangeOngoingOrderSortKey(b.id);
@@ -748,9 +848,9 @@ export default async function ExchangePage() {
     })
     .map((order) => buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: false }));
 
-  const recentOrders = historyCartRows.map((order) =>
-    buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: true }),
-  );
+  const recentOrders = [...finishedExchangeHistoryRows, ...historyCartRows]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .map((order) => buildExchangeOrderCard(order, thumbUrlsByCartId.get(order.id) ?? [], { historyFallback: true }));
 
   const hasReachedLendingCap =
     (membershipLabel === "Membre +" || membershipLabel === "Membre X") &&
@@ -818,6 +918,26 @@ export default async function ExchangePage() {
   const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
   const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  await perf.measure("borrowOverdue.sync", async () => {
+    try {
+      const admin = createSupabaseAdminClient();
+      await syncMemberBorrowOverdueAccrual(admin, userId);
+    } catch (e) {
+      console.error("[exchange] borrow overdue sync", e);
+    }
+  });
+  const [borrowReturnOverdueAlerts, borrowReturnJjAlerts, piggybackDepositQueue] = await Promise.all([
+    perf.measure("borrowReturnOverdueAlerts", () => fetchMemberBorrowReturnOverdueAlerts(supabase, userId)),
+    perf.measure("borrowReturnJjAlerts", () => fetchMemberBorrowReturnJjAlerts(supabase, userId)),
+    perf.measure("piggyback.depositQueue", async () => {
+      try {
+        const admin = createSupabaseAdminClient();
+        return fetchMemberPiggybackDepositConfirmQueue(admin, userId);
+      } catch {
+        return [];
+      }
+    }),
+  ]);
   const eagerLendDetailPrefetchIds = lends
     .filter((l) => {
       const st = l.itemStatus.toLowerCase();
@@ -840,6 +960,9 @@ export default async function ExchangePage() {
   return (
     <>
       <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
+      {piggybackDepositQueue.length > 0 ? (
+        <ExchangePiggybackDepositConfirmModal initialQueue={piggybackDepositQueue} />
+      ) : null}
       <div className="sticky top-0 z-30 bg-white">
         <ExchangeHeader
           membershipLabel={membershipLabel}
@@ -850,6 +973,20 @@ export default async function ExchangePage() {
           hasReachedLendingCap={hasReachedLendingCap}
           guideOfferOnboarding={showOfferInAppOnboarding}
         />
+        {borrowReturnOverdueAlerts.length > 0 ? (
+          <div className="px-5 pb-2">
+            <div className="mx-auto w-full max-w-[460px]">
+              <BorrowReturnOverdueBanner alerts={borrowReturnOverdueAlerts} />
+            </div>
+          </div>
+        ) : null}
+        {borrowReturnOverdueAlerts.length === 0 && borrowReturnJjAlerts.length > 0 ? (
+          <div className="px-5 pb-2">
+            <div className="mx-auto w-full max-w-[460px]">
+              <BorrowReturnJjDayBanner alerts={borrowReturnJjAlerts} />
+            </div>
+          </div>
+        ) : null}
         {showMergeShippingBanner ? (
           <div className="px-5 pb-2">
             <div className="mx-auto w-full max-w-[460px]">

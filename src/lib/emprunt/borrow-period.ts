@@ -1,21 +1,20 @@
+import { isBorrowReturnAlertPhaseParis } from "@/lib/cart/borrow-return-calendar";
+
 const MS_PER_DAY = 86_400_000;
 
 export { MS_PER_DAY as BORROW_MS_PER_DAY };
 
-/** Jours restants affichés au plafond (cohérent « Il te reste N jours »). */
-export function borrowRemainingDaysDisplayed(remainingMs: number): number {
-  return Math.ceil(remainingMs / MS_PER_DAY);
-}
-
 /**
- * Liste Échange : emprunt livré avec au plus 3 jours restants (même règle que le décompte emprunt).
- * Inclut l’échéance dépassée.
+ * Liste Échange : J-3 calendaire (Paris) ou retard — aligné sur le bloc emprunt.
  */
 export function isBorrowReturnUrgentForExchangeList(nowMs: number, deadlineMs: number): boolean {
   if (!Number.isFinite(deadlineMs) || !Number.isFinite(nowMs)) return false;
-  const msLeft = deadlineMs - nowMs;
-  if (msLeft <= 0) return true;
-  return borrowRemainingDaysDisplayed(msLeft) <= 3;
+  return isBorrowReturnAlertPhaseParis(nowMs, deadlineMs);
+}
+
+/** Liste Échange : vibration pastille / vignettes (J-3 → retard, comme la pastille « Retour »). */
+export function isBorrowReturnVibrateForExchangeList(nowMs: number, deadlineMs: number): boolean {
+  return isBorrowReturnUrgentForExchangeList(nowMs, deadlineMs);
 }
 
 /** Dernières heures avant échéance : compteur h / min / s (header + bloc central emprunt). */

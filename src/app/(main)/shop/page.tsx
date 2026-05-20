@@ -7,8 +7,10 @@ import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
-import { loadFauxProfileLenders } from "@/lib/shop/load-faux-profile-lenders";
-import { padFeaturedLendersToNine } from "@/lib/shop/placeholder-lenders";
+import {
+  fetchShopFeaturedLendersWithProfilePhotos,
+  type FetchShopFeaturedLendersOptions,
+} from "@/lib/shop/resolve-shop-featured-lenders-server";
 import { buildShopDepartmentHubRail } from "@/lib/shop/shop-department-categories";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createPerfTracker } from "@/lib/perf/server-timing";
@@ -25,7 +27,7 @@ import {
   loadShopBoutiqueFilterFacetResponses,
 } from "@/lib/shop/shop-boutique-data-cache";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
-import { mapCategoryFilterRows, mapFilterRows } from "@/lib/shop/shop-filter-options";
+import { mapCategoryFilterRows, mapFilterRows, mapSizeFilterRows } from "@/lib/shop/shop-filter-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -206,10 +208,40 @@ async function ShopPageAsync() {
   const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
   const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
 
-  /** Section « supers prêteuses » : visuels locaux `public/ressources/faux_profils` (nom = fichier sans extension). */
-  const featuredLendersFromAssets = loadFauxProfileLenders();
-  const featuredLendersPadded = padFeaturedLendersToNine(featuredLendersFromAssets);
-  const featuredLenderSectionItemIds: string[] = [];
+  /** Top 9 prêteuses : plus de pièces `available`, avec photo de profil (pas de factices). */
+  const featuredLenderDb = catalogSb as unknown as FetchShopFeaturedLendersOptions["catalogDb"];
+  let featuredLenders: Awaited<ReturnType<typeof fetchShopFeaturedLendersWithProfilePhotos>> = [];
+  try {
+    featuredLenders = await perf.measure("shop.featuredLenders", () =>
+      fetchShopFeaturedLendersWithProfilePhotos({
+        catalogDb: featuredLenderDb,
+        maxMembers: 9,
+      }),
+    );
+  } catch (err) {
+    console.error("[shop] featuredLenders failed:", err);
+  }
+  if (process.env.SEGNA_DEBUG_CMS === "1") {
+    console.info("[shop] featuredLenders", {
+      count: featuredLenders.length,
+      ids: featuredLenders.map((l) => l.userId),
+    });
+  }
+
+  const featuredLenderUserIds = featuredLenders.map((l) => l.userId);
+  let featuredLenderSectionItemIds: string[] = [];
+  if (featuredLenderUserIds.length > 0) {
+    const { data: itemRows } = await supabase
+      .from("items")
+      .select("id")
+      .in("owner_user_id", featuredLenderUserIds)
+      .is("deleted_at", null)
+      .eq("status", "available")
+      .limit(80);
+    featuredLenderSectionItemIds = (itemRows ?? [])
+      .map((r) => (r as { id?: string }).id)
+      .filter((id): id is string => typeof id === "string");
+  }
   perf.log({
     initialItems: initialItemsForShop.length,
     cmsHubRefs: hubReferencedItemIds.size,
@@ -223,11 +255,11 @@ async function ShopPageAsync() {
         initialMostLikedItems={initialMostLikedItems}
         initialCoverUrlById={initialCoverUrlById}
         categories={mapCategoryFilterRows(catResFinal.data)}
-        sizes={mapFilterRows(sizeResFinal.data)}
+        sizes={mapSizeFilterRows(sizeResFinal.data)}
         brands={mapFilterRows(brandResFinal.data)}
         colors={mapFilterRows(colResFinal.data)}
         materials={mapFilterRows(matResFinal.data)}
-        featuredLenders={featuredLendersPadded}
+        featuredLenders={featuredLenders}
         featuredLenderSectionItemIds={featuredLenderSectionItemIds}
         initialCmsShopFrames={cmsShopFramesWithTargets}
         shopHomeCapsulesSectionDisplay={shopHomeCapsulesDisplay}

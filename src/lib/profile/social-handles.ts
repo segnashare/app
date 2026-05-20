@@ -141,13 +141,9 @@ export function readSocialHandlesFromProfileData(profileData: Record<string, unk
   };
 }
 
-/** Résumé pour la ligne « Mes infos » (modifier le profil). */
+/** Résumé pour la ligne « Mes infos » (modifier le profil). Seul Instagram est public. */
 export function formatReseauxSummary(profileData: Record<string, unknown>): string {
   const h = readSocialHandlesFromProfileData(profileData);
-  const parts: string[] = [];
-  if (h.instagram) parts.push(`IG @${h.instagram}`);
-  if (h.tiktok) parts.push(`TikTok @${h.tiktok}`);
-  if (h.pinterest) parts.push(`Pinterest @${h.pinterest}`);
-  if (h.threads) parts.push(`Threads @${h.threads}`);
-  return parts.length > 0 ? parts.join(" · ") : "Non renseigné";
+  if (h.instagram) return `IG @${h.instagram}`;
+  return "Non renseigné";
 }

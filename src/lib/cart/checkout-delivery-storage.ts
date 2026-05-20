@@ -1,8 +1,12 @@
+import { encodeSendcloudRelayPointRef } from "@/lib/sendcloud/relay-point-ref";
+
 /** Données de livraison checkout (session navigateur). */
 
 export const CHECKOUT_DELIVERY_ADDRESS_KEY = "segna:checkout-delivery-address";
 export const CHECKOUT_DELIVERY_INSTRUCTIONS_KEY = "segna:checkout-delivery-instructions";
 export const CHECKOUT_RELAY_SELECTION_KEY = "segna:checkout-relay-selection";
+/** Point relais hub pour le retour (dépôt membre → centre logistique). */
+export const CHECKOUT_RETURN_RELAY_SELECTION_KEY = "segna:checkout-return-relay-selection";
 export const CHECKOUT_DELIVERY_CHANNEL_KEY = "segna:checkout-delivery-channel";
 export const CHECKOUT_HOME_SPEED_KEY = "segna:checkout-home-speed";
 
@@ -26,7 +30,28 @@ export type CheckoutRelaySelection = {
   label: string;
   postalCode: string;
   city?: string;
+  /** Id Sendcloud service point (widget ou API). */
+  sendcloudServicePointId?: number;
+  /** ex. mondial_relay, colissimo — pour l’étiquette Sendcloud. */
+  sendcloudCarrier?: string;
+  sendcloudPostNumber?: string;
+  /** Retour hub (liste `return-relay-points`). */
+  isHubReturn?: boolean;
 };
+
+export type CheckoutReturnRelaySelection = CheckoutRelaySelection;
+
+/** Valeur stockée en base / Stripe metadata pour expédition Sendcloud. */
+export function checkoutRelayProviderPointId(relay: CheckoutRelaySelection): string {
+  if (relay.sendcloudServicePointId != null && relay.sendcloudServicePointId > 0) {
+    return encodeSendcloudRelayPointRef({
+      servicePointId: relay.sendcloudServicePointId,
+      carrier: relay.sendcloudCarrier,
+      postNumber: relay.sendcloudPostNumber,
+    });
+  }
+  return relay.code.trim();
+}
 
 export function readCheckoutDeliveryAddress(): CheckoutDeliveryAddress | null {
   if (typeof window === "undefined") return null;
@@ -80,6 +105,44 @@ export function writeCheckoutRelaySelection(value: CheckoutRelaySelection | null
     return;
   }
   window.sessionStorage.setItem(CHECKOUT_RELAY_SELECTION_KEY, JSON.stringify(value));
+}
+
+export function readCheckoutReturnRelaySelection(): CheckoutReturnRelaySelection | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(CHECKOUT_RETURN_RELAY_SELECTION_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw) as CheckoutReturnRelaySelection;
+    if (typeof o?.code !== "string" || o.code.trim() === "") return null;
+    return { ...o, isHubReturn: true };
+  } catch {
+    return null;
+  }
+}
+
+export function writeCheckoutReturnRelaySelection(value: CheckoutReturnRelaySelection | null) {
+  if (typeof window === "undefined") return;
+  if (value == null) {
+    window.sessionStorage.removeItem(CHECKOUT_RETURN_RELAY_SELECTION_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(
+    CHECKOUT_RETURN_RELAY_SELECTION_KEY,
+    JSON.stringify({ ...value, isHubReturn: true }),
+  );
+}
+
+/** Métadonnées retour hub pour `confirm_cart` / shipment_destinations. */
+export function checkoutReturnRelayFields(relay: CheckoutReturnRelaySelection): {
+  returnRelayPointId: string;
+  returnRelayLabel: string;
+  returnRelaySearchPostalCode: string;
+} {
+  return {
+    returnRelayPointId: checkoutRelayProviderPointId(relay).slice(0, 120),
+    returnRelayLabel: relay.label.trim().slice(0, 220),
+    returnRelaySearchPostalCode: relay.postalCode.replace(/\D/g, "").slice(0, 5),
+  };
 }
 
 export function readCheckoutDeliveryChannel(): CheckoutDeliveryChannel | null {

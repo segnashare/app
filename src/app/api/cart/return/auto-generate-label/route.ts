@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { runCartReturnMrAutoGenerate } from "@/lib/cart/cart-return-mr-auto-generate";
+import { runCartReturnSendcloudAutoGenerate } from "@/lib/cart/cart-return-sendcloud-auto-generate";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "Service indisponible" }, { status: 503 });
   }
 
-  const res = await runCartReturnMrAutoGenerate(admin, { userId: user.id, cartId });
+  const res = await runCartReturnSendcloudAutoGenerate(admin, { userId: user.id, cartId });
   if (!res.ok) {
     return NextResponse.json(
       {

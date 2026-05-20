@@ -34,6 +34,12 @@ const serverEnvSchema = z.object({
   SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: z.string().optional(),
   /** Optionnel : `POST /api/internal/shipment-lifecycle-notify` ; sinon réutilisation de `SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET`. */
   SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET: z.string().optional(),
+  /** Workflow n8n litiges panier (`POST` après `/api/cart/dispute/open`). */
+  N8N_DISPUTE_WEBHOOK_URL: z.string().url().optional(),
+  N8N_DISPUTE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Workflow n8n commande panier confirmée (`declareCartOrderToN8n`). */
+  N8N_CART_ORDER_WEBHOOK_URL: z.string().url().optional(),
+  N8N_CART_ORDER_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
@@ -78,6 +84,10 @@ export function getServerEnv(): ServerEnv {
     CRON_SECRET: process.env.CRON_SECRET,
     SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET,
     SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET,
+    N8N_DISPUTE_WEBHOOK_URL: process.env.N8N_DISPUTE_WEBHOOK_URL,
+    N8N_DISPUTE_WEBHOOK_SECRET: process.env.N8N_DISPUTE_WEBHOOK_SECRET,
+    N8N_CART_ORDER_WEBHOOK_URL: process.env.N8N_CART_ORDER_WEBHOOK_URL,
+    N8N_CART_ORDER_WEBHOOK_SECRET: process.env.N8N_CART_ORDER_WEBHOOK_SECRET,
   });
 
   cachedServerEnv = {

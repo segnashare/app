@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import type { CheckoutDeliveryAddress, CheckoutRelaySelection } from "@/lib/cart/checkout-delivery-storage";
-import { computeCartFeesHtVatTtc } from "@/lib/cart/cart-checkout-vat";
-import { cartPaymentServiceFeeHtCents } from "@/lib/cart/cart-payment-fees";
+import {
+  type CheckoutDeliveryAddress,
+  type CheckoutRelaySelection,
+  checkoutRelayProviderPointId,
+  checkoutReturnRelayFields,
+} from "@/lib/cart/checkout-delivery-storage";
+import { computeCartCheckoutFeesWithServiceRoundUp } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
 import {
   computeCartCheckoutRoundTripShippingHtCents,
@@ -22,7 +26,16 @@ import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
 import { readUberDirectConfig } from "@/lib/uber-direct/config";
 import { fetchUberDeliveryQuoteRaw } from "@/lib/uber-direct/deliveries-api";
 import { uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
-import { computeExchangeRoundTripShippingCents } from "@/lib/shipping/exchange-shipping-pricing";
+import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shipping-postal";
+import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
+import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
+import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendcloud-outbound-option";
+import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
+import { resolveCartCheckoutShippingRoundTrips } from "@/lib/sendcloud/resolve-cart-checkout-shipping-round-trips";
+import { resolveHomeCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-home-delivery-options";
+import { resolveRelayCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-relay-delivery-options";
+import { getSendcloudEnv, isSendcloudCheckoutLivePricingEnabled } from "@/lib/sendcloud/config";
+import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
@@ -74,11 +87,49 @@ function parseRelaySelection(raw: unknown): CheckoutRelaySelection | null {
   if (typeof o.code !== "string" || o.code.trim() === "") return null;
   if (typeof o.postalCode !== "string" || o.postalCode.replace(/\D/g, "").length < 5) return null;
   if (typeof o.label !== "string" || o.label.trim() === "") return null;
+  const scRaw = o.sendcloudServicePointId;
+  const scNum =
+    typeof scRaw === "number"
+      ? scRaw
+      : typeof scRaw === "string"
+        ? parseInt(scRaw, 10)
+        : NaN;
   return {
     code: o.code.trim(),
     label: o.label.trim(),
     postalCode: o.postalCode.trim(),
     city: typeof o.city === "string" ? o.city : undefined,
+    sendcloudServicePointId: Number.isFinite(scNum) && scNum > 0 ? scNum : undefined,
+    sendcloudCarrier:
+      typeof o.sendcloudCarrier === "string" && o.sendcloudCarrier.trim()
+        ? o.sendcloudCarrier.trim().toLowerCase()
+        : undefined,
+    sendcloudPostNumber:
+      typeof o.sendcloudPostNumber === "string" && o.sendcloudPostNumber.trim()
+        ? o.sendcloudPostNumber.trim()
+        : undefined,
+  };
+}
+
+function relayMetaFromSelection(relay: CheckoutRelaySelection): string {
+  return checkoutRelayProviderPointId(relay).slice(0, 120);
+}
+
+function parseSendcloudOutboundSelection(raw: unknown): CheckoutSendcloudOutboundOption | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const optionCode = typeof o.optionCode === "string" ? o.optionCode.trim() : "";
+  if (!optionCode) return null;
+  return {
+    optionCode,
+    optionId: typeof o.optionId === "string" ? o.optionId.trim() : "",
+    title: typeof o.title === "string" ? o.title.trim() : "Livraison",
+    carrierCode: typeof o.carrierCode === "string" ? o.carrierCode.trim() : "",
+    carrierName: typeof o.carrierName === "string" ? o.carrierName.trim() : "",
+    shippingRateCents:
+      typeof o.shippingRateCents === "number" && Number.isFinite(o.shippingRateCents)
+        ? o.shippingRateCents
+        : null,
   };
 }
 
@@ -97,6 +148,10 @@ export async function POST(request: Request) {
 
     const homeSpeedBilling = normalizeHomeSpeedForBilling(homeSpeedRaw);
     const deliveryInstructions = parseDeliveryInstructions(body.deliveryInstructions);
+    const sendcloudOutboundSelection = parseSendcloudOutboundSelection(body.sendcloudOutboundSelection);
+    const needsSendcloudOutboundPick =
+      isSendcloudCheckoutLivePricingEnabled() &&
+      !(deliveryChannel === "home" && homeSpeedBilling === "uber_direct");
 
     const relaySelection = parseRelaySelection(body.relaySelection);
     const deliveryAddress = parseDeliveryAddress(body.deliveryAddress);
@@ -107,6 +162,12 @@ export async function POST(request: Request) {
     if (deliveryChannel === "home" && !deliveryAddress) {
       return NextResponse.json({ message: "Indique une adresse de livraison." }, { status: 400 });
     }
+
+    const returnHubResolved = await resolveDefaultCheckoutReturnRelayHub();
+    if (!returnHubResolved.ok) {
+      return NextResponse.json({ message: returnHubResolved.error }, { status: returnHubResolved.status });
+    }
+    const returnRelayFields = checkoutReturnRelayFields(returnHubResolved.selection);
 
     if (body.acceptRentalTerms !== true) {
       return NextResponse.json(
@@ -174,9 +235,63 @@ export async function POST(request: Request) {
     const missingExchangeMods = cartExceedsWallet ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods)) : 0;
     const creditsCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
 
-    const outboundMode = deliveryChannel === "relay" ? "relay" : "home";
-    const relayRoundTrip = computeExchangeRoundTripShippingCents(itemCount, "relay");
-    const currentRoundTrip = computeExchangeRoundTripShippingCents(itemCount, outboundMode);
+    const memberPostalCode = memberPostalCodeForCheckoutShipping({
+      deliveryChannel,
+      relayPostalCode: relaySelection?.postalCode,
+      deliveryAddress,
+    });
+
+    const relayOutboundOptionCode =
+      deliveryChannel === "relay" ? sendcloudOutboundSelection?.optionCode ?? null : null;
+    const homeOutboundOptionCode =
+      deliveryChannel === "home" && homeSpeedBilling === "standard"
+        ? sendcloudOutboundSelection?.optionCode ?? null
+        : null;
+    const activeOutboundOptionCode =
+      deliveryChannel === "relay" ? relayOutboundOptionCode : homeOutboundOptionCode;
+
+    if (needsSendcloudOutboundPick && !activeOutboundOptionCode) {
+      return NextResponse.json(
+        { message: "Choisis un transporteur pour l’expédition aller." },
+        { status: 400 },
+      );
+    }
+
+    const shippingRoundTrips = await resolveCartCheckoutShippingRoundTrips({
+      itemCount,
+      memberPostalCode,
+      memberCountry: "FR",
+      relayOutboundOptionCode,
+      homeOutboundOptionCode,
+    });
+    const relayRoundTrip = shippingRoundTrips.relayRoundTrip;
+    let currentRoundTrip =
+      deliveryChannel === "relay" ? shippingRoundTrips.relayRoundTrip : shippingRoundTrips.homeRoundTrip;
+
+    if (activeOutboundOptionCode && memberPostalCode.length === 5) {
+      const scEnv = getSendcloudEnv();
+      if (scEnv) {
+        if (deliveryChannel === "relay") {
+          const sendcloudRelayTrip = await resolveRelayCheckoutShippingRoundTrip(scEnv, {
+            itemCount,
+            postalCode: memberPostalCode,
+            optionCode: activeOutboundOptionCode,
+          });
+          if (sendcloudRelayTrip != null) {
+            currentRoundTrip = sendcloudRelayTrip;
+          }
+        } else if (deliveryChannel === "home" && homeSpeedBilling === "standard") {
+          const sendcloudHomeTrip = await resolveHomeCheckoutShippingRoundTrip(scEnv, {
+            itemCount,
+            postalCode: memberPostalCode,
+            optionCode: activeOutboundOptionCode,
+          });
+          if (sendcloudHomeTrip != null) {
+            currentRoundTrip = sendcloudHomeTrip;
+          }
+        }
+      }
+    }
 
     const { data: membershipState } = await supabase.rpc("get_current_membership_state");
     const remainingIncludedOrders = parseRemainingIncludedOrdersThisMonth(membershipState);
@@ -254,16 +369,15 @@ export async function POST(request: Request) {
     const priorityCents = 0;
 
     const shippingHtCents = billedRoundTripHtCents + priorityCents;
-    const serviceHtCents = cartPaymentServiceFeeHtCents(itemCount);
-    const fees = computeCartFeesHtVatTtc(shippingHtCents, serviceHtCents);
+    const fees = computeCartCheckoutFeesWithServiceRoundUp(shippingHtCents, creditsCents);
+    const serviceHtCents = fees.serviceHtCents;
     const totalCents = creditsCents + fees.feesTtcCents;
 
     const config = getStripeConfig();
 
     if (totalCents === 0) {
       const creditsKind = walletCreditKindForMembership(membershipLabel);
-      const relayMeta =
-        relaySelection != null ? `${relaySelection.code}`.slice(0, 120) : "";
+      const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
       const deliveryLine1Meta =
         deliveryChannel === "home" && deliveryAddress != null
           ? deliveryAddress.label.trim().slice(0, 450)
@@ -271,6 +385,13 @@ export async function POST(request: Request) {
 
       try {
         await debitCartWalletOnly(admin as unknown as Parameters<typeof debitCartWalletOnly>[0], userId, activeCart.cartId, creditsKind);
+        if (sendcloudOutboundSelection) {
+          await persistCartOutboundSendcloudCheckoutMeta(
+            admin as unknown as Parameters<typeof persistCartOutboundSendcloudCheckoutMeta>[0],
+            activeCart.cartId,
+            sendcloudOutboundMetaFromSelection(sendcloudOutboundSelection),
+          );
+        }
         await confirmCartPaidWalletOnly(
           admin as unknown as Parameters<typeof confirmCartPaidWalletOnly>[0],
           userId,
@@ -278,7 +399,17 @@ export async function POST(request: Request) {
           deliveryChannel,
           relayMeta,
           deliveryLine1Meta,
+          returnRelayFields,
         );
+        try {
+          await provisionCartOutboundSendcloudOrder(admin, {
+            cartId: activeCart.cartId,
+            deliveryChannel,
+            homeSpeed: homeSpeedBilling === "uber_direct" ? "uber_direct" : "standard",
+          });
+        } catch (provisionErr) {
+          console.error("[stripe/cart/checkout] sendcloud provision wallet-only", provisionErr);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "wallet_checkout_failed";
         console.error("[stripe/cart/checkout] wallet-only cart completion failed", msg);
@@ -379,10 +510,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const relayMeta =
-      relaySelection != null
-        ? `${relaySelection.code}`.slice(0, 120)
-        : "";
+    const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
     const deliveryLine1Meta =
       deliveryChannel === "home" && deliveryAddress != null
         ? deliveryAddress.label.trim().slice(0, 450)
@@ -436,6 +564,17 @@ export async function POST(request: Request) {
         fees_ttc_cents: String(fees.feesTtcCents),
         relay_code: relayMeta,
         delivery_line1: deliveryLine1Meta,
+        return_relay_code: returnRelayFields.returnRelayPointId,
+        return_relay_label: returnRelayFields.returnRelayLabel,
+        return_relay_search_postal_code: returnRelayFields.returnRelaySearchPostalCode,
+        ...(sendcloudOutboundSelection
+          ? {
+              sendcloud_outbound_option_code: sendcloudOutboundSelection.optionCode.slice(0, 120),
+              sendcloud_outbound_option_id: sendcloudOutboundSelection.optionId.slice(0, 64),
+              sendcloud_outbound_method_title: sendcloudOutboundSelection.title.slice(0, 120),
+              sendcloud_outbound_carrier: sendcloudOutboundSelection.carrierCode.slice(0, 40),
+            }
+          : {}),
       },
     });
 

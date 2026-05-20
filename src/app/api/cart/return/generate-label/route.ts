@@ -21,15 +21,7 @@ const RELAY_PRODUCTS = new Set(["24R", "24L", "LCC", "XOH"]);
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const BLOCKED_RETURN_STATUSES = new Set([
-  "dropped_out",
-  "in_transit_in",
-  "in_transit_out",
-  "returned",
-  "en_verification",
-  "return_validated",
-  "closed",
-]);
+import { isCartReturnLockedForMemberSetup, normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 
 type ItemRow = {
   id: string;
@@ -186,7 +178,8 @@ export async function POST(request: Request) {
 
   if (existingReturn?.id) {
     returnShipId = String(existingReturn.id);
-    returnStatus = String(existingReturn.status ?? "").toLowerCase();
+    returnStatus =
+      normalizeCartReturnShipmentStatus(String(existingReturn.status ?? "")) ?? "pending";
   } else {
     const { data: inserted, error: insErr } = await admin
       .from("shipments")
@@ -204,10 +197,10 @@ export async function POST(request: Request) {
       );
     }
     returnShipId = String(inserted.id);
-    returnStatus = String(inserted.status ?? "pending").toLowerCase();
+    returnStatus = "pending";
   }
 
-  if (BLOCKED_RETURN_STATUSES.has(returnStatus)) {
+  if (isCartReturnLockedForMemberSetup(returnStatus)) {
     return NextResponse.json(
       { ok: false as const, error: "Cette expédition retour est déjà prise en charge." },
       { status: 409 },

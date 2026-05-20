@@ -1,23 +1,33 @@
+import {
+  borrowCalendarDaysUntilDue,
+  isBorrowReturnDueJjDayParis,
+  isBorrowReturnOverdueParis,
+} from "@/lib/cart/borrow-return-calendar";
 import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 
-const MS_PER_DAY = 86_400_000;
+export const BORROW_RETURN_REMINDER_MS_PER_DAY = 86_400_000;
 
 export type BorrowReturnReminderPhase = "jminus7" | "jminus3" | "jminus1" | "jj" | "overdue";
 
 export type BorrowReturnReminderPick = {
   idempotencyBucket: string;
   phase: BorrowReturnReminderPhase;
-  /** Métadonnées / compat : jours entiers avant l’instant échéance (0 = dernier jour ou retard). */
   templateDaysLeft: number;
 };
 
+/** Dernier jour calendaire avant dépassement (minuit Paris suivant). */
+export function isBorrowReturnDueJjDay(nowMs: number, deadlineMs: number): boolean {
+  return isBorrowReturnDueJjDayParis(nowMs, deadlineMs);
+}
+
+function isSubscriberMembership(membership: SegnaBorrowMembershipLabel): boolean {
+  return membership === "Membre +" || membership === "Membre X";
+}
+
 /**
- * Rappels relatifs à l’échéance de retour (cron quotidien recommandé) :
- * - **Guest** (10 j.) : J-3, J-1, JJ, puis un envoi par jour de retard.
- * - **Membre + / Membre X** : J-7, J-3, JJ, puis retard.
- *
- * Fenêtres en **demi-journées calées sur l’UI** (jours restants au plafond) : J-3 = [2j ; 4j[
- * avant l’échéance (ex. ~71 h restantes comptent encore comme « 3 jours » à l’écran), pas seulement floor === 3.
+ * Rappels cron avant échéance uniquement (jours calendaires Paris).
+ * Guest : J-3, J-1, J-J — Membre + / X : J-7, J-3, J-J.
+ * Les jours de retard (J+1…) sont gérés par `borrowOverdueDaily` (accrue + notify séparés).
  */
 export function pickBorrowReturnReminder(
   nowMs: number,
@@ -26,39 +36,24 @@ export function pickBorrowReturnReminder(
 ): BorrowReturnReminderPick | null {
   if (!Number.isFinite(deadlineMs) || deadlineMs <= 0 || !Number.isFinite(nowMs)) return null;
 
-  const msLeft = deadlineMs - nowMs;
-  if (msLeft <= 0) {
-    const overdueIdx = Math.floor((nowMs - deadlineMs) / MS_PER_DAY);
-    return {
-      idempotencyBucket: `overdue_${overdueIdx}`,
-      phase: "overdue",
-      templateDaysLeft: 0,
-    };
-  }
-
-  const d = MS_PER_DAY;
-
-  if (membership === "Guest") {
-    if (msLeft >= 2 * d && msLeft < 4 * d) {
-      return { idempotencyBucket: "guest_jminus3", phase: "jminus3", templateDaysLeft: 3 };
-    }
-    if (msLeft >= d && msLeft < 2 * d) {
-      return { idempotencyBucket: "guest_jminus1", phase: "jminus1", templateDaysLeft: 1 };
-    }
-    if (msLeft > 0 && msLeft < d) {
-      return { idempotencyBucket: "guest_jj", phase: "jj", templateDaysLeft: 0 };
-    }
+  if (isBorrowReturnOverdueParis(nowMs, deadlineMs)) {
     return null;
   }
 
-  if (msLeft >= 7 * d && msLeft < 8 * d) {
-    return { idempotencyBucket: "mem_jminus7", phase: "jminus7", templateDaysLeft: 7 };
+  const daysLeft = borrowCalendarDaysUntilDue(nowMs, deadlineMs);
+  if (!Number.isFinite(daysLeft)) return null;
+
+  if (daysLeft === 7 && isSubscriberMembership(membership)) {
+    return { idempotencyBucket: "jminus7", phase: "jminus7", templateDaysLeft: 7 };
   }
-  if (msLeft >= 2 * d && msLeft < 4 * d) {
-    return { idempotencyBucket: "mem_jminus3", phase: "jminus3", templateDaysLeft: 3 };
+  if (daysLeft === 3) {
+    return { idempotencyBucket: "jminus3", phase: "jminus3", templateDaysLeft: 3 };
   }
-  if (msLeft > 0 && msLeft < d) {
-    return { idempotencyBucket: "mem_jj", phase: "jj", templateDaysLeft: 0 };
+  if (daysLeft === 1) {
+    return { idempotencyBucket: "jminus1", phase: "jminus1", templateDaysLeft: 1 };
+  }
+  if (daysLeft === 0) {
+    return { idempotencyBucket: "jj", phase: "jj", templateDaysLeft: 0 };
   }
   return null;
 }

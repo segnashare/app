@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { promoteIntakeItemsToShippingOnDummyShipmentDeposited } from "@/lib/items/intake-fulfillment-from-shipment";
+import { syncIntakePiggybackFulfillmentFromCartReturn } from "@/lib/items/intake-cart-return-piggyback";
 import { notifyShipmentLifecycleAfterTransition } from "@/lib/notifications/lifecycle-shipment-notify";
 
 export type TransitionShipmentStatusParams = {
@@ -48,7 +50,30 @@ export async function transitionShipmentStatus(
   }
   const parsed = parseTransitionShipmentStatusResult(data);
   if (parsed.ok) {
+    let shipmentContext = "";
     try {
+      const { data: shipRow } = await admin
+        .from("shipments")
+        .select("cart_id, context")
+        .eq("id", params.shipmentId)
+        .maybeSingle();
+      shipmentContext = String((shipRow as { context?: string } | null)?.context ?? "");
+      if (shipmentContext === "cart_return" && (shipRow as { cart_id?: string | null })?.cart_id) {
+        await syncIntakePiggybackFulfillmentFromCartReturn(admin, {
+          cartId: String((shipRow as { cart_id: string }).cart_id),
+          returnShipmentId: params.shipmentId,
+          returnStatus: params.toStatus,
+        });
+      }
+      const toSt = params.toStatus.toLowerCase();
+      if (shipmentContext !== "member_intake" && (toSt === "dropped_in" || toSt === "dropped_out")) {
+        await promoteIntakeItemsToShippingOnDummyShipmentDeposited(admin, params.shipmentId);
+      }
+    } catch (e) {
+      console.error("[transition_shipment_status] intake piggyback sync", e);
+    }
+    try {
+      // member_intake : trigger DB (pg_net) + envoi inline ici (idempotent) si pg_net / Vault indisponibles.
       await notifyShipmentLifecycleAfterTransition(admin, {
         shipmentId: params.shipmentId,
         fromStatus: params.ifCurrentStatus,

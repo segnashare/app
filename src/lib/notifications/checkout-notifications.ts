@@ -8,6 +8,7 @@ import {
 } from "@/lib/notifications/idempotency";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
+import { declareCartOrderToN8n } from "@/lib/notifications/notify-cart-order-n8n";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 
@@ -79,13 +80,20 @@ function buildCartOrderCookingSms(itemLabels: string[]): string {
 
 /**
  * Après confirmation serveur du panier (webhook Stripe, sync retour, ou wallet-only).
- * E-mail HTML + SMS optionnel (« Segna is cooking » + noms des pièces) si Twilio est configuré et téléphone valide.
- * Clé d’idempotence : une notification par `cart_id`.
+ * Déclaration n8n (`N8N_CART_ORDER_WEBHOOK_URL`) + e-mail HTML + SMS optionnel si Twilio et téléphone valides.
+ * Clés d’idempotence : une déclaration n8n et une notification e-mail/SMS par `cart_id`.
  */
 export async function notifyCartOrderPaidAfterConfirmation(
   admin: SupabaseClient,
   input: { userId: string; cartId: string },
 ): Promise<void> {
+  try {
+    await declareCartOrderToN8n(admin, input);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[notifications] declareCartOrderToN8n failed", msg);
+  }
+
   const idempotencyKey = `txn:cart_order_paid:${input.cartId}`;
   const claimed = await claimNotificationSend(admin, {
     idempotencyKey,
@@ -126,8 +134,8 @@ export async function notifyCartOrderPaidAfterConfirmation(
     const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
     if (phoneE164 && smsBody.trim()) {
       try {
-        await sendTransactionalSms({ toE164: phoneE164, body: smsBody.trim().slice(0, 320) });
-        delivery = "email+phone";
+        const smsSent = await sendTransactionalSms({ toE164: phoneE164, body: smsBody.trim().slice(0, 320) });
+        if (smsSent) delivery = "email+phone";
       } catch (smsErr) {
         const smsMsg = smsErr instanceof Error ? smsErr.message : String(smsErr);
         console.error("[notifications] cart_order_paid sms failed", smsMsg);

@@ -2,20 +2,19 @@ import { notFound, redirect } from "next/navigation";
 
 import { EmpruntDetailView } from "@/components/emprunt/EmpruntDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
-import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import {
-  applyBorrowExtensionDaysToDeadlineMs,
-  computeBorrowDeadlineMs,
-  resolveOutboundBorrowDeliveredAtIso,
-} from "@/lib/emprunt/borrow-period";
-import { isActiveMemberReturnPhase } from "@/lib/cart/member-return-shipment-copy";
+  ensureMemberReceiptAutoConfirmed,
+  isMemberReceiptValidated,
+  memberReceiptAnchorFromOrderShipment,
+} from "@/lib/cart/member-receipt-validation";
+import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
+import { fetchMemberCartBorrowOverdue } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const RETURN_ENFORCE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -55,27 +54,33 @@ export default async function EmpruntPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  const borrowExtensionDaysTotal = await fetchCartBorrowExtensionDaysTotal(supabase, cartId);
-  const borrowAnchorIso = resolveOutboundBorrowDeliveredAtIso(detail.shipment?.deliveredAt, detail.shipment?.updatedAt);
-  const deliveredAtMs = borrowAnchorIso ? Date.parse(borrowAnchorIso) : Number.NaN;
-  const returnDeadlineMs = applyBorrowExtensionDaysToDeadlineMs(
-    computeBorrowDeadlineMs(deliveredAtMs, membershipLabel),
-    borrowExtensionDaysTotal,
-  );
-  const mustUseReturnPage =
-    isActiveMemberReturnPhase(detail.returnShipment?.status) &&
-    Number.isFinite(returnDeadlineMs) &&
-    returnDeadlineMs - Date.now() <= RETURN_ENFORCE_WINDOW_MS;
-
-  if (mustUseReturnPage) {
-    redirect(`/exchange/retour/${cartId}`);
+  const receiptAnchor = memberReceiptAnchorFromOrderShipment(detail.shipment);
+  const confirmedAt = await ensureMemberReceiptAutoConfirmed(supabase, {
+    cartId,
+    userId,
+    memberReceiptConfirmedAt: detail.memberReceiptConfirmedAt,
+    shipment: receiptAnchor,
+  });
+  if (
+    !isMemberReceiptValidated(
+      confirmedAt ?? detail.memberReceiptConfirmedAt,
+      receiptAnchor,
+    )
+  ) {
+    redirect(`/commande/${cartId}`);
   }
+
+  const [borrowExtensionDaysTotal, borrowOverdue] = await Promise.all([
+    fetchCartBorrowExtensionDaysTotal(supabase, cartId),
+    fetchMemberCartBorrowOverdue(supabase, cartId),
+  ]);
 
   return (
     <EmpruntDetailView
       detail={detail}
       membershipLabel={membershipLabel}
       borrowExtensionDaysTotal={borrowExtensionDaysTotal}
+      borrowOverdue={borrowOverdue}
     />
   );
 }

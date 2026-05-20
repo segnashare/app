@@ -71,6 +71,7 @@ export function RetourShippingFormClient({
           createdAt: prev?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           trackingNumber: typeof j.numero_suivi === "string" ? j.numero_suivi : prev?.trackingNumber ?? null,
+          memberTrackingUrl: prev?.memberTrackingUrl ?? null,
           labelUrl: typeof j.label_url === "string" ? j.label_url : null,
         }));
         return;
@@ -91,8 +92,8 @@ export function RetourShippingFormClient({
         <>
           <p className="text-[15px] leading-relaxed text-zinc-600">
             Nous préparons ton <span className="font-semibold text-zinc-800">bordereau d&apos;envoi vers Segna</span>{" "}
-            (même principe que pour l&apos;envoi des pièces en intake : relais près de ton adresse profil, destination
-            Segna). Une fois l&apos;étiquette prête, imprime-la et dépose ton colis au point relais indiqué sur le PDF.
+            (point relais près de ton adresse — gratuit, déjà inclus dans ton paiement à l&apos;emprunt). Une fois
+            l&apos;étiquette prête, imprime-la et dépose ton colis au relais indiqué sur le PDF.
           </p>
           <p className="text-[13px] leading-relaxed text-zinc-500">
             La suite du trajet (transit, réception à Segna, vérification) est pilotée depuis le back-office Segna — tu
@@ -134,14 +135,23 @@ export function RetourShippingFormClient({
       ) : null}
 
       {labelUrl ? (
-        <div className="flex w-full flex-col items-center gap-2 pt-2">
+        <div className="flex w-full flex-col items-center gap-3 pt-2">
           <a
             href={labelUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block rounded-none border-0 bg-transparent p-0 text-center text-[15px] font-semibold text-zinc-900 underline decoration-zinc-400 underline-offset-[5px] outline-none ring-0 hover:decoration-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
+            download
+            className="inline-flex w-full max-w-sm items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[15px] font-bold text-white transition hover:bg-zinc-900"
           >
-            Ré-imprimer le bordereau
+            Télécharger le bordereau (PDF)
+          </a>
+          <a
+            href={labelUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-[13px] font-medium text-zinc-600 underline decoration-zinc-400 underline-offset-[4px] hover:text-zinc-900"
+          >
+            Ouvrir dans un nouvel onglet
           </a>
         </div>
       ) : null}

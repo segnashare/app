@@ -1,3 +1,4 @@
+import { withMrNormalizedMobile } from "@/lib/mondial-relay/mr-person-phone";
 import type { MrPerson, MrShipmentInput } from "@/lib/mondial-relay/shipment-xml";
 
 export type RelayDeliveryProduct = "24R" | "24L" | "LCC" | "XOH";
@@ -88,8 +89,8 @@ export function buildMondialRelayShipmentForItem(
     ...(shipmentValue ? { ShipmentValue: shipmentValue } : {}),
     CollectionMode: { Mode: options.collectionMode },
     DeliveryMode: deliveryMode,
-    Sender: options.sender,
-    Recipient: options.recipient,
+    Sender: withMrNormalizedMobile(options.sender),
+    Recipient: withMrNormalizedMobile(options.recipient),
     Parcels: { Parcel: parcel },
   };
 }

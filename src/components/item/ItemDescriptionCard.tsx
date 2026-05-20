@@ -26,16 +26,16 @@ export function ItemDescriptionCard({ description, className }: ItemDescriptionC
     >
       <p
         className={cn(
-          montserrat.className,
-          "text-[16px] font-semibold text-zinc-900",
+          playfairDisplay.className,
+          "text-[28px] font-extrabold leading-snug text-zinc-900",
         )}
       >
         Description
       </p>
       <p
         className={cn(
-          playfairDisplay.className,
-          "mt-2 text-[28px] font-extrabold leading-snug text-zinc-900",
+          montserrat.className,
+          "mt-2 text-[16px] font-semibold leading-snug text-zinc-900",
         )}
       >
         {trimmed ? trimmed : "—"}

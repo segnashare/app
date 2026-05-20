@@ -26,6 +26,11 @@ import {
   subscribeIntakeSessionAck,
   writeIntakeSessionAckSet,
 } from "@/lib/items/intake-session-ack";
+import {
+  getExchangeOnboardingSheetDismissSnapshot,
+  parseExchangeOnboardingSheetDismissSnapshot,
+  subscribeExchangeOnboardingSheetDismiss,
+} from "@/lib/onboarding/in-app-onboarding";
 
 export type { ExchangeIntakeBannerItem } from "./exchange-intake-banner-types";
 
@@ -56,6 +61,10 @@ type StackLayer =
 
 const CARD_SHELL_CLASS =
   "overflow-hidden rounded-2xl border border-zinc-200/90 shadow-[0_6px_24px_-8px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.05]";
+
+function getExchangeOnboardingDismissServerSnapshot() {
+  return "[]";
+}
 
 /**
  * Coque sans contenu : même gabarit que la carte du dessus pour l’effet pile, sans boutons ni texte qui dépassent.
@@ -107,6 +116,15 @@ export function ExchangeHeaderAlertStack({
     [intakeAckSnapshot],
   );
   const [outboundHidden, setOutboundHidden] = useState(false);
+  const onboardingDismissSnapshot = useSyncExternalStore(
+    subscribeExchangeOnboardingSheetDismiss,
+    getExchangeOnboardingSheetDismissSnapshot,
+    getExchangeOnboardingDismissServerSnapshot,
+  );
+  const dismissedOnboardingSheets = useMemo(
+    () => parseExchangeOnboardingSheetDismissSnapshot(onboardingDismissSnapshot),
+    [onboardingDismissSnapshot],
+  );
 
   useEffect(() => {
     if (!outboundSummary) {
@@ -122,10 +140,19 @@ export function ExchangeHeaderAlertStack({
   );
 
   const layers = useMemo(() => {
-    const list: StackLayer[] = showProfileOnboarding ? [{ kind: "onboarding-profile" }] : [];
-    if (showKycOnboarding) list.push({ kind: "onboarding-kyc" });
-    if (showCartOnboarding) list.push({ kind: "onboarding-cart" });
-    if (showExchangeOnboarding) list.push({ kind: "onboarding-exchange" });
+    const list: StackLayer[] =
+      showProfileOnboarding && !dismissedOnboardingSheets.has("profile")
+        ? [{ kind: "onboarding-profile" }]
+        : [];
+    if (showKycOnboarding && !dismissedOnboardingSheets.has("kyc")) {
+      list.push({ kind: "onboarding-kyc" });
+    }
+    if (showCartOnboarding && !dismissedOnboardingSheets.has("panier")) {
+      list.push({ kind: "onboarding-cart" });
+    }
+    if (showExchangeOnboarding && !dismissedOnboardingSheets.has("exchange")) {
+      list.push({ kind: "onboarding-exchange" });
+    }
     list.push(...visibleIntakes.map((item) => ({ kind: "intake" as const, item })));
     if (outboundSummary != null && !outboundHidden) {
       list.push({ kind: "outbound", summary: outboundSummary });
@@ -136,6 +163,7 @@ export function ExchangeHeaderAlertStack({
     showKycOnboarding,
     showCartOnboarding,
     showExchangeOnboarding,
+    dismissedOnboardingSheets,
     visibleIntakes,
     outboundSummary,
     outboundHidden,
@@ -221,7 +249,7 @@ export function ExchangeHeaderAlertStack({
               >
                 {isFront ? (
                   <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
-                    <InAppOnboardingProfileSheet initiallyVisible />
+                    <InAppOnboardingProfileSheet />
                   </div>
                 ) : (
                   <div className="pointer-events-none select-none opacity-[0.92]">
@@ -245,7 +273,7 @@ export function ExchangeHeaderAlertStack({
               >
                 {isFront ? (
                   <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
-                    <InAppOnboardingKycSheet initiallyVisible />
+                    <InAppOnboardingKycSheet />
                   </div>
                 ) : (
                   <div className="pointer-events-none select-none opacity-[0.92]">
@@ -269,7 +297,7 @@ export function ExchangeHeaderAlertStack({
               >
                 {isFront ? (
                   <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
-                    <InAppOnboardingCartSheet initiallyVisible />
+                    <InAppOnboardingCartSheet />
                   </div>
                 ) : (
                   <div className="pointer-events-none select-none opacity-[0.92]">
@@ -293,7 +321,7 @@ export function ExchangeHeaderAlertStack({
               >
                 {isFront ? (
                   <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "bg-white")}>
-                    <InAppOnboardingExchangeSheet initiallyVisible />
+                    <InAppOnboardingExchangeSheet />
                   </div>
                 ) : (
                   <div className="pointer-events-none select-none opacity-[0.92]">

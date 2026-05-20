@@ -16,6 +16,7 @@ import { filterRelayHitsByPlanTri } from "@/lib/mondial-relay/soap-plan-tri-pret
 import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-search";
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
 
+import { intakeAllowsShippingPreparation } from "@/lib/items/intake-fulfillment-stages";
 import { patchItemIntakeMondialRelayMetadata } from "@/lib/items/item-intake-mr-patch";
 import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
 
@@ -165,7 +166,11 @@ export async function runMemberMrAutoGenerate(
       return { ok: false, error: "Accès refusé à au moins une pièce.", status: 403 };
     }
     const intake = unwrapIntake(r.item_intake);
-    if (!intake || String(intake.listing_stage) !== "validated" || String(intake.fulfillment_stage ?? "") !== "shipping") {
+    if (
+      !intake ||
+      String(intake.listing_stage) !== "validated" ||
+      !intakeAllowsShippingPreparation(intake.fulfillment_stage)
+    ) {
       return {
         ok: false,
         error: "Une pièce n'est pas en phase expédition (validée + livraison à préparer).",
@@ -433,6 +438,7 @@ export async function runMemberMrAutoGenerate(
       if (!patchRes.ok) {
         return { ok: false, error: patchRes.message, status: 500 };
       }
+      await service.from("item_intake").update({ fulfillment_stage: "ready" }).eq("item_id", id);
     }
 
     return {

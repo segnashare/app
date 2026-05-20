@@ -13,17 +13,22 @@ import {
 import { NotificationKind } from "@/lib/notifications/kinds";
 import {
   borrowDeadlineReminderEmail,
+  borrowOverdueDailyEmail,
   buildMemberCartOrderPageUrl,
   orderOutboundDeliveredEmail,
+  orderOutboundReadyEmail,
   orderOutboundRelayPickupAvailableEmail,
   returnDroppedOutEmail,
   returnReceivedBySegnaEmail,
 } from "@/lib/notifications/lifecycle-shipment-email";
+import {
+  buildOutboundReadySmsBody,
+  resolveOutboundTrackingForNotify,
+} from "@/lib/notifications/outbound-tracking-for-notify";
+import { notifyMemberIntakeDroppedInAfterTransition } from "@/lib/notifications/lifecycle-member-intake-notify";
 import { sendMemberOutreachNotification, sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
 
-const SMS_OUTBOUND_READY =
-  "Segna : ton colis est prêt à partir. Les prochaines étapes arrivent dans l’app Segna.";
 /** `dropped_in` : pris en charge par le partenaire — pas encore retirable au relais. */
 const SMS_OUTBOUND_TRANSIT_PARTNER =
   "Segna : ton colis est en transit chez le partenaire — pas encore prêt au retrait. Suis l’envoi via le partenaire (lien dans l’app Segna).";
@@ -47,6 +52,21 @@ function buildOutboundDeliveredSms(cartId: string): string {
   return lines.join("\n");
 }
 const SMS_RETURN_AT_RELAY = "Segna : ton retour au relais est enregistré. Merci !";
+
+/** Retour `dropped_in` : pris en charge transporteur — fin de l’échange côté membre. */
+function buildReturnDroppedInExchangeCompleteSms(): string {
+  return [
+    "Segna",
+    "",
+    "Ton échange est terminé.",
+    "",
+    "Ton colis retour est bien pris en charge — plus rien à faire de ton côté (délais, suivi du retour, dépôt relais).",
+    "",
+    "Nous vérifions chez Segna le contenu du colis ; nous te recontacterons uniquement en cas d’écart.",
+    "",
+    "Merci !",
+  ].join("\n");
+}
 
 type CartItemJoinForNotify = {
   title?: string | null;
@@ -116,11 +136,13 @@ async function loadOutboundDeliveredNotificationContext(
   borrowPeriodLabel: string;
   orderRef: string;
 } | null> {
-  const { data: ship, error: shipErr } = await admin
-    .from("shipments")
-    .select("delivered_at, updated_at")
-    .eq("id", shipmentId)
-    .maybeSingle();
+  const [{ data: ship, error: shipErr }, { data: cartRow, error: cartErr }] = await Promise.all([
+    admin.from("shipments").select("delivered_at, updated_at").eq("id", shipmentId).maybeSingle(),
+    admin.from("carts").select("borrow_return_due_at").eq("id", cartId).maybeSingle(),
+  ]);
+  if (cartErr) {
+    console.error("[notifications] loadOutboundDeliveredNotificationContext cart", cartErr.message);
+  }
   if (shipErr) {
     console.error("[notifications] loadOutboundDeliveredNotificationContext shipment", shipErr.message);
     return null;
@@ -140,7 +162,11 @@ async function loadOutboundDeliveredNotificationContext(
   }
 
   const membership = (await resolveMembershipLabelForServiceRole(admin, userId)) as SegnaBorrowMembershipLabel;
-  const deadlineMs = computeBorrowDeadlineMs(deliveredAtMs, membership);
+  const storedDue = (cartRow as { borrow_return_due_at?: string | null } | null)?.borrow_return_due_at;
+  const storedMs = typeof storedDue === "string" && storedDue.trim() ? Date.parse(storedDue) : Number.NaN;
+  const deadlineMs = Number.isFinite(storedMs)
+    ? storedMs
+    : computeBorrowDeadlineMs(deliveredAtMs, membership);
   if (!Number.isFinite(deadlineMs)) return null;
 
   const itemLabels = await loadCartOrderItemLabels(admin, cartId);
@@ -231,6 +257,33 @@ export async function sendOutboundDeliveredRecap(
   return { ok: true, emailAttempted: true, smsAttempted: true };
 }
 
+async function loadOutboundReadyNotifyTracking(
+  admin: SupabaseClient,
+  shipmentId: string,
+  cartId: string,
+) {
+  const [shipRes, cartRes, uberHome] = await Promise.all([
+    admin
+      .from("shipments")
+      .select("tracking_number, member_tracking_url")
+      .eq("id", shipmentId)
+      .maybeSingle(),
+    admin.from("carts").select("sendcloud_outbound_order_number").eq("id", cartId).maybeSingle(),
+    loadCartUsesUberHomeDelivery(admin, cartId),
+  ]);
+
+  const ship = shipRes.data as { tracking_number?: string | null; member_tracking_url?: string | null } | null;
+  const cart = cartRes.data as { sendcloud_outbound_order_number?: string | null } | null;
+
+  return resolveOutboundTrackingForNotify({
+    cartId,
+    trackingNumber: ship?.tracking_number ?? null,
+    memberTrackingUrl: ship?.member_tracking_url ?? null,
+    isUberHome: uberHome,
+    sendcloudOrderNumber: cart?.sendcloud_outbound_order_number ?? null,
+  });
+}
+
 async function loadCartMember(admin: SupabaseClient, shipmentId: string): Promise<{ userId: string; firstName: string | null } | null> {
   const { data: ship, error: sErr } = await admin.from("shipments").select("cart_id, context").eq("id", shipmentId).maybeSingle();
   if (sErr || !ship || typeof (ship as { cart_id?: unknown }).cart_id !== "string") return null;
@@ -247,7 +300,8 @@ async function loadCartMember(admin: SupabaseClient, shipmentId: string): Promis
 
 /**
  * Notifications membre après transition réussie (`transition_shipment_status`).
- * Aller : `ready` (pending → ready) → SMS seul ; `dropped_in` → SMS seul (transit partenaire) ; `dropped_out` → e-mail + SMS (dispo au relais), sauf Uber domicile ; `delivered` (depuis transit) → e-mail récap + SMS.
+ * Aller : `ready` (pending → ready) → e-mail + SMS (réf. commande, n° suivi, lien) ; `dropped_in` → SMS seul ; `dropped_out` → e-mail + SMS (dispo au relais), sauf Uber domicile ; `delivered` → e-mail récap + SMS.
+ * Retour : `dropped_out` → e-mail + SMS (dépôt relais) ; `dropped_in` → SMS seul (échange terminé) ; `returned` / `en_verification` → e-mail.
  */
 export async function notifyShipmentLifecycleAfterTransition(
   admin: SupabaseClient,
@@ -265,6 +319,11 @@ export async function notifyShipmentLifecycleAfterTransition(
   const from = String(input.fromStatus ?? "").toLowerCase();
   const cartId = (ship as { cart_id: string }).cart_id;
 
+  if (context === "member_intake") {
+    await notifyMemberIntakeDroppedInAfterTransition(admin, input);
+    return;
+  }
+
   const member = await loadCartMember(admin, input.shipmentId);
   if (!member) return;
 
@@ -278,12 +337,29 @@ export async function notifyShipmentLifecycleAfterTransition(
   };
 
   if (context === "cart_outbound" && to === "ready" && from === "pending") {
-    await sendMemberSmsOnlyNotification(admin, {
+    const tracking = await loadOutboundReadyNotifyTracking(admin, input.shipmentId, cartId);
+    const { subject, text, html } = orderOutboundReadyEmail({
+      firstName: member.firstName,
+      orderRef: tracking.orderRef,
+      trackingNumber: tracking.trackingNumber,
+      trackingUrl: tracking.trackingUrl,
+    });
+    await sendMemberOutreachNotification(admin, {
       userId: member.userId,
       kind: NotificationKind.orderOutboundReadyToShip,
       idempotencyKey: `txn:lc:ship:${input.shipmentId}:ready`,
-      metadata: { ...meta, pending_to_ready: true },
-      smsBody: SMS_OUTBOUND_READY,
+      metadata: {
+        ...meta,
+        pending_to_ready: true,
+        order_ref: tracking.orderRef,
+        tracking_number: tracking.trackingNumber,
+        tracking_url: tracking.trackingUrl,
+      },
+      subject,
+      text,
+      html,
+      channels: "email+phone",
+      smsBody: buildOutboundReadySmsBody(tracking),
       transactionalSms: true,
     });
     return;
@@ -354,6 +430,18 @@ export async function notifyShipmentLifecycleAfterTransition(
     return;
   }
 
+  if (context === "cart_return" && to === "dropped_in") {
+    await sendMemberSmsOnlyNotification(admin, {
+      userId: member.userId,
+      kind: NotificationKind.returnExchangeComplete,
+      idempotencyKey: `txn:lc:ship:${input.shipmentId}:return_dropped_in_exchange_complete`,
+      metadata: meta,
+      smsBody: buildReturnDroppedInExchangeCompleteSms(),
+      transactionalSms: true,
+    });
+    return;
+  }
+
   if (context === "cart_return" && (to === "returned" || to === "en_verification")) {
     const { subject, text, html } = returnReceivedBySegnaEmail(member.firstName);
     await sendMemberOutreachNotification(admin, {
@@ -397,6 +485,55 @@ export async function notifyBorrowDeadlineReminder(
     kind: NotificationKind.borrowReturnDeadlineReminder,
     idempotencyKey: `txn:lc:borrow:${input.cartId}:reminder:${bucket}`,
     metadata: { cart_id: input.cartId, days_left: daysMeta, phase: input.phase },
+    subject,
+    text,
+    html,
+    channels: "email+phone",
+    smsBody,
+  });
+}
+
+/** Pénalité journalière de retard retour (`cart_borrow_overdue_days`). */
+export async function notifyBorrowOverdueDaily(
+  admin: SupabaseClient,
+  input: {
+    userId: string;
+    cartId: string;
+    lateDayIndex: number;
+    penaltyCents: number;
+    penaltyCredits: number;
+    rateBps: number;
+    chargeStatus: string;
+    calendarDate: string;
+    chargedViaStripe?: boolean;
+  },
+): Promise<void> {
+  const { data: user } = await admin.from("users").select("first_name").eq("id", input.userId).maybeSingle();
+  const firstName = (user as { first_name?: string | null } | null)?.first_name ?? null;
+  const cartLabel = `Commande ${input.cartId.slice(0, 8).toUpperCase()}`;
+  const ratePercent = Math.round(input.rateBps / 100);
+
+  const { subject, text, html, smsBody } = borrowOverdueDailyEmail(firstName, {
+    cartLabel,
+    lateDayIndex: input.lateDayIndex,
+    penaltyCents: input.penaltyCents,
+    penaltyCredits: input.penaltyCredits,
+    ratePercent,
+    chargeStatus: input.chargeStatus,
+    chargedViaStripe: input.chargedViaStripe,
+  });
+
+  await sendMemberOutreachNotification(admin, {
+    userId: input.userId,
+    kind: NotificationKind.borrowOverdueDaily,
+    idempotencyKey: `txn:lc:borrow_overdue:${input.cartId}:${input.calendarDate}`,
+    metadata: {
+      cart_id: input.cartId,
+      late_day_index: input.lateDayIndex,
+      penalty_cents: input.penaltyCents,
+      charge_status: input.chargeStatus,
+      calendar_date: input.calendarDate,
+    },
     subject,
     text,
     html,

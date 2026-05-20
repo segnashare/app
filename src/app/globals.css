@@ -103,6 +103,42 @@ body:has(.segna-lock-document-scroll) {
   animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
 }
 
+/* Échange : pastille / vignettes quand retour J-J ou en retard. */
+.exchange-return-urgent-vibrate {
+  animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
+}
+
+/* Retour urgent (bandeau J-J, pastille) : balayage blanc/argenté sur fond rouge. */
+.segna-urgent-red-shimmer-active .segna-urgent-red-shimmer-target,
+.segna-urgent-red-shimmer-active.segna-urgent-red-shimmer-target {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.segna-urgent-red-shimmer-active .segna-urgent-red-shimmer-target::after,
+.segna-urgent-red-shimmer-active.segna-urgent-red-shimmer-target::after {
+  content: "";
+  position: absolute;
+  inset: -90% -45%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    92deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 20%,
+    rgba(255, 255, 255, 0.42) 38%,
+    rgba(255, 255, 255, 0.58) 50%,
+    rgba(228, 228, 231, 0.45) 62%,
+    rgba(255, 255, 255, 0.12) 78%,
+    transparent 100%
+  );
+  filter: blur(12px);
+  opacity: 0.88;
+  will-change: transform;
+  animation: shop-catalog-image-shimmer 2.85s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cart-surplus-trash-vibrate {
     animation: none;
@@ -114,6 +150,16 @@ body:has(.segna-lock-document-scroll) {
 
   .cart-wallet-exceed-vibrate {
     animation: none;
+  }
+
+  .exchange-return-urgent-vibrate {
+    animation: none;
+  }
+
+  .segna-urgent-red-shimmer-active .segna-urgent-red-shimmer-target::after,
+  .segna-urgent-red-shimmer-active.segna-urgent-red-shimmer-target::after {
+    animation: none;
+    opacity: 0;
   }
 }
 

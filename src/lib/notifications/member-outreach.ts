@@ -87,8 +87,8 @@ export async function sendMemberOutreachNotification(
       const smsText = input.smsBody?.trim() ?? "";
       if (phoneE164 && smsText) {
         try {
-          await sendTransactionalSms({ toE164: phoneE164, body: smsText.slice(0, 320) });
-          delivery = "email+phone";
+          const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsText.slice(0, 320) });
+          if (sent) delivery = "email+phone";
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error("[notifications] member-outreach sms failed", msg);
@@ -143,7 +143,11 @@ export async function sendMemberSmsOnlyNotification(
   }
 
   try {
-    await sendTransactionalSms({ toE164: phoneE164, body: input.smsBody.trim().slice(0, 320) });
+    const sent = await sendTransactionalSms({ toE164: phoneE164, body: input.smsBody.trim().slice(0, 320) });
+    if (!sent) {
+      await releaseNotificationSend(admin, input.idempotencyKey);
+      return;
+    }
     await setNotificationDeliveryChannels(admin, input.idempotencyKey, "phone");
   } catch (e) {
     await releaseNotificationSend(admin, input.idempotencyKey);

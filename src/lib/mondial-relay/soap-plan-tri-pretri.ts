@@ -206,7 +206,13 @@ async function mapInChunks<T, R>(items: T[], chunkSize: number, fn: (t: T) => Pr
 export async function filterRelayHitsByPlanTri(
   env: MondialRelaySoapEnv,
   hits: RelaySearchHit[],
-  input: { modeLiv: string; destPostcode: string; destCountry: string },
+  input: {
+    modeLiv: string;
+    destPostcode: string;
+    destCountry: string;
+    /** Checkout panier : ne pas garder un relais si ObtenirPreTri échoue techniquement. */
+    failClosedOnTechnicalError?: boolean;
+  },
 ): Promise<{ kept: RelaySearchHit[]; meta: PlanTriFilterMeta }> {
   if (hits.length === 0) {
     return {
@@ -247,8 +253,11 @@ export async function filterRelayHitsByPlanTri(
         liv_rel: livRel,
         liv_rel_pays: livRelPays,
         error: msg.slice(0, 240),
+        fail_closed: Boolean(input.failClosedOnTechnicalError),
       });
-      /** Erreur technique : on conserve le point si le hash Security ou le service PlanTri pose problème. */
+      if (input.failClosedOnTechnicalError) {
+        return { kind: "drop", code: hit.code, statut: `erreur technique: ${msg.slice(0, 80)}` };
+      }
       return { kind: "keep", hit };
     }
   });

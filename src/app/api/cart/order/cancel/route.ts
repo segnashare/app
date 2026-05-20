@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
+import { cancelCartOutboundSendcloudOrder } from "@/lib/cart/cancel-cart-outbound-sendcloud-order";
+import { NotificationKind } from "@/lib/notifications/kinds";
+import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const CART_ID_RE =
@@ -143,6 +148,55 @@ export async function POST(request: Request) {
     console.error("[api/cart/order/cancel]", msg);
     return NextResponse.json({ error: "Annulation impossible pour le moment. Réessaie ou contacte le support." }, { status: 500 });
   }
+
+  const admin = createSupabaseAdminClient();
+  try {
+    const scCancel = await cancelCartOutboundSendcloudOrder(admin, cartId);
+    if (scCancel.notices.length > 0) {
+      console.info("[api/cart/order/cancel] sendcloud", scCancel.notices.join(" · "));
+    }
+  } catch (e) {
+    console.error("[api/cart/order/cancel] sendcloud cancel", e);
+  }
+
+  const hadStripePayment = cents > 0;
+  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);
+  const stripeRefundLine = hadStripePayment
+    ? `Le complément payé par carte sera remboursé sur ton moyen de paiement, sous réserve d’une retenue de ${feePct} % au titre des frais d’annulation.`
+    : null;
+  const stripeRefundHtml = hadStripePayment
+    ? `<p>Le complément payé par carte sera <strong>remboursé</strong> sur ton moyen de paiement, sous réserve d’une retenue de <strong>${feePct} %</strong> au titre des frais d’annulation.</p>`
+    : "";
+
+  const idempotencyKey = `txn:${NotificationKind.cartOrderCanceledMember}:${cartId}`;
+  const smsBody = hadStripePayment
+    ? `Segna : tu as bien annulé ta commande avant expédition. Remboursement des points en cours ; complément carte remboursé (retenue ${feePct} % frais d’annulation).`
+    : "Segna : tu as bien annulé ta commande avant expédition. Le remboursement de tes points est en cours.";
+
+  await sendMemberOutreachNotification(admin, {
+    userId: user.id,
+    kind: NotificationKind.cartOrderCanceledMember,
+    idempotencyKey,
+    metadata: { cart_id: cartId, source: "member_cancel_pending_or_ready" },
+    subject: "Ta commande Segna a bien été annulée",
+    text: [
+      "Bonjour,",
+      "",
+      "Tu as annulé ta commande Segna alors qu’elle était encore en préparation ou prête à l’expédition, avant prise en charge par le transporteur.",
+      "Le remboursement de tes points est en cours.",
+      ...(stripeRefundLine ? ["", stripeRefundLine] : []),
+      "",
+      "L’équipe Segna",
+    ].join("\n"),
+    html: `<p>Bonjour,</p>
+<p>Tu as <strong>annulé</strong> ta commande Segna alors qu’elle était encore <strong>en préparation ou prête à l’expédition</strong>, avant prise en charge par le transporteur.</p>
+<p>Le remboursement de tes points est <strong>en cours</strong>.</p>
+${stripeRefundHtml}
+<p>L’équipe Segna</p>`,
+    channels: "email+phone",
+    smsBody,
+    transactionalSms: true,
+  });
 
   return NextResponse.json({ ok: true, data: data ?? null });
 }

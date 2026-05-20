@@ -98,6 +98,7 @@ function getStatusLabel(
 
   // Pipeline validée + contrôle OK : si la pièce est déjà `available` en DB, c’est le statut catalogue (bleu), pas l’étape « Vérifiée ».
   if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "ready") return "Prêt";
     if (intakeFulfillmentStage === "shipping") {
       return "Expédition";
     }
@@ -116,6 +117,7 @@ function getStatusLabel(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "ready") return "Prêt";
       if (fs === "shipping") return "Expédition";
       if (fs === "in_verification") return "Vérification";
       if (fs === "verified") {
@@ -157,6 +159,7 @@ function statusPillClassName(
 
   // Priorité affichage sur la pipeline (fulfillment).
   if (intakeListingStage === "validated") {
+    if (intakeFulfillmentStage === "ready") return "bg-emerald-100 text-emerald-800";
     if (intakeFulfillmentStage === "shipping") {
       return "bg-blue-100 text-blue-700";
     }
@@ -173,6 +176,7 @@ function statusPillClassName(
   if (normalized === "draft" || normalized === "brouillon") {
     if (intake?.listing_stage === "validated") {
       const fs = intake.fulfillment_stage?.toLowerCase() ?? "";
+      if (fs === "ready") return "bg-emerald-100 text-emerald-800";
       if (fs === "shipping") return "bg-blue-100 text-blue-700";
       if (fs === "in_verification") return "bg-amber-100 text-amber-900";
       if (fs === "verified") {
@@ -218,7 +222,8 @@ function canEditEvaluationDraft(status: string, intake?: { listing_stage: string
 function isFulfillmentShipping(intake?: { listing_stage: string; fulfillment_stage: string | null } | null) {
   const ls = intake?.listing_stage?.toLowerCase() ?? "";
   if (ls !== "validated") return false;
-  return (intake?.fulfillment_stage?.toLowerCase() ?? "") === "shipping";
+  const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
+  return fs === "ready" || fs === "shipping";
 }
 
 export function ExchangeLendItemRow({

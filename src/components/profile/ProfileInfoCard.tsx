@@ -5,16 +5,7 @@ import { Briefcase, MapPin, Repeat2, Star } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
-import {
-  instagramWebProfileUrl,
-  normalizeInstagramHandleInput,
-  normalizePinterestHandleInput,
-  normalizeThreadsHandleInput,
-  normalizeTiktokHandleInput,
-  pinterestWebProfileUrl,
-  threadsWebProfileUrl,
-  tiktokWebProfileUrl,
-} from "@/lib/profile/social-handles";
+import { instagramWebProfileUrl, normalizeInstagramHandleInput } from "@/lib/profile/social-handles";
 import { cn } from "@/lib/utils/cn";
 
 
@@ -131,9 +122,6 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
       {data.socialSectionVisible !== false
         ? (() => {
             const ig = normalizeInstagramHandleInput(data.instagramHandle ?? "");
-            const tk = normalizeTiktokHandleInput(data.tiktokHandle ?? "");
-            const pin = normalizePinterestHandleInput(data.pinterestHandle ?? "");
-            const th = normalizeThreadsHandleInput(data.threadsHandle ?? "");
             const rows: Array<{ key: string; icon: ReactNode; label: string; href: string }> = [];
             if (ig) {
               rows.push({
@@ -141,42 +129,6 @@ export function ProfileInfoCard({ data, className }: ProfileInfoCardProps) {
                 icon: <img src={INSTAGRAM_ICON_PATH} alt="" className="h-6 w-6 shrink-0" aria-hidden />,
                 label: `@${ig}`,
                 href: instagramWebProfileUrl(ig),
-              });
-            }
-            if (tk) {
-              rows.push({
-                key: "tk",
-                icon: (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-[10px] font-bold text-white" aria-hidden>
-                    TT
-                  </span>
-                ),
-                label: `@${tk}`,
-                href: tiktokWebProfileUrl(tk),
-              });
-            }
-            if (pin) {
-              rows.push({
-                key: "pin",
-                icon: (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#E60023] text-[10px] font-bold text-white" aria-hidden>
-                    P
-                  </span>
-                ),
-                label: `@${pin}`,
-                href: pinterestWebProfileUrl(pin),
-              });
-            }
-            if (th) {
-              rows.push({
-                key: "th",
-                icon: (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-800 text-[10px] font-bold text-white" aria-hidden>
-                    @
-                  </span>
-                ),
-                label: `@${th}`,
-                href: threadsWebProfileUrl(th),
               });
             }
             if (rows.length === 0) return null;

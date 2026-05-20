@@ -1260,26 +1260,12 @@ export function ProfileCompleteModifyCore({
   useEffect(() => {
     if (!onScorePreviewChange || isHydrating) return;
     const pct = computeProfileCompletionPreviewPercent({
-      profilePhoto,
       looksSlots,
-      answersForSave,
       infoItems: infoItems.map((i) => ({ id: i.id, value: i.value })),
-      styleItems: styleItems.map((i) => ({ id: i.id, value: i.value })),
-      preferenceItems: preferenceItems.map((i) => ({ id: i.id, value: i.value })),
       reseauxProfileData: completionPreviewProfileData,
     });
     onScorePreviewChange(pct);
-  }, [
-    onScorePreviewChange,
-    isHydrating,
-    profilePhoto,
-    looksSlots,
-    answersForSave,
-    infoItems,
-    styleItems,
-    preferenceItems,
-    completionPreviewProfileData,
-  ]);
+  }, [onScorePreviewChange, isHydrating, looksSlots, infoItems, completionPreviewProfileData]);
 
   useEffect(() => {
     if (!onOnboardingProfileRequirementsChange || isHydrating) return;
@@ -1602,11 +1588,6 @@ export function ProfileCompleteModifyCore({
       <section className="space-y-2">
         <p className="text-[18px] font-semibold text-zinc-400">Mes infos</p>
         {renderProfileRows(infoItems)}
-      </section>
-
-      <section className="space-y-2">
-        <p className="text-[18px] font-semibold text-zinc-400">Mes préférences</p>
-        {renderProfileRows(preferenceItems)}
       </section>
 
       {isHydrating ? <p className={cn(montserrat.className, "text-[13px] text-zinc-500")}>Chargement du profil...</p> : null}
