@@ -18,7 +18,12 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import {
   dataUrlToFile,
   fileToDataUrl,
-  PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE,
+  ITEM_PHOTO_PREPARE_FAILED_MESSAGE,
+  ITEM_PHOTO_RETURN_LOST_MESSAGE,
+  ITEM_PHOTO_SLOT_INVALID_MESSAGE,
+  ITEM_PHOTO_STORAGE_QUOTA_MESSAGE,
+  ITEM_SLOTS_PERSIST_QUOTA_MESSAGE,
+  isItemPhotoStorageQuotaError,
   readPhotoModifyDraft,
   removePhotoModifyDraft,
   savePhotoModifyDraft,
@@ -84,33 +89,33 @@ function compactSlotsLeft(next: Array<ItemPhotoSlot | null>): Array<ItemPhotoSlo
   return [...filled, ...Array(next.length - filled.length).fill(null)];
 }
 
-const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
-const ITEM_SLOTS_DRAFT_STORAGE_KEY = "segna:new-item:slots-draft";
-const ITEM_TEXT_DRAFT_STORAGE_KEY = "segna:new-item:text-draft";
+function countFilledSlots(slotsToCount: Array<ItemPhotoSlot | null>): number {
+  return slotsToCount.filter(Boolean).length;
+}
 
-const ITEM_SLOTS_PERSIST_QUOTA_MESSAGE =
-  "Les photos sont visibles à l’écran, mais le navigateur n’a plus assez de place pour les mémoriser localement (souvent après 3–4 images lourdes). Valide la fiche sans quitter la page, ou réessaie avec des photos plus légères.";
-
-const ITEM_PHOTO_RETURN_LOST_MESSAGE =
-  "La photo validée n’a pas pu être récupérée : la mémoire locale du navigateur est saturée. Réessaie avec une image plus légère ou ferme d’autres onglets Segna.";
-
-function persistItemSlotsDraft(slotsToPersist: Array<ItemPhotoSlot | null>): boolean {
+function persistSlotsToSession(slotsToPersist: Array<ItemPhotoSlot | null>): boolean {
   try {
     sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slotsToPersist));
     return true;
   } catch {
-    const slim = slotsToPersist.map((slot) => {
-      if (!slot?.storagePath?.trim()) return slot;
-      return { ...slot, dataUrl: "" };
-    });
-    try {
-      sessionStorage.setItem(ITEM_SLOTS_DRAFT_STORAGE_KEY, JSON.stringify(slim));
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
+
+function newItemReturnPath(itemId: string | null): string {
+  return itemId ? `/items/new?itemId=${itemId}` : "/items/new";
+}
+
+function itemPhotoErrorFromUnknown(error: unknown, fallback: string): string {
+  if (error instanceof Error && isItemPhotoStorageQuotaError(error.message)) {
+    return error.message;
+  }
+  return fallback;
+}
+
+const ACTIVE_DRAFT_ID_STORAGE_KEY = "segna:new-item:active-draft-id";
+const ITEM_SLOTS_DRAFT_STORAGE_KEY = "segna:new-item:slots-draft";
+const ITEM_TEXT_DRAFT_STORAGE_KEY = "segna:new-item:text-draft";
 /** Parcours /items/proposal → première ligne `items` avec `pre_subscribe_proposal` (pas d’expédition auto à la validation). */
 const PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY = "segna:new-item:pre-subscribe-proposal";
 
@@ -315,6 +320,7 @@ export default function NewItemPage() {
   const [isKeepingDraft, setIsKeepingDraft] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [photoErrorMessage, setPhotoErrorMessage] = useState<string | null>(null);
   const [hasHydratedSlots, setHasHydratedSlots] = useState(false);
   const [photoEditVersion, setPhotoEditVersion] = useState(0);
   const [itemPricePoints, setItemPricePoints] = useState<number | null>(null);
@@ -958,12 +964,10 @@ export default function NewItemPage() {
 
   useEffect(() => {
     if (!hasHydratedSlots) return;
-    if (searchParamsRef.current.get("photoModifyId")) return;
-    const filledCount = slots.filter(Boolean).length;
-    if (filledCount === 0) return;
-    if (persistItemSlotsDraft(slots)) return;
-    if (!slotsPersistQuotaWarnedRef.current) {
+    const ok = persistSlotsToSession(slots);
+    if (!ok && countFilledSlots(slots) >= 3 && !slotsPersistQuotaWarnedRef.current) {
       slotsPersistQuotaWarnedRef.current = true;
+      setPhotoErrorMessage(ITEM_SLOTS_PERSIST_QUOTA_MESSAGE);
       setErrorMessage(ITEM_SLOTS_PERSIST_QUOTA_MESSAGE);
     }
   }, [hasHydratedSlots, slots]);
@@ -992,50 +996,31 @@ export default function NewItemPage() {
     if (!modifiedId) return;
     if (handledPhotoModifyIdsRef.current.has(modifiedId)) return;
 
-    const itemIdForUrl = requestedItemId || draftItemId || null;
-    const returnTo = itemIdForUrl ? `/items/new?itemId=${itemIdForUrl}` : "/items/new";
-
-    const failPhotoReturn = (message: string) => {
-      setErrorMessage(message);
-      router.replace(returnTo);
-    };
-
-    const draft = readPhotoModifyDraft(modifiedId);
-    if (!draft) {
-      handledPhotoModifyIdsRef.current.add(modifiedId);
-      failPhotoReturn(ITEM_PHOTO_RETURN_LOST_MESSAGE);
-      return;
-    }
-    if (draft.source !== "item") {
-      handledPhotoModifyIdsRef.current.add(modifiedId);
-      failPhotoReturn("Impossible d’ajouter cette photo à la fiche pièce.");
-      return;
-    }
-    if (draft.status === "cancelled") {
-      handledPhotoModifyIdsRef.current.add(modifiedId);
-      removePhotoModifyDraft(modifiedId);
-      router.replace(returnTo);
-      return;
-    }
-    if (draft.status !== "confirmed") {
-      handledPhotoModifyIdsRef.current.add(modifiedId);
-      failPhotoReturn(ITEM_PHOTO_RETURN_LOST_MESSAGE);
-      return;
-    }
-
-    const slotFromDraft = typeof draft.slot === "number" && draft.slot >= 0 && draft.slot <= 5 ? draft.slot : null;
-    const resolvedSlot = slotFromDraft ?? pendingSlotRef.current;
-    if (resolvedSlot == null || resolvedSlot < 0 || resolvedSlot > 5) {
-      handledPhotoModifyIdsRef.current.add(modifiedId);
-      failPhotoReturn("Impossible de placer la photo (emplacement invalide). Réessaie.");
-      return;
-    }
-    handledPhotoModifyIdsRef.current.add(modifiedId);
-
     void (async () => {
+      const itemIdForUrl = requestedItemId || draftItemId || null;
+      const returnTo = newItemReturnPath(itemIdForUrl);
+
+      const draft = readPhotoModifyDraft(modifiedId);
+      if (!draft || draft.source !== "item" || draft.status !== "confirmed") {
+        setPhotoErrorMessage(ITEM_PHOTO_RETURN_LOST_MESSAGE);
+        setErrorMessage(ITEM_PHOTO_RETURN_LOST_MESSAGE);
+        router.replace(returnTo);
+        return;
+      }
+
+      const slotFromDraft = typeof draft.slot === "number" && draft.slot >= 0 && draft.slot <= 5 ? draft.slot : null;
+      const resolvedSlot = slotFromDraft ?? pendingSlotRef.current;
+      if (resolvedSlot == null || resolvedSlot < 0 || resolvedSlot > 5) {
+        setPhotoErrorMessage(ITEM_PHOTO_SLOT_INVALID_MESSAGE);
+        setErrorMessage(ITEM_PHOTO_SLOT_INVALID_MESSAGE);
+        router.replace(returnTo);
+        return;
+      }
+
+      handledPhotoModifyIdsRef.current.add(modifiedId);
+
       try {
         const imageRatio = await getImageRatio(draft.dataUrl);
-        let mergedSlots: Array<ItemPhotoSlot | null> = [null, null, null, null, null, null];
         setSlots((prev) => {
           const next = [...prev];
           next[resolvedSlot] = {
@@ -1047,18 +1032,17 @@ export default function NewItemPage() {
             offset: { x: draft.offset.x, y: draft.offset.y },
             zoom: draft.zoom,
           };
-          mergedSlots = compactSlotsLeft(next);
-          return mergedSlots;
+          return compactSlotsLeft(next);
         });
-        if (!persistItemSlotsDraft(mergedSlots)) {
-          setErrorMessage(ITEM_SLOTS_PERSIST_QUOTA_MESSAGE);
-        }
         setPhotoEditVersion((v) => v + 1);
+        setPhotoErrorMessage(null);
         removePhotoModifyDraft(modifiedId);
         pendingSlotRef.current = null;
         router.replace(returnTo);
       } catch {
-        failPhotoReturn("Impossible d’ajouter cette photo. Réessaie.");
+        setPhotoErrorMessage(ITEM_PHOTO_PREPARE_FAILED_MESSAGE);
+        setErrorMessage(ITEM_PHOTO_PREPARE_FAILED_MESSAGE);
+        router.replace(returnTo);
       }
     })();
   }, [draftItemId, photoModifyIdFromUrl, requestedItemId, router]);
@@ -1073,9 +1057,19 @@ export default function NewItemPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     const slotIndex = pendingSlotRef.current ?? activeSlotRef.current;
-    const dataUrl = await fileToDataUrl(file);
+    setPhotoErrorMessage(null);
+    let dataUrl = "";
+    try {
+      dataUrl = await fileToDataUrl(file);
+    } catch (error) {
+      const message = itemPhotoErrorFromUnknown(error, ITEM_PHOTO_PREPARE_FAILED_MESSAGE);
+      setPhotoErrorMessage(message);
+      setErrorMessage(message);
+      event.target.value = "";
+      return;
+    }
     const draftId = crypto.randomUUID();
-    const returnPathWithParams = requestedItemId && draftItemId ? `/items/new?itemId=${draftItemId}` : "/items/new";
+    const returnPathWithParams = newItemReturnPath(requestedItemId ?? draftItemId ?? null);
     try {
       savePhotoModifyDraft({
         id: draftId,
@@ -1092,7 +1086,9 @@ export default function NewItemPage() {
         status: "pending",
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE);
+      const message = itemPhotoErrorFromUnknown(error, ITEM_PHOTO_STORAGE_QUOTA_MESSAGE);
+      setPhotoErrorMessage(message);
+      setErrorMessage(message);
       event.target.value = "";
       return;
     }
@@ -1740,6 +1736,14 @@ export default function NewItemPage() {
 
           <section className="space-y-4">
             <p className={cn(montserrat.className, "text-[clamp(14px,2.8vw,20px)] font-semibold leading-none text-zinc-400")}>Photos</p>
+            {photoErrorMessage ? (
+              <p
+                role="alert"
+                className={cn(montserrat.className, "rounded-xl border border-[#E44D3E]/25 bg-[#FFF5F3] px-3 py-2.5 text-[13px] leading-snug text-[#B42318]")}
+              >
+                {photoErrorMessage}
+              </p>
+            ) : null}
             <input ref={fileInputRef} type="file" accept="image/*" onChange={onPickFile} className="hidden" />
             <div className="grid grid-cols-3 gap-2">
               {slots.map((slot, index) => (
@@ -1817,7 +1821,9 @@ export default function NewItemPage() {
                           status: "pending",
                         });
                       } catch (error) {
-                        setErrorMessage(error instanceof Error ? error.message : "Impossible de préparer la photo.");
+                        const message = itemPhotoErrorFromUnknown(error, ITEM_PHOTO_STORAGE_QUOTA_MESSAGE);
+                        setPhotoErrorMessage(message);
+                        setErrorMessage(message);
                         return;
                       }
                       persistNewItemScrollForSubPage();

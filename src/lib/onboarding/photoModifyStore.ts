@@ -25,19 +25,33 @@ export type PhotoModifyDraft = {
 const keyFor = (id: string) => `segna:photo-modify:${id}`;
 const DRAFT_STORAGE_PREFIX = "segna:photo-modify:";
 
-/** Message utilisateur quand sessionStorage refuse une photo (quota mobile ~5 Mo). */
-export const PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE =
-  "Stockage local saturé : choisis une image plus légère (JPEG, moins de 2 Mo) ou ferme d’autres onglets Segna.";
+/** Impossible d’enregistrer la photo avant l’écran de recadrage (sessionStorage plein). */
+export const ITEM_PHOTO_STORAGE_QUOTA_MESSAGE =
+  "Le navigateur n’a plus assez de place pour enregistrer cette photo (souvent à partir de la 4ᵉ image ou avec des fichiers très lourds). Réessaie avec une photo plus légère (JPEG, moins de 2 Mo), ou ferme d’autres onglets Segna.";
+
+/** Retour depuis /modify : brouillon photo introuvable (quota ou onglet fermé). */
+export const ITEM_PHOTO_RETURN_LOST_MESSAGE =
+  "La photo validée n’a pas pu être récupérée : la mémoire locale du navigateur est saturée ou la session a expiré. Réessaie avec une image plus légère ou ferme d’autres onglets Segna.";
+
+/** Les slots restent à l’écran mais ne peuvent plus être mémorisés entre deux étapes. */
+export const ITEM_SLOTS_PERSIST_QUOTA_MESSAGE =
+  "Tes photos restent visibles à l’écran, mais le navigateur n’a plus assez de place pour les mémoriser localement. Évite de quitter la page avant d’avoir validé la fiche, ou utilise des photos plus légères.";
+
+export const ITEM_PHOTO_PREPARE_FAILED_MESSAGE =
+  "Impossible de préparer cette photo. Choisis un fichier JPEG ou PNG plus léger, puis réessaie.";
+
+export const ITEM_PHOTO_SLOT_INVALID_MESSAGE =
+  "Impossible d’ajouter la photo à cet emplacement. Touche à nouveau une case photo vide, puis réessaie.";
+
+export function isItemPhotoStorageQuotaError(message: string): boolean {
+  return (
+    message.includes("Stockage local saturé") ||
+    message.includes("plus assez de place") ||
+    message.includes("mémoire locale")
+  );
+}
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.86;
-/** Brouillon pièce (sessionStorage) : plus léger pour limiter le quota mobile. */
-const ITEM_DRAFT_MAX_IMAGE_SIDE = 1080;
-const ITEM_DRAFT_JPEG_QUALITY = 0.72;
-
-type ImageNormalizeOptions = {
-  maxSide?: number;
-  quality?: number;
-};
 
 const runtimeFiles = new Map<string, File>();
 const runtimeObjectUrls = new Map<string, string>();
@@ -50,17 +64,15 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
-const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) =>
+const canvasToBlob = (canvas: HTMLCanvasElement) =>
   new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", quality);
+    canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
   });
 
-const normalizedImageBlobForStorage = async (src: string, options?: ImageNormalizeOptions) => {
-  const maxSide = options?.maxSide ?? MAX_IMAGE_SIDE;
-  const quality = options?.quality ?? JPEG_QUALITY;
+const normalizedImageBlobForStorage = async (src: string) => {
   const image = await loadImage(src);
   const largestSide = Math.max(image.width, image.height, 1);
-  const scale = Math.min(1, maxSide / largestSide);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / largestSide);
   const outputWidth = Math.max(1, Math.round(image.width * scale));
   const outputHeight = Math.max(1, Math.round(image.height * scale));
   const canvas = document.createElement("canvas");
@@ -69,12 +81,12 @@ const normalizedImageBlobForStorage = async (src: string, options?: ImageNormali
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.drawImage(image, 0, 0, outputWidth, outputHeight);
-  return canvasToBlob(canvas, quality);
+  return canvasToBlob(canvas);
 };
 
-const normalizeDataUrlForStorage = async (dataUrl: string, options?: ImageNormalizeOptions) => {
+const normalizeDataUrlForStorage = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
-  const blob = await normalizedImageBlobForStorage(dataUrl, options);
+  const blob = await normalizedImageBlobForStorage(dataUrl);
   if (!blob) return dataUrl;
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -102,17 +114,13 @@ export const fileToDataUrl = (file: File) =>
     }),
   );
 
-export async function preparePhotoModifyImage(file: File, options?: { forItemDraft?: boolean }) {
-  const normalizeOpts: ImageNormalizeOptions | undefined = options?.forItemDraft
-    ? { maxSide: ITEM_DRAFT_MAX_IMAGE_SIDE, quality: ITEM_DRAFT_JPEG_QUALITY }
-    : undefined;
-
+export async function preparePhotoModifyImage(file: File) {
   return measureClientPhotoPerf(
     "photo.prepareLocalFile",
     async () => {
       const sourceUrl = URL.createObjectURL(file);
       try {
-        const blob = await normalizedImageBlobForStorage(sourceUrl, normalizeOpts);
+        const blob = await normalizedImageBlobForStorage(sourceUrl);
         const normalizedName = (file.name || "photo.jpg").replace(/\.[^.]+$/, "") || "photo";
         const normalizedFile =
           blob && blob.size > 0
@@ -179,7 +187,7 @@ export const savePhotoModifyDraft = (draft: PhotoModifyDraft) => {
   try {
     window.sessionStorage.setItem(keyFor(draft.id), serialized);
   } catch {
-    throw new Error(PHOTO_MODIFY_STORAGE_QUOTA_MESSAGE);
+    throw new Error(ITEM_PHOTO_STORAGE_QUOTA_MESSAGE);
   }
 };
 

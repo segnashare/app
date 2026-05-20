@@ -11,6 +11,8 @@ import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import {
   dataUrlToFile,
   getPhotoModifyRuntimeFile,
+  ITEM_PHOTO_STORAGE_QUOTA_MESSAGE,
+  isItemPhotoStorageQuotaError,
   preparePhotoModifyImage,
   readPhotoModifyDraft,
   registerPhotoModifyRuntimeFile,
@@ -144,7 +146,13 @@ export function ModifyPageClient() {
         status: "confirmed",
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Impossible d'enregistrer la photo.");
+      const message =
+        error instanceof Error && isItemPhotoStorageQuotaError(error.message)
+          ? error.message
+          : draft.source === "item"
+            ? ITEM_PHOTO_STORAGE_QUOTA_MESSAGE
+            : "Impossible d'enregistrer la photo.";
+      setErrorMessage(message);
       setIsSaving(false);
       return;
     }
