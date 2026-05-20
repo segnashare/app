@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { parseUserProfilePhotoPath } from "@/lib/profile/parse-profile-photo-path";
+import { fetchMemberCatalogItemsForProfile } from "@/lib/profile/fetch-member-catalog-items";
 import { formatReseauxSummaryOrNull } from "@/lib/profile/profile-completion-score";
 import { readSocialHandlesFromProfileData } from "@/lib/profile/social-handles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -198,7 +199,7 @@ function cacheToProfileViewData(cache: CachedPayload, displayName?: string | nul
     looksSlots: compactLookSlots(cache.looksSlots.map(toLookSlot)),
     infoItems,
     insights,
-    lentPieces: [],
+    catalogItems: [],
     instagramUsername: null,
     locationLabel: infoItems.find((i) => i.id === "location")?.value ?? null,
     statsValue: null,
@@ -249,8 +250,10 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
         const social = readSocialHandlesFromProfileData(profileData);
         const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
         const socialSectionVisible = infoVisibilityRaw.reseaux !== false;
+        const catalogItems = await fetchMemberCatalogItemsForProfile(supabase, authUser.id);
         merged = {
           ...merged,
+          catalogItems,
           infoCard: {
             ...merged.infoCard,
             ratingValue: formatRatingAverage(userRatingSummary.average),
@@ -479,13 +482,15 @@ export function useProfileViewData(userId?: string | null, displayName?: string 
     ]
       .filter((i) => i.value.length > 0) as ProfileViewInfoItem[];
 
+    const catalogItems = await fetchMemberCatalogItemsForProfile(supabase, targetUserId);
+
     setData({
       profilePhoto,
       infoCard,
       looksSlots,
       infoItems,
       insights: answers,
-      lentPieces: [],
+      catalogItems,
       instagramUsername: social.instagram || null,
       locationLabel: cityLabel,
       statsValue: null,
