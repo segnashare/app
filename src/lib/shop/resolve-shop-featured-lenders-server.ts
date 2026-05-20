@@ -4,6 +4,7 @@ import {
   memberHasProfilePhotoSource,
   resolveProfilePhotoHttpUrl,
   resolveProfilePhotoStoragePath,
+  resolveProfilePhotoTransform,
 } from "@/lib/profile/parse-profile-photo-path";
 import { tryCreateSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -181,11 +182,13 @@ export async function fetchShopFeaturedLendersWithProfilePhotos(
     if (!memberHasProfilePhotoSource(source)) continue;
 
     const avatarUrl = await resolveAvatarUrl(signClients, source);
+    const avatarTransform = resolveProfilePhotoTransform(source);
 
     result.push({
       userId: profile.user_id,
       displayName: displayNameFromRow(profile),
       avatarUrl,
+      avatarTransform,
     });
   }
 

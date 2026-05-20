@@ -19,9 +19,20 @@ export type MemberFeedbackN8nNotifyResult =
 
 /** Tolère un commentaire inline dans `.env` (ex. `https://…/webhook/xxx #prod`). */
 function readMemberFeedbackWebhookUrl(): string {
-  const raw = process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_URL?.trim() ?? "";
+  const raw =
+    process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL?.trim() ||
+    process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_URL?.trim() ||
+    "";
   if (!raw) return "";
   return raw.split("#")[0]?.trim() ?? "";
+}
+
+function readMemberFeedbackWebhookSecret(): string {
+  return (
+    process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET?.trim() ||
+    process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET?.trim() ||
+    ""
+  );
 }
 
 /**
@@ -32,12 +43,14 @@ export async function notifyMemberFeedbackN8n(
 ): Promise<MemberFeedbackN8nNotifyResult> {
   const url = readMemberFeedbackWebhookUrl();
   if (!url) {
-    console.error("[n8n/member-feedback] N8N_MEMBER_FEEDBACK_WEBHOOK_URL is not set");
+    console.error(
+      "[n8n/member-feedback] N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL (ou N8N_MEMBER_FEEDBACK_WEBHOOK_URL) is not set",
+    );
     return { ok: false, reason: "missing_url" };
   }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const secret = process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET?.trim();
+  const secret = readMemberFeedbackWebhookSecret();
   if (secret) {
     headers.Authorization = `Bearer ${secret}`;
   }

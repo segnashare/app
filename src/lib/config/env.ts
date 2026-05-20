@@ -41,6 +41,8 @@ const serverEnvSchema = z.object({
   N8N_CART_ORDER_WEBHOOK_URL: z.string().url().optional(),
   N8N_CART_ORDER_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Workflow n8n signalement membre (`POST /api/member-feedback`). */
+  N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL: z.string().url().optional(),
+  N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET: z.string().min(1).optional(),
   N8N_MEMBER_FEEDBACK_WEBHOOK_URL: z.string().url().optional(),
   N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
@@ -91,6 +93,8 @@ export function getServerEnv(): ServerEnv {
     N8N_DISPUTE_WEBHOOK_SECRET: process.env.N8N_DISPUTE_WEBHOOK_SECRET,
     N8N_CART_ORDER_WEBHOOK_URL: process.env.N8N_CART_ORDER_WEBHOOK_URL,
     N8N_CART_ORDER_WEBHOOK_SECRET: process.env.N8N_CART_ORDER_WEBHOOK_SECRET,
+    N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL: process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL,
+    N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET: process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET,
     N8N_MEMBER_FEEDBACK_WEBHOOK_URL: process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_URL,
     N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET: process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET,
   });

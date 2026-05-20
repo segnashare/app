@@ -156,6 +156,11 @@ export type ShopFeaturedLender = {
   userId: string;
   displayName: string;
   avatarUrl: string | null;
+  /** Cadrage PDP (zoom + offset) choisi par la membre. */
+  avatarTransform?: {
+    offset: { x: number; y: number };
+    zoom: number;
+  };
   /** Profil décoratif : pas de fiche /membre */
   isPlaceholder?: boolean;
   /** Avatar local / démo : affichage sans lien vers /membre/[id] */
@@ -2326,11 +2331,14 @@ export function ShopCatalog({
                           photoUrl={p.avatarUrl}
                           frameClassName="h-full w-full rounded-full"
                           className="rounded-full"
-                          coverStyle={{
-                            backgroundSize: "cover",
-                            backgroundPosition: "center",
-                            backgroundRepeat: "no-repeat",
+                          photoPosition={{
+                            offset: {
+                              x: p.avatarTransform?.offset.x ?? 0,
+                              y: p.avatarTransform?.offset.y ?? 0,
+                            },
+                            zoom: p.avatarTransform?.zoom ?? 1,
                           }}
+                          photoCoverFill
                             />
                           ) : (
                             <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-zinc-700">

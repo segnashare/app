@@ -23,7 +23,7 @@ const BOTTOM_IN_TAB_BAR_SLOT = "calc(14px + env(safe-area-inset-bottom, 0px))";
 const optionBtn = (active: boolean) =>
   cn(
     segnaDialogMontserrat.className,
-    "flex w-full items-center justify-between border-b border-zinc-200 py-3 text-left text-[14px] transition last:border-b-0",
+    "flex w-full items-center justify-between border-b border-zinc-200 py-2.5 text-left text-[13px] leading-snug transition last:border-b-0",
     active ? "font-semibold text-zinc-950" : "text-zinc-700",
   );
 
@@ -174,7 +174,7 @@ export function MemberFeedbackFab() {
                   <legend className={cn(segnaDialogMontserrat.className, "mb-2 text-[13px] font-semibold text-zinc-900")}>
                     Type de sujet
                   </legend>
-                  <div className="rounded-xl border border-zinc-200 px-3">
+                  <div className="max-h-[168px] overflow-y-auto overscroll-contain rounded-xl border border-zinc-200 px-3 [-webkit-overflow-scrolling:touch]">
                     {MEMBER_FEEDBACK_CATEGORIES.map((opt) => {
                       const active = category === opt.id;
                       return (
