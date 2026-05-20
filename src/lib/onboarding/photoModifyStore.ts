@@ -52,6 +52,14 @@ export function isItemPhotoStorageQuotaError(message: string): boolean {
 }
 const MAX_IMAGE_SIDE = 1600;
 const JPEG_QUALITY = 0.86;
+/** Brouillon pièce (sessionStorage) : plus léger pour limiter le quota mobile. */
+const ITEM_DRAFT_MAX_IMAGE_SIDE = 1080;
+const ITEM_DRAFT_JPEG_QUALITY = 0.72;
+
+type ImageNormalizeOptions = {
+  maxSide?: number;
+  quality?: number;
+};
 
 const runtimeFiles = new Map<string, File>();
 const runtimeObjectUrls = new Map<string, string>();
@@ -64,15 +72,17 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
-const canvasToBlob = (canvas: HTMLCanvasElement) =>
+const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) =>
   new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
+    canvas.toBlob(resolve, "image/jpeg", quality);
   });
 
-const normalizedImageBlobForStorage = async (src: string) => {
+const normalizedImageBlobForStorage = async (src: string, options?: ImageNormalizeOptions) => {
+  const maxSide = options?.maxSide ?? MAX_IMAGE_SIDE;
+  const quality = options?.quality ?? JPEG_QUALITY;
   const image = await loadImage(src);
   const largestSide = Math.max(image.width, image.height, 1);
-  const scale = Math.min(1, MAX_IMAGE_SIDE / largestSide);
+  const scale = Math.min(1, maxSide / largestSide);
   const outputWidth = Math.max(1, Math.round(image.width * scale));
   const outputHeight = Math.max(1, Math.round(image.height * scale));
   const canvas = document.createElement("canvas");
@@ -81,12 +91,12 @@ const normalizedImageBlobForStorage = async (src: string) => {
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.drawImage(image, 0, 0, outputWidth, outputHeight);
-  return canvasToBlob(canvas);
+  return canvasToBlob(canvas, quality);
 };
 
-const normalizeDataUrlForStorage = async (dataUrl: string) => {
+const normalizeDataUrlForStorage = async (dataUrl: string, options?: ImageNormalizeOptions) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
-  const blob = await normalizedImageBlobForStorage(dataUrl);
+  const blob = await normalizedImageBlobForStorage(dataUrl, options);
   if (!blob) return dataUrl;
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -114,13 +124,17 @@ export const fileToDataUrl = (file: File) =>
     }),
   );
 
-export async function preparePhotoModifyImage(file: File) {
+export async function preparePhotoModifyImage(file: File, options?: { forItemDraft?: boolean }) {
+  const normalizeOpts: ImageNormalizeOptions | undefined = options?.forItemDraft
+    ? { maxSide: ITEM_DRAFT_MAX_IMAGE_SIDE, quality: ITEM_DRAFT_JPEG_QUALITY }
+    : undefined;
+
   return measureClientPhotoPerf(
     "photo.prepareLocalFile",
     async () => {
       const sourceUrl = URL.createObjectURL(file);
       try {
-        const blob = await normalizedImageBlobForStorage(sourceUrl);
+        const blob = await normalizedImageBlobForStorage(sourceUrl, normalizeOpts);
         const normalizedName = (file.name || "photo.jpg").replace(/\.[^.]+$/, "") || "photo";
         const normalizedFile =
           blob && blob.size > 0
