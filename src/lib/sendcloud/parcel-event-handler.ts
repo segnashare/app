@@ -17,8 +17,10 @@ import {
   patchCartReturnShipmentReturnParcel,
   syncCartReturnShipmentTracking,
 } from "@/lib/cart/cart-return-shipment";
+import { isIntakeMemberReturnTrackingNumber } from "@/lib/items/intake-shipping-metadata";
 import {
   patchMemberIntakeShipmentReturnParcel,
+  readMemberIntakeDestinationMetadata,
   syncMemberIntakeShipmentTracking,
 } from "@/lib/items/member-intake-shipment";
 import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
@@ -337,11 +339,27 @@ export async function processSendcloudParcelEvent(
 
   if (norm(ship.context) === "member_intake") {
     try {
-      if (parcelId) {
+      const destMeta = await readMemberIntakeDestinationMetadata(admin, ship.id);
+      const outgoingRaw = destMeta.sc_outgoing_parcel_id;
+      const outgoingParcelId =
+        typeof outgoingRaw === "number"
+          ? outgoingRaw
+          : typeof outgoingRaw === "string"
+            ? parseInt(outgoingRaw, 10)
+            : NaN;
+      const isOutgoingParcel =
+        parcelId != null &&
+        Number.isFinite(outgoingParcelId) &&
+        outgoingParcelId > 0 &&
+        parcelId === outgoingParcelId;
+
+      if (parcelId && !isOutgoingParcel) {
         await patchMemberIntakeShipmentReturnParcel(admin, ship.id, parcelId);
       }
-      if (trackingNumber || trackingUrl) {
+      if (trackingNumber && isIntakeMemberReturnTrackingNumber(trackingNumber)) {
         await syncMemberIntakeShipmentTracking(admin, ship.id, { trackingNumber, trackingUrl });
+      } else if (trackingUrl && !isOutgoingParcel) {
+        await syncMemberIntakeShipmentTracking(admin, ship.id, { trackingUrl });
       }
     } catch (e) {
       console.error("[sendcloud-webhook] member_intake sync", e);

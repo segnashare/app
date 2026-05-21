@@ -2,12 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { patchItemIntakeSendcloudMetadata } from "@/lib/items/item-intake-sendcloud-patch";
 import type { SendcloudEnv } from "@/lib/sendcloud/config";
+import { buildSendcloudV3ParcelLabelUrl } from "@/lib/sendcloud/label-url";
 import {
   isIntakeMemberReturnTrackingNumber,
   parseIntakeShippingLabelFromMetadata,
   readMemberIntakeShipmentIdFromMetadata,
 } from "@/lib/items/intake-shipping-metadata";
 import { cancelSendcloudOutboundParcel } from "@/lib/sendcloud/orders-api";
+import { fetchSendcloudParcel } from "@/lib/sendcloud/parcel-sync";
 import { cancelSendcloudShipment } from "@/lib/sendcloud/return-portal-shipment";
 import {
   cancelSendcloudReturnsForOrderNumber,
@@ -307,7 +309,9 @@ export async function syncMemberIntakeShipmentTracking(
   shipmentId: string,
   params: { trackingNumber?: string | null; trackingUrl?: string | null },
 ): Promise<void> {
-  const tn = params.trackingNumber?.trim();
+  const rawTn = params.trackingNumber?.trim();
+  const tn =
+    rawTn && isIntakeMemberReturnTrackingNumber(rawTn) ? rawTn : undefined;
   const url = params.trackingUrl?.trim();
   if (!tn && !url) return;
 
@@ -544,7 +548,6 @@ export async function syncMemberIntakeShipmentPortalIds(
     sc_sendcloud_intake_portal_synced_at: new Date().toISOString(),
   };
   if (params.outboundParcelId != null && params.outboundParcelId > 0) {
-    metaPatch.sendcloud_parcel_id = params.outboundParcelId;
     metaPatch.sc_outgoing_parcel_id = params.outboundParcelId;
   }
 
@@ -623,4 +626,94 @@ export async function resetMemberIntakeShipmentForPortal(
       await service.from("shipment_destinations").update({ metadata: prev }).eq("id", dest.id);
     }
   }
+}
+
+function parsePositiveInt(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Relève le colis retour Sendcloud (suivi XT) et l’aligne sur le shipment `member_intake`.
+ */
+export async function syncMemberIntakeReturnFromSendcloudByOrder(
+  service: SupabaseClient,
+  env: SendcloudEnv,
+  params: {
+    shipmentId: string;
+    orderNumber: string;
+    outgoingParcelId?: number | null;
+    dummyParcelId?: number | null;
+  },
+): Promise<{ ok: true; synced: boolean; tracking_number?: string | null } | { ok: false; error: string }> {
+  const orderNumber = params.orderNumber.trim();
+  const shipmentId = params.shipmentId.trim();
+  if (!orderNumber || !shipmentId) {
+    return { ok: true, synced: false };
+  }
+
+  const parcels = await findSendcloudParcelsByOrderNumberV3(env, orderNumber);
+  const exclude = new Set<number>();
+  if (params.dummyParcelId != null && params.dummyParcelId > 0) exclude.add(params.dummyParcelId);
+  if (params.outgoingParcelId != null && params.outgoingParcelId > 0) exclude.add(params.outgoingParcelId);
+
+  let chosen: (typeof parcels)[number] | null = null;
+  for (const parcel of parcels) {
+    const id = typeof parcel.id === "number" ? parcel.id : NaN;
+    if (!Number.isFinite(id) || id <= 0 || exclude.has(id)) continue;
+    const tn = String(parcel.tracking_number ?? "").trim();
+    if (isIntakeMemberReturnTrackingNumber(tn)) {
+      chosen = parcel;
+      break;
+    }
+  }
+
+  if (!chosen?.id) {
+    return { ok: true, synced: false };
+  }
+
+  const parcelId = chosen.id as number;
+  const trackingNumber = String(chosen.tracking_number ?? "").trim() || null;
+  const labelUrl = buildSendcloudV3ParcelLabelUrl(env, parcelId);
+
+  await patchMemberIntakeShipmentReturnParcel(service, shipmentId, parcelId);
+  await syncMemberIntakeShipmentTracking(service, shipmentId, {
+    trackingNumber,
+    trackingUrl: labelUrl.startsWith("http") ? labelUrl : null,
+  });
+
+  return { ok: true, synced: true, tracking_number: trackingNumber };
+}
+
+/** Suivi retour (XT) depuis le colis entrant portail ou, à défaut, la commande Sendcloud. */
+export async function resolveMemberIntakeReturnTracking(
+  env: SendcloudEnv,
+  params: {
+    orderNumber: string;
+    incomingParcelId?: number | null;
+    outgoingParcelId?: number | null;
+    dummyParcelId?: number | null;
+  },
+): Promise<string | null> {
+  const incomingId =
+    params.incomingParcelId != null && params.incomingParcelId > 0 ? params.incomingParcelId : null;
+  if (incomingId) {
+    const snap = await fetchSendcloudParcel(env, incomingId);
+    const tn = String(snap?.trackingNumber ?? "").trim();
+    if (isIntakeMemberReturnTrackingNumber(tn)) return tn;
+  }
+
+  const parcels = await findSendcloudParcelsByOrderNumberV3(env, params.orderNumber.trim());
+  const exclude = new Set<number>();
+  if (params.dummyParcelId != null && params.dummyParcelId > 0) exclude.add(params.dummyParcelId);
+  if (params.outgoingParcelId != null && params.outgoingParcelId > 0) exclude.add(params.outgoingParcelId);
+  if (incomingId) exclude.add(incomingId);
+
+  for (const parcel of parcels) {
+    const id = typeof parcel.id === "number" ? parcel.id : NaN;
+    if (!Number.isFinite(id) || id <= 0 || exclude.has(id)) continue;
+    const tn = String(parcel.tracking_number ?? "").trim();
+    if (isIntakeMemberReturnTrackingNumber(tn)) return tn;
+  }
+  return null;
 }

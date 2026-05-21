@@ -15,9 +15,11 @@ import {
   loadMemberIntakeSendcloudCancelInput,
   readMemberIntakeDestinationMetadata,
   resetMemberIntakeShipmentForPortal,
+  resolveMemberIntakeReturnTracking,
   saveMemberIntakePortalBaseUrl,
   SC_MEMBER_INTAKE_SHIPMENT_ID,
   SC_RETURN_PORTAL_BASE_URL,
+  syncMemberIntakeReturnFromSendcloudByOrder,
   syncMemberIntakeShipmentPortalIds,
   syncMemberIntakeShipmentTracking,
   patchMemberIntakeShipmentReturnParcel,
@@ -140,6 +142,11 @@ function stableOrderNumber(sortedIds: string[]): string {
     shipmentId: shipmentKey,
     generation: 1,
   });
+}
+
+function parsePortalParcelId(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function readPortalFromMeta(metadata: unknown): {
@@ -527,7 +534,7 @@ export async function runMemberIntakeReturnPortalStart(
   }
 
   const postalCode = recipient.postalCode;
-  const portalIdentifier = created.trackingNumber || orderNumber;
+  const portalIdentifier = orderNumber;
   const portalUrl = buildReturnPortalUrlWithPrefill(portalRaw.url, {
     orderNumber,
     postalCode,
@@ -698,14 +705,47 @@ export async function runMemberIntakeReturnPortalComplete(
     }
   }
 
+  let returnTrackingNumber: string | null = null;
+  let outgoingParcelId: number | null = null;
+
+  for (const r of typed) {
+    const meta = unwrapIntake(r.item_intake)?.metadata;
+    if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
+    const sc = (meta as Record<string, unknown>).sendcloud;
+    if (!sc || typeof sc !== "object" || Array.isArray(sc)) continue;
+    if (!outgoingParcelId) {
+      outgoingParcelId = parsePortalParcelId((sc as Record<string, unknown>).sc_outgoing_parcel_id);
+    }
+  }
+
+  const incomingParcelId = created.incomingParcelIds[0] ?? null;
+
   if (memberIntakeShipmentId) {
-    const incomingParcelId = created.incomingParcelIds[0];
     if (incomingParcelId) {
       await patchMemberIntakeShipmentReturnParcel(service, memberIntakeShipmentId, incomingParcelId);
     }
-    const trackingNumber = String(outgoing.parcel.tracking_number ?? "").trim();
+    const destMeta = await readMemberIntakeDestinationMetadata(service, memberIntakeShipmentId);
+    const excludeOutgoing =
+      outgoingParcelId ?? parsePortalParcelId(destMeta.sc_outgoing_parcel_id);
+    returnTrackingNumber = await resolveMemberIntakeReturnTracking(env, {
+      orderNumber,
+      incomingParcelId,
+      outgoingParcelId: excludeOutgoing,
+      dummyParcelId: excludeOutgoing,
+    });
+    if (!returnTrackingNumber) {
+      const sync = await syncMemberIntakeReturnFromSendcloudByOrder(service, env, {
+        shipmentId: memberIntakeShipmentId,
+        orderNumber,
+        outgoingParcelId: excludeOutgoing,
+        dummyParcelId: excludeOutgoing,
+      });
+      if (sync.ok && sync.tracking_number) {
+        returnTrackingNumber = sync.tracking_number;
+      }
+    }
     await syncMemberIntakeShipmentTracking(service, memberIntakeShipmentId, {
-      trackingNumber: trackingNumber || null,
+      trackingNumber: returnTrackingNumber,
       trackingUrl: label.labelUrl,
     });
   }
@@ -718,8 +758,9 @@ export async function runMemberIntakeReturnPortalComplete(
         label_url: label.labelUrl,
         lien_suivi: label.labelUrl,
         sc_order_number: orderNumber,
-        sc_return_portal_identifier: identifier,
+        sc_return_portal_identifier: orderNumber,
         reference_expedition: orderNumber,
+        ...(returnTrackingNumber ? { numero_suivi: returnTrackingNumber } : {}),
         notes_interne: notes,
         last_backoffice_update_at: new Date().toISOString(),
         ...(single ? {} : { sc_merge_item_ids: sortedIds.join(",") }),
@@ -739,6 +780,79 @@ export async function runMemberIntakeReturnPortalComplete(
     order_number: orderNumber,
     item_ids: sortedIds,
   };
+}
+
+/** Relève le suivi retour XT (Sendcloud) sur le shipment `member_intake` en base. */
+export async function runMemberIntakeReturnPortalSync(
+  service: SupabaseClient,
+  params: { userId: string; itemIds: string[] },
+): Promise<
+  | { ok: true; synced: boolean; tracking_number?: string | null }
+  | { ok: false; error: string; status: number }
+> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length < 1 || sortedIds.length > 5) {
+    return { ok: false, error: "Entre 1 et 5 pièces requises.", status: 400 };
+  }
+
+  const env = getSendcloudEnv();
+  if (!env) {
+    return { ok: false, error: "Envoi indisponible : Sendcloud non configuré.", status: 501 };
+  }
+
+  const { data: rows, error: qerr } = await service
+    .from("items")
+    .select("id,owner_user_id,item_intake(metadata)")
+    .in("id", sortedIds);
+
+  if (qerr || !rows || rows.length !== sortedIds.length) {
+    return { ok: false, error: "Pièce introuvable ou accès refusé.", status: 403 };
+  }
+
+  for (const r of rows as Array<{ owner_user_id: string }>) {
+    if (r.owner_user_id !== params.userId) {
+      return { ok: false, error: "Accès refusé.", status: 403 };
+    }
+  }
+
+  await cancelDueIntakeDummyShipments(service, sortedIds);
+
+  let shipmentId: string | null = null;
+  let orderNumber = stableOrderNumber(sortedIds);
+
+  for (const r of rows as unknown as Array<{ item_intake?: ItemRow["item_intake"] }>) {
+    const intake = unwrapIntake(r.item_intake);
+    const portal = readPortalFromMeta(intake?.metadata ?? null);
+    if (portal.orderNumber) orderNumber = portal.orderNumber;
+    const meta = intake?.metadata;
+    if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
+    const sc = (meta as Record<string, unknown>).sendcloud;
+    if (!sc || typeof sc !== "object" || Array.isArray(sc)) continue;
+    const sid = String((sc as Record<string, unknown>)[SC_MEMBER_INTAKE_SHIPMENT_ID] ?? "").trim();
+    if (sid) {
+      shipmentId = sid;
+      break;
+    }
+  }
+
+  if (!shipmentId) {
+    return { ok: true, synced: false };
+  }
+
+  const destMeta = await readMemberIntakeDestinationMetadata(service, shipmentId);
+  const on = String(destMeta.sendcloud_order_number ?? "").trim() || orderNumber;
+  const outgoingParcelId = parsePortalParcelId(destMeta.sc_outgoing_parcel_id);
+
+  const sync = await syncMemberIntakeReturnFromSendcloudByOrder(service, env, {
+    shipmentId,
+    orderNumber: on,
+    outgoingParcelId,
+    dummyParcelId: outgoingParcelId,
+  });
+  if (!sync.ok) {
+    return { ok: false, error: sync.error, status: 502 };
+  }
+  return sync;
 }
 
 export async function runMemberIntakeReturnPortalReset(

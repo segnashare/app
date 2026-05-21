@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { cancelDueIntakeDummyShipments } from "@/lib/items/member-intake-return-portal";
+import { runMemberIntakeReturnPortalSync } from "@/lib/items/member-intake-return-portal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-/** Annule les expéditions aller factices dont le délai est écoulé. */
+/** Annule les allers factices échus et relève le suivi retour XT sur `member_intake`. */
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -33,6 +33,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "Service indisponible" }, { status: 503 });
   }
 
-  await cancelDueIntakeDummyShipments(admin, itemIds);
-  return NextResponse.json({ ok: true as const });
+  const res = await runMemberIntakeReturnPortalSync(admin, { userId: user.id, itemIds });
+  if (!res.ok) {
+    return NextResponse.json({ ok: false as const, error: res.error }, { status: res.status });
+  }
+  return NextResponse.json({
+    ok: true as const,
+    synced: res.synced,
+    tracking_number: res.tracking_number ?? null,
+  });
 }
