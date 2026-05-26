@@ -7,6 +7,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const montserratItalic = segnaMontserrat;
 
+import { NewItemDetailPageShell } from "@/components/items/new-item/NewItemDetailPageShell";
 import { mergeItemInfoDraft, getItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -174,24 +175,12 @@ export default function NewItemCategoryPage() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-white">
-      <header className="fixed inset-x-0 top-0 z-10 flex justify-center border-b border-zinc-100 bg-white">
-        <div className="flex w-full max-w-[460px] items-center justify-between px-5 pb-4 pt-7">
-          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
-            Annuler
-          </button>
-          <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Catégorie</h1>
-          <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={confirmSelection}>
-            Terminé
-          </button>
-        </div>
-      </header>
+    <NewItemDetailPageShell title="Catégorie" onCancel={goBack} onConfirm={confirmSelection}>
+      <p className={cn(montserratItalic.className, "mb-3 mt-4 text-[clamp(16px,2.4vw,18px)] leading-[1.15] text-[#aaaaaa]")}>
+        Sélectionne une catégorie
+      </p>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-[72px]">
-        <div className="mx-auto w-full max-w-[380px]">
-          <p className={cn(montserratItalic.className, "mb-3 mt-4 text-[clamp(16px,2.4vw,18px)] leading-[1.15] text-[#aaaaaa]")}>Sélectionne une catégorie</p>
-
-          <div className="flex h-11 items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3">
+      <div className="flex h-11 items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3">
             <Search className="h-4 w-4 text-zinc-400" />
             <input
               value={query}
@@ -241,8 +230,6 @@ export default function NewItemCategoryPage() {
               )
             ) : null}
           </div>
-        </div>
-      </section>
-    </main>
+    </NewItemDetailPageShell>
   );
 }

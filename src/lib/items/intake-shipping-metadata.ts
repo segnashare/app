@@ -1,5 +1,7 @@
+import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
+
 /** Même contrainte que `/items/shipping` (1 à 5 UUID). */
-const SHIPPING_ITEM_ID_UUID_RE =
+export const SHIPPING_ITEM_ID_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Étiquette expédition membre → Segna (`metadata.sendcloud` ou legacy `mondial_relay`). */
@@ -222,25 +224,119 @@ export function parseScMergeItemIdsFromIntakeMetadata(metadata: unknown): string
   ];
 }
 
-export function resolveShippingItemIdsForLink(itemId: string, metadata: unknown): string[] {
+export const SC_SHIPPING_PREFER_SOLO = "sc_shipping_prefer_solo";
+
+export function readShippingPreferSolo(metadata: unknown): boolean {
+  if (metadata == null || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const sc = (metadata as Record<string, unknown>).sendcloud;
+  if (sc == null || typeof sc !== "object" || Array.isArray(sc)) return false;
+  const v = (sc as Record<string, unknown>)[SC_SHIPPING_PREFER_SOLO];
+  if (v === true || v === "1" || v === "true") return true;
+  // `ungroup` pose un horodatage ISO — toute valeur non vide = envoi séparé.
+  if (typeof v === "string" && v.trim()) return true;
+  return false;
+}
+
+/**
+ * IDs pour `/items/shipping` : lot fusionné déclaré, sinon lot par défaut du membre (≥ 2 pièces prêtes),
+ * sinon la pièce seule (ou « envoi séparé » explicite).
+ */
+export function resolveShippingItemIdsForLink(
+  itemId: string,
+  metadata: unknown,
+  defaultGroupIds?: string[] | null,
+): string[] {
+  const id = itemId.trim();
+  if (readShippingPreferSolo(metadata)) {
+    return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : [];
+  }
+
   const mergeRaw = [
     ...parseScMergeItemIdsFromIntakeMetadata(metadata),
     ...parseMrMergeItemIdsFromIntakeMetadata(metadata),
   ];
-  const validMerge = mergeRaw.filter((id) => SHIPPING_ITEM_ID_UUID_RE.test(id));
-  if (validMerge.length < 2) {
-    return SHIPPING_ITEM_ID_UUID_RE.test(itemId) ? [itemId] : validMerge.slice(0, 5);
+  const validMerge = mergeRaw.filter((x) => SHIPPING_ITEM_ID_UUID_RE.test(x));
+  if (validMerge.length >= 2) {
+    const set = new Set(validMerge);
+    if (SHIPPING_ITEM_ID_UUID_RE.test(id)) set.add(id);
+    return [...set].sort().slice(0, 5);
   }
-  const set = new Set(validMerge);
-  if (SHIPPING_ITEM_ID_UUID_RE.test(itemId)) set.add(itemId);
-  return [...set].sort().slice(0, 5);
+
+  const defaultGroup = (defaultGroupIds ?? [])
+    .map((x) => x.trim())
+    .filter((x) => SHIPPING_ITEM_ID_UUID_RE.test(x));
+  const uniqueDefault = [...new Set(defaultGroup)].sort((a, b) => a.localeCompare(b));
+  if (uniqueDefault.length >= 2 && uniqueDefault.includes(id)) {
+    return uniqueDefault.slice(0, 5);
+  }
+
+  return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : validMerge.slice(0, 5);
 }
 
 /** Valeur du paramètre `ids` (chaque id encodé, séparés par des virgules). */
-export function buildShippingIdsSearchParamsValue(itemId: string, metadata: unknown): string {
-  const ids = resolveShippingItemIdsForLink(itemId, metadata);
+export function buildShippingIdsSearchParamsValue(
+  itemId: string,
+  metadata: unknown,
+  defaultGroupIds?: string[] | null,
+): string {
+  const ids = resolveShippingItemIdsForLink(itemId, metadata, defaultGroupIds);
   if (ids.length === 0) return encodeURIComponent(itemId.trim() || itemId);
   return ids.map(encodeURIComponent).join(",");
+}
+
+export function buildShippingPageHref(
+  itemId: string,
+  metadata: unknown,
+  defaultGroupIds?: string[] | null,
+): string {
+  return `/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, metadata, defaultGroupIds)}`;
+}
+
+/** Lot fusionné déclaré (`sc_merge` / `mr_merge` ≥ 2 pièces). */
+export function intakeHasDeclaredShippingMerge(metadata: unknown): boolean {
+  const merged = [
+    ...parseScMergeItemIdsFromIntakeMetadata(metadata),
+    ...parseMrMergeItemIdsFromIntakeMetadata(metadata),
+  ].filter((id) => SHIPPING_ITEM_ID_UUID_RE.test(id));
+  return new Set(merged).size >= 2;
+}
+
+export type IntakeBannerShippingDedupeCandidate = {
+  id: string;
+  listingStage: string;
+  fulfillmentStage: string | null;
+  metadata: unknown;
+};
+
+/**
+ * Une seule carte « Préparer ton envoi » par lot fusionné (pile Échange / popups).
+ * Les autres pièces du lot restent visibles si elles ont un autre statut intake.
+ */
+export function dedupeIntakeBannerCandidatesForMergedShipping<T extends IntakeBannerShippingDedupeCandidate>(
+  candidates: T[],
+  defaultGroupIds?: string[] | null,
+): T[] {
+  const hideIds = new Set<string>();
+  const leaderByGroup = new Map<string, string>();
+
+  for (const c of candidates) {
+    if (!intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage)) continue;
+    const group = resolveShippingItemIdsForLink(c.id, c.metadata, defaultGroupIds);
+    if (group.length < 2) continue;
+    const key = group.join(",");
+    if (!leaderByGroup.has(key)) leaderByGroup.set(key, group[0]!);
+    const leader = leaderByGroup.get(key)!;
+    if (c.id !== leader) hideIds.add(c.id);
+  }
+
+  if (hideIds.size === 0) return candidates;
+
+  return candidates.filter((c) => {
+    if (!hideIds.has(c.id)) return true;
+    const ls = String(c.listingStage ?? "").trim().toLowerCase();
+    if (ls !== "validated") return true;
+    return !intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage);
+  });
 }
 
 /** Retour portail Sendcloud créé (colis retour Chronopost / Mondial Relay). */

@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isIntakeCartReturnPiggybackActive } from "@/lib/items/intake-cart-return-piggyback";
@@ -10,9 +8,12 @@ import {
 } from "@/lib/items/item-intake-sendcloud-patch";
 import {
   archiveMemberIntakeShipment,
+  buildStableMemberIntakeOrderNumber,
   cancelMemberIntakeSendcloudArtifacts,
+  consolidateMemberIntakeShippingGroup,
   ensureMemberIntakeShipmentForPortal,
   loadMemberIntakeSendcloudCancelInput,
+  needsMemberIntakeGroupConsolidation,
   readMemberIntakeDestinationMetadata,
   resetMemberIntakeShipmentForPortal,
   resolveMemberIntakeReturnTracking,
@@ -24,13 +25,12 @@ import {
   syncMemberIntakeShipmentTracking,
   patchMemberIntakeShipmentReturnParcel,
 } from "@/lib/items/member-intake-shipment";
-import { parseSendcloudFromIntakeMetadata } from "@/lib/items/intake-shipping-metadata";
+import { parseSendcloudFromIntakeMetadata, SC_SHIPPING_PREFER_SOLO } from "@/lib/items/intake-shipping-metadata";
 import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { resolveSendcloudSenderAddressId } from "@/lib/sendcloud/integrations";
 import { cancelSendcloudOutboundParcel } from "@/lib/sendcloud/orders-api";
-import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
 import {
   buildReturnPortalIncomingBody,
   createReturnPortalIncoming,
@@ -133,15 +133,6 @@ function buildReturnPortalDevHint(detail: {
     detail.sendcloudRaw != null ? JSON.stringify(detail.sendcloudRaw).slice(0, 700) : null,
   ].filter(Boolean);
   return parts.join(" · ").slice(0, 1200) || undefined;
-}
-
-function stableOrderNumber(sortedIds: string[]): string {
-  const shipmentKey = createHash("sha256").update(sortedIds.join("|")).digest("hex").slice(0, 16);
-  return buildSendcloudOrderNumber({
-    cartId: sortedIds[0]!,
-    shipmentId: shipmentKey,
-    generation: 1,
-  });
 }
 
 function parsePortalParcelId(raw: unknown): number | null {
@@ -282,6 +273,7 @@ async function patchIntakeReturnPortalSession(
     "sc_outgoing_parcel_id",
     "sc_dummy_cancel_after_at",
     "sc_dummy_shipment_cancelled_at",
+    ...(single ? [] : [SC_SHIPPING_PREFER_SOLO]),
   ];
 
   for (const id of params.itemIds) {
@@ -371,6 +363,23 @@ export async function runMemberIntakeReturnPortalStart(
     }
   }
 
+  if (sortedIds.length >= 2) {
+    const { data: intakeForConsolidate } = await service
+      .from("item_intake")
+      .select("metadata")
+      .in("item_id", sortedIds);
+    const metasForConsolidate = (intakeForConsolidate ?? []).map((r) => r.metadata);
+    if (needsMemberIntakeGroupConsolidation(sortedIds, metasForConsolidate)) {
+      const consolidated = await consolidateMemberIntakeShippingGroup(service, {
+        userId: params.userId,
+        itemIds: sortedIds,
+      });
+      if (!consolidated.ok) {
+        return { ok: false, error: consolidated.error, status: 502 };
+      }
+    }
+  }
+
   await cancelDueIntakeDummyShipments(service, sortedIds);
 
   const { data: member, error: memErr } = await service
@@ -387,7 +396,7 @@ export async function runMemberIntakeReturnPortalStart(
     return { ok: false, error: recipient.error, status: 400 };
   }
 
-  const orderNumber = stableOrderNumber(sortedIds);
+  const orderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
 
   const ensuredShipment = await ensureMemberIntakeShipmentForPortal(service, {
     ownerUserId: params.userId,
@@ -818,7 +827,7 @@ export async function runMemberIntakeReturnPortalSync(
   await cancelDueIntakeDummyShipments(service, sortedIds);
 
   let shipmentId: string | null = null;
-  let orderNumber = stableOrderNumber(sortedIds);
+  let orderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
 
   for (const r of rows as unknown as Array<{ item_intake?: ItemRow["item_intake"] }>) {
     const intake = unwrapIntake(r.item_intake);
@@ -882,7 +891,7 @@ export async function runMemberIntakeReturnPortalReset(
     }
   }
 
-  const orderNumber = stableOrderNumber(sortedIds);
+  const orderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
 
   const cancelInput = await loadMemberIntakeSendcloudCancelInput(service, {
     itemIds: sortedIds,

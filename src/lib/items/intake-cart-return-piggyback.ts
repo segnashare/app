@@ -3,11 +3,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   archiveMemberIntakeShipment,
   cancelMemberIntakeSendcloudArtifacts,
+  consolidateMemberIntakeShippingGroup,
   loadMemberIntakeSendcloudCancelInput,
+  needsMemberIntakeGroupConsolidation,
   readMemberIntakeShipmentIdFromMetadata,
   SC_MEMBER_INTAKE_SHIPMENT_ID,
+  splitMemberIntakeShippingGroup,
 } from "@/lib/items/member-intake-shipment";
 import { patchItemIntakeSendcloudMetadata } from "@/lib/items/item-intake-sendcloud-patch";
+import {
+  readShippingPreferSolo,
+  resolveShippingItemIdsForLink,
+  SC_SHIPPING_PREFER_SOLO,
+  SHIPPING_ITEM_ID_UUID_RE,
+} from "@/lib/items/intake-shipping-metadata";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
 import { createHash } from "node:crypto";
@@ -176,6 +185,85 @@ export type OtherIntakeShippingPeer = {
   title: string;
 };
 
+function intakeRowEligibleForDefaultShippingGroup(intake: {
+  listing_stage?: string;
+  fulfillment_stage?: string | null;
+  metadata?: unknown;
+}): boolean {
+  const ls = String(intake.listing_stage ?? "").toLowerCase();
+  const fs = String(intake.fulfillment_stage ?? "").toLowerCase();
+  if (ls !== "validated" || !intakeEligibleForPiggybackLink(fs)) return false;
+  if (isIntakeCartReturnPiggybackActive(intake.metadata)) return false;
+  return true;
+}
+
+/**
+ * Lot par défaut pour `/items/shipping` : toutes les pièces validées en phase expédition
+ * (hors piggyback retour échange), sauf celles marquées « envoi séparé ».
+ */
+export async function fetchDefaultIntakeShippingGroupIds(
+  service: SupabaseClient,
+  userId: string,
+  options?: { focusItemId?: string | null },
+): Promise<string[]> {
+  const focus = options?.focusItemId?.trim() ?? "";
+  const { data: rows, error } = await service
+    .from("items")
+    .select("id, item_intake(listing_stage, fulfillment_stage, metadata)")
+    .eq("owner_user_id", userId)
+    .is("deleted_at", null)
+    .limit(100);
+
+  if (error || !rows?.length) {
+    return focus && SHIPPING_ITEM_ID_UUID_RE.test(focus) ? [focus] : [];
+  }
+
+  let focusPreferSolo = false;
+  const ids: string[] = [];
+  for (const row of rows) {
+    const id = String((row as { id?: string }).id ?? "");
+    if (!id) continue;
+    const emb = (row as { item_intake?: unknown }).item_intake;
+    const intake = Array.isArray(emb) ? emb[0] : emb;
+    if (!intake || typeof intake !== "object") continue;
+    const meta = (intake as { metadata?: unknown }).metadata;
+    if (id === focus && readShippingPreferSolo(meta)) {
+      focusPreferSolo = true;
+    }
+    if (!intakeRowEligibleForDefaultShippingGroup(intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown })) {
+      continue;
+    }
+    if (readShippingPreferSolo(meta)) continue;
+    ids.push(id);
+  }
+
+  if (focus && focusPreferSolo && SHIPPING_ITEM_ID_UUID_RE.test(focus)) {
+    return [focus];
+  }
+
+  const unique = [...new Set(ids)].sort((a, b) => a.localeCompare(b)).slice(0, 5);
+  if (focus && SHIPPING_ITEM_ID_UUID_RE.test(focus) && !unique.includes(focus)) {
+    const focusRow = rows.find((r) => String((r as { id?: string }).id) === focus);
+    const emb = focusRow ? (focusRow as { item_intake?: unknown }).item_intake : null;
+    const intake = Array.isArray(emb) ? emb[0] : emb;
+    if (
+      intake &&
+      typeof intake === "object" &&
+      intakeRowEligibleForDefaultShippingGroup(intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown })
+    ) {
+      unique.push(focus);
+      unique.sort((a, b) => a.localeCompare(b));
+    }
+  }
+  return unique.slice(0, 5);
+}
+
+export function buildIntakeShippingPageHrefFromIds(itemIds: string[]): string {
+  const sorted = [...new Set(itemIds.map((s) => s.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  if (sorted.length === 0) return "/items/shipping";
+  return `/items/shipping?ids=${sorted.map(encodeURIComponent).join(",")}`;
+}
+
 /** Autres pièces du membre en phase expédition (même colis Sendcloud possible). */
 export async function fetchOtherIntakeShippingPeers(
   service: SupabaseClient,
@@ -213,11 +301,25 @@ export async function fetchOtherIntakeShippingPeers(
 }
 
 export function buildIntakeMergeShippingHref(currentItemIds: string[], peerIds: string[]): string | null {
+  const current = [...new Set(currentItemIds.map((s) => s.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
   const merged = [...new Set([...currentItemIds, ...peerIds].map((s) => s.trim()).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b),
   );
   if (merged.length < 2 || merged.length > 5) return null;
+  if (current.length >= 2 && peerIds.every((p) => current.includes(p.trim()))) {
+    return null;
+  }
   return `/items/shipping?ids=${merged.map(encodeURIComponent).join(",")}`;
+}
+
+/** Lien pour ajouter des pièces éligibles pas encore dans l’URL courante (3ᵉ pièce, etc.). */
+export function buildIntakeExpandShippingHref(currentItemIds: string[], peerIds: string[]): string | null {
+  const currentSet = new Set(currentItemIds.map((s) => s.trim()).filter(Boolean));
+  const missing = peerIds.map((s) => s.trim()).filter((id) => id && !currentSet.has(id));
+  if (missing.length === 0) return null;
+  return buildIntakeMergeShippingHref(currentItemIds, missing);
 }
 
 export async function fetchEligibleCartReturnPiggybackTargets(
@@ -527,7 +629,10 @@ export async function runIntakeCartReturnPiggybackConfirm(
     }
   }
   if (memberIntakeShipmentId) {
-    await archiveMemberIntakeShipment(service, memberIntakeShipmentId);
+    const archived = await archiveMemberIntakeShipment(service, memberIntakeShipmentId);
+    if (!archived.ok) {
+      return { ok: false, error: archived.error, status: 500 };
+    }
   }
 
   const confirmedAt = new Date().toISOString();
@@ -793,6 +898,7 @@ export type IntakeShippingOptionsSnapshot = {
   eligible_cart_returns: EligibleCartReturnPiggybackTarget[];
   other_intake_shipping_peers: OtherIntakeShippingPeer[];
   merge_intake_shipping_href: string | null;
+  default_shipping_group_ids: string[];
 };
 
 export async function fetchIntakeShippingOptions(
@@ -801,14 +907,20 @@ export async function fetchIntakeShippingOptions(
   itemIds: string[],
 ): Promise<IntakeShippingOptionsSnapshot> {
   const sortedIds = [...new Set(itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  const [eligible, peers] = await Promise.all([
+  const focusId = sortedIds[0] ?? "";
+  const [eligible, peers, defaultGroupIds] = await Promise.all([
     fetchEligibleCartReturnPiggybackTargets(service, userId),
     fetchOtherIntakeShippingPeers(service, userId, sortedIds),
+    fetchDefaultIntakeShippingGroupIds(service, userId, { focusItemId: focusId }),
   ]);
-  const mergeHref = buildIntakeMergeShippingHref(
-    sortedIds,
-    peers.map((p) => p.id),
-  );
+  const defaultCanon = defaultGroupIds.join(",");
+  const currentCanon = sortedIds.join(",");
+  const mergeHref =
+    defaultGroupIds.length >= 2
+      ? defaultCanon === currentCanon
+        ? null
+        : buildIntakeShippingPageHrefFromIds(defaultGroupIds)
+      : buildIntakeMergeShippingHref(sortedIds, peers.map((p) => p.id));
 
   let shippingMode: IntakePiggybackState["mode"] = null;
   let piggyback: IntakeShippingOptionsSnapshot["piggyback"] = null;
@@ -846,6 +958,7 @@ export async function fetchIntakeShippingOptions(
     eligible_cart_returns: eligible,
     other_intake_shipping_peers: peers,
     merge_intake_shipping_href: mergeHref,
+    default_shipping_group_ids: defaultGroupIds,
   };
 }
 
@@ -1088,4 +1201,123 @@ export async function runBoIntakePiggybackBoxDecisions(
   }
 
   return { ok: true };
+}
+
+async function clearIntakeMrMergeItemIds(service: SupabaseClient, itemId: string): Promise<void> {
+  const { data: row } = await service.from("item_intake").select("metadata").eq("item_id", itemId).maybeSingle();
+  if (!row?.metadata || typeof row.metadata !== "object" || Array.isArray(row.metadata)) return;
+  const meta = { ...(row.metadata as Record<string, unknown>) };
+  const mr = meta.mondial_relay;
+  if (!mr || typeof mr !== "object" || Array.isArray(mr)) return;
+  const nextMr = { ...(mr as Record<string, unknown>) };
+  delete nextMr.mr_merge_item_ids;
+  meta.mondial_relay = nextMr;
+  await service.from("item_intake").update({ metadata: meta }).eq("item_id", itemId);
+}
+
+/** Sépare un lot groupé : archive le shipment fusionné, annule Sendcloud, crée un shipment par pièce. */
+export async function runIntakeShippingUngroup(
+  service: SupabaseClient,
+  params: { userId: string; itemIds: string[] },
+): Promise<{ ok: true; primary_item_id: string } | { ok: false; error: string; status: number }> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length < 2 || sortedIds.length > 5) {
+    return { ok: false, error: "Entre 2 et 5 pièces requises pour séparer.", status: 400 };
+  }
+
+  const groupIds = new Set<string>(sortedIds);
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("item_id, metadata")
+    .in("item_id", sortedIds);
+
+  for (const row of intakeRows ?? []) {
+    const id = String((row as { item_id?: string }).item_id ?? "");
+    for (const linked of resolveShippingItemIdsForLink(id, (row as { metadata?: unknown }).metadata)) {
+      groupIds.add(linked);
+    }
+  }
+
+  const ids = [...groupIds].sort();
+  const { data: owned } = await service
+    .from("items")
+    .select("id, owner_user_id")
+    .in("id", ids)
+    .is("deleted_at", null);
+
+  if (!owned || owned.length !== ids.length) {
+    return { ok: false, error: "Pièce introuvable ou accès refusé.", status: 403 };
+  }
+  for (const row of owned) {
+    if (String((row as { owner_user_id?: string }).owner_user_id) !== params.userId) {
+      return { ok: false, error: "Accès refusé.", status: 403 };
+    }
+  }
+
+  const split = await splitMemberIntakeShippingGroup(service, {
+    userId: params.userId,
+    itemIds: ids,
+  });
+  if (!split.ok) {
+    return { ok: false, error: split.error, status: 502 };
+  }
+
+  for (const id of ids) {
+    await clearIntakeMrMergeItemIds(service, id);
+  }
+
+  return { ok: true, primary_item_id: split.primary_item_id };
+}
+
+/** Marque le lot comme groupé (retire l’opt-out « envoi séparé »). */
+export async function runIntakeShippingAckGrouped(
+  service: SupabaseClient,
+  params: { userId: string; itemIds: string[] },
+): Promise<{ ok: true; item_ids: string[] } | { ok: false; error: string; status: number }> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length < 2 || sortedIds.length > 5) {
+    return { ok: false, error: "Entre 2 et 5 pièces requises.", status: 400 };
+  }
+
+  const groupIds = await fetchDefaultIntakeShippingGroupIds(service, params.userId, {
+    focusItemId: sortedIds[0],
+  });
+  const target = groupIds.length >= 2 ? groupIds : sortedIds;
+
+  const { data: owned } = await service
+    .from("items")
+    .select("id, owner_user_id")
+    .in("id", target)
+    .is("deleted_at", null);
+  if (!owned || owned.length !== target.length) {
+    return { ok: false, error: "Pièce introuvable ou accès refusé.", status: 403 };
+  }
+  for (const row of owned) {
+    if (String((row as { owner_user_id?: string }).owner_user_id) !== params.userId) {
+      return { ok: false, error: "Accès refusé.", status: 403 };
+    }
+  }
+
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("metadata")
+    .in("item_id", target);
+  const intakeMetas = (intakeRows ?? []).map((r) => r.metadata);
+
+  if (needsMemberIntakeGroupConsolidation(target, intakeMetas)) {
+    const consolidated = await consolidateMemberIntakeShippingGroup(service, {
+      userId: params.userId,
+      itemIds: target,
+    });
+    if (!consolidated.ok) {
+      return { ok: false, error: consolidated.error, status: 502 };
+    }
+    return { ok: true, item_ids: consolidated.item_ids };
+  }
+
+  for (const id of target) {
+    await patchItemIntakeSendcloudMetadata(service, id, {}, { removeKeys: [SC_SHIPPING_PREFER_SOLO] });
+  }
+
+  return { ok: true, item_ids: target };
 }

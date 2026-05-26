@@ -154,7 +154,7 @@ export function SignUpVerifyCore({
     setStatusMessage(null);
 
     if (!email) {
-      setErrorMessage("E-mail manquant. Recommencez l'inscription.");
+      setErrorMessage("E-mail manquant. Recommence l'inscription.");
       return;
     }
 
@@ -228,7 +228,7 @@ export function SignUpVerifyCore({
         setResendLockedUntil(nextLockUntil);
         setRemainingSeconds(RATE_LIMIT_BACKOFF_SECONDS);
         window.localStorage.setItem(`segna:auth:verify:resend-until:${email}`, String(nextLockUntil));
-        setErrorMessage("Vous avez demandé trop de codes. Réessayez dans 1 minute.");
+        setErrorMessage("Tu as demandé trop de codes. Réessaie dans 1 minute.");
         return;
       }
 

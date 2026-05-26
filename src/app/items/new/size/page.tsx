@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
+import { NewItemDetailPageShell } from "@/components/items/new-item/NewItemDetailPageShell";
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
 import { withFromItemParam } from "@/lib/items/new-item-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -189,37 +190,23 @@ export default function NewItemSizePage() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-white">
-      <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
-          Annuler
-        </button>
-        <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Taille</h1>
-        <button
-          type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
-          disabled={!selectedSize || isLoading}
-          onClick={goBackWithSize}
-        >
-          Terminé
-        </button>
-      </header>
+    <NewItemDetailPageShell
+      title="Taille"
+      onCancel={goBack}
+      onConfirm={goBackWithSize}
+      confirmDisabled={!selectedSize || isLoading}
+    >
+      <p className={cn(montserrat.className, "mb-6 mt-2 text-[14px] text-zinc-500")}>Sélectionne la taille de ta pièce.</p>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-10">
-        <div className="mx-auto w-full max-w-[380px]">
-          <p className={cn(montserrat.className, "mb-6 mt-2 text-[14px] text-zinc-500")}>Sélectionne la taille de ta pièce.</p>
-
-          {isLoading ? (
-            <div className="flex min-h-[120px] items-center justify-center">
-              <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
-            </div>
-          ) : sizes.length === 0 ? (
-            <p className="py-6 text-sm text-zinc-500">Aucune taille disponible pour cette catégorie.</p>
-          ) : (
-            <SizeWheelPicker options={sizes} value={selectedSize} onChange={setSelectedSize} />
-          )}
+      {isLoading ? (
+        <div className="flex min-h-[120px] items-center justify-center">
+          <div aria-label="Chargement" className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900" />
         </div>
-      </section>
-    </main>
+      ) : sizes.length === 0 ? (
+        <p className="py-6 text-sm text-zinc-500">Aucune taille disponible pour cette catégorie.</p>
+      ) : (
+        <SizeWheelPicker options={sizes} value={selectedSize} onChange={setSelectedSize} />
+      )}
+    </NewItemDetailPageShell>
   );
 }

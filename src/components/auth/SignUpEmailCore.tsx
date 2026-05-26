@@ -133,16 +133,16 @@ export function SignUpEmailCore({
       const rawMessage = typeof error.message === "string" ? error.message : "";
       const normalizedMessage = rawMessage.toLowerCase();
       if (normalizedMessage.includes("email rate limit exceeded") || normalizedMessage.includes("login.new_email")) {
-        setSubmitError("Trop de tentatives. Attendez un peu avant de demander un nouvel e-mail.");
+        setSubmitError("Trop de tentatives. Attends un peu avant de demander un nouvel e-mail.");
         console.error("[sign-up/email] Email rate limit exceeded", { email, error });
         return;
       }
       if (normalizedMessage.includes("error sending confirmation email")) {
-        setSubmitError("Impossible d'envoyer l'e-mail pour le moment. Réessayez dans quelques instants.");
+        setSubmitError("Impossible d'envoyer l'e-mail pour le moment. Réessaie dans quelques instants.");
         console.error("[sign-up/email] Error sending confirmation email", { email, error });
         return;
       }
-      setSubmitError("Une erreur est survenue. Réessayez.");
+      setSubmitError("Une erreur est survenue. Réessaie.");
       console.error("[sign-up/email] OTP request failed", { email, error });
       return;
     }

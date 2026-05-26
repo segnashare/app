@@ -53,6 +53,7 @@ const SHIPPING_LABEL_KEYS = [
   "sc_dummy_shipment_cancelled_at",
   "sc_return_portal_postal_code",
   "sc_merge_item_ids",
+  "sc_shipping_prefer_solo",
   "last_member_sc_error_at",
   "last_member_sc_error_message",
   "sc_member_help_requested_at",

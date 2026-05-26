@@ -23,18 +23,16 @@ import {
 } from "@/lib/notifications/lifecycle-shipment-email";
 import {
   buildOutboundReadySmsBody,
+  buildOutboundTransitPartnerSmsBody,
   resolveOutboundTrackingForNotify,
 } from "@/lib/notifications/outbound-tracking-for-notify";
 import { notifyMemberIntakeDroppedInAfterTransition } from "@/lib/notifications/lifecycle-member-intake-notify";
 import { sendMemberOutreachNotification, sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
 
-/** `dropped_in` : pris en charge par le partenaire — pas encore retirable au relais. */
-const SMS_OUTBOUND_TRANSIT_PARTNER =
-  "Segna : ton colis est en transit chez le partenaire — pas encore prêt au retrait. Suis l’envoi via le partenaire (lien dans l’app Segna).";
 /** `dropped_out` (aller) : disponible pour retrait au point relais. */
 const SMS_OUTBOUND_RELAY_AVAILABLE =
-  "Segna : ton colis est disponible au point relais. Tu peux le retirer — détail et suivi dans l’app.";
+  "Segna : Ton colis est disponible en point relais ! Détails et suivi sur le mail du partenaire d'expédition !";
 /** `delivered` (aller, depuis transit) : livraison confirmée — e-mail récap + SMS. */
 function buildOutboundDeliveredSms(cartId: string): string {
   const lines = [
@@ -369,12 +367,23 @@ export async function notifyShipmentLifecycleAfterTransition(
     const uberHome = await loadCartUsesUberHomeDelivery(admin, cartId);
     if (uberHome) return;
 
+    const [tracking, itemLabels] = await Promise.all([
+      loadOutboundReadyNotifyTracking(admin, input.shipmentId, cartId),
+      loadCartOrderItemLabels(admin, cartId),
+    ]);
+
     await sendMemberSmsOnlyNotification(admin, {
       userId: member.userId,
       kind: NotificationKind.orderOutboundTransitPartner,
       idempotencyKey: `txn:lc:ship:${input.shipmentId}:dropped_in_transit_sms`,
-      metadata: meta,
-      smsBody: SMS_OUTBOUND_TRANSIT_PARTNER,
+      metadata: {
+        ...meta,
+        order_ref: tracking.orderRef,
+        tracking_number: tracking.trackingNumber,
+        tracking_url: tracking.trackingUrl,
+        item_labels: itemLabels,
+      },
+      smsBody: buildOutboundTransitPartnerSmsBody({ itemLabels, tracking }),
       transactionalSms: true,
     });
     return;

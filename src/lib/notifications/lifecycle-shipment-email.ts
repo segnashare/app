@@ -82,8 +82,8 @@ export function orderOutboundRelayPickupAvailableEmail(firstName: string | null)
   const { text, html } = shell(subject, "Tu peux retirer ton colis au point relais", [
     { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
     {
-      text: "Ton colis est disponible pour retrait au point relais. Ouvre l’app Segna pour le suivi, le lien partenaire (ex. Mondial Relay) et les consignes de retrait.",
-      html: "Ton colis est <strong>disponible pour retrait</strong> au point relais. Ouvre l’app Segna pour le suivi, le <strong>lien partenaire</strong> (ex. Mondial Relay) et les consignes de retrait.",
+      text: "Ton colis est disponible en point relais ! Détails et suivi sur le mail du partenaire d'expédition.",
+      html: "Ton colis est <strong>disponible en point relais</strong> ! Détails et suivi sur le <strong>mail du partenaire d'expédition</strong>.",
     },
   ]);
   return { subject, text, html };

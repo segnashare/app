@@ -14,7 +14,7 @@ import {
   resolveEvaluationCountdownStartMs,
 } from "@/lib/items/intake-metadata";
 import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
-import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
+import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -119,6 +119,8 @@ export type ItemIntakePanelProps = {
   onExchangeStackAdvance?: () => void;
   /** Pile Échange : croix en-tête — masque la carte (session) sans action métier. */
   onStackDismiss?: () => void;
+  /** Lot expédition par défaut (toutes les pièces prêtes du membre). */
+  defaultShippingGroupIds?: string[];
 };
 
 export function ItemIntakePanel({
@@ -133,6 +135,7 @@ export function ItemIntakePanel({
   onEvaluationAcknowledged,
   onExchangeStackAdvance,
   onStackDismiss,
+  defaultShippingGroupIds,
 }: ItemIntakePanelProps) {
   const router = useRouter();
   const [userMinimized, setUserMinimized] = useState(false);
@@ -590,7 +593,7 @@ export function ItemIntakePanel({
             Retrouve le bordereau et le suivi sur la page dédiée.
           </p>
           <Link
-            href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, intakeMetadata)}`}
+            href={buildShippingPageHref(itemId, intakeMetadata, defaultShippingGroupIds)}
             className="flex h-11 w-full min-w-0 items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
           >
             Bordereau d&apos;envoi

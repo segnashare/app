@@ -5,7 +5,7 @@ import { Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-rea
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
+import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
 import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -39,6 +39,8 @@ type ExchangeLendItemRowProps = {
   } | null;
   /** Unité affichée avec le prix (alignée sur le wallet). */
   creditKind: WalletCreditKind;
+  /** Lot expédition groupé par défaut (≥ 2 pièces prêtes). */
+  defaultShippingGroupIds?: string[];
 };
 
 /** Prix connu côté membre après proposition (hors phase « en évaluation » seule). */
@@ -237,6 +239,7 @@ export function ExchangeLendItemRow({
   photoUrl,
   photoPosition,
   creditKind,
+  defaultShippingGroupIds,
 }: ExchangeLendItemRowProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
@@ -396,7 +399,7 @@ export function ExchangeLendItemRow({
       <div className="relative z-30 flex items-center justify-end gap-1 pr-0">
         {evaluationRefused ? null : shippingQuickAction ? (
           <Link
-            href={`/items/shipping?ids=${buildShippingIdsSearchParamsValue(id, intake?.metadata)}`}
+            href={buildShippingPageHref(id, intake?.metadata, defaultShippingGroupIds)}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
             aria-label="Page expédition — bordereau et suivi"
           >

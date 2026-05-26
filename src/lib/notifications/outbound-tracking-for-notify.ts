@@ -51,3 +51,33 @@ export function buildOutboundReadySmsBody(tracking: OutboundTrackingForNotify): 
   }
   return lines.join(" ").slice(0, 320);
 }
+
+/** Libellés pièces pour SMS commande (ex. « Robe (Sandro), Jean (Levi's) »). */
+export function formatOrderItemLabelsForSms(itemLabels: string[]): string | null {
+  const labels = itemLabels.map((l) => l.trim()).filter(Boolean);
+  if (labels.length === 0) return null;
+  return labels.join(", ");
+}
+
+/**
+ * Aller `dropped_in` : en transit chez le partenaire (pas encore retirable au relais).
+ */
+export function buildOutboundTransitPartnerSmsBody(input: {
+  itemLabels: string[];
+  tracking: OutboundTrackingForNotify;
+}): string {
+  const itemsPhrase = formatOrderItemLabelsForSms(input.itemLabels);
+  const orderLabel = itemsPhrase
+    ? `ta commande (${itemsPhrase})`
+    : input.tracking.orderRef
+      ? `ta commande ${input.tracking.orderRef}`
+      : "ta commande";
+
+  const lines = [`Segna : ${orderLabel} est en transit.`];
+  if (input.tracking.trackingUrl) {
+    lines.push(`Suis l’expédition : ${input.tracking.trackingUrl}`);
+  } else {
+    lines.push("Suis l’expédition dans l’app Segna.");
+  }
+  return lines.join(" ").slice(0, 320);
+}

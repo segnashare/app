@@ -35,7 +35,7 @@ export function getMemberOutboundShipmentPhaseCopy(status: string): MemberOutbou
     case "dropped_out":
       return {
         title: "Colis disponible au relais",
-        detail: "Tu peux retirer ton colis au point relais — suivi et consignes dans l’app (lien partenaire).",
+        detail: "Ton colis est disponible en point relais. Détails et suivi sur le mail du partenaire d’expédition.",
       };
     case "in_transit_in":
       return {

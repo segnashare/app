@@ -138,7 +138,7 @@ export function OnboardingNameCore({
           dir="ltr"
           className={framedInputClass(hasFirstNameError)}
           {...register("firstName", {
-            validate: (value) => value.trim().length >= 2 || "Merci d'indiquer ton prenom.",
+            validate: (value) => value.trim().length >= 2 || "Merci d'indiquer ton prénom.",
           })}
         />
       </div>
@@ -155,7 +155,7 @@ export function OnboardingNameCore({
         />
       </div>
 
-      {hasFirstNameError ? <p className={themeClassNames.onboarding.textes.erreurFormulaire}>Merci d&apos;indiquer ton prenom.</p> : null}
+      {hasFirstNameError ? <p className={themeClassNames.onboarding.textes.erreurFormulaire}>Merci d&apos;indiquer ton prénom.</p> : null}
       {errorMessage ? <p className={themeClassNames.onboarding.textes.erreurFormulaire}>{errorMessage}</p> : null}
     </form>
   );

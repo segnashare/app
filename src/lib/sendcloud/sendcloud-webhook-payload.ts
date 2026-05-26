@@ -57,15 +57,27 @@ export function extractSendcloudStatus(payload: SendcloudWebhookPayload): {
   const statusId = Number(
     payload.status_id ??
       statusObj?.id ??
+      readNested(payload, "data.status_id") ??
       readNested(payload, "data.status.id") ??
       readNested(payload, "parcel.status.id") ??
+      readNested(payload, "event.data.status_id") ??
+      readNested(payload, "event.data.status.id") ??
       0,
   );
   const statusMessage = String(
     payload.status_message ??
+      payload.description ??
       statusObj?.message ??
       readNested(payload, "data.status.message") ??
       readNested(payload, "parcel.status.message") ??
+      readNested(payload, "data.status_message") ??
+      readNested(payload, "data.description") ??
+      readNested(payload, "event.data.status.message") ??
+      readNested(payload, "event.data.status_message") ??
+      readNested(payload, "event.data.description") ??
+      readNested(payload, "status_code") ??
+      readNested(payload, "data.status_code") ??
+      readNested(payload, "event.data.status_code") ??
       "",
   ).trim();
   return { statusId, statusMessage };

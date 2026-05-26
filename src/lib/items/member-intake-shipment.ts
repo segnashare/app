@@ -1,12 +1,24 @@
+import { createHash } from "node:crypto";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { patchItemIntakeSendcloudMetadata } from "@/lib/items/item-intake-sendcloud-patch";
-import type { SendcloudEnv } from "@/lib/sendcloud/config";
+import {
+  clearItemIntakeShippingLabelMetadata,
+  patchItemIntakeSendcloudMetadata,
+} from "@/lib/items/item-intake-sendcloud-patch";
+import { getSendcloudEnv, type SendcloudEnv } from "@/lib/sendcloud/config";
 import { buildSendcloudV3ParcelLabelUrl } from "@/lib/sendcloud/label-url";
+import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
+import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
+import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
 import {
   isIntakeMemberReturnTrackingNumber,
   parseIntakeShippingLabelFromMetadata,
+  parseScMergeItemIdsFromIntakeMetadata,
+  parseSendcloudFromIntakeMetadata,
   readMemberIntakeShipmentIdFromMetadata,
+  readShippingPreferSolo,
+  SC_SHIPPING_PREFER_SOLO,
 } from "@/lib/items/intake-shipping-metadata";
 import { cancelSendcloudOutboundParcel } from "@/lib/sendcloud/orders-api";
 import { fetchSendcloudParcel } from "@/lib/sendcloud/parcel-sync";
@@ -286,22 +298,109 @@ export async function cancelMemberIntakeSendcloudForOrder(
 export async function archiveMemberIntakeShipment(
   service: SupabaseClient,
   shipmentId: string,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const sid = shipmentId.trim();
-  if (!sid) return;
+  if (!sid) return { ok: false, error: "ID expédition manquant." };
 
   const nowIso = new Date().toISOString();
-  await service
+  const patch = {
+    deleted_at: nowIso,
+    tracking_number: null,
+    member_tracking_url: null,
+    updated_at: nowIso,
+  };
+
+  const { data, error } = await service
     .from("shipments")
-    .update({
-      deleted_at: nowIso,
-      tracking_number: null,
-      member_tracking_url: null,
-      updated_at: nowIso,
-    })
+    .update(patch)
     .eq("id", sid)
     .eq("context", "member_intake")
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (data?.id) return { ok: true };
+
+  const fallback = await service
+    .from("shipments")
+    .update(patch)
+    .eq("id", sid)
+    .is("deleted_at", null)
+    .select("id, context")
+    .maybeSingle();
+
+  if (fallback.error) return { ok: false, error: fallback.error.message };
+  if (!fallback.data?.id) {
+    return { ok: false, error: "Shipment introuvable ou déjà archivé." };
+  }
+
+  return { ok: true };
+}
+
+/** Tous les `member_intake` actifs liés à un lot (metadata + destinations). */
+export async function collectMemberIntakeShipmentIdsForGroup(
+  service: SupabaseClient,
+  itemIds: string[],
+): Promise<string[]> {
+  const sortedIds = [...new Set(itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length === 0) return [];
+
+  const seen = new Set<string>();
+  const itemKey = sortedIds.join(",");
+
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("item_id, metadata")
+    .in("item_id", sortedIds);
+
+  for (const row of intakeRows ?? []) {
+    const meta = row.metadata;
+    const memberSid = readMemberIntakeShipmentIdFromMetadata(meta);
+    if (memberSid) seen.add(memberSid);
+    const dummySid = readSendcloudField(meta, "sc_dummy_shipment_id");
+    if (dummySid) seen.add(dummySid);
+  }
+
+  const { data: exactDest } = await service
+    .from("shipment_destinations")
+    .select("shipment_id")
+    .eq("metadata->>sc_intake_item_ids", itemKey);
+  for (const row of exactDest ?? []) {
+    const sid = String((row as { shipment_id?: string }).shipment_id ?? "").trim();
+    if (sid) seen.add(sid);
+  }
+
+  for (const itemId of sortedIds) {
+    const { data: destRows } = await service
+      .from("shipment_destinations")
+      .select("shipment_id, metadata")
+      .ilike("metadata->>sc_intake_item_ids", `%${itemId}%`);
+    for (const row of destRows ?? []) {
+      const destMeta =
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : null;
+      const csv = destMeta?.[DEST_INTAKE_ITEM_IDS];
+      if (typeof csv !== "string" || !csv.trim()) continue;
+      const idsInDest = csv.split(",").map((x) => x.trim()).filter(Boolean);
+      if (!idsInDest.includes(itemId)) continue;
+      const sid = String((row as { shipment_id?: string }).shipment_id ?? "").trim();
+      if (sid) seen.add(sid);
+    }
+  }
+
+  const candidates = [...seen];
+  if (candidates.length === 0) return [];
+
+  const { data: ships } = await service
+    .from("shipments")
+    .select("id")
+    .in("id", candidates)
+    .eq("context", "member_intake")
     .is("deleted_at", null);
+
+  return (ships ?? []).map((s) => String(s.id));
 }
 
 export async function syncMemberIntakeShipmentTracking(
@@ -423,6 +522,7 @@ export async function patchMemberIntakeShipmentReturnParcel(
   service: SupabaseClient,
   shipmentId: string,
   parcelId: number,
+  params?: { orderNumber?: string | null },
 ): Promise<void> {
   if (!Number.isFinite(parcelId) || parcelId <= 0) return;
   const pid = parcelId;
@@ -440,7 +540,13 @@ export async function patchMemberIntakeShipmentReturnParcel(
       ? (dest.metadata as Record<string, unknown>)
       : {};
   const existing = prev.sendcloud_parcel_id;
-  if (existing === pid || existing === String(pid)) return;
+  const orderNumber = params?.orderNumber?.trim();
+  if (
+    (existing === pid || existing === String(pid)) &&
+    (!orderNumber || prev.sendcloud_return_order_number === orderNumber)
+  ) {
+    return;
+  }
 
   await service
     .from("shipment_destinations")
@@ -448,6 +554,7 @@ export async function patchMemberIntakeShipmentReturnParcel(
       metadata: {
         ...prev,
         sendcloud_parcel_id: pid,
+        ...(orderNumber ? { sendcloud_return_order_number: orderNumber } : {}),
         sc_sendcloud_intake_return_parcel_at: new Date().toISOString(),
       },
     })
@@ -628,11 +735,6 @@ export async function resetMemberIntakeShipmentForPortal(
   }
 }
 
-function parsePositiveInt(raw: unknown): number | null {
-  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 /**
  * Relève le colis retour Sendcloud (suivi XT) et l’aligne sur le shipment `member_intake`.
  */
@@ -676,7 +778,7 @@ export async function syncMemberIntakeReturnFromSendcloudByOrder(
   const trackingNumber = String(chosen.tracking_number ?? "").trim() || null;
   const labelUrl = buildSendcloudV3ParcelLabelUrl(env, parcelId);
 
-  await patchMemberIntakeShipmentReturnParcel(service, shipmentId, parcelId);
+  await patchMemberIntakeShipmentReturnParcel(service, shipmentId, parcelId, { orderNumber });
   await syncMemberIntakeShipmentTracking(service, shipmentId, {
     trackingNumber,
     trackingUrl: labelUrl.startsWith("http") ? labelUrl : null,
@@ -716,4 +818,403 @@ export async function resolveMemberIntakeReturnTracking(
     if (isIntakeMemberReturnTrackingNumber(tn)) return tn;
   }
   return null;
+}
+
+/** Commande Sendcloud stable pour un lot de pièces intake (hash des ids triés). */
+export function buildStableMemberIntakeOrderNumber(sortedIds: string[]): string {
+  const sorted = [...new Set(sortedIds.map((x) => x.trim()).filter(Boolean))].sort();
+  const shipmentKey = createHash("sha256").update(sorted.join("|")).digest("hex").slice(0, 16);
+  return buildSendcloudOrderNumber({
+    cartId: sorted[0]!,
+    shipmentId: shipmentKey,
+    generation: 1,
+  });
+}
+
+function mergeMemberIntakeCancelInputs(
+  a: MemberIntakeSendcloudCancelInput,
+  b: MemberIntakeSendcloudCancelInput,
+): MemberIntakeSendcloudCancelInput {
+  return {
+    orderNumbers: [...new Set([...a.orderNumbers, ...b.orderNumbers])],
+    panelShipmentIds: [...new Set([...a.panelShipmentIds, ...b.panelShipmentIds])],
+    trackingNumbers: [...new Set([...a.trackingNumbers, ...b.trackingNumbers])],
+    parcelIds: [...new Set([...a.parcelIds, ...b.parcelIds])],
+  };
+}
+
+async function loadMemberIntakeGroupCancelInput(
+  service: SupabaseClient,
+  params: { itemIds: string[]; groupOrderNumber: string },
+): Promise<MemberIntakeSendcloudCancelInput> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  let merged = await loadMemberIntakeSendcloudCancelInput(service, {
+    itemIds: sortedIds,
+    defaultOrderNumber: params.groupOrderNumber,
+  });
+
+  const shipmentIds = new Set<string>();
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("metadata")
+    .in("item_id", sortedIds);
+  for (const row of intakeRows ?? []) {
+    const sid = readMemberIntakeShipmentIdFromMetadata(row.metadata);
+    if (sid) shipmentIds.add(sid);
+  }
+
+  for (const sid of shipmentIds) {
+    const destMeta = await readMemberIntakeDestinationMetadata(service, sid);
+    const { data: ship } = await service
+      .from("shipments")
+      .select("tracking_number")
+      .eq("id", sid)
+      .maybeSingle();
+    const tracking =
+      typeof ship?.tracking_number === "string" ? ship.tracking_number.trim() : null;
+    const partial = gatherMemberIntakeSendcloudCancelInput([], {
+      defaultOrderNumber: params.groupOrderNumber,
+      destinationMetadata: destMeta,
+      shipmentTrackingNumber: tracking,
+    });
+    merged = mergeMemberIntakeCancelInputs(merged, partial);
+  }
+
+  const orderSet = new Set(merged.orderNumbers);
+  for (const id of sortedIds) {
+    pushOrderNumber(orderSet, buildStableMemberIntakeOrderNumber([id]));
+  }
+  merged.orderNumbers = [...orderSet];
+  return merged;
+}
+
+function readSendcloudField(metadata: unknown, key: string): string | null {
+  if (!isPlainRecord(metadata)) return null;
+  const sc = metadata.sendcloud;
+  if (!isPlainRecord(sc)) return null;
+  const v = sc[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function memberAsRecipientForConsolidation(user: {
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  adress: string | null;
+}): SendcloudOutboundRecipient | { error: string } {
+  const fn = user.first_name?.trim() ?? "";
+  const ln = user.last_name?.trim() ?? "";
+  const email = user.email?.trim() ?? "";
+  const phone = String(user.phone ?? "").replace(/\s/g, "").trim();
+  const parsed = parseMemberAdressForShipment(user.adress);
+  if (!fn || !ln || !email || !phone) {
+    return { error: "Complète prénom, nom, email et téléphone dans ton profil." };
+  }
+  if (!parsed?.sender_street || !parsed.sender_postcode || !parsed.sender_city) {
+    return { error: "Complète ton adresse postale dans ton profil (rue, n°, CP, ville)." };
+  }
+  const country = (parsed.sender_country?.trim().toUpperCase() || "FR").slice(0, 2);
+  return {
+    name: `${fn} ${ln}`.trim().slice(0, 64),
+    addressLine1: parsed.sender_street.trim().slice(0, 64),
+    houseNumber: parsed.sender_houseno?.trim().slice(0, 16) || "1",
+    postalCode: parsed.sender_postcode.replace(/\D/g, "").slice(0, 5),
+    city: parsed.sender_city.slice(0, 64),
+    countryCode: country.length === 2 ? country : "FR",
+    phone: (normalizeFrenchPhoneToE164(phone) || "+33600000000").slice(0, 32),
+    email: email.slice(0, 128),
+  };
+}
+
+/** Détecte un lot intake scindé (solo, plusieurs shipments, commandes Sendcloud divergentes). */
+export function needsMemberIntakeGroupConsolidation(
+  targetIds: string[],
+  intakeMetas: unknown[],
+): boolean {
+  if (targetIds.length < 2) return false;
+
+  const targetKey = [...targetIds].sort().join(",");
+  const groupOrder = buildStableMemberIntakeOrderNumber(targetIds);
+  const shipmentIds = new Set<string>();
+  let declaredMerge = false;
+
+  for (const meta of intakeMetas) {
+    if (readShippingPreferSolo(meta)) return true;
+
+    const sid = readMemberIntakeShipmentIdFromMetadata(meta);
+    if (sid) shipmentIds.add(sid);
+
+    const mergeIds = parseScMergeItemIdsFromIntakeMetadata(meta);
+    if (mergeIds.length >= 2) {
+      declaredMerge = true;
+      const mergeKey = [...mergeIds].sort().join(",");
+      if (mergeKey !== targetKey) return true;
+    }
+
+    const sc = parseSendcloudFromIntakeMetadata(meta);
+    const orderOnItem =
+      sc?.reference_expedition?.trim() || readSendcloudField(meta, "sc_order_number") || null;
+    if (orderOnItem && orderOnItem !== groupOrder) return true;
+
+    const label = parseIntakeShippingLabelFromMetadata(meta);
+    const portalUrl = readSendcloudField(meta, "sc_return_portal_url");
+    if (label?.label_url?.startsWith("http") || label?.numero_suivi?.trim()) {
+      if (mergeIds.length < 2 || [...mergeIds].sort().join(",") !== targetKey) return true;
+    }
+    if (portalUrl?.startsWith("http")) {
+      if (mergeIds.length < 2 || [...mergeIds].sort().join(",") !== targetKey) return true;
+    }
+  }
+
+  if (shipmentIds.size > 1) return true;
+  if (!declaredMerge && targetIds.length >= 2) {
+    for (const meta of intakeMetas) {
+      const label = parseIntakeShippingLabelFromMetadata(meta);
+      if (label?.label_url?.startsWith("http") || label?.numero_suivi?.trim()) return true;
+      if (readSendcloudField(meta, "sc_return_portal_url")?.startsWith("http")) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Regroupement après séparation : annule retours / bordereaux solo Sendcloud,
+ * archive les shipments `member_intake` existants, recrée un seul shipment pour le lot.
+ */
+export async function consolidateMemberIntakeShippingGroup(
+  service: SupabaseClient,
+  params: { userId: string; itemIds: string[] },
+): Promise<
+  | { ok: true; consolidated: false; item_ids: string[] }
+  | { ok: true; consolidated: true; shipment_id: string; item_ids: string[] }
+  | { ok: false; error: string }
+> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length < 2 || sortedIds.length > 5) {
+    return { ok: false, error: "Entre 2 et 5 pièces requises pour regrouper." };
+  }
+
+  const groupOrderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
+
+  const { data: intakeRows, error: intakeErr } = await service
+    .from("item_intake")
+    .select("item_id, metadata")
+    .in("item_id", sortedIds);
+  if (intakeErr) return { ok: false, error: intakeErr.message };
+
+  const metas = (intakeRows ?? []).map((r) => r.metadata);
+  if (!needsMemberIntakeGroupConsolidation(sortedIds, metas)) {
+    return { ok: true, consolidated: false, item_ids: sortedIds };
+  }
+
+  const shipmentIdsToArchive = await collectMemberIntakeShipmentIdsForGroup(service, sortedIds);
+
+  const env = getSendcloudEnv();
+  if (env) {
+    const cancelInput = await loadMemberIntakeGroupCancelInput(service, {
+      itemIds: sortedIds,
+      groupOrderNumber,
+    });
+    const cancelled = await cancelMemberIntakeSendcloudArtifacts(env, cancelInput);
+    if (!cancelled.ok) {
+      return { ok: false, error: cancelled.error };
+    }
+  }
+
+  for (const sid of shipmentIdsToArchive) {
+    const archived = await archiveMemberIntakeShipment(service, sid);
+    if (!archived.ok) {
+      console.warn("[consolidateMemberIntakeShippingGroup] archive shipment", sid, archived.error);
+      return { ok: false, error: archived.error };
+    }
+  }
+
+  for (const id of sortedIds) {
+    await clearItemIntakeShippingLabelMetadata(service, id);
+    await patchItemIntakeSendcloudMetadata(
+      service,
+      id,
+      {},
+      { removeKeys: [SC_MEMBER_INTAKE_SHIPMENT_ID] },
+    );
+  }
+
+  const { data: member, error: memErr } = await service
+    .from("users")
+    .select("first_name,last_name,email,phone,adress")
+    .eq("id", params.userId)
+    .maybeSingle();
+  if (memErr || !member) {
+    return { ok: false, error: "Profil membre introuvable." };
+  }
+
+  const recipient = memberAsRecipientForConsolidation(
+    member as Parameters<typeof memberAsRecipientForConsolidation>[0],
+  );
+  if ("error" in recipient) {
+    return { ok: false, error: recipient.error };
+  }
+
+  const ensured = await ensureMemberIntakeShipmentForPortal(service, {
+    ownerUserId: params.userId,
+    itemIds: sortedIds,
+    orderNumber: groupOrderNumber,
+    recipient,
+  });
+  if (!ensured.ok) {
+    return { ok: false, error: ensured.error };
+  }
+
+  await resetMemberIntakeShipmentForPortal(service, { itemIds: sortedIds });
+
+  const mergeCsv = sortedIds.join(",");
+  const notes =
+    "Regroupement intake : retours solo annulés, expédition unique member_intake.".slice(0, 2000);
+  const now = new Date().toISOString();
+
+  for (const id of sortedIds) {
+    const patchRes = await patchItemIntakeSendcloudMetadata(
+      service,
+      id,
+      {
+        [SC_MEMBER_INTAKE_SHIPMENT_ID]: ensured.shipmentId,
+        sc_merge_item_ids: mergeCsv,
+        sc_order_number: groupOrderNumber,
+        reference_expedition: groupOrderNumber,
+        notes_interne: notes,
+        last_backoffice_update_at: now,
+      },
+      { removeKeys: [SC_SHIPPING_PREFER_SOLO] },
+    );
+    if (!patchRes.ok) {
+      return { ok: false, error: patchRes.message };
+    }
+  }
+
+  return {
+    ok: true,
+    consolidated: true,
+    shipment_id: ensured.shipmentId,
+    item_ids: sortedIds,
+  };
+}
+
+/**
+ * Séparation d’un lot groupé : annule le retour Sendcloud du groupe, archive le shipment fusionné,
+ * crée un `member_intake` par pièce.
+ */
+export async function splitMemberIntakeShippingGroup(
+  service: SupabaseClient,
+  params: { userId: string; itemIds: string[] },
+): Promise<
+  | { ok: true; primary_item_id: string; item_shipment_ids: Record<string, string> }
+  | { ok: false; error: string }
+> {
+  const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
+  if (sortedIds.length < 2 || sortedIds.length > 5) {
+    return { ok: false, error: "Entre 2 et 5 pièces requises pour séparer." };
+  }
+
+  const groupOrderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
+  const shipmentIdsToArchive = await collectMemberIntakeShipmentIdsForGroup(service, sortedIds);
+
+  const env = getSendcloudEnv();
+  if (env) {
+    const cancelInput = await loadMemberIntakeGroupCancelInput(service, {
+      itemIds: sortedIds,
+      groupOrderNumber,
+    });
+    const cancelled = await cancelMemberIntakeSendcloudArtifacts(env, cancelInput);
+    if (!cancelled.ok) {
+      // La séparation DB doit passer même si Sendcloud refuse l’annulation (retour déjà déposé, etc.).
+      console.warn("[splitMemberIntakeShippingGroup] sendcloud cancel", cancelled.error);
+    }
+  }
+
+  for (const sid of shipmentIdsToArchive) {
+    const archived = await archiveMemberIntakeShipment(service, sid);
+    if (!archived.ok) {
+      console.warn("[splitMemberIntakeShippingGroup] archive shipment", sid, archived.error);
+      return { ok: false, error: archived.error };
+    }
+  }
+
+  for (const id of sortedIds) {
+    await clearItemIntakeShippingLabelMetadata(service, id);
+    await patchItemIntakeSendcloudMetadata(
+      service,
+      id,
+      {},
+      {
+        removeKeys: [
+          SC_MEMBER_INTAKE_SHIPMENT_ID,
+          "sc_merge_item_ids",
+          "sc_return_portal_url",
+          "sc_return_portal_identifier",
+          "sc_return_portal_postal_code",
+        ],
+      },
+    );
+  }
+
+  const { data: member, error: memErr } = await service
+    .from("users")
+    .select("first_name,last_name,email,phone,adress")
+    .eq("id", params.userId)
+    .maybeSingle();
+  if (memErr || !member) {
+    return { ok: false, error: "Profil membre introuvable." };
+  }
+
+  const recipient = memberAsRecipientForConsolidation(
+    member as Parameters<typeof memberAsRecipientForConsolidation>[0],
+  );
+  if ("error" in recipient) {
+    return { ok: false, error: recipient.error };
+  }
+
+  const now = new Date().toISOString();
+  const notes =
+    "Séparation intake : expédition groupée archivée, envoi solo par pièce.".slice(0, 2000);
+  const itemShipmentIds: Record<string, string> = {};
+
+  for (const itemId of sortedIds) {
+    const soloOrderNumber = buildStableMemberIntakeOrderNumber([itemId]);
+    const ensured = await ensureMemberIntakeShipmentForPortal(service, {
+      ownerUserId: params.userId,
+      itemIds: [itemId],
+      orderNumber: soloOrderNumber,
+      recipient,
+    });
+    if (!ensured.ok) {
+      return { ok: false, error: ensured.error };
+    }
+
+    itemShipmentIds[itemId] = ensured.shipmentId;
+
+    const patchRes = await patchItemIntakeSendcloudMetadata(
+      service,
+      itemId,
+      {
+        [SC_MEMBER_INTAKE_SHIPMENT_ID]: ensured.shipmentId,
+        sc_order_number: soloOrderNumber,
+        reference_expedition: soloOrderNumber,
+        [SC_SHIPPING_PREFER_SOLO]: "1",
+        notes_interne: notes,
+        last_backoffice_update_at: now,
+      },
+      { removeKeys: ["sc_merge_item_ids"] },
+    );
+    if (!patchRes.ok) {
+      return { ok: false, error: patchRes.message };
+    }
+  }
+
+  return {
+    ok: true,
+    primary_item_id: sortedIds[0]!,
+    item_shipment_ids: itemShipmentIds,
+  };
 }

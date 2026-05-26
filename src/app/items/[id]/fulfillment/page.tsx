@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 
-import { buildShippingIdsSearchParamsValue } from "@/lib/items/intake-shipping-metadata";
+import {
+  buildIntakeShippingPageHrefFromIds,
+  fetchDefaultIntakeShippingGroupIds,
+} from "@/lib/items/intake-cart-return-piggyback";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Props = {
@@ -35,13 +39,15 @@ export default async function ItemFulfillmentPage({ params }: Props) {
     redirect("/exchange");
   }
 
-  const rawIntake = row.item_intake as unknown;
-  const emb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
-  const meta =
-    emb && typeof emb === "object" && emb !== null && "metadata" in emb
-      ? (emb as { metadata?: unknown }).metadata
-      : null;
+  let admin;
+  try {
+    admin = createSupabaseAdminClient();
+  } catch {
+    redirect(`/items/shipping?ids=${encodeURIComponent(id)}`);
+  }
 
-  const idsParam = buildShippingIdsSearchParamsValue(id, meta);
-  redirect(`/items/shipping?ids=${idsParam}`);
+  const groupIds = await fetchDefaultIntakeShippingGroupIds(admin, user.id, { focusItemId: id });
+  redirect(
+    groupIds.length >= 2 ? buildIntakeShippingPageHrefFromIds(groupIds) : `/items/shipping?ids=${encodeURIComponent(id)}`,
+  );
 }

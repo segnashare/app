@@ -124,12 +124,15 @@ type ItemDetailViewProps = {
   initialAuthUserId?: string | null;
   /** Résultat du chargement fiche côté serveur (évite le waterfall client si présent). */
   initialDetailResult?: FetchItemDetailResult;
+  /** Lot expédition groupé par défaut (pièces prêtes du membre). */
+  defaultShippingGroupIds?: string[];
 };
 
 export function ItemDetailView({
   initialSegnaStockPropertyCmsFrames,
   initialAuthUserId = null,
   initialDetailResult,
+  defaultShippingGroupIds = [],
 }: ItemDetailViewProps = {}) {
   const params = useParams();
   const router = useRouter();
@@ -706,6 +709,7 @@ export function ItemDetailView({
                 intakeUpdatedAt={data.intake.updated_at}
                 offerPricePoints={data.infoCard.pricePoints}
                 placement="item"
+                defaultShippingGroupIds={defaultShippingGroupIds}
                 onEvaluationAcknowledged={() => {
                   const listingStage = data.intake?.listing_stage;
                   if (!itemId || !listingStage) return;
@@ -731,6 +735,7 @@ export function ItemDetailView({
                   intakeUpdatedAt={data.intake.updated_at}
                   offerPricePoints={data.infoCard.pricePoints}
                   placement="item"
+                  defaultShippingGroupIds={defaultShippingGroupIds}
                   onEvaluationAcknowledged={() => {
                     const listingStage = data.intake?.listing_stage;
                     if (!itemId || !listingStage) return;

@@ -60,27 +60,10 @@ const RETURN_FORWARD: ShipmentStatusTarget[] = [
   "en_verification",
 ];
 
-function asRecord(v: unknown): JsonRecord | null {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-  return v as JsonRecord;
-}
-
 function norm(v: unknown): string {
   return String(v ?? "")
     .trim()
     .toLowerCase();
-}
-
-function readNested(obj: JsonRecord | null, path: string): unknown {
-  if (!obj) return null;
-  const keys = path.split(".");
-  let cur: unknown = obj;
-  for (const key of keys) {
-    const rec = asRecord(cur);
-    if (!rec) return null;
-    cur = rec[key];
-  }
-  return cur;
 }
 
 /** `cart_outbound` : synchro Sendcloud uniquement après passage BO en `ready` (mise en colis). */
@@ -125,6 +108,8 @@ export function mapSendcloudParcelToShipmentTarget(
       msg.includes("transit") ||
       msg.includes("en route") ||
       msg.includes("picked up") ||
+      msg.includes("accepted by carrier") ||
+      msg === "accepted" ||
       msg.includes("sorting") ||
       msg.includes("sorted") ||
       msg.includes("announced") ||
@@ -151,12 +136,20 @@ export function mapSendcloudParcelToShipmentTarget(
       return "returned";
     }
     if (
+      msg.includes("accepted by carrier") ||
+      msg === "accepted" ||
+      msg.includes("parcel accepted") ||
+      msg.includes("accepted by the carrier") ||
+      statusId === 3
+    ) {
+      return "dropped_in";
+    }
+    if (
       msg.includes("transit") ||
       msg.includes("en route") ||
       msg.includes("picked up by driver") ||
       msg.includes("shipment on route") ||
       msg.includes("driver on route") ||
-      statusId === 3 ||
       statusId === 4 ||
       statusId === 5
     ) {
@@ -307,7 +300,7 @@ export async function processSendcloudParcelEvent(
     }
   | { ok: false; error: string }
 > {
-  let parcelId = extractSendcloudParcelId(payload);
+  const parcelId = extractSendcloudParcelId(payload);
   let { statusId, statusMessage } = extractSendcloudStatus(payload);
   let { trackingNumber, trackingUrl } = extractSendcloudTracking(payload);
 
@@ -340,6 +333,7 @@ export async function processSendcloudParcelEvent(
   if (norm(ship.context) === "member_intake") {
     try {
       const destMeta = await readMemberIntakeDestinationMetadata(admin, ship.id);
+      const orderNumber = extractSendcloudOrderNumber(payload);
       const outgoingRaw = destMeta.sc_outgoing_parcel_id;
       const outgoingParcelId =
         typeof outgoingRaw === "number"
@@ -354,7 +348,7 @@ export async function processSendcloudParcelEvent(
         parcelId === outgoingParcelId;
 
       if (parcelId && !isOutgoingParcel) {
-        await patchMemberIntakeShipmentReturnParcel(admin, ship.id, parcelId);
+        await patchMemberIntakeShipmentReturnParcel(admin, ship.id, parcelId, { orderNumber });
       }
       if (trackingNumber && isIntakeMemberReturnTrackingNumber(trackingNumber)) {
         await syncMemberIntakeShipmentTracking(admin, ship.id, { trackingNumber, trackingUrl });

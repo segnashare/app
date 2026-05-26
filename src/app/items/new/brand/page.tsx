@@ -7,6 +7,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const montserratItalic = segnaMontserrat;
 
+import { NewItemDetailPageShell } from "@/components/items/new-item/NewItemDetailPageShell";
 import {
   formatItemCustomBrandLabel,
   ITEM_BRAND_AUTRE_SLUG,
@@ -140,24 +141,12 @@ export default function NewItemBrandPage() {
   const isAutreSelected = Boolean(autreOption && pickedBrandId === autreOption.id);
 
   return (
-    <main className="min-h-[100dvh] bg-white">
-      <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
-          Annuler
-        </button>
-        <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>Marque</h1>
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={confirmSelection}>
-          Terminé
-        </button>
-      </header>
+    <NewItemDetailPageShell title="Marque" onCancel={goBack} onConfirm={confirmSelection}>
+      <p className={cn(montserratItalic.className, "mb-3 mt-4 text-[clamp(16px,2.4vw,18px)] leading-[1.15] text-[#aaaaaa]")}>
+        Sélectionne une marque
+      </p>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-3">
-        <div className="mx-auto w-full max-w-[380px]">
-          <p className={cn(montserratItalic.className, "mb-3 mt-4 text-[clamp(16px,2.4vw,18px)] leading-[1.15] text-[#aaaaaa]")}>
-            Sélectionne une marque
-          </p>
-
-          <div className="mb-3 flex h-11 items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3">
+      <div className="mb-3 flex h-11 items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3">
             <Search className="h-4 w-4 text-zinc-400" />
             <input
               value={query}
@@ -258,8 +247,6 @@ export default function NewItemBrandPage() {
               </>
             ) : null}
           </div>
-        </div>
-      </section>
-    </main>
+    </NewItemDetailPageShell>
   );
 }

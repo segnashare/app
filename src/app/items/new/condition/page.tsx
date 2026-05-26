@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
+import { NewItemDetailPageShell } from "@/components/items/new-item/NewItemDetailPageShell";
 import { StyleAdditionalInput } from "@/components/onboarding/StyleAdditionalInput";
 import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
 import { getItemInfoDraft, mergeItemInfoDraft } from "@/lib/items/itemInfoDraftStorage";
@@ -107,27 +108,15 @@ export default function NewItemConditionPage() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-white">
-      <header className="mx-auto flex w-full max-w-[460px] items-center justify-between border-b border-zinc-100 px-5 pb-4 pt-7">
-        <button type="button" className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900")} onClick={goBack}>
-          Annuler
-        </button>
-        <h1 className={cn(montserrat.className, "text-center text-[24px] font-bold leading-none text-zinc-900")}>État</h1>
-        <button
-          type="button"
-          className={cn(montserrat.className, "text-[18px] font-semibold text-zinc-900 disabled:opacity-40")}
-          disabled={!selected}
-          onClick={() => goBackWithValue(selected)}
-        >
-          Terminé
-        </button>
-      </header>
+    <NewItemDetailPageShell
+      title="État"
+      onCancel={goBack}
+      onConfirm={() => goBackWithValue(selected)}
+      confirmDisabled={!selected}
+    >
+      <p className={cn(montserrat.className, "mb-2 mt-4 text-[14px] text-zinc-500")}>Sélectionne l&apos;état de ta pièce.</p>
 
-      <section className="mx-auto w-full max-w-[460px] px-4 pb-8 pt-3">
-        <div className="mx-auto w-full max-w-[380px]">
-          <p className={cn(montserrat.className, "mb-2 mt-4 text-[14px] text-zinc-500")}>Sélectionne l&apos;état de ta pièce.</p>
-
-          <div className="space-y-0.5">
+      <div className="space-y-0.5">
           {OPTIONS.map((option) => (
             <button
               key={option}
@@ -248,8 +237,6 @@ export default function NewItemConditionPage() {
               </p>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
+    </NewItemDetailPageShell>
   );
 }

@@ -10,6 +10,7 @@ import {
   resolveIntakeTrackingHref,
 } from "@/components/shipping/IntakeShippingExpeditionSection";
 import {
+  buildIntakeExpandShippingHref,
   type IntakeShippingOptionsSnapshot,
   readIntakePiggybackFromMetadata,
   SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK,
@@ -124,6 +125,14 @@ export function ShippingBordereauExperience({
     trackingHref: string | null;
   } | null>(null);
   const [newBordereauShimmer, setNewBordereauShimmer] = useState(false);
+  const [ungroupPhase, setUngroupPhase] = useState<"idle" | "saving">("idle");
+
+  const isShipmentUrlGrouped = itemIds.length >= 2;
+  const expandShippingHref = useMemo(() => {
+    const peers = shippingOptions?.other_intake_shipping_peers ?? [];
+    if (!isShipmentUrlGrouped || peers.length === 0) return null;
+    return buildIntakeExpandShippingHref(itemIds, peers.map((p) => p.id));
+  }, [isShipmentUrlGrouped, itemIds, shippingOptions?.other_intake_shipping_peers]);
 
   const itemIdsKey = itemIds.join(",");
   useEffect(() => {
@@ -356,6 +365,31 @@ export function ShippingBordereauExperience({
       window.setTimeout(() => setNewBordereauShimmer(false), 2900);
     });
   }, [resetPortal]);
+
+  const handleUngroupShipment = useCallback(async () => {
+    const primary = [...itemIds].sort((a, b) => a.localeCompare(b))[0];
+    if (!primary) return;
+    setUngroupPhase("saving");
+    setAutoError(null);
+    try {
+      const res = await fetch("/api/items/shipping/ungroup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ item_ids: itemIds }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || data.ok === false) {
+        setAutoError(data.error ?? "Séparation impossible pour le moment.");
+        setUngroupPhase("idle");
+        return;
+      }
+      router.replace(`/items/shipping?ids=${encodeURIComponent(primary)}&solo=1`);
+      router.refresh();
+    } catch {
+      setAutoError("Séparation impossible pour le moment.");
+    }
+    setUngroupPhase("idle");
+  }, [itemIds, router]);
 
   const piggybackActive =
     shippingOptions?.shipping_mode === SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK &&
@@ -1052,12 +1086,29 @@ export function ShippingBordereauExperience({
                   </ul>
                 ) : null}
                 <div className={cn(montserrat.className, "mt-4 flex flex-col gap-2.5")}>
-                  {shippingOptions?.merge_intake_shipping_href ? (
+                  {isShipmentUrlGrouped ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleUngroupShipment()}
+                      disabled={ungroupPhase === "saving"}
+                      className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {ungroupPhase === "saving" ? "Séparation…" : "Séparer les envois"}
+                    </button>
+                  ) : shippingOptions?.merge_intake_shipping_href ? (
                     <Link
                       href={shippingOptions.merge_intake_shipping_href}
                       className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900"
                     >
                       Regrouper dans un seul envoi
+                    </Link>
+                  ) : null}
+                  {expandShippingHref ? (
+                    <Link
+                      href={expandShippingHref}
+                      className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900"
+                    >
+                      Ajouter une pièce à cet envoi
                     </Link>
                   ) : null}
                   <Link
@@ -1069,13 +1120,12 @@ export function ShippingBordereauExperience({
                 </div>
               </div>
 
-              {!piggybackActive ? (
+              {!piggybackActive && (shippingOptions?.eligible_cart_returns?.length ?? 0) > 0 ? (
               <div>
                 <h3 className={cn(playfair.className, "text-[17px] font-bold text-zinc-900")}>
                   Retour d’échange en cours
                 </h3>
-                {(shippingOptions?.eligible_cart_returns?.length ?? 0) > 0 ? (
-                  <div className="mt-4 space-y-4">
+                <div className="mt-4 space-y-4">
               <p className={cn(montserrat.className, "text-[14px] font-medium leading-snug text-zinc-600")}>
                 Tu as un échange reçu pas encore renvoyé ? Glisse ta pièce dans la pochette retour (si tu as de la place)
                 au lieu de créer une étiquette séparée.
@@ -1146,11 +1196,6 @@ export function ShippingBordereauExperience({
                       <p className="text-center text-[13px] font-medium text-rose-600">{piggybackError}</p>
                     ) : null}
                   </div>
-                ) : (
-                  <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
-                    Aucun échange reçu en attente de retour pour le moment.
-                  </p>
-                )}
               </div>
               ) : null}
             </div>

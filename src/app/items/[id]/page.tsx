@@ -4,6 +4,8 @@ import { ItemDetailView } from "@/components/item/ItemDetailView";
 import { getCurrentAuthUser } from "@/lib/auth/current-user-server";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { fetchItemDetailPayloadForUser, type FetchItemDetailResult } from "@/lib/items/fetch-item-detail-core";
+import { fetchDefaultIntakeShippingGroupIds } from "@/lib/items/intake-cart-return-piggyback";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PageProps = {
@@ -17,6 +19,7 @@ export default async function ItemDetailsPage({ params }: PageProps) {
 
   let initialSegnaStockPropertyCmsFrames: Awaited<ReturnType<typeof fetchCmsSectionFramesResolved>> | undefined;
   let initialDetailResult: FetchItemDetailResult | undefined;
+  let defaultShippingGroupIds: string[] = [];
 
   if (user) {
     const [cmsFrames, detailRes] = await Promise.all([
@@ -25,6 +28,13 @@ export default async function ItemDetailsPage({ params }: PageProps) {
     ]);
     initialSegnaStockPropertyCmsFrames = cmsFrames;
     initialDetailResult = detailRes;
+    try {
+      const admin = createSupabaseAdminClient();
+      const group = await fetchDefaultIntakeShippingGroupIds(admin, user.id, { focusItemId: id });
+      if (group.length >= 2) defaultShippingGroupIds = group;
+    } catch {
+      defaultShippingGroupIds = [];
+    }
   }
 
   return (
@@ -34,6 +44,7 @@ export default async function ItemDetailsPage({ params }: PageProps) {
         initialAuthUserId={user?.id ?? null}
         initialDetailResult={initialDetailResult}
         initialSegnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
+        defaultShippingGroupIds={defaultShippingGroupIds}
       />
     </Suspense>
   );

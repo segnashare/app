@@ -474,6 +474,30 @@ async function loadShipmentById(
   return ship as ResolvedWebhookShipment;
 }
 
+async function findShipmentBySendcloudTrackingNumber(
+  admin: SupabaseClient,
+  trackingNumber: string | null,
+): Promise<ResolvedWebhookShipment | null> {
+  const tn = trackingNumber?.trim();
+  if (!tn) return null;
+
+  const { data: ships } = await admin
+    .from("shipments")
+    .select("id, status, context, tracking_number, member_tracking_url")
+    .eq("tracking_number", tn)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(8);
+
+  const list = (ships ?? []) as ResolvedWebhookShipment[];
+  return (
+    list.find((s) => s.context === "member_intake") ??
+    list.find((s) => s.context === "cart_return") ??
+    list[0] ??
+    null
+  );
+}
+
 export async function findShipmentBySendcloudParcelIdExtended(
   admin: SupabaseClient,
   parcelId: number,
@@ -567,6 +591,11 @@ export async function resolveShipmentForSendcloudWebhook(
     }
   }
 
+  const byTrackingNumber = await findShipmentBySendcloudTrackingNumber(admin, trackingNumber);
+  if (byTrackingNumber) {
+    return { ok: true, shipment: byTrackingNumber };
+  }
+
   if (orderNumber) {
     const cartId = await findCartIdBySendcloudOutboundOrderNumber(admin, orderNumber);
     if (cartId) {
@@ -642,13 +671,19 @@ export async function resolveShipmentForSendcloudWebhook(
       return { ok: true, shipment: ensured.shipment, provisioned: ensured.created || ensured.transitionedToReady };
     }
 
-    const { data: destRows } = await admin
+    const { data: byOrderRows } = await admin
       .from("shipment_destinations")
       .select("shipment_id")
       .eq("metadata->>sendcloud_order_number", orderNumber.trim())
       .limit(5);
+    const { data: byReturnOrderRows } = await admin
+      .from("shipment_destinations")
+      .select("shipment_id")
+      .eq("metadata->>sendcloud_return_order_number", orderNumber.trim())
+      .limit(5);
+    const destRows = [...(byOrderRows ?? []), ...(byReturnOrderRows ?? [])];
 
-    if (destRows?.length) {
+    if (destRows.length) {
       const shipmentIds = [...new Set(destRows.map((r) => String((r as { shipment_id: string }).shipment_id)))];
       const { data: ships } = await admin
         .from("shipments")

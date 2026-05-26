@@ -26,6 +26,16 @@ const serverEnvSchema = z.object({
   TWILIO_FROM_NUMBER: z.string().min(1).optional(),
   /** Si `1`, les notifications en `email+phone` envoient aussi un SMS (alertes délai / retard). */
   SEGNA_NOTIFY_SMS_ALERTS: z.string().optional(),
+  /** 1er rappel onboarding in-app incomplet : jours depuis `users.created_at` (défaut 3). */
+  SEGNA_REMINDER_ONBOARDING_DAYS: z.string().optional(),
+  /** 2e rappel onboarding (défaut 10). */
+  SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS: z.string().optional(),
+  /** Rappel pièces likées dispo : jours d’inactivité app (défaut 7). */
+  SEGNA_REMINDER_INACTIVE_DAYS: z.string().optional(),
+  /** Rappel panier abandonné : heures depuis `carts.created_at` (défaut 48). */
+  SEGNA_REMINDER_ABANDONED_CART_HOURS: z.string().optional(),
+  /** Plafond de candidats traités par type et par exécution cron (défaut 80). */
+  SEGNA_REMINDER_MAX_PER_RUN: z.string().optional(),
   /** Route cron `GET /api/cron/*` : `Authorization: Bearer …` (prioritaire sur CRON_SECRET). */
   SEGNA_CRON_SECRET: z.string().optional(),
   /** Vercel Cron envoie `Authorization: Bearer $CRON_SECRET` si la variable est définie sur le projet. */
@@ -85,6 +95,11 @@ export function getServerEnv(): ServerEnv {
     TWILIO_FROM_NUMBER: process.env.TWILIO_FROM_NUMBER,
     SEGNA_EMAIL_PUBLIC_BASE_URL: process.env.SEGNA_EMAIL_PUBLIC_BASE_URL,
     SEGNA_NOTIFY_SMS_ALERTS: process.env.SEGNA_NOTIFY_SMS_ALERTS,
+    SEGNA_REMINDER_ONBOARDING_DAYS: process.env.SEGNA_REMINDER_ONBOARDING_DAYS,
+    SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS: process.env.SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS,
+    SEGNA_REMINDER_INACTIVE_DAYS: process.env.SEGNA_REMINDER_INACTIVE_DAYS,
+    SEGNA_REMINDER_ABANDONED_CART_HOURS: process.env.SEGNA_REMINDER_ABANDONED_CART_HOURS,
+    SEGNA_REMINDER_MAX_PER_RUN: process.env.SEGNA_REMINDER_MAX_PER_RUN,
     SEGNA_CRON_SECRET: process.env.SEGNA_CRON_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
     SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET: process.env.SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET,

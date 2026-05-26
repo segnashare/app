@@ -79,10 +79,10 @@ function SignUpEmailPageContent() {
               "text-[clamp(1.35rem,5.5vw,1.875rem)] font-bold leading-tight tracking-tight text-black",
             )}
           >
-            Entrez votre adresse e-mail
+            Entre ton adresse e-mail
           </h1>
           <p className={cn(montserrat.className, "text-[15px] font-bold leading-snug text-[#999999]")}>
-            Inscrivez-vous ou commencez
+            Inscris-toi pour commencer
           </p>
         </div>
       }

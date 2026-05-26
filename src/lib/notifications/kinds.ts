@@ -5,7 +5,7 @@
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
  * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail + SMS (réf. commande, n° suivi, lien suivi)  
- * - `order_outbound_transit_partner` : aller `dropped_in` — **SMS seulement** (en transit chez le partenaire, pas retrait) ; pas si Uber domicile  
+ * - `order_outbound_transit_partner` : aller `dropped_in` — **SMS seulement** (commande + pièces en transit, lien suivi) ; pas si Uber domicile  
  * - `order_outbound_relay_pickup_ready` : aller `dropped_out` — e-mail + SMS « colis disponible au relais » ; pas si Uber domicile  
  * - `order_outbound_delivered` : aller livré (`in_transit_in` → `delivered`, etc.) — e-mail récap (location, échéance retour) + SMS  
  * - `return_member_dropped_parcel` : retour déposé au relais — e-mail + SMS si l’aller n’était pas Uber domicile  
@@ -23,6 +23,12 @@
  * **Onboarding in-app** : `onboarding_reward_complete` — SMS après passage de l’étape « reward » à « finished » (`POST /api/onboarding/finish-reward`).
  *
  * **Parrainage** : `referral_referrer_bonus` — SMS au parrain lorsque le filleul est qualifié (`POST /api/referral/dispatch-referrer-notify`, cron).
+ *
+ * **Engagement** (cron `GET /api/cron/member-engagement-reminders`, `SEGNA_NOTIFY_SMS_ALERTS=1`)  
+ * - `onboarding_incomplete_reminder` — 1er rappel onboarding in-app (J+3 à J+9)  
+ * - `onboarding_incomplete_reminder_followup` — 2e rappel (J+10+)  
+ * - `liked_items_available_reminder` — favoris encore `available`, inactivité app depuis M jours  
+ * - `abandoned_cart_reminder` — panier ouvert depuis 48 h+ avec pièces encore empruntables
  */
 export const NotificationKind = {
   cartOrderPaid: "cart_order_paid",
@@ -49,6 +55,10 @@ export const NotificationKind = {
   itemIntakeVerified: "item_intake_verified",
   onboardingRewardComplete: "onboarding_reward_complete",
   referralReferrerBonus: "referral_referrer_bonus",
+  onboardingIncompleteReminder: "onboarding_incomplete_reminder",
+  onboardingIncompleteReminderFollowup: "onboarding_incomplete_reminder_followup",
+  likedItemsAvailableReminder: "liked_items_available_reminder",
+  abandonedCartReminder: "abandoned_cart_reminder",
 } as const;
 
 export type NotificationKindId = (typeof NotificationKind)[keyof typeof NotificationKind];

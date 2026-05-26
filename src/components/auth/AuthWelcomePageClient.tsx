@@ -239,7 +239,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
               "relative z-20 mx-auto max-w-[min(100%,400px)] px-5 md:px-8",
             )}
           >
-            Empruntez, portez, renvoyez et recommencez
+            Emprunte, porte, renvoie et recommence
           </p>
 
           <div className="relative mt-0 min-h-[min(40vh,300px)] w-full min-w-0 flex-1 shrink">

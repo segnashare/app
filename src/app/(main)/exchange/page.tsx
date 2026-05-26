@@ -1,6 +1,5 @@
 import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
 import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
-import { ExchangeMergeShippingBanner } from "@/components/exchange/ExchangeMergeShippingBanner";
 import { ExchangePiggybackDepositConfirmModal } from "@/components/exchange/ExchangePiggybackDepositConfirmModal";
 import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
@@ -73,6 +72,7 @@ import {
   needsItemIntakeUi,
 } from "@/lib/items/item-intake-ui";
 import { fetchMemberPiggybackDepositConfirmQueue } from "@/lib/items/intake-cart-return-piggyback";
+import { dedupeIntakeBannerCandidatesForMergedShipping } from "@/lib/items/intake-shipping-metadata";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -571,7 +571,14 @@ export default async function ExchangePage() {
     return 0;
   });
 
-  const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerCandidates.map((c) => ({
+  const defaultShippingGroupIds =
+    mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
+  const intakeBannerForStack = dedupeIntakeBannerCandidatesForMergedShipping(
+    intakeBannerCandidates,
+    defaultShippingGroupIds,
+  );
+
+  const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerForStack.map((c) => ({
     id: c.id,
     listingStage: c.listingStage,
     fulfillmentStage: c.fulfillmentStage,
@@ -908,10 +915,6 @@ export default async function ExchangePage() {
     );
   const uberRelayFallback = uberRelayFallbackFromShipment;
 
-  const showMergeShippingBanner =
-    mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
-  const mergeShippingHref = `/items/shipping?ids=${mergedShippingCandidateIds.map(encodeURIComponent).join(",")}`;
-
   const exchangeOnboardingRow = await perf.measure("users.appState", () => getCurrentUserAppState(userId));
   const showProfileInAppOnboarding = exchangeOnboardingRow.onboarding_process === "profile";
   const showKycInAppOnboarding = exchangeOnboardingRow.onboarding_process === "kyc";
@@ -987,19 +990,9 @@ export default async function ExchangePage() {
             </div>
           </div>
         ) : null}
-        {showMergeShippingBanner ? (
-          <div className="px-5 pb-2">
-            <div className="mx-auto w-full max-w-[460px]">
-              <ExchangeMergeShippingBanner
-                key={[...mergedShippingCandidateIds].sort().join(",")}
-                candidateIds={mergedShippingCandidateIds}
-                mergeHref={mergeShippingHref}
-              />
-            </div>
-          </div>
-        ) : null}
         <ExchangeHeaderAlertStack
           intakeItems={exchangeIntakeBannerItems}
+          defaultShippingGroupIds={defaultShippingGroupIds}
           outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}
           showProfileOnboarding={showProfileInAppOnboarding}
           showKycOnboarding={showKycInAppOnboarding}

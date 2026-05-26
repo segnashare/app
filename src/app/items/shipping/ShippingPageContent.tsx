@@ -6,7 +6,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ShippingBordereauExperience } from "@/components/shipping/ShippingBordereauExperience";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
+import { buildIntakeShippingPageHrefFromIds } from "@/lib/items/intake-cart-return-piggyback";
+import { readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
+
 import { parseShippingIdsFromSearch, shippingIdsAreWellFormed } from "./shipping-ids";
+
+function shippingIdSetsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort().join(",");
+  const sb = [...b].sort().join(",");
+  return sa === sb;
+}
 
 type GateState = "checking" | "ok" | "reject";
 
@@ -30,6 +40,7 @@ export function ShippingPageContent() {
   const searchParams = useSearchParams();
   const raw = searchParams.get("ids") ?? "";
   const ids = useMemo(() => parseShippingIdsFromSearch(raw), [raw]);
+  const soloParam = searchParams.get("solo") === "1";
 
   const [gate, setGate] = useState<GateState>("checking");
   const [validatedIds, setValidatedIds] = useState<string[]>([]);
@@ -52,14 +63,17 @@ export function ShippingPageContent() {
 
     const { data: rows } = await supabase
       .from("items")
-      .select("id,item_intake(listing_stage,fulfillment_stage)")
+      .select("id,item_intake(listing_stage,fulfillment_stage,metadata)")
       .eq("owner_user_id", user.id)
       .is("deleted_at", null)
       .in("id", ids);
 
     const found = (rows ?? []) as Array<{
       id: string;
-      item_intake?: { listing_stage?: string; fulfillment_stage?: string | null } | null;
+      item_intake?:
+        | { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown }
+        | { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown }[]
+        | null;
     }>;
 
     if (found.length !== ids.length) {
@@ -78,13 +92,76 @@ export function ShippingPageContent() {
       }
     }
 
-    setValidatedIds(ids);
+    const primary = [...ids].sort((a, b) => a.localeCompare(b))[0]!;
+    let effectiveIds = ids;
+
+    if (soloParam) {
+      effectiveIds = primary ? [primary] : ids.slice(0, 1);
+    } else if (ids.length >= 2) {
+      const allPreferSolo = ids.every((id) => {
+        const row = found.find((r) => String(r.id) === id);
+        const emb = row ? (Array.isArray(row.item_intake) ? row.item_intake[0] : row.item_intake) : null;
+        return readShippingPreferSolo(emb && typeof emb === "object" ? emb.metadata : null);
+      });
+      if (allPreferSolo && primary) {
+        effectiveIds = [primary];
+      }
+    }
+
+    setValidatedIds(effectiveIds);
     setGate("ok");
-  }, [ids]);
+  }, [ids, soloParam]);
 
   useEffect(() => {
     void runGate();
   }, [runGate]);
+
+  useEffect(() => {
+    if (gate !== "ok") return;
+    if (soloParam) return;
+    if (validatedIds.length < ids.length && validatedIds[0]) {
+      router.replace(
+        `/items/shipping?ids=${encodeURIComponent(validatedIds[0])}&solo=1`,
+      );
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const focus = ids[0] ?? "";
+      if (!focus) return;
+      try {
+        const res = await fetch(
+          `/api/items/shipping/default-ids?focus_id=${encodeURIComponent(focus)}`,
+          { headers: { Accept: "application/json" } },
+        );
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; item_ids?: string[] };
+        if (cancelled || !data.ok || !Array.isArray(data.item_ids)) return;
+        const group = data.item_ids;
+        if (group.length < 2) return;
+        if (shippingIdSetsEqual(group, ids)) {
+          await fetch("/api/items/shipping/ack-group", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ item_ids: group }),
+          }).catch(() => undefined);
+          return;
+        }
+        await fetch("/api/items/shipping/ack-group", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ item_ids: group }),
+        }).catch(() => undefined);
+        router.replace(buildIntakeShippingPageHrefFromIds(group));
+      } catch {
+        /* garde l’URL courante */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gate, ids, router, searchParams, soloParam, validatedIds]);
 
   useEffect(() => {
     if (gate !== "reject") return;

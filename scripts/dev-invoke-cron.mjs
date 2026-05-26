@@ -1,6 +1,7 @@
 /**
  * Appelle une route GET /api/cron/* en local (ou autre base URL) avec le même Bearer que la prod.
  * Usage : node scripts/dev-invoke-cron.mjs member-lifecycle-reminders
+ *         node scripts/dev-invoke-cron.mjs member-engagement-reminders
  *         node scripts/dev-invoke-cron.mjs referral-referrer-sms
  *
  * Lit `.env.local` à la racine du projet (SEGNA_CRON_SECRET ou CRON_SECRET).
@@ -35,7 +36,11 @@ function loadDotEnvFile(relPath) {
 }
 
 const name = process.argv[2] || "member-lifecycle-reminders";
-const allowed = new Set(["member-lifecycle-reminders", "referral-referrer-sms"]);
+const allowed = new Set([
+  "member-lifecycle-reminders",
+  "member-engagement-reminders",
+  "referral-referrer-sms",
+]);
 if (!allowed.has(name)) {
   console.error(`Usage: node scripts/dev-invoke-cron.mjs <${[...allowed].join("|")}>`);
   process.exit(1);

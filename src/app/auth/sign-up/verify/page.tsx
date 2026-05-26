@@ -72,10 +72,10 @@ export default function SignUpVerifyPage() {
               "text-[clamp(1.35rem,5.5vw,1.875rem)] font-bold leading-tight tracking-tight text-black",
             )}
           >
-            Nous vous avons envoyé un code de vérification par e-mail
+            On t&apos;a envoyé un code par e-mail
           </h1>
           <p className={cn(montserrat.className, "text-[15px] font-bold leading-snug text-[#999999]")}>
-            Saisissez les 8 chiffres reçus par e-mail
+            Saisis les 6 chiffres reçus par e-mail
           </p>
         </div>
       }

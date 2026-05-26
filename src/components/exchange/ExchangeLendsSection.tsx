@@ -87,6 +87,8 @@ export function ExchangeLendsSection({
 
   const showMergePopup =
     mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
+  const defaultShippingGroupIds =
+    mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
 
   const lendsSectionTitle = "Prêts";
 
@@ -144,6 +146,7 @@ export function ExchangeLendsSection({
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
                   creditKind={lendPriceCreditKind}
+                  defaultShippingGroupIds={defaultShippingGroupIds}
                 />
               </div>
             ))}
@@ -168,6 +171,7 @@ export function ExchangeLendsSection({
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
                   creditKind={lendPriceCreditKind}
+                  defaultShippingGroupIds={defaultShippingGroupIds}
                 />
               </div>
             ))}
