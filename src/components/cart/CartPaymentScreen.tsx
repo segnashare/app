@@ -60,7 +60,11 @@ import { centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CheckoutHomePlanCarrierIcon } from "@/components/cart/CheckoutHomePlanCarrierIcon";
-import { UberDirectQuotePanel, type UberDirectQuotePhase } from "@/components/cart/UberDirectQuotePanel";
+import {
+  UberDirectQuotePanel,
+  uberDirectUnavailablePriceLabel,
+  type UberDirectQuotePhase,
+} from "@/components/cart/UberDirectQuotePanel";
 import { UberWordmarkIcon } from "@/components/icons/UberWordmarkIcon";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -380,9 +384,17 @@ export function CartPaymentScreen({
     return "loading";
   }, [deliveryAddress, deliveryChannel, homeSpeed, uberQuote, uberQuoteFetch]);
 
-  /** Pas d’offre Uber affichée si le devis échoue (config manquante, hors zone, etc.). */
-  const uberDeliveryOfferVisible =
-    deliveryChannel === "home" && uberQuoteFetch !== "error";
+  /** L’offre Uber reste visible même sans devis, pour garder l’option express explicite. */
+  const uberDeliveryOfferVisible = deliveryChannel === "home";
+
+  useEffect(() => {
+    if (deliveryChannel !== "home" || uberQuoteFetch !== "error") return;
+    console.warn("[uber-direct/quote] devis indisponible au checkout", {
+      message: uberQuoteError,
+      code: uberQuoteErrorCode,
+      deliveryAddress,
+    });
+  }, [deliveryAddress, deliveryChannel, uberQuoteError, uberQuoteErrorCode, uberQuoteFetch]);
 
   const uberQuotePanelPhaseForPanel: UberDirectQuotePhase =
     deliveryChannel === "home" && uberQuoteFetch === "error"
@@ -1478,7 +1490,11 @@ export function CartPaymentScreen({
                           Aller express - Retour relais
                         </p>
                         <span className="shrink-0 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                          {homeDeliveryShowsFullIncluded ? (
+                          {uberQuoteFetch === "error" ? (
+                            <span className="text-[13px] font-semibold text-zinc-500">
+                              {uberDirectUnavailablePriceLabel(uberQuoteErrorCode)}
+                            </span>
+                          ) : homeDeliveryShowsFullIncluded ? (
                             includedShippingQuotaLabel ? (
                               <span className="tabular-nums">{includedShippingQuotaLabel}</span>
                             ) : (
@@ -1501,7 +1517,7 @@ export function CartPaymentScreen({
                       ) : null}
                     </div>
                   </button>
-                  {showUberQuoteBelowCard && uberQuotePanelPhaseForPanel !== "error" ? (
+                  {showUberQuoteBelowCard ? (
                     <div className="px-3 pb-3 pl-[calc(1.25rem+0.75rem)]">
                       <UberDirectQuotePanel
                         phase={uberQuotePanelPhaseForPanel}
