@@ -197,6 +197,7 @@ export function CartPaymentScreen({
   const [uberQuoteFetch, setUberQuoteFetch] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [uberQuoteError, setUberQuoteError] = useState<string | null>(null);
   const [uberQuoteErrorCode, setUberQuoteErrorCode] = useState<string | null>(null);
+  const [uberQuoteErrorDetail, setUberQuoteErrorDetail] = useState<string | null>(null);
   const uberQuoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultRelayPostalCode = useMemo(
     () => extractPostalCodeFromAddress(initialProfileDeliveryAddress),
@@ -305,6 +306,7 @@ export function CartPaymentScreen({
       setUberQuote(null);
       setUberQuoteError(null);
       setUberQuoteErrorCode(null);
+      setUberQuoteErrorDetail(null);
       setUberQuoteFetch("idle");
       return;
     }
@@ -312,6 +314,7 @@ export function CartPaymentScreen({
     setUberQuoteFetch("loading");
     setUberQuoteError(null);
     setUberQuoteErrorCode(null);
+    setUberQuoteErrorDetail(null);
 
     const keyWhenScheduled = deliveryAddressKeyRef.current;
 
@@ -344,17 +347,20 @@ export function CartPaymentScreen({
                 : `Erreur ${res.status}`,
             );
             setUberQuoteErrorCode(typeof j.code === "string" && j.code.trim() ? j.code.trim() : null);
+            setUberQuoteErrorDetail(typeof j.detail === "string" && j.detail.trim() ? j.detail.trim() : null);
             return;
           }
           if (j.quote && typeof j.quote === "object") {
             setUberQuote(j.quote);
             setUberQuoteFetch("ok");
             setUberQuoteErrorCode(null);
+            setUberQuoteErrorDetail(null);
           } else {
             setUberQuote(null);
             setUberQuoteFetch("error");
             setUberQuoteError("Réponse Uber inattendue.");
             setUberQuoteErrorCode(null);
+            setUberQuoteErrorDetail(null);
           }
         } catch {
           if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
@@ -362,6 +368,7 @@ export function CartPaymentScreen({
           setUberQuoteFetch("error");
           setUberQuoteError("Connexion impossible pour le devis Uber.");
           setUberQuoteErrorCode(null);
+          setUberQuoteErrorDetail(null);
         }
       })();
     }, 450);
@@ -392,9 +399,10 @@ export function CartPaymentScreen({
     console.warn("[uber-direct/quote] devis indisponible au checkout", {
       message: uberQuoteError,
       code: uberQuoteErrorCode,
+      detail: uberQuoteErrorDetail,
       deliveryAddress,
     });
-  }, [deliveryAddress, deliveryChannel, uberQuoteError, uberQuoteErrorCode, uberQuoteFetch]);
+  }, [deliveryAddress, deliveryChannel, uberQuoteError, uberQuoteErrorCode, uberQuoteErrorDetail, uberQuoteFetch]);
 
   const uberQuotePanelPhaseForPanel: UberDirectQuotePhase =
     deliveryChannel === "home" && uberQuoteFetch === "error"

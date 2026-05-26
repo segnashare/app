@@ -73,6 +73,10 @@ function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
   };
 }
 
+function exposeUberQuoteBrowserDebug(): boolean {
+  return process.env.NODE_ENV === "development" || process.env.SEGNA_DEBUG_UBER_QUOTE_BROWSER === "1";
+}
+
 /**
  * Devis Uber Direct (`delivery_quotes`) pour l’adresse de livraison du checkout.
  * Authentifié — ne expose pas les secrets ; renvoie uniquement le JSON Uber.
@@ -130,8 +134,8 @@ export async function POST(request: Request) {
       message: friendlyUberQuoteMessageFromDetail(short),
       ...(code ? { code } : {}),
     };
-    /** Détail technique (réponse Uber / stack) : jamais renvoyé en production. */
-    if (process.env.NODE_ENV === "development") {
+    /** Détail technique pour debug navigateur, activable explicitement hors dev. */
+    if (exposeUberQuoteBrowserDebug()) {
       body.detail = short;
     }
     return NextResponse.json(body, { status: 502 });
