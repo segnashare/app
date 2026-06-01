@@ -1,17 +1,17 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
-
 import {
   CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
   CmsHorizontalScrollRow,
 } from "@/components/cms/CmsSectionBlocks";
 import { ExchangeLendsEmptyCmsBlock } from "@/components/exchange/ExchangeLendsEmptyCmsBlock";
 import { ExchangeLendItemRow } from "@/components/exchange/ExchangeLendItemRow";
+import { ExchangeProposePieceButton } from "@/components/exchange/ExchangeProposePieceButton";
 import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import { readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
@@ -61,7 +61,7 @@ type ExchangeLendsSectionProps = {
   includedLendsLimit: number;
   /** Pièces déjà validées (intake annonce `validated`). */
   validatedLendsCount: number;
-  /** Pièces en expédition membre — si 2–5, proposition d’envoi groupé. */
+  /** Pièces en expédition membre — si 2, proposition d’envoi groupé. */
   mergedShippingCandidateIds: string[];
   /** Bloc CMS `commerce_promo_ad` fusionné sous le titre (abonnés : image seule). */
   promoAdRows?: CmsFrameRow[];
@@ -86,9 +86,15 @@ export function ExchangeLendsSection({
   const lendPriceCreditKind = walletCreditKindForMembership(membershipLabel);
 
   const showMergePopup =
-    mergedShippingCandidateIds.length >= 2 && mergedShippingCandidateIds.length <= 5;
+    mergedShippingCandidateIds.length >= 2 &&
+    mergedShippingCandidateIds.length <= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
   const defaultShippingGroupIds =
     mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
+  const pendingShippingLends = lends.filter((l) => mergedShippingCandidateIds.includes(l.id));
+  const shipmentsSplit =
+    pendingShippingLends.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS &&
+    pendingShippingLends.every((l) => readShippingPreferSolo(l.intake?.metadata));
+  const blockEvaluationValidation = mergedShippingCandidateIds.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
 
   const lendsSectionTitle = "Prêts";
 
@@ -131,7 +137,7 @@ export function ExchangeLendsSection({
           </div>
         ) : null}
 
-        {lendsPreShipping.length + lendsShippingOnly.length > 0 ? (
+        {lendsPreShipping.length + lendsShippingOnly.length + lendsAfterShipping.length > 0 ? (
           <div className="-mx-5 divide-y-[1px] divide-zinc-200">
             {lendsPreShipping.map((item) => (
               <div key={item.id} className="px-5 py-2">
@@ -147,6 +153,9 @@ export function ExchangeLendsSection({
                   photoPosition={item.photoPosition}
                   creditKind={lendPriceCreditKind}
                   defaultShippingGroupIds={defaultShippingGroupIds}
+                  blockEvaluationValidation={blockEvaluationValidation}
+                  pendingShippingItemIds={mergedShippingCandidateIds}
+                  shipmentsSplit={shipmentsSplit}
                 />
               </div>
             ))}
@@ -172,14 +181,12 @@ export function ExchangeLendsSection({
                   photoPosition={item.photoPosition}
                   creditKind={lendPriceCreditKind}
                   defaultShippingGroupIds={defaultShippingGroupIds}
+                  blockEvaluationValidation={blockEvaluationValidation}
+                  pendingShippingItemIds={mergedShippingCandidateIds}
+                  shipmentsSplit={shipmentsSplit}
                 />
               </div>
             ))}
-          </div>
-        ) : null}
-
-        {lendsAfterShipping.length > 0 ? (
-          <div className="-mx-5 divide-y-[1px] divide-zinc-200">
             {lendsAfterShipping.map((item) => (
               <div key={item.id} className="px-5 py-2">
                 <ExchangeLendItemRow
@@ -193,6 +200,9 @@ export function ExchangeLendsSection({
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
                   creditKind={lendPriceCreditKind}
+                  blockEvaluationValidation={blockEvaluationValidation}
+                  pendingShippingItemIds={mergedShippingCandidateIds}
+                  shipmentsSplit={shipmentsSplit}
                 />
               </div>
             ))}
@@ -200,16 +210,11 @@ export function ExchangeLendsSection({
         ) : null}
 
         <div className="flex justify-end rounded-xl py-0.5">
-          <Link
-            href="/items/new?fresh=1"
-            className={cn(
-              "segna-guidance-shimmer-target inline-flex h-9 w-fit items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900",
-              guideExchangeOnboarding && "segna-guidance-shimmer-active",
-            )}
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.5} />
-            Proposer une pièce
-          </Link>
+          <ExchangeProposePieceButton
+            guideExchangeOnboarding={guideExchangeOnboarding}
+            pendingShippingItemIds={mergedShippingCandidateIds}
+            shipmentsSplit={shipmentsSplit}
+          />
         </div>
       </CardBase>
     </SectionBlock>

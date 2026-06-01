@@ -11,6 +11,10 @@ const montserrat = segnaMontserrat;
 const montserratItalic = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
+import {
+  isItemCreateRelaxedMode,
+  ITEM_CREATE_RELAXED_MIN_PHOTOS,
+} from "@/lib/items/item-create-relaxed-mode";
 import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
 import { Input } from "@/components/ui/Input";
@@ -376,21 +380,25 @@ export default function NewItemPage() {
 
   const showSizeLink = Boolean(categoryId && categorySizeScope && categorySizeScope !== "none");
 
-  const hasMinPhotos = filledPhotosCount >= MIN_ITEM_PHOTOS;
+  const isRelaxedCreate = isItemCreateRelaxedMode(itemTitle);
+  const effectiveMinPhotos = isRelaxedCreate ? ITEM_CREATE_RELAXED_MIN_PHOTOS : MIN_ITEM_PHOTOS;
+  const hasMinPhotos = filledPhotosCount >= effectiveMinPhotos;
   const hasCondition = Boolean(infoDraft.condition?.trim());
   const sizeStepOk =
     Boolean(categoryId) && (!showSizeLink || Boolean(sizeId));
-  const requiredChecks = [
-    itemTitle.trim().length > 0,
-    description.trim().length > 0,
-    hasMinPhotos,
-    Boolean(categoryId),
-    Boolean(brandId) && (!brandNeedsCustomLabel || Boolean(infoDraft.customBrandLabel?.trim())),
-    hasCondition,
-    Boolean(colorId),
-    Boolean(materialsId),
-    sizeStepOk,
-  ];
+  const requiredChecks = isRelaxedCreate
+    ? [itemTitle.trim().length > 0]
+    : [
+        itemTitle.trim().length > 0,
+        description.trim().length > 0,
+        hasMinPhotos,
+        Boolean(categoryId),
+        Boolean(brandId) && (!brandNeedsCustomLabel || Boolean(infoDraft.customBrandLabel?.trim())),
+        hasCondition,
+        Boolean(colorId),
+        Boolean(materialsId),
+        sizeStepOk,
+      ];
   const completionScore = Math.round((requiredChecks.filter(Boolean).length / requiredChecks.length) * 100);
 
   const infoIds = {
@@ -1734,6 +1742,11 @@ export default function NewItemPage() {
                 "h-auto rounded-none border-0 border-b border-zinc-900 bg-transparent px-0 pb-3 pt-0 text-[30px] font-extrabold italic leading-none placeholder:italic placeholder:text-zinc-900 focus:border-b-2",
               )}
             />
+            {isRelaxedCreate ? (
+              <p className={cn(montserrat.className, "text-[12px] font-medium text-amber-700")}>
+                Mode test : seul le titre est requis (photos et infos optionnels).
+              </p>
+            ) : null}
           </section>
 
           <section className="space-y-4">
@@ -1836,7 +1849,7 @@ export default function NewItemPage() {
                   }}
                   className={cn(
                     "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
-                    index < MIN_ITEM_PHOTOS ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
+                    index < effectiveMinPhotos ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
                     dragOverIndex === index ? "border-zinc-900 bg-zinc-100" : "",
                     slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
                     draggingIndex === index ? "opacity-30" : "",
@@ -1896,7 +1909,9 @@ export default function NewItemPage() {
             <div className="space-y-1">
               <p className={cn(montserrat.className, "text-[14px] italic text-zinc-400")}>Fais glisser une photo pour réorganiser l&apos;ordre.</p>
               <p className={cn(montserrat.className, "-mt-0.5 text-[14px] font-bold leading-none text-zinc-700")}>
-                Ajoute {MIN_ITEM_PHOTOS} à {MAX_ITEM_PHOTOS} photos
+                {isRelaxedCreate
+                  ? `Photos optionnelles (jusqu'à ${MAX_ITEM_PHOTOS})`
+                  : `Ajoute ${MIN_ITEM_PHOTOS} à ${MAX_ITEM_PHOTOS} photos`}
               </p>
             </div>
           </section>

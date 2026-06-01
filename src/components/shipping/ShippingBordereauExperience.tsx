@@ -11,16 +11,21 @@ import {
 } from "@/components/shipping/IntakeShippingExpeditionSection";
 import {
   buildIntakeExpandShippingHref,
+  buildIntakeShippingPageHrefFromIds,
   type IntakeShippingOptionsSnapshot,
+  parseItemIdsFromIntakeShippingPageHref,
   readIntakePiggybackFromMetadata,
   SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK,
 } from "@/lib/items/intake-cart-return-piggyback";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { parseIntakeReturnPortalFromRows } from "@/lib/items/member-intake-return-portal";
+import { resolveActiveMemberIntakeShipmentIdForItems } from "@/lib/items/member-intake-shipment";
 import {
   isIntakeMemberReturnTrackingNumber,
   parseIntakeShippingLabelFromMetadata,
   parseSendcloudFromIntakeMetadata,
   readMemberIntakeShipmentIdFromMetadata,
+  readShippingPreferSolo,
 } from "@/lib/items/intake-shipping-metadata";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
@@ -124,15 +129,56 @@ export function ShippingBordereauExperience({
     trackingNumber: string | null;
     trackingHref: string | null;
   } | null>(null);
+  const [memberIntakeShipmentActive, setMemberIntakeShipmentActive] = useState(false);
   const [newBordereauShimmer, setNewBordereauShimmer] = useState(false);
   const [ungroupPhase, setUngroupPhase] = useState<"idle" | "saving">("idle");
+  const [groupPhase, setGroupPhase] = useState<"idle" | "saving">("idle");
 
   const isShipmentUrlGrouped = itemIds.length >= 2;
+  const groupingSectionCopy = useMemo(() => {
+    if (isShipmentUrlGrouped) {
+      return {
+        sectionTitle: "Séparer tes envois",
+        blockTitle: "Envoi groupé",
+        description:
+          "Ces pièces partagent un seul bordereau et un seul colis. Tu peux les séparer si tu préfères un envoi distinct par pièce.",
+      };
+    }
+    const peers = shippingOptions?.other_intake_shipping_peers ?? [];
+    const currentSet = new Set(itemIds);
+    const extraPeers = peers.filter((p) => !currentSet.has(p.id));
+    if (extraPeers.length > 0) {
+      return {
+        sectionTitle: "Mutualiser tes envois",
+        blockTitle: "Une autre pièce au prêt",
+        description:
+          "Tu peux la regrouper avec la tienne et les envoyer dans un seul colis vers Segna.",
+      };
+    }
+    return {
+      sectionTitle: "Mutualiser tes envois",
+      blockTitle: "Une autre pièce au prêt",
+      description:
+        "Tu peux en ajouter une et l’envoyer avec celle-ci dans un seul colis vers Segna (2 pièces max).",
+    };
+  }, [isShipmentUrlGrouped, itemIds, shippingOptions?.other_intake_shipping_peers]);
   const expandShippingHref = useMemo(() => {
     const peers = shippingOptions?.other_intake_shipping_peers ?? [];
     if (!isShipmentUrlGrouped || peers.length === 0) return null;
     return buildIntakeExpandShippingHref(itemIds, peers.map((p) => p.id));
   }, [isShipmentUrlGrouped, itemIds, shippingOptions?.other_intake_shipping_peers]);
+
+  const showNewPieceLink = useMemo(() => {
+    const peers = shippingOptions?.other_intake_shipping_peers ?? [];
+    const currentSet = new Set(itemIds);
+    const extraPeerCount = peers.filter((p) => !currentSet.has(p.id)).length;
+    const fulfillmentCount = shippingOptions?.default_shipping_group_ids?.length ?? 0;
+    if (fulfillmentCount >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) return false;
+    if (itemIds.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) return false;
+    // Pièce courante + peer déjà proposé (ex. segna_2) = lot complet à 2
+    if (itemIds.length + extraPeerCount >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) return false;
+    return true;
+  }, [shippingOptions?.default_shipping_group_ids, shippingOptions?.other_intake_shipping_peers, itemIds]);
 
   const itemIdsKey = itemIds.join(",");
   useEffect(() => {
@@ -149,66 +195,105 @@ export function ShippingBordereauExperience({
     setPiggybackPhase("idle");
     setPiggybackError(null);
     setMemberIntakeDbTracking(null);
+    setMemberIntakeShipmentActive(false);
     setNewBordereauShimmer(false);
   }, [itemIdsKey]);
 
   const headerRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(80);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
     if (itemIds.length === 0) {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
       return;
     }
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
     const supabase = createSupabaseBrowserClient() as any;
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
       return;
     }
 
-    const loaded: LoadedRow[] = [];
-    for (const id of itemIds) {
-      const { data: row } = await supabase
-        .from("items")
-        .select("id,title,item_intake(listing_stage,fulfillment_stage,metadata)")
-        .eq("id", id)
-        .eq("owner_user_id", user.id)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (!row) continue;
-      const r = row as Record<string, unknown>;
-      const rawIntake = r.item_intake as unknown;
-      const emb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
-      let intake: IntakeSnap | null = null;
-      if (emb && typeof emb === "object") {
-        const o = emb as Record<string, unknown>;
-        intake = {
-          listing_stage: typeof o.listing_stage === "string" ? o.listing_stage : null,
-          fulfillment_stage: typeof o.fulfillment_stage === "string" ? o.fulfillment_stage : null,
-          metadata: o.metadata ?? {},
-        };
+    const loadRows = async (): Promise<LoadedRow[]> => {
+      const loaded: LoadedRow[] = [];
+      for (const id of itemIds) {
+        const { data: row } = await supabase
+          .from("items")
+          .select("id,title,item_intake(listing_stage,fulfillment_stage,metadata)")
+          .eq("id", id)
+          .eq("owner_user_id", user.id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!row) continue;
+        const r = row as Record<string, unknown>;
+        const rawIntake = r.item_intake as unknown;
+        const emb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
+        let intake: IntakeSnap | null = null;
+        if (emb && typeof emb === "object") {
+          const o = emb as Record<string, unknown>;
+          intake = {
+            listing_stage: typeof o.listing_stage === "string" ? o.listing_stage : null,
+            fulfillment_stage: typeof o.fulfillment_stage === "string" ? o.fulfillment_stage : null,
+            metadata: o.metadata ?? {},
+          };
+        }
+        loaded.push({
+          id: String(r.id ?? id),
+          title: typeof r.title === "string" && r.title.trim() ? r.title.trim() : "Pièce",
+          intake,
+        });
       }
-      loaded.push({
-        id: String(r.id ?? id),
-        title: typeof r.title === "string" && r.title.trim() ? r.title.trim() : "Pièce",
-        intake,
-      });
-    }
-    setRows(loaded);
+      return loaded;
+    };
 
-    const memberShipId = loaded
+    let currentRows = silent ? rowsRef.current : await loadRows();
+    if (!silent) setRows(currentRows);
+
+    let memberShipId = currentRows
       .map((r) => readMemberIntakeShipmentIdFromMetadata(r.intake?.metadata ?? null))
       .find((id): id is string => Boolean(id));
-    if (memberShipId) {
+
+    if (itemIds.length > 0) {
+      try {
+        await fetch("/api/items/sendcloud/return-portal/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ item_ids: itemIds }),
+        });
+      } catch {
+        /* ignore */
+      }
+
+      const refreshed = await loadRows();
+      if (refreshed.length > 0) {
+        setRows(refreshed);
+        currentRows = refreshed;
+        memberShipId =
+          refreshed
+            .map((r) => readMemberIntakeShipmentIdFromMetadata(r.intake?.metadata ?? null))
+            .find((id): id is string => Boolean(id)) ?? memberShipId;
+      }
+    }
+
+    const activeShipId = await resolveActiveMemberIntakeShipmentIdForItems(
+      supabase,
+      itemIds,
+      memberShipId ?? null,
+    );
+    setMemberIntakeShipmentActive(Boolean(activeShipId));
+
+    if (activeShipId) {
       const { data: shipRow } = await supabase
         .from("shipments")
         .select("tracking_number, member_tracking_url")
-        .eq("id", memberShipId)
+        .eq("id", activeShipId)
+        .eq("context", "member_intake")
+        .is("deleted_at", null)
         .maybeSingle();
       setMemberIntakeDbTracking(
         resolveIntakeTrackingHref(
@@ -220,18 +305,7 @@ export function ShippingBordereauExperience({
       setMemberIntakeDbTracking(null);
     }
 
-    if (loaded.length > 0) {
-      try {
-        await fetch("/api/items/sendcloud/return-portal/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ item_ids: itemIds }),
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-    setIsLoading(false);
+    if (!silent) setIsLoading(false);
   }, [itemIds]);
 
   const fetchShippingOptions = useCallback(async () => {
@@ -349,6 +423,7 @@ export function ShippingBordereauExperience({
         setAutoError("Nouveau bordereau impossible pour le moment.");
         return;
       }
+      setMemberIntakeDbTracking(null);
       generationAbortRef.current?.abort();
       const ac = new AbortController();
       generationAbortRef.current = ac;
@@ -391,6 +466,59 @@ export function ShippingBordereauExperience({
     setUngroupPhase("idle");
   }, [itemIds, router]);
 
+  const handleGroupShipment = useCallback(async () => {
+    const fromRegroup = [...(shippingOptions?.regroup_target_item_ids ?? [])]
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    const fromHref = parseItemIdsFromIntakeShippingPageHref(shippingOptions?.merge_intake_shipping_href);
+    const groupIds =
+      fromRegroup.length >= 2
+        ? fromRegroup
+        : fromHref.length >= 2
+          ? fromHref
+          : [...(shippingOptions?.default_shipping_group_ids ?? [])]
+              .map((id) => id.trim())
+              .filter(Boolean)
+              .sort((a, b) => a.localeCompare(b));
+    if (groupIds.length < 2) return;
+    setGroupPhase("saving");
+    setAutoError(null);
+    try {
+      const res = await fetch("/api/items/shipping/ack-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ item_ids: groupIds }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        item_ids?: string[];
+      };
+      if (!res.ok || data.ok === false) {
+        setAutoError(data.error ?? "Regroupement impossible pour le moment.");
+        setGroupPhase("idle");
+        return;
+      }
+      const redirectIds = (
+        Array.isArray(data.item_ids) && data.item_ids.length >= 2 ? data.item_ids : groupIds
+      )
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      router.replace(buildIntakeShippingPageHrefFromIds(redirectIds));
+      router.refresh();
+    } catch {
+      setAutoError("Regroupement impossible pour le moment.");
+    }
+    setGroupPhase("idle");
+  }, [
+    router,
+    shippingOptions?.default_shipping_group_ids,
+    shippingOptions?.merge_intake_shipping_href,
+    shippingOptions?.regroup_target_item_ids,
+  ]);
+
   const piggybackActive =
     shippingOptions?.shipping_mode === SC_SHIPPING_MODE_CART_RETURN_PIGGYBACK &&
     Boolean(shippingOptions.piggyback?.cart_id);
@@ -413,8 +541,15 @@ export function ShippingBordereauExperience({
     if (memberIntakeDbTracking?.trackingNumber || memberIntakeDbTracking?.trackingHref) {
       return memberIntakeDbTracking;
     }
+    if (memberIntakeShipmentActive) {
+      const soloSplitAwaitingLabel = rows.some((r) => readShippingPreferSolo(r.intake?.metadata ?? null));
+      if (!soloSplitAwaitingLabel && isIntakeMemberReturnTrackingNumber(intakeLabelTracking.trackingNumber)) {
+        return intakeLabelTracking;
+      }
+      return { trackingNumber: null, trackingHref: null };
+    }
     return intakeLabelTracking;
-  }, [memberIntakeDbTracking, intakeLabelTracking]);
+  }, [memberIntakeDbTracking, intakeLabelTracking, memberIntakeShipmentActive, rows]);
 
   const returnCreated = useMemo(
     () => isIntakeMemberReturnTrackingNumber(prepareTracking.trackingNumber),
@@ -542,8 +677,13 @@ export function ShippingBordereauExperience({
       return;
     }
 
+    if (isIntakeMemberReturnTrackingNumber(memberIntakeDbTracking?.trackingNumber)) {
+      setAutoPhase("done");
+      return;
+    }
+
     if (
-      isIntakeMemberReturnTrackingNumber(memberIntakeDbTracking?.trackingNumber) ||
+      !memberIntakeShipmentActive &&
       curRows.some((r) => {
         const meta = parseIntakeShippingLabelFromMetadata(r.intake?.metadata ?? null);
         return isIntakeMemberReturnTrackingNumber(meta?.numero_suivi);
@@ -568,9 +708,14 @@ export function ShippingBordereauExperience({
 
     const sessionKey = portalSessionKey(itemIds);
     try {
+      const { portalReady: sessionPortalReady, portalExpired: sessionPortalExpired } =
+        pickPortalFromRows(curRows);
       if (sessionStorage.getItem(sessionKey) === "1") {
-        setAutoPhase("skipped");
-        return;
+        if (sessionPortalReady && !sessionPortalExpired) {
+          setAutoPhase("skipped");
+          return;
+        }
+        sessionStorage.removeItem(sessionKey);
       }
       sessionStorage.setItem(sessionKey, "1");
     } catch {
@@ -584,7 +729,7 @@ export function ShippingBordereauExperience({
     return () => {
       ac.abort();
     };
-  }, [isLoading, optionsLoading, itemIdsKey, runPortalStart, piggybackActive, expeditionMode, memberIntakeDbTracking?.trackingNumber]);
+  }, [isLoading, optionsLoading, itemIdsKey, runPortalStart, piggybackActive, expeditionMode, memberIntakeDbTracking?.trackingNumber, memberIntakeShipmentActive]);
 
   useLayoutEffect(() => {
     const el = headerRef.current;
@@ -608,6 +753,36 @@ export function ShippingBordereauExperience({
     [rows],
   );
   const inVerification = intake?.fulfillment_stage === "in_verification";
+
+  const awaitingReturnTracking = useMemo(() => {
+    if (isLoading || optionsLoading || expeditionMode || piggybackActive) return false;
+    if (returnCreated) return false;
+    const { portalReady, portalExpired: expired, labelUrl: portalLabelUrl } = pickPortalFromRows(rows);
+    if (portalLabelUrl?.startsWith("http")) return false;
+    return (portalReady && !expired) || Boolean(portalUrl?.trim());
+  }, [
+    isLoading,
+    optionsLoading,
+    expeditionMode,
+    piggybackActive,
+    returnCreated,
+    rows,
+    portalUrl,
+  ]);
+
+  useEffect(() => {
+    if (!awaitingReturnTracking) return;
+    const poll = () => void fetchData({ silent: true });
+    const interval = window.setInterval(poll, 4000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [awaitingReturnTracking, fetchData]);
 
   const requestHelp = useCallback(async (message = "") => {
     setHelpPhase("sending");
@@ -644,7 +819,12 @@ export function ShippingBordereauExperience({
     if (piggybackActive) {
       return "Tu envoies ta pièce avec le retour d’un échange en cours.";
     }
-    if (returnCreated) return "Ton retour est enregistré.";
+    if (returnCreated) {
+      const names = rows.map((r) => r.title.trim()).filter(Boolean);
+      if (names.length === 1) return `Expédie ${names[0]}`;
+      if (names.length > 1) return `Expédie ${names.join(", ")}`;
+      return "Expédie ma pièce";
+    }
     if (labelHref) return "Ton étiquette retour est prête.";
     if (showPortalExpired) return "Ton accès au portail a expiré.";
     if (showPortalCta) return "Imprime ton bordereau d’envoi sur le portail Sendcloud.";
@@ -654,7 +834,7 @@ export function ShippingBordereauExperience({
     if (autoPhase === "failed") return "Une action est nécessaire.";
     if (autoPhase === "skipped") return "Ouvre le portail pour créer ton étiquette retour.";
     return "Envoi en préparation.";
-  }, [isLoading, expeditionMode, piggybackActive, returnCreated, labelHref, showPortalCta, showPortalExpired, portalHref, inVerification, autoPhase]);
+  }, [isLoading, expeditionMode, piggybackActive, returnCreated, labelHref, showPortalCta, showPortalExpired, portalHref, inVerification, autoPhase, rows]);
 
   const prepareHint = useMemo(() => {
     if (isLoading) return "Chargement…";
@@ -764,8 +944,8 @@ export function ShippingBordereauExperience({
             <IntakeShippingExpeditionSection
               statusLine={
                 piggybackActive
-                  ? "Colis retour déposé, ta pièce est avec lui jusqu’à Segna."
-                  : "Colis déposé, en route vers Segna."
+                  ? "Ta pièce voyage avec ton retour d’échange jusqu’à Segna."
+                  : "En route vers Segna."
               }
               detailLine={
                 piggybackActive && shippingOptions?.piggyback
@@ -1065,7 +1245,7 @@ export function ShippingBordereauExperience({
         {!piggybackActive && !expeditionMode ? (
         <section className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-8">
           <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
-            Mutualiser tes envois
+            {groupingSectionCopy.sectionTitle}
           </h2>
           {optionsLoading ? (
             <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium text-zinc-500")}>Chargement…</p>
@@ -1073,12 +1253,13 @@ export function ShippingBordereauExperience({
             <div className="mt-5 space-y-8">
               <div>
                 <h3 className={cn(playfair.className, "text-[17px] font-bold text-zinc-900")}>
-                  Plusieurs pièces au prêt
+                  {groupingSectionCopy.blockTitle}
                 </h3>
                 <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
-                  Tu peux proposer d’autres pièces et les envoyer ensemble dans un seul colis vers Segna.
+                  {groupingSectionCopy.description}
                 </p>
-                {(shippingOptions?.other_intake_shipping_peers?.length ?? 0) > 0 ? (
+                {!isShipmentUrlGrouped &&
+                (shippingOptions?.other_intake_shipping_peers?.length ?? 0) > 0 ? (
                   <ul className={cn(montserrat.className, "mt-3 space-y-1.5 text-[14px] font-medium text-zinc-700")}>
                     {shippingOptions!.other_intake_shipping_peers.map((peer) => (
                       <li key={peer.id}>· {peer.title}</li>
@@ -1087,21 +1268,33 @@ export function ShippingBordereauExperience({
                 ) : null}
                 <div className={cn(montserrat.className, "mt-4 flex flex-col gap-2.5")}>
                   {isShipmentUrlGrouped ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleUngroupShipment()}
-                      disabled={ungroupPhase === "saving"}
-                      className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {ungroupPhase === "saving" ? "Séparation…" : "Séparer les envois"}
-                    </button>
+                    <div className={cn(ungroupPhase === "saving" && "segna-guidance-shimmer-active")}>
+                      <button
+                        type="button"
+                        onClick={() => void handleUngroupShipment()}
+                        disabled={ungroupPhase === "saving"}
+                        className={cn(
+                          montserrat.className,
+                          "segna-guidance-shimmer-target relative z-0 flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 transition disabled:cursor-not-allowed disabled:opacity-50",
+                        )}
+                      >
+                        {ungroupPhase === "saving" ? "Séparation…" : "Séparer les envois"}
+                      </button>
+                    </div>
                   ) : shippingOptions?.merge_intake_shipping_href ? (
-                    <Link
-                      href={shippingOptions.merge_intake_shipping_href}
-                      className="flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900"
-                    >
-                      Regrouper dans un seul envoi
-                    </Link>
+                    <div className={cn(groupPhase === "saving" && "segna-guidance-shimmer-active")}>
+                      <button
+                        type="button"
+                        onClick={() => void handleGroupShipment()}
+                        disabled={groupPhase === "saving"}
+                        className={cn(
+                          montserrat.className,
+                          "segna-guidance-shimmer-target relative z-0 flex h-12 w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-900 transition disabled:cursor-not-allowed disabled:opacity-50",
+                        )}
+                      >
+                        {groupPhase === "saving" ? "Regroupement…" : "Regrouper dans un seul envoi"}
+                      </button>
+                    </div>
                   ) : null}
                   {expandShippingHref ? (
                     <Link
@@ -1111,12 +1304,14 @@ export function ShippingBordereauExperience({
                       Ajouter une pièce à cet envoi
                     </Link>
                   ) : null}
-                  <Link
-                    href="/items/new?fresh=1"
-                    className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
-                  >
-                    Nouvelle pièce
-                  </Link>
+                  {showNewPieceLink ? (
+                    <Link
+                      href="/items/new?fresh=1"
+                      className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+                    >
+                      Nouvelle pièce
+                    </Link>
+                  ) : null}
                 </div>
               </div>
 

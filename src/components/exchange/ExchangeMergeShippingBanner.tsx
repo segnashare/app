@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { SegnaDialogDismissButton, SegnaDialogTitleRow } from "@/components/ui/SegnaAppDialog";
 
 /**
@@ -16,7 +17,7 @@ export function ExchangeMergeShippingBanner({
   candidateIds: string[];
   mergeHref: string;
 }) {
-  const visible = candidateIds.length >= 2 && candidateIds.length <= 5;
+  const visible = candidateIds.length >= 2 && candidateIds.length <= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
   const [dismissed, setDismissed] = useState(false);
 
   if (!visible || dismissed) return null;

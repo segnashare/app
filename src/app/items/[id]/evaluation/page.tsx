@@ -25,7 +25,9 @@ import {
   type IntakeEvaluationExampleItem,
 } from "@/lib/items/intake-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { usePendingMemberIntakeShippingGate } from "@/lib/items/use-pending-member-intake-shipping-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import { cn } from "@/lib/utils/cn";
 
 type IntakeSnap = {
@@ -131,6 +133,14 @@ export default function ItemEvaluationAnalysisPage() {
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [valorisationExplainOpen, setValorisationExplainOpen] = useState(false);
+  const [shippingGateOpen, setShippingGateOpen] = useState(false);
+
+  const lsForGate = intake?.listing_stage?.toLowerCase() ?? "";
+  const {
+    blocked: shippingGateBlocked,
+    pendingItemIds: pendingShippingItemIds,
+    shipmentsSplit,
+  } = usePendingMemberIntakeShippingGate(lsForGate === "validation_pending");
 
   const headerRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(80);
@@ -211,6 +221,10 @@ export default function ItemEvaluationAnalysisPage() {
 
   const handleAcceptOffer = useCallback(async () => {
     if (!itemId) return;
+    if (shippingGateBlocked) {
+      setShippingGateOpen(true);
+      return;
+    }
     setActionError(null);
     setIsAccepting(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
@@ -223,7 +237,7 @@ export default function ItemEvaluationAnalysisPage() {
     }
     await fetchData();
     router.push(`/items/${itemId}`);
-  }, [itemId, router, fetchData]);
+  }, [itemId, router, fetchData, shippingGateBlocked]);
 
   const handleRefuseOffer = useCallback(async () => {
     if (!itemId) return;
@@ -598,6 +612,14 @@ export default function ItemEvaluationAnalysisPage() {
         </footer>
       ) : null}
 
+      <IntakePendingShippingGateModal
+        open={shippingGateOpen}
+        onClose={() => setShippingGateOpen(false)}
+        purpose="validate_evaluation"
+        pendingItemIds={pendingShippingItemIds}
+        shipmentsSplit={shipmentsSplit}
+      />
+
       {valorisationExplainOpen ? (
         <div
           className="fixed inset-0 z-[70] flex flex-col justify-end bg-black/40"
@@ -621,7 +643,7 @@ export default function ItemEvaluationAnalysisPage() {
                 de dommage important sur ta pièce&nbsp;;
               </li>
               <li>
-                <strong className="font-semibold text-zinc-900">la valeur d&apos;échange d&apos;entrée</strong>,
+                <strong className="font-semibold text-zinc-900">la valeur d&apos;échange</strong>,
                 exprimée en <strong className="font-semibold text-zinc-900">points</strong>, qui correspond à ce que
                 ta pièce &quot;vaut&quot; dans le{" "}
                 <strong className="font-semibold text-zinc-900">catalogue</strong> pour calculer ta capacité à
@@ -654,7 +676,7 @@ export default function ItemEvaluationAnalysisPage() {
               Une valeur d&apos;échange qui vit avec le dressing
             </h3>
             <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              <strong className="font-semibold text-zinc-900">La valeur d&apos;échange d&apos;entrée</strong> peut
+              <strong className="font-semibold text-zinc-900">La valeur d&apos;échange</strong> peut
               ensuite <strong className="font-semibold text-zinc-900">évoluer dans le temps</strong> en fonction de la
               demande pour ta pièce, de la saison ou de l&apos;évolution de son état, pour refléter au mieux sa place
               réelle dans le <strong className="font-semibold text-zinc-900">dressing partagé</strong>.

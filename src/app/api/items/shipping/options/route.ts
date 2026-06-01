@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { fetchIntakeShippingOptions } from "@/lib/items/intake-cart-return-piggyback";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -11,8 +12,11 @@ function parseItemIds(searchParams: URLSearchParams): string[] {
 
 export async function GET(request: Request) {
   const itemIds = parseItemIds(new URL(request.url).searchParams);
-  if (itemIds.length < 1 || itemIds.length > 5) {
-    return NextResponse.json({ ok: false as const, error: "Entre 1 et 5 pièces requises." }, { status: 400 });
+  if (itemIds.length < 1 || itemIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return NextResponse.json(
+      { ok: false as const, error: `Entre 1 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises.` },
+      { status: 400 },
+    );
   }
 
   const supabase = await createSupabaseServerClient();

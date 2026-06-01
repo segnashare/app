@@ -18,9 +18,6 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   degrade: "Dégradé",
 };
 
-/** Aligné sur les cadres fiche / skeleton (`aspect-[3/4]`). Évite un chargement d’image par slot pour mesurer le ratio. */
-const DEFAULT_SLOT_IMAGE_RATIO = 3 / 4;
-
 function getPhotoEntriesFromJson(photosRaw: unknown): Array<Record<string, unknown>> {
   if (!photosRaw || typeof photosRaw !== "object") return [];
   const photos = photosRaw as Record<string, unknown>;
@@ -212,7 +209,6 @@ export async function fetchItemDetailPayloadForUser(
       dataUrl: previewUrl,
       offset: { x: offsetX, y: offsetY },
       zoom,
-      imageRatio: DEFAULT_SLOT_IMAGE_RATIO,
     };
   });
 

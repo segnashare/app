@@ -5,7 +5,7 @@ import { Flag, Ban, Ellipsis, UserRound, X } from "lucide-react";
 
 import { CardBase } from "@/components/layout/CardBase";
 import type { ItemInfoCardData } from "@/components/item/ItemInfoCard";
-import { ItemViewView } from "@/components/item/ItemViewView";
+import { ItemViewView, type ItemViewSlot } from "@/components/item/ItemViewView";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { useProfileViewData } from "@/components/profile/useProfileViewData";
 import type { ProfileViewData } from "@/components/profile/ProfileView";
@@ -91,16 +91,6 @@ function parsePhotoEntriesFromItemPhotos(raw: unknown): Array<Record<string, unk
     .map(([, value]) => value as Record<string, unknown>);
 }
 
-/** Même convention que `fetchItemDetailDataForOwner` / `PhotoPositionEditor` (cadrage BO). */
-function getImageRatioFromUrl(url: string) {
-  return new Promise<number>((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img.width > 0 && img.height > 0 ? img.width / img.height : 1);
-    img.onerror = () => resolve(1);
-    img.src = url;
-  });
-}
-
 function FeedProfileVisualization({ profileUserId, displayName }: { profileUserId: string; displayName: string }) {
   const { data, isLoading } = useProfileViewData(profileUserId, displayName);
   return <ProfileView mode="vue_etrangere" data={data as ProfileViewData | null} isLoading={isLoading} />;
@@ -129,7 +119,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
   const [isDisliking, setIsDisliking] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [availableLikeModalOpen, setAvailableLikeModalOpen] = useState(false);
-  const [itemSlotsById, setItemSlotsById] = useState<Record<string, Array<{ dataUrl: string; offset: { x: number; y: number }; zoom: number; imageRatio: number } | null>>>({});
+  const [itemSlotsById, setItemSlotsById] = useState<Record<string, Array<ItemViewSlot | null>>>({});
   const itemSlotsLoadingRef = useRef<Set<string>>(new Set());
 
   const currentCard = cards[index] ?? null;
@@ -187,14 +177,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
       if (itemSlotsLoadingRef.current.has(card.id)) return;
       itemSlotsLoadingRef.current.add(card.id);
       const entries = parsePhotoEntriesFromItemPhotos(card.rawPhotos).slice(0, 6);
-      const emptySlots: Array<{ dataUrl: string; offset: { x: number; y: number }; zoom: number; imageRatio: number } | null> = [
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-      ];
+      const emptySlots: Array<ItemViewSlot | null> = [null, null, null, null, null, null];
 
       const resolveEntry = async (entry: Record<string, unknown>, indexEntry: number) => {
           const storagePathRaw = entry.storage_path ?? entry.storagePath ?? entry.url ?? entry.photo_url ?? entry.photoUrl;
@@ -215,12 +198,10 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
           const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
           const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
           const zoom = typeof positionRaw?.zoom === "number" ? positionRaw.zoom : 1;
-          const imageRatio = await getImageRatioFromUrl(signedUrl);
-          const resolvedSlot = {
+          const resolvedSlot: ItemViewSlot = {
             dataUrl: signedUrl,
             offset: { x: offsetX, y: offsetY },
             zoom,
-            imageRatio,
           };
           setItemSlotsById((previous) => {
             const nextSlots = previous[card.id] ? [...previous[card.id]] : [...emptySlots];

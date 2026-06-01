@@ -152,7 +152,7 @@ export type FetchShopFeaturedLendersOptions = {
 
 /**
  * Jusqu’à N membres avec au moins une photo de profil (looks ou photos).
- * Aucune pièce prêtée requise. Compléter côté page avec des factices via mergeFeaturedLendersReplacingFaux.
+ * Aucune pièce prêtée requise.
  */
 export async function fetchShopFeaturedLendersWithProfilePhotos(
   options: FetchShopFeaturedLendersOptions,

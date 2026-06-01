@@ -31,9 +31,9 @@ export function segnaDialogBodyClass(className?: string) {
 export const SEGNA_DIALOG_CARD_CLASS =
   "w-full max-w-[400px] rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl";
 
-/** Feuille du bas (poignée optionnelle au-dessus). */
+/** Feuille du bas (poignée `SegnaDialogSheetHandle` — pas de border-top pour éviter un double trait). */
 export const SEGNA_DIALOG_SHEET_CLASS =
-  "max-h-[85dvh] overflow-y-auto rounded-t-2xl border border-zinc-200 border-b-0 bg-white px-5 pb-8 pt-3 shadow-xl";
+  "max-h-[85dvh] overflow-y-auto rounded-t-2xl border-x border-zinc-200 bg-white px-5 pb-8 pt-3 shadow-xl";
 
 export function SegnaDialogTitleRow({
   id,

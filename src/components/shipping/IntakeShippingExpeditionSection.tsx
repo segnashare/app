@@ -18,24 +18,7 @@ export type IntakeShippingExpeditionSectionProps = {
   returnHref?: string | null;
 };
 
-function buildMondialRelayTrackingUrl(trackingNumber: string): string {
-  return `https://www.mondialrelay.com/suivi-de-colis/?code=${encodeURIComponent(trackingNumber.trim())}`;
-}
-
-export function resolveIntakeTrackingHref(
-  trackingNumber: string | null | undefined,
-  trackingUrl: string | null | undefined,
-): { trackingNumber: string | null; trackingHref: string | null } {
-  const num = typeof trackingNumber === "string" ? trackingNumber.trim() : "";
-  const url = typeof trackingUrl === "string" ? trackingUrl.trim() : "";
-  if (url.startsWith("http")) {
-    return { trackingNumber: num || null, trackingHref: url };
-  }
-  if (num) {
-    return { trackingNumber: num, trackingHref: buildMondialRelayTrackingUrl(num) };
-  }
-  return { trackingNumber: null, trackingHref: null };
-}
+export { resolveIntakeMemberTrackingHref as resolveIntakeTrackingHref } from "@/lib/shipping/intake-carrier-tracking";
 
 /**
  * Bloc expédition intake membre → Segna (œil Segna, suivi, CTA).
@@ -52,7 +35,7 @@ export function IntakeShippingExpeditionSection({
     <section
       className={cn(
         segnaMontserrat.className,
-        "flex flex-col items-center px-5 pb-8 pt-4 text-center",
+        "flex flex-1 flex-col items-center gap-14 px-5 pb-16 pt-16 text-center",
       )}
       aria-label="Suivi expédition"
     >
@@ -61,10 +44,10 @@ export function IntakeShippingExpeditionSection({
         alt=""
         width={480}
         height={480}
-        className="mx-auto h-auto w-full max-h-[160px] max-w-[200px] object-contain"
+        className="mx-auto h-auto w-full max-h-[180px] max-w-[220px] object-contain"
         priority
       />
-      <div className="mt-4 max-w-[22rem] space-y-2">
+      <div className="max-w-[22rem] space-y-4">
         <p className="text-[15px] font-medium leading-snug text-zinc-900">{statusLine}</p>
         {detailLine ? (
           <p className="text-[14px] leading-relaxed text-zinc-600">{detailLine}</p>
@@ -100,7 +83,7 @@ export function IntakeShippingExpeditionSection({
           rel="noopener noreferrer"
           className={cn(
             segnaMontserrat.className,
-            "mt-6 flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-zinc-900 text-[15px] font-bold text-white",
+            "flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-zinc-900 text-[15px] font-bold text-white",
           )}
         >
           Suivre le colis
@@ -110,7 +93,7 @@ export function IntakeShippingExpeditionSection({
       {piggybackOrderCompact && returnHref ? (
         <Link
           href={returnHref}
-          className="mt-4 text-[14px] font-semibold text-zinc-600 underline underline-offset-2 hover:text-zinc-900"
+          className="mt-6 text-[14px] font-semibold text-zinc-600 underline underline-offset-2 hover:text-zinc-900"
         >
           Retour échange {piggybackOrderCompact}
         </Link>

@@ -125,7 +125,8 @@ export function CartPanierLineRows({
               <article
                 className={cn(
                   "relative grid w-full items-center gap-1 px-5",
-                  exchangeUiCalm ? "grid-cols-[78px_minmax(0,50%)_auto] py-1.5" : "grid-cols-[100px_minmax(0,50%)_auto] py-3",
+                  "grid-cols-[100px_minmax(0,50%)_auto]",
+                  exchangeUiCalm ? "py-2" : "py-3",
                 )}
               >
                 <Link
@@ -139,13 +140,12 @@ export function CartPanierLineRows({
                     <RemoteCoverThumb
                       photoUrl={line.photoUrl}
                       photoPosition={line.photoPosition}
-                      frameClassName={cn("aspect-square shrink-0 rounded-md", exchangeUiCalm ? "w-[78px]" : "w-[100px]")}
+                      frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
                     />
                   ) : (
                     <div
                       className={cn(
-                        "flex aspect-square shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
-                        exchangeUiCalm ? "w-[78px]" : "w-[100px]",
+                        "flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
                       )}
                     >
                       <ImageIcon className="h-7 w-7" aria-hidden />

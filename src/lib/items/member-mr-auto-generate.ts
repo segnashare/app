@@ -17,6 +17,7 @@ import { searchRelayPointsSoap } from "@/lib/mondial-relay/soap-point-relais-sea
 import type { MrPerson } from "@/lib/mondial-relay/shipment-xml";
 
 import { intakeAllowsShippingPreparation } from "@/lib/items/intake-fulfillment-stages";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { patchItemIntakeMondialRelayMetadata } from "@/lib/items/item-intake-mr-patch";
 import { mondialRelayDebugLog } from "@/lib/mondial-relay/mr-debug-log";
 
@@ -111,8 +112,12 @@ export async function runMemberMrAutoGenerate(
   | { ok: false; error: string; status: number; developerHint?: string }
 > {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  if (sortedIds.length < 1 || sortedIds.length > 5) {
-    return { ok: false, error: "Entre 1 et 5 pièces requises.", status: 400 };
+  if (sortedIds.length < 1 || sortedIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return {
+      ok: false,
+      error: `Entre 1 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises.`,
+      status: 400,
+    };
   }
 
   mrAutoLog("start", {

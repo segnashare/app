@@ -19,9 +19,9 @@ function internalShipmentNotifySecrets(): string[] {
 }
 
 /**
- * Après `transition_shipment_status` (back-office, ou trigger DB `member_intake` → `dropped_in` via pg_net).
+ * Après `transition_shipment_status` (back-office, ou trigger DB `member_intake` → `in_transit_out` via pg_net).
  * Déclenche e-mails et/ou SMS selon la transition (ex. livraison aller → récap e-mail + SMS).
- * `member_intake` / `dropped_in` : promotion `item_intake` côté trigger SQL ; cet endpoint envoie le SMS.
+ * `member_intake` / `dropped_out` : promotion intake shipping ; `in_transit_out` : SMS membre.
  * Rattrapage manuel : `{ "shipment_id", "from_status": "in_transit_in", "to_status": "delivered", "source": "manual" }`.
  *
  * Auth : `Authorization: Bearer` = `SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET` si défini, sinon le même secret que
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
         returnStatus: toStatus,
       });
     }
-    if (context === "member_intake" && toStatus.toLowerCase() === "dropped_in") {
+    if (context === "member_intake" && toStatus.toLowerCase() === "dropped_out") {
       await promoteIntakeItemsToShippingOnDummyShipmentDeposited(admin, shipmentId);
     }
   } catch (e) {

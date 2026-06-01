@@ -892,7 +892,7 @@ export function ShopCatalog({
     const q = mode === "section" ? "" : search.trim().toLowerCase();
     return initialItems.filter((item) => {
       if (heartsOnly && !likedSet.has(item.id)) return false;
-      if (disponiblesOnly && item.status !== "available") return false;
+      if (disponiblesOnly && item.status !== "available" && item.status !== "in_cart") return false;
       if (!itemMatchesFilters(item, filters, categories)) return false;
       if (!q) return true;
       const brand = (item.brand_label ?? "").toLowerCase();

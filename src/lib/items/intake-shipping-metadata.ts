@@ -1,6 +1,7 @@
 import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 
-/** Même contrainte que `/items/shipping` (1 à 5 UUID). */
+/** Même contrainte que `/items/shipping` (1 à 2 UUID). */
 export const SHIPPING_ITEM_ID_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -205,7 +206,7 @@ export function parseMrMergeItemIdsFromIntakeMetadata(metadata: unknown): string
 }
 
 /**
- * IDs à passer en query `ids` sur `/items/shipping` : si fusion BO (≥ 2 UUID valides), toutes les pièces du lot (+ l’item courant), triées, max 5.
+ * IDs à passer en query `ids` sur `/items/shipping` : si fusion BO (≥ 2 UUID valides), toutes les pièces du lot (+ l’item courant), triées, max 2.
  */
 export function parseScMergeItemIdsFromIntakeMetadata(metadata: unknown): string[] {
   if (metadata == null || typeof metadata !== "object" || Array.isArray(metadata)) return [];
@@ -259,7 +260,7 @@ export function resolveShippingItemIdsForLink(
   if (validMerge.length >= 2) {
     const set = new Set(validMerge);
     if (SHIPPING_ITEM_ID_UUID_RE.test(id)) set.add(id);
-    return [...set].sort().slice(0, 5);
+    return [...set].sort().slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
   }
 
   const defaultGroup = (defaultGroupIds ?? [])
@@ -267,10 +268,10 @@ export function resolveShippingItemIdsForLink(
     .filter((x) => SHIPPING_ITEM_ID_UUID_RE.test(x));
   const uniqueDefault = [...new Set(defaultGroup)].sort((a, b) => a.localeCompare(b));
   if (uniqueDefault.length >= 2 && uniqueDefault.includes(id)) {
-    return uniqueDefault.slice(0, 5);
+    return uniqueDefault.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
   }
 
-  return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : validMerge.slice(0, 5);
+  return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : validMerge.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
 }
 
 /** Valeur du paramètre `ids` (chaque id encodé, séparés par des virgules). */
@@ -316,27 +317,33 @@ export function dedupeIntakeBannerCandidatesForMergedShipping<T extends IntakeBa
   candidates: T[],
   defaultGroupIds?: string[] | null,
 ): T[] {
+  const prepareShipmentIds = new Set(
+    candidates
+      .filter((c) => intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage))
+      .map((c) => c.id),
+  );
+  if (prepareShipmentIds.size === 0) return candidates;
+
   const hideIds = new Set<string>();
   const leaderByGroup = new Map<string, string>();
 
   for (const c of candidates) {
-    if (!intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage)) continue;
+    if (!prepareShipmentIds.has(c.id)) continue;
     const group = resolveShippingItemIdsForLink(c.id, c.metadata, defaultGroupIds);
     if (group.length < 2) continue;
+
     const key = group.join(",");
-    if (!leaderByGroup.has(key)) leaderByGroup.set(key, group[0]!);
+    if (!leaderByGroup.has(key)) {
+      const visibleLeader = group.find((id) => prepareShipmentIds.has(id));
+      if (!visibleLeader) continue;
+      leaderByGroup.set(key, visibleLeader);
+    }
     const leader = leaderByGroup.get(key)!;
     if (c.id !== leader) hideIds.add(c.id);
   }
 
   if (hideIds.size === 0) return candidates;
-
-  return candidates.filter((c) => {
-    if (!hideIds.has(c.id)) return true;
-    const ls = String(c.listingStage ?? "").trim().toLowerCase();
-    if (ls !== "validated") return true;
-    return !intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage);
-  });
+  return candidates.filter((c) => !hideIds.has(c.id));
 }
 
 /** Retour portail Sendcloud créé (colis retour Chronopost / Mondial Relay). */

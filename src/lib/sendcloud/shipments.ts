@@ -214,10 +214,11 @@ export async function fetchSendcloudParcelV3(
   return null;
 }
 
-/** Tous les colis Sendcloud v3 rattachés à un `order_number` (plusieurs expéditions possibles). */
+/** Tous les colis Sendcloud v3 actifs rattachés à un `order_number` (hors annulés). */
 export async function findSendcloudParcelsByOrderNumberV3(
   env: SendcloudEnv,
   orderNumber: string,
+  options?: { includeCancelled?: boolean },
 ): Promise<SendcloudShipmentParcel[]> {
   const on = orderNumber.trim();
   if (!on) return [];
@@ -225,9 +226,11 @@ export async function findSendcloudParcelsByOrderNumberV3(
   const listed = await listSendcloudShipments(env, { orderNumber: on, pageSize: 40 });
   if (!listed.ok) return [];
 
+  const includeCancelled = options?.includeCancelled === true;
   const parcels: SendcloudShipmentParcel[] = [];
   for (const shipment of listed.shipments) {
     for (const parcel of shipment.parcels ?? []) {
+      if (!includeCancelled && isSendcloudParcelCancelled(parcel)) continue;
       parcels.push({ ...parcel, tracking_number: parcel.tracking_number ?? undefined });
     }
   }

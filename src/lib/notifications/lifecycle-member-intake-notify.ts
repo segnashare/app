@@ -26,7 +26,7 @@ function formatExchangeCreditsFragment(points: number | null): string {
   return `tu recevras tes ${n} crédits d'échange.`;
 }
 
-/** SMS membre : colis intake pris en charge (`member_intake` → `dropped_in`). */
+/** SMS membre : colis intake en route vers Segna (`member_intake` → `in_transit_out`). */
 export function buildMemberIntakeDroppedInSms(label: string, exchangeCredits: number | null): string {
   const piece = label.trim() || "Ta pièce";
   const credits = formatExchangeCreditsFragment(exchangeCredits);
@@ -69,8 +69,8 @@ async function loadMemberIntakeNotifyItems(
 }
 
 /**
- * SMS transactionnel quand l’expédition membre → Segna passe en `dropped_in`
- * (colis pris en charge transporteur après dépôt relais).
+ * SMS transactionnel quand l’expédition membre → Segna passe en `in_transit_out`
+ * (colis en route vers Segna après dépôt relais).
  */
 export async function notifyMemberIntakeDroppedInAfterTransition(
   admin: SupabaseClient,
@@ -78,7 +78,7 @@ export async function notifyMemberIntakeDroppedInAfterTransition(
 ): Promise<void> {
   const to = String(input.toStatus ?? "").toLowerCase();
   const from = String(input.fromStatus ?? "").toLowerCase();
-  if (to !== "dropped_in" || from === "dropped_in") return;
+  if (to !== "in_transit_out" || from === "in_transit_out") return;
 
   const items = await loadMemberIntakeNotifyItems(admin, input.shipmentId);
   if (!items.length) return;
@@ -87,7 +87,7 @@ export async function notifyMemberIntakeDroppedInAfterTransition(
     await sendMemberSmsOnlyNotification(admin, {
       userId: item.userId,
       kind: NotificationKind.memberIntakeDroppedIn,
-      idempotencyKey: `txn:lc:ship:${input.shipmentId}:member_intake_dropped_in:${item.itemId}`,
+      idempotencyKey: `txn:lc:ship:${input.shipmentId}:member_intake_in_transit_out:${item.itemId}`,
       metadata: {
         shipment_id: input.shipmentId,
         item_id: item.itemId,

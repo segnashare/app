@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
@@ -13,10 +13,15 @@ import {
   readLogisticsRefusalNote,
   resolveEvaluationCountdownStartMs,
 } from "@/lib/items/intake-metadata";
-import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
+import {
+  INTAKE_FULFILLMENT_SHIPPING,
+  intakeShowsPrepareShipmentCard,
+} from "@/lib/items/intake-fulfillment-stages";
 import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { usePendingMemberIntakeShippingGate } from "@/lib/items/use-pending-member-intake-shipping-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import {
   SEGNA_DIALOG_CARD_CLASS,
   SegnaDialogDismissButton,
@@ -104,6 +109,8 @@ function mergeIntakeTitleRight(onDismiss: (() => void) | undefined, existing: Re
 
 export type ItemIntakePanelProps = {
   itemId: string;
+  /** Titre affiché sur le CTA expédition (ex. « Expédie Robe noire »). */
+  itemTitle?: string | null;
   listingStage: string;
   fulfillmentStage: string | null;
   intakeMetadata: unknown;
@@ -125,6 +132,7 @@ export type ItemIntakePanelProps = {
 
 export function ItemIntakePanel({
   itemId,
+  itemTitle,
   listingStage,
   fulfillmentStage,
   intakeMetadata,
@@ -144,6 +152,17 @@ export function ItemIntakePanel({
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [isDeletingRefusedItem, setIsDeletingRefusedItem] = useState(false);
+  const [shippingGateOpen, setShippingGateOpen] = useState(false);
+  const needsShippingGate = listingStage === "validation_pending";
+  const {
+    blocked: shippingGateBlocked,
+    loading: shippingGateLoading,
+    pendingItemIds: pendingShippingItemIds,
+    shipmentsSplit,
+  } = usePendingMemberIntakeShippingGate(needsShippingGate);
+
+  const hideValidationPendingForShippingGate =
+    listingStage === "validation_pending" && (shippingGateLoading || shippingGateBlocked);
 
   const refusalText =
     readIntakeMetaString(intakeMetadata, INTAKE_META_REFUSAL_MESSAGE) ??
@@ -157,6 +176,16 @@ export function ItemIntakePanel({
 
   /** Bordereau / mutualisation : validated + `ready` (ou legacy `fulfillment_stage` null avant backfill). */
   const showFulfillment = intakeShowsPrepareShipmentCard(listingStage, fulfillmentStage);
+  const fulfillmentIsShipping =
+    String(fulfillmentStage ?? "").trim().toLowerCase() === INTAKE_FULFILLMENT_SHIPPING;
+
+  const shipItemLabel = useMemo(() => {
+    const t = itemTitle?.trim();
+    if (fulfillmentIsShipping) {
+      return t ? `Suivre ${t}` : "Suivre mon colis";
+    }
+    return t ? `Expédie ${t}` : "Expédie ma pièce";
+  }, [itemTitle, fulfillmentIsShipping]);
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;
@@ -165,7 +194,7 @@ export function ItemIntakePanel({
     showFulfillment ||
     isLogisticsRefused ||
     listingStage === "evaluation" ||
-    listingStage === "validation_pending" ||
+    (listingStage === "validation_pending" && !hideValidationPendingForShippingGate) ||
     listingStage === "evaluated" ||
     listingStage === "refused";
 
@@ -217,6 +246,10 @@ export function ItemIntakePanel({
   }, [itemId, router]);
 
   const handleAcceptOffer = useCallback(async () => {
+    if (shippingGateBlocked) {
+      setShippingGateOpen(true);
+      return;
+    }
     setActionError(null);
     setIsAccepting(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
@@ -229,7 +262,7 @@ export function ItemIntakePanel({
     }
     onPipelineUpdated();
     router.push(`/items/${itemId}`);
-  }, [itemId, onPipelineUpdated, router]);
+  }, [itemId, onPipelineUpdated, router, shippingGateBlocked]);
 
   const handleDeleteRefusedItem = useCallback(async () => {
     if (isDeletingRefusedItem) return;
@@ -357,35 +390,42 @@ export function ItemIntakePanel({
               id="intake-title-validation-pending-eval"
               title="Entrée au catalogue"
             />
-          <p className={segnaDialogBodyClass()}>
-            {pts != null
-              ? `${pts} points proposés : accepte ou refuse l’entrée au catalogue.`
-              : "Une entrée au catalogue t’est proposée : accepte ou refuse."}
-          </p>
-          {actionError ? <p className="text-[12px] text-[#E44D3E]">{actionError}</p> : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setActionError(null);
-                setRefuseConfirmOpen(true);
-              }}
-              disabled={isAccepting || isRefusing}
-              className="rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-zinc-800 disabled:opacity-50"
-            >
-              Refuser
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleAcceptOffer()}
-              disabled={isAccepting || isRefusing}
-              className="rounded-full bg-zinc-900 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
-            >
-              {isAccepting ? "…" : "Accepter"}
-            </button>
-          </div>
+            <p className={segnaDialogBodyClass()}>
+              {pts != null
+                ? `${pts} points proposés : accepte ou refuse l’entrée au catalogue.`
+                : "Une entrée au catalogue t’est proposée : accepte ou refuse."}
+            </p>
+            {actionError ? <p className="text-[12px] text-[#E44D3E]">{actionError}</p> : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setRefuseConfirmOpen(true);
+                }}
+                disabled={isAccepting || isRefusing}
+                className="rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-zinc-800 disabled:opacity-50"
+              >
+                Refuser
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAcceptOffer()}
+                disabled={isAccepting || isRefusing}
+                className="rounded-full bg-zinc-900 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+              >
+                {isAccepting ? "…" : "Accepter"}
+              </button>
+            </div>
           </div>
         </div>
+        <IntakePendingShippingGateModal
+          open={shippingGateOpen}
+          onClose={() => setShippingGateOpen(false)}
+          purpose="validate_evaluation"
+          pendingItemIds={pendingShippingItemIds}
+          shipmentsSplit={shipmentsSplit}
+        />
         {refuseConfirmOpen ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" role="presentation">
             <div
@@ -571,6 +611,11 @@ export function ItemIntakePanel({
   }
 
   if (showFulfillment) {
+    const shippingTitle = fulfillmentIsShipping ? "Expédition en cours" : "Préparer ton envoi";
+    const shippingBody = fulfillmentIsShipping
+      ? "Ton colis est en route vers Segna. Retrouve le suivi sur la page dédiée."
+      : "Retrouve le bordereau et le suivi sur la page dédiée.";
+
     return (
       <div
         role="region"
@@ -584,19 +629,17 @@ export function ItemIntakePanel({
         <div className="flex w-full min-w-0 flex-col gap-3">
           {onStackDismiss ? (
             <div className="pr-10">
-              <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" className="w-full" />
+              <SegnaDialogTitleRow id="intake-shipping-title" title={shippingTitle} className="w-full" />
             </div>
           ) : (
-            <SegnaDialogTitleRow id="intake-shipping-title" title="Préparer ton envoi" className="w-full" />
+            <SegnaDialogTitleRow id="intake-shipping-title" title={shippingTitle} className="w-full" />
           )}
-          <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>
-            Retrouve le bordereau et le suivi sur la page dédiée.
-          </p>
+          <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>{shippingBody}</p>
           <Link
             href={buildShippingPageHref(itemId, intakeMetadata, defaultShippingGroupIds)}
             className="flex h-11 w-full min-w-0 items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
           >
-            Bordereau d&apos;envoi
+            {shipItemLabel}
           </Link>
         </div>
       </div>

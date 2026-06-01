@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  blocksIntakeUntilPendingShipmentsSent,
+  fetchPendingMemberIntakeShippingGate,
+} from "@/lib/items/member-intake-shipping-pipeline-gate";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
+
 export type ItemIntakeListingStage =
   | "draft"
   | "evaluation"
@@ -16,6 +22,23 @@ export async function setItemIntakeListingStage(
   itemId: string,
   listingStage: ItemIntakeListingStage,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (listingStage === "validated") {
+    const {
+      data: { user },
+      error: userError,
+    } = await client.auth.getUser();
+    if (userError || !user) {
+      return { ok: false, message: "Session invalide." };
+    }
+    const gate = await fetchPendingMemberIntakeShippingGate(client, user.id);
+    if (blocksIntakeUntilPendingShipmentsSent(gate.pendingItemIds.length)) {
+      return {
+        ok: false,
+        message: `Envoie d'abord tes ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces vers Segna avant de valider une nouvelle entrée au catalogue.`,
+      };
+    }
+  }
+
   const { data: existing, error: selErr } = await client
     .from("item_intake")
     .select("item_id")

@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-react";
+import { CircleDollarSign, Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
 import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
+import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -41,6 +42,10 @@ type ExchangeLendItemRowProps = {
   creditKind: WalletCreditKind;
   /** Lot expédition groupé par défaut (≥ 2 pièces prêtes). */
   defaultShippingGroupIds?: string[];
+  /** 2 pièces déjà en attente d’expédition : bloque la validation d’évaluation. */
+  blockEvaluationValidation?: boolean;
+  pendingShippingItemIds?: string[];
+  shipmentsSplit?: boolean;
 };
 
 /** Prix connu côté membre après proposition (hors phase « en évaluation » seule). */
@@ -228,6 +233,12 @@ function isFulfillmentShipping(intake?: { listing_stage: string; fulfillment_sta
   return fs === "ready" || fs === "shipping";
 }
 
+function isValidationPendingPriceConfirm(
+  intake?: { listing_stage: string; fulfillment_stage: string | null } | null,
+): boolean {
+  return intake?.listing_stage?.toLowerCase() === "validation_pending";
+}
+
 export function ExchangeLendItemRow({
   id,
   name,
@@ -240,6 +251,9 @@ export function ExchangeLendItemRow({
   photoPosition,
   creditKind,
   defaultShippingGroupIds,
+  blockEvaluationValidation = false,
+  pendingShippingItemIds = [],
+  shipmentsSplit = false,
 }: ExchangeLendItemRowProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
@@ -249,6 +263,7 @@ export function ExchangeLendItemRow({
   const showEditDelete = isDraftLike(itemStatus, intake);
   const showEvaluationEdit = canEditEvaluationDraft(itemStatus, intake);
   const shippingQuickAction = isFulfillmentShipping(intake);
+  const priceConfirmQuickAction = isValidationPendingPriceConfirm(intake);
   const showPriceRow =
     !evaluationRefused &&
     currentValue != null &&
@@ -259,6 +274,7 @@ export function ExchangeLendItemRow({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
   const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
+  const [evaluationGateOpen, setEvaluationGateOpen] = useState(false);
 
   const handleDelete = async () => {
     if (isDeleting) return;
@@ -405,6 +421,25 @@ export function ExchangeLendItemRow({
           >
             <Package className="h-5 w-5" aria-hidden />
           </Link>
+        ) : priceConfirmQuickAction ? (
+          blockEvaluationValidation ? (
+            <button
+              type="button"
+              onClick={() => setEvaluationGateOpen(true)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+              aria-label="Voir l'analyse de prix à confirmer"
+            >
+              <CircleDollarSign className="h-5 w-5" aria-hidden />
+            </button>
+          ) : (
+            <Link
+              href={`/items/${encodeURIComponent(id)}/evaluation`}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+              aria-label="Voir l'analyse de prix à confirmer"
+            >
+              <CircleDollarSign className="h-5 w-5" aria-hidden />
+            </Link>
+          )
         ) : showEvaluationEdit ? (
           <Link
             href={`/items/new?itemId=${encodeURIComponent(id)}&from=item`}
@@ -483,6 +518,13 @@ export function ExchangeLendItemRow({
           </div>
         </div>
       ) : null}
+      <IntakePendingShippingGateModal
+        open={evaluationGateOpen}
+        onClose={() => setEvaluationGateOpen(false)}
+        purpose="validate_evaluation"
+        pendingItemIds={pendingShippingItemIds}
+        shipmentsSplit={shipmentsSplit}
+      />
     </article>
   );
 }

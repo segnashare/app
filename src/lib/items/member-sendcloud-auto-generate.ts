@@ -13,6 +13,7 @@ import {
   intakeShippingLabelMatchesItemGroup,
   parseSendcloudFromIntakeMetadata,
 } from "@/lib/items/intake-shipping-metadata";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import {
@@ -21,6 +22,10 @@ import {
 } from "@/lib/sendcloud/resolve-intake-shop2shop-shipping-option";
 import { resolveSendcloudIntegrationId } from "@/lib/sendcloud/integrations";
 import { getSegnaLogisticsHubFromEnv } from "@/lib/sendcloud/logistics-hub";
+import {
+  buildCarrierTrackingUrlFromNumber,
+  isSendcloudLabelOrInternalUrl,
+} from "@/lib/shipping/intake-carrier-tracking";
 import { type SendcloudOrderItemInput } from "@/lib/sendcloud/build-sendcloud-order-items";
 import {
   buildSegnaSendcloudOrderRow,
@@ -158,8 +163,12 @@ export async function runMemberSendcloudAutoGenerate(
   | { ok: false; error: string; status: number; developerHint?: string }
 > {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  if (sortedIds.length < 1 || sortedIds.length > 5) {
-    return { ok: false, error: "Entre 1 et 5 pièces requises.", status: 400 };
+  if (sortedIds.length < 1 || sortedIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return {
+      ok: false,
+      error: `Entre 1 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises.`,
+      status: 400,
+    };
   }
 
   const env = getSendcloudEnv();
@@ -406,10 +415,14 @@ export async function runMemberSendcloudAutoGenerate(
 
   const trackingNumber = String(announced.parcel.tracking_number ?? "").trim();
   const labelUrl = announced.labelUrl;
-  const trackingUrl =
+  const rawTrackingUrl =
     typeof announced.parcel.tracking_url === "string" && announced.parcel.tracking_url.trim().startsWith("http")
       ? announced.parcel.tracking_url.trim()
       : null;
+  const trackingUrl =
+    rawTrackingUrl && !isSendcloudLabelOrInternalUrl(rawTrackingUrl)
+      ? rawTrackingUrl
+      : buildCarrierTrackingUrlFromNumber(trackingNumber);
 
   const single = sortedIds.length === 1;
   const metaNotes = single
