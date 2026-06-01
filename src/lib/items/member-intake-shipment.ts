@@ -65,6 +65,15 @@ export const MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS = [
   "item_intake_2_id",
 ] as const;
 
+/** Static `.select()` fragments — dynamic joins break Supabase generated row types. */
+const MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_SELECT = "item_intake_1_id, item_intake_2_id";
+const MEMBER_INTAKE_SHIPMENT_TRACKING_AND_SLOTS_SELECT =
+  "tracking_number, item_intake_1_id, item_intake_2_id";
+const MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT =
+  "id, tracking_number, item_intake_1_id, item_intake_2_id";
+const MEMBER_INTAKE_SHIPMENT_MERGE_KEEPER_SELECT =
+  "id, status, tracking_number, created_at, item_intake_1_id, item_intake_2_id";
+
 export type MemberIntakeShipmentItemIntakeColumn =
   (typeof MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS)[number];
 
@@ -160,16 +169,15 @@ async function syncMemberIntakeShipmentItemIntakeLink(
   let patch: Record<MemberIntakeShipmentItemIntakeColumn, string | null>;
 
   if (options?.mergeWithExistingSlots) {
-    const slotCols = MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.join(", ");
     const { data: row, error: readErr } = await service
       .from("shipments")
-      .select(slotCols)
+      .select(MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_SELECT)
       .eq("id", sid)
       .eq("context", "member_intake")
       .is("deleted_at", null)
       .maybeSingle();
     if (readErr) return { ok: false, error: readErr.message };
-    const existing = row ? readMemberIntakeIdsFromShipmentRow(row as Record<string, unknown>) : [];
+    const existing = row ? readMemberIntakeIdsFromShipmentRow(row) : [];
     patch = buildMemberIntakeShipmentItemIntakePatchForMerge(existing, itemIds);
   } else {
     patch = buildMemberIntakeShipmentItemIntakePatch(itemIds);
@@ -445,7 +453,7 @@ export async function loadMemberIntakeSendcloudCancelInputForShipment(
 
   const { data: ship } = await service
     .from("shipments")
-    .select(`tracking_number, ${MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.join(", ")}`)
+    .select(MEMBER_INTAKE_SHIPMENT_TRACKING_AND_SLOTS_SELECT)
     .eq("id", sid)
     .maybeSingle();
 
@@ -454,7 +462,7 @@ export async function loadMemberIntakeSendcloudCancelInputForShipment(
 
   const itemIdSet = new Set(await resolveMemberIntakeItemIds(service, sid));
   if (ship) {
-    for (const id of readMemberIntakeIdsFromShipmentRow(ship as Record<string, unknown>)) {
+    for (const id of readMemberIntakeIdsFromShipmentRow(ship)) {
       itemIdSet.add(id);
     }
   }
@@ -1704,9 +1712,7 @@ async function findMemberIntakeKeeperForGroup(
 
   const { data } = await service
     .from("shipments")
-    .select(
-      `id, status, tracking_number, created_at, ${MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.join(", ")}`,
-    )
+    .select(MEMBER_INTAKE_SHIPMENT_MERGE_KEEPER_SELECT)
     .in("id", uniqueIds)
     .eq("context", "member_intake")
     .is("deleted_at", null)
@@ -2324,10 +2330,9 @@ async function resolveMemberIntakeSplitKeeper(
     intakeMetaByItemId.set(String((row as { item_id?: string }).item_id ?? ""), row.metadata);
   }
 
-  const slotCols = MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.join(", ");
   const { data: shipRows } = await service
     .from("shipments")
-    .select(`id, tracking_number, ${slotCols}`)
+    .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT)
     .in("id", shipmentIds)
     .eq("context", "member_intake")
     .is("deleted_at", null)
@@ -2411,13 +2416,12 @@ async function findMergedMemberIntakeShipmentIdForSplit(
   const sortedSet = new Set(sortedItemIds.map((id) => id.trim()).filter(Boolean));
   const primaryItemId = sortedItemIds[0] ?? null;
 
-  const slotCols = MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.join(", ");
   const data =
     prefetchedRows ??
     (
       await service
         .from("shipments")
-        .select(`id, tracking_number, ${slotCols}`)
+        .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT)
         .in("id", shipmentIds)
         .eq("context", "member_intake")
         .is("deleted_at", null)
@@ -2434,7 +2438,7 @@ async function findMergedMemberIntakeShipmentIdForSplit(
 
   let slotBest: { id: string; count: number } | null = null;
   for (const row of data ?? []) {
-    const linked = readMemberIntakeIdsFromShipmentRow(row as Record<string, unknown>);
+    const linked = readMemberIntakeIdsFromShipmentRow(row as unknown as Record<string, unknown>);
     if (linked.length < 2) continue;
     if (!slotBest || linked.length > slotBest.count) {
       slotBest = { id: String((row as { id: string }).id), count: linked.length };
