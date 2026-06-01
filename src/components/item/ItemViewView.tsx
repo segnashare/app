@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { Heart, Plus } from "lucide-react";
-import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
-const montserrat = segnaMontserrat;
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
 import { ItemFeedbacksSection } from "./ItemFeedbacksSection";
@@ -21,11 +19,9 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 
-const ITEM_STAGE_RATIO = 3 / 4;
 const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
-/** photo1–photo4 : vues produit ; photo5–photo6 : état / défauts (cf. création pièce). */
-const CATALOG_PHOTO_SLOT_INDICES = [1, 2, 3] as const;
-const CONDITION_PHOTO_SLOT_INDICES = [4, 5] as const;
+/** photo1 : principale ; photo2–photo6 : autres vues produit (`items.photos`). */
+const CATALOG_EXTRA_PHOTO_SLOT_INDICES = [1, 2, 3, 4, 5] as const;
 
 function normalizeItemPhotoSlots(slots: Array<ItemViewSlot | null>): Array<ItemViewSlot | null> {
   const next = [...slots];
@@ -68,7 +64,6 @@ export type ItemViewSlot = {
   dataUrl: string;
   offset: { x: number; y: number };
   zoom: number;
-  imageRatio: number;
 };
 
 type ItemViewViewProps = {
@@ -97,11 +92,8 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
     <RemoteCoverThumb
       photoUrl={slot.dataUrl}
       frameClassName={cn("h-full w-full", className)}
-      coverStyle={{
-        backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / ITEM_STAGE_RATIO)) * slot.zoom}%`,
-        backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
-        backgroundRepeat: "no-repeat",
-      }}
+      photoPosition={{ offset: slot.offset, zoom: slot.zoom }}
+      photoCoverFill
     />
   );
 }
@@ -187,12 +179,10 @@ export function ItemViewView({
   const segnaCmsRows = segnaStockPropertyCmsFrames !== undefined ? segnaStockPropertyCmsFrames : clientSegnaCmsRows;
   const { data: memberData, isLoading: memberLoading } = useItemMemberData(isSegnaStockOwner ? null : ownerUserId ?? null);
 
-  const catalogExtraPhotos = CATALOG_PHOTO_SLOT_INDICES.map((index) => normalizedSlots[index]).filter(
-    (slot): slot is ItemViewSlot => Boolean(slot),
-  );
-  const conditionPhotos = CONDITION_PHOTO_SLOT_INDICES.map((index) => normalizedSlots[index]).filter(
-    (slot): slot is ItemViewSlot => Boolean(slot),
-  );
+  const catalogExtraPhotos = CATALOG_EXTRA_PHOTO_SLOT_INDICES.flatMap((slotIndex) => {
+    const slot = normalizedSlots[slotIndex];
+    return slot ? [{ slotIndex, slot }] : [];
+  });
 
   function toggleFrameLike(frameId: string) {
     setLikedFrames((previous) => ({ ...previous, [frameId]: !previous[frameId] }));
@@ -246,30 +236,15 @@ export function ItemViewView({
         {/* 4. Description */}
         <ItemDescriptionCard description={description} />
 
-        {/* 5. Autres photos produit (photo2–photo4) */}
-        {catalogExtraPhotos.map((slot, index) => (
+        {/* 5. Autres photos produit (photo2–photo6) */}
+        {catalogExtraPhotos.map(({ slotIndex, slot }) => (
           <ItemViewPhotoFrame
-            key={`catalog-${index}`}
+            key={`catalog-photo-${slotIndex + 1}`}
             slot={slot}
-            frameKey={`photo_${index + 2}`}
+            frameKey={`photo_${slotIndex + 1}`}
             {...photoFrameProps}
           />
         ))}
-
-        {/* 6. Photos état (photo5–photo6) */}
-        {conditionPhotos.length > 0 ? (
-          <section className="space-y-3">
-            <p className={cn(montserrat.className, "text-[16px] font-semibold text-zinc-500")}>Photos état</p>
-            {conditionPhotos.map((slot, index) => (
-              <ItemViewPhotoFrame
-                key={`condition-${index}`}
-                slot={slot}
-                frameKey={`photo_${index + 5}`}
-                {...photoFrameProps}
-              />
-            ))}
-          </section>
-        ) : null}
 
         <ItemFeedbacksSection feedbacks={itemFeedbacks} />
         <ItemWornPhotosSection photos={wornPhotos} />

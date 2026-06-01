@@ -8,7 +8,7 @@ import {
 import { SC_MEMBER_INTAKE_SHIPMENT_ID } from "@/lib/items/member-intake-shipment";
 import { resolveMemberIntakeItemIds } from "@/lib/items/resolve-member-intake-item-ids";
 
-/** Expédition membre → Segna : passage `dropped_in` / dépôt relais → pièce en transit. */
+/** Expédition membre → Segna : passage `dropped_out` (dépôt relais) → pièce en transit. */
 export async function promoteIntakeItemsToShippingOnDummyShipmentDeposited(
   service: SupabaseClient,
   shipmentId: string,

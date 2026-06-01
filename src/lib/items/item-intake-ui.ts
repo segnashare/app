@@ -5,7 +5,7 @@ import { normalizeIntakeFulfillmentStage } from "@/lib/items/intake-fulfillment-
 function validatedIntakeShowsMemberPipelineUi(fulfillmentStage: string | null | undefined): boolean {
   const fs = normalizeIntakeFulfillmentStage(fulfillmentStage);
   if (!fs) return true;
-  return fs !== "verified" && fs !== "shipping" && fs !== "in_verification" && fs !== "refused";
+  return fs !== "verified" && fs !== "in_verification" && fs !== "refused";
 }
 
 export function needsItemIntakeUi(

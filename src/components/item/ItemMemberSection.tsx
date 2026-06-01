@@ -2,26 +2,46 @@
 
 import Link from "next/link";
 import { BadgeCheck } from "lucide-react";
-import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
+import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
-
-
+export type ItemMemberPhoto = {
+  url: string;
+  offset: { x: number; y: number };
+  zoom: number;
+  imageRatio: number;
+  /** Ratio w/h du cadre de recadrage (1 = carré profil, 3/4 = looks). */
+  cropStageRatio: number;
+};
 
 export type ItemMemberSectionData = {
   displayName: string;
   pronouns: string | null;
   isVerified: boolean;
-  photoUrls: string[];
+  photos: ItemMemberPhoto[];
   levelIcon: string;
   levelLabel: string;
   levelNumber: number;
   memberSince: string | null;
 };
+
+function MemberPhotoThumb({ photo }: { photo: ItemMemberPhoto }) {
+  return (
+    <RemoteCoverThumb
+      photoUrl={photo.url}
+      frameClassName="h-full w-full"
+      coverStyle={{
+        backgroundSize: `${Math.max(100, 100 * (photo.imageRatio / photo.cropStageRatio)) * photo.zoom}%`,
+        backgroundPosition: `calc(50% + ${photo.offset.x}%) calc(50% + ${photo.offset.y}%)`,
+        backgroundRepeat: "no-repeat",
+      }}
+    />
+  );
+}
 
 type ItemMemberSectionProps = {
   data: ItemMemberSectionData | null;
@@ -79,14 +99,14 @@ export function ItemMemberSection({ data, isLoading, className, profileHref = nu
       {data.pronouns ? (
         <p className={cn(montserrat.className, "mt-1 text-[14px] text-zinc-500")}>{data.pronouns}</p>
       ) : null}
-      {data.photoUrls.length > 0 ? (
+      {data.photos.length > 0 ? (
         <div className="mt-3 flex w-full gap-1.5">
-          {data.photoUrls.map((url, index) => (
+          {data.photos.map((photo, index) => (
             <div
               key={index}
               className="relative aspect-square min-w-0 flex-1 overflow-hidden rounded-[5px] bg-zinc-200"
             >
-              <ImageCoverWithSkeleton src={url} alt="" className="h-full w-full" loading="lazy" />
+              <MemberPhotoThumb photo={photo} />
             </div>
           ))}
         </div>

@@ -4,5 +4,5 @@
  */
 export const SEGNA_BRAND_LOGO_SRC = "/home/eye-icon.png";
 
-/** Logotype compact — jeton / crédit consommation (`public/ressources/icons/segna.svg`). */
-export const SEGNA_CREDIT_ICON_SRC = "/ressources/icons/segna.svg";
+/** Jeton crédit d'échange (`public/icon/segan.svg`). */
+export const SEGNA_CREDIT_ICON_SRC = "/icon/segan.svg";

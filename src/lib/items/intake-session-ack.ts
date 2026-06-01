@@ -1,7 +1,29 @@
+import {
+  INTAKE_FULFILLMENT_SHIPPING,
+  normalizeIntakeFulfillmentStage,
+} from "@/lib/items/intake-fulfillment-stages";
+
 const INTAKE_SESSION_ACK_KEY = "segna:intake-session-ack";
 const INTAKE_SESSION_ACK_CHANGED_EVENT = "segna:intake-session-ack-changed";
 
-export function intakeSessionAckKey(itemId: string, listingStage: string): string {
+/**
+ * Clé de masquage session (pile Échange / fiche pièce).
+ * Pour `validated`, distingue `ready` et `shipping` : fermer la carte en préparation
+ * ne masque pas la relance « colis en route ».
+ */
+export function intakeSessionAckKey(
+  itemId: string,
+  listingStage: string,
+  fulfillmentStage?: string | null,
+): string {
+  const ls = String(listingStage ?? "").trim().toLowerCase();
+  if (ls === "validated") {
+    const fs = normalizeIntakeFulfillmentStage(fulfillmentStage);
+    if (fs === INTAKE_FULFILLMENT_SHIPPING) {
+      return `${itemId}:validated:shipping`;
+    }
+    return `${itemId}:validated:ready`;
+  }
   return `${itemId}:${listingStage}`;
 }
 

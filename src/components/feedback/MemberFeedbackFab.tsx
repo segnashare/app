@@ -13,13 +13,17 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import { shouldShowMemberFeedbackFab, shouldShowTabBar } from "@/components/layout/navigation";
+import {
+  FLOATING_BOTTOM_ABOVE_TAB_BAR,
+  FLOATING_BOTTOM_WITHOUT_TAB_BAR,
+  FLOATING_ROUND_ACTION_SHELL_CLASS,
+} from "@/components/layout/floating-action-chrome";
 import { MEMBER_FEEDBACK_CATEGORIES } from "@/lib/feedback/member-feedback-categories";
 import { isMemberFeedbackFabEnabled } from "@/lib/feedback/member-feedback-fab-enabled";
 import { cn } from "@/lib/utils/cn";
 
-const BOTTOM_ABOVE_TAB_BAR = "calc(56px + env(safe-area-inset-bottom, 0px) + 14px)";
-/** Pages sans tab bar (fiche pièce, checkout, etc.). */
-const BOTTOM_WITHOUT_TAB_BAR = "calc(14px + env(safe-area-inset-bottom, 0px))";
+const BOTTOM_ABOVE_TAB_BAR = FLOATING_BOTTOM_ABOVE_TAB_BAR;
+const BOTTOM_WITHOUT_TAB_BAR = FLOATING_BOTTOM_WITHOUT_TAB_BAR;
 
 const optionBtn = (active: boolean) =>
   cn(
@@ -131,12 +135,9 @@ export function MemberFeedbackFab() {
       type="button"
       onClick={() => setOpen(true)}
       aria-label="Signaler un problème ou poser une question"
-      className={cn(
-        "pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white",
-        "shadow-[0_8px_24px_rgba(0,0,0,0.22)] transition hover:bg-zinc-800 active:scale-[0.97]",
-      )}
+      className={FLOATING_ROUND_ACTION_SHELL_CLASS}
     >
-      <MessageCircle className="h-6 w-6" strokeWidth={2} aria-hidden />
+      <MessageCircle className="h-7 w-7" strokeWidth={2} aria-hidden />
     </button>
   );
 

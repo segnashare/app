@@ -1,6 +1,5 @@
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 import { SEGNA_BRAND_LOGO_SRC, SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
-import { walletCreditKindLabel } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
 const SEGNA_CONSUMPTION_ICON_SRC = SEGNA_BRAND_LOGO_SRC;
@@ -13,8 +12,8 @@ type SegnaPointsUnitDisplayProps = {
   numberClassName?: string;
   iconClassName?: string;
   /**
-   * `label` : consommation → icône Segna ; échange → libellé « crédits ».
-   * `icon` : toujours chiffre + `icons/segna.svg` (détail commande / total).
+   * `label` : consommation → logotype Segna ; échange → jeton crédit (`icon/segan.svg`).
+   * `icon` : chiffre + jeton crédit (détail commande / total).
    */
   unitDisplay?: "label" | "icon";
   /**
@@ -36,7 +35,7 @@ const segnaCreditTokenMaskStyle = {
 } as const;
 
 /**
- * Montant + icône Segna (consommation), ou montant + libellé « crédits ».
+ * Montant + unité visuelle : logotype Segna (consommation) ou jeton crédit (échange / mode icon).
  */
 export function SegnaPointsUnitDisplay({
   points,
@@ -49,55 +48,41 @@ export function SegnaPointsUnitDisplay({
 }: SegnaPointsUnitDisplayProps) {
   const n = Number.isFinite(points) ? Math.floor(points) : 0;
   const formatted = n.toLocaleString("fr-FR");
-  const unitLabel = walletCreditKindLabel(creditKind);
-  const showConsumptionIcon = creditKind === "consumption";
   const consumptionAriaLabel = `${formatted} ${n === 1 ? "point" : "points"} Segna de consommation`;
   const exchangeAriaLabel = `${formatted} ${n === 1 ? "crédit" : "crédits"}`;
   const iconMode = unitDisplay === "icon";
+  const useCreditTokenIcon = iconMode || creditKind === "exchange";
+  const ariaLabel = creditKind === "consumption" ? consumptionAriaLabel : exchangeAriaLabel;
 
   return (
     <span
       className={cn("inline-flex flex-wrap items-center justify-start gap-x-1.5 gap-y-0.5", className)}
-      aria-label={
-        iconMode
-          ? creditKind === "consumption"
-            ? consumptionAriaLabel
-            : exchangeAriaLabel
-          : showConsumptionIcon
-            ? consumptionAriaLabel
-            : `${formatted} ${unitLabel}`
-      }
+      aria-label={ariaLabel}
     >
       <span className={cn("tabular-nums", numberClassName)} aria-hidden>
         {formatted}
       </span>
-      {iconMode || showConsumptionIcon ? (
-        iconMode && iconColor === "current" ? (
-          <span
-            className={cn(
-              "inline-block shrink-0 self-center bg-current",
-              "h-[1.05em] w-[1.05em]",
-              iconClassName,
-            )}
-            style={segnaCreditTokenMaskStyle}
-            aria-hidden
-          />
-        ) : (
-          <img
-            src={iconMode ? SEGNA_CREDIT_TOKEN_ICON_SRC : SEGNA_CONSUMPTION_ICON_SRC}
-            alt=""
-            className={cn(
-              "w-auto shrink-0 self-center object-contain object-left",
-              iconMode ? "h-[1.05em] max-w-[2.75rem]" : "h-[1.15em] max-w-[4rem]",
-              iconClassName,
-            )}
-            aria-hidden
-          />
-        )
+      {iconMode && iconColor === "current" ? (
+        <span
+          className={cn(
+            "inline-block shrink-0 self-center bg-current",
+            "h-[1.05em] w-[1.05em]",
+            iconClassName,
+          )}
+          style={segnaCreditTokenMaskStyle}
+          aria-hidden
+        />
       ) : (
-        <span className={cn("max-w-[9rem] text-left text-[11px] font-semibold leading-tight", numberClassName)}>
-          {unitLabel}
-        </span>
+        <img
+          src={useCreditTokenIcon ? SEGNA_CREDIT_TOKEN_ICON_SRC : SEGNA_CONSUMPTION_ICON_SRC}
+          alt=""
+          className={cn(
+            "w-auto shrink-0 self-center object-contain object-left",
+            useCreditTokenIcon ? "h-[1.05em] max-w-[2.75rem]" : "h-[1.15em] max-w-[4rem]",
+            iconClassName,
+          )}
+          aria-hidden
+        />
       )}
     </span>
   );
@@ -117,6 +102,20 @@ export function SegnaConsumptionCreditPhrase({ className, textClassName }: Segna
         src={SEGNA_CONSUMPTION_ICON_SRC}
         alt=""
         className="h-[1.1em] w-auto max-w-[3.5rem] shrink-0 object-contain object-left"
+        aria-hidden
+      />
+    </span>
+  );
+}
+
+/** Jeton crédit seul — remplace le mot « crédits » dans une phrase. */
+export function SegnaExchangeCreditPhrase({ className, textClassName }: SegnaConsumptionCreditPhraseProps) {
+  return (
+    <span className={cn("inline-flex items-center", className, textClassName)} aria-hidden>
+      <img
+        src={SEGNA_CREDIT_TOKEN_ICON_SRC}
+        alt=""
+        className="h-[1.1em] w-auto max-w-[2.75rem] shrink-0 object-contain object-left"
         aria-hidden
       />
     </span>

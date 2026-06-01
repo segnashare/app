@@ -33,9 +33,9 @@ export function shouldShowTabBar(pathname: string): boolean {
   return isMainTabRoute(pathname);
 }
 
-/** Bouton flottant « Voir le panier » : catalogue (y compris /shop/…) et hub échange. */
+/** Bouton flottant « Voir le panier » : les 4 onglets principaux (shop, exchange, community, profile). */
 export function shouldShowFloatingCartButton(pathname: string): boolean {
-  return pathname === "/shop" || pathname.startsWith("/shop/") || pathname === "/exchange";
+  return isMainTabRoute(pathname);
 }
 
 /** Pastille « aide / signalement » (MainShell, membre connecté). */

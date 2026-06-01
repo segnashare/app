@@ -17,14 +17,14 @@ export function intakeAllowsShippingPreparation(fs: string | null | undefined): 
   return s === INTAKE_FULFILLMENT_READY || s === INTAKE_FULFILLMENT_SHIPPING;
 }
 
-/** Carte « Préparer ton envoi » sur fiche pièce / Échange (validated + ready ou legacy null). */
+/** Carte « Préparer ton envoi » sur fiche pièce / Échange (validated + ready/shipping ou legacy null). */
 export function intakeShowsPrepareShipmentCard(
   listingStage: string | null | undefined,
   fs: string | null | undefined,
 ): boolean {
   if (String(listingStage ?? "").trim().toLowerCase() !== "validated") return false;
   const s = normalizeIntakeFulfillmentStage(fs);
-  return s === INTAKE_FULFILLMENT_READY || s === "";
+  return s === INTAKE_FULFILLMENT_READY || s === INTAKE_FULFILLMENT_SHIPPING || s === "";
 }
 
 /** Éligible à confirmer une mutualisation retour (avant dépôt effectif). */

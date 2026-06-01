@@ -7,11 +7,7 @@ import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
-import { loadFauxProfileLenders } from "@/lib/shop/load-faux-profile-lenders";
-import {
-  isShopFeaturedRealMember,
-  mergeFeaturedLendersReplacingFaux,
-} from "@/lib/shop/merge-featured-lenders";
+import { isShopFeaturedRealMember } from "@/lib/shop/merge-featured-lenders";
 import {
   fetchShopFeaturedLendersWithProfilePhotos,
   type FetchShopFeaturedLendersOptions,
@@ -213,7 +209,7 @@ async function ShopPageAsync() {
   const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
   const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
 
-  /** Grille 9 : membres avec photo de profil, complétée par faux_profils si besoin. */
+  /** Grille : membres réels avec photo de profil (jusqu’à 9). */
   const featuredLenderDb = catalogSb as unknown as FetchShopFeaturedLendersOptions["catalogDb"];
   let realFeaturedLenders: Awaited<ReturnType<typeof fetchShopFeaturedLendersWithProfilePhotos>> = [];
   try {
@@ -227,10 +223,7 @@ async function ShopPageAsync() {
   } catch (err) {
     console.error("[shop] featuredLenders failed:", err);
   }
-  const featuredLenders = mergeFeaturedLendersReplacingFaux(
-    loadFauxProfileLenders(),
-    realFeaturedLenders,
-  );
+  const featuredLenders = realFeaturedLenders.slice(0, 9);
   if (process.env.SEGNA_DEBUG_CMS === "1") {
     console.info("[shop] featuredLenders", {
       real: realFeaturedLenders.length,

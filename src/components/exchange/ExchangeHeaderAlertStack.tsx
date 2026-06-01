@@ -138,7 +138,10 @@ export function ExchangeHeaderAlertStack({
   }, [outboundSummary?.cartId, outboundSummary?.status]);
 
   const visibleIntakes = useMemo(
-    () => intakeItems.filter((item) => !intakeAck.has(intakeSessionAckKey(item.id, item.listingStage))),
+    () =>
+      intakeItems.filter(
+        (item) => !intakeAck.has(intakeSessionAckKey(item.id, item.listingStage, item.fulfillmentStage)),
+      ),
     [intakeItems, intakeAck],
   );
 
@@ -172,11 +175,14 @@ export function ExchangeHeaderAlertStack({
     outboundHidden,
   ]);
 
-  const persistIntakeAck = useCallback((itemId: string, listingStage: string) => {
-    const next = new Set(readIntakeSessionAckSet());
-    next.add(intakeSessionAckKey(itemId, listingStage));
-    writeIntakeSessionAckSet(next);
-  }, []);
+  const persistIntakeAck = useCallback(
+    (itemId: string, listingStage: string, fulfillmentStage: string | null) => {
+      const next = new Set(readIntakeSessionAckSet());
+      next.add(intakeSessionAckKey(itemId, listingStage, fulfillmentStage));
+      writeIntakeSessionAckSet(next);
+    },
+    [],
+  );
 
   const frontLayerKey = useMemo(() => {
     const first = layers[0];
@@ -186,7 +192,7 @@ export function ExchangeHeaderAlertStack({
     if (first.kind === "onboarding-cart") return "onboarding:cart";
     if (first.kind === "onboarding-exchange") return "onboarding:exchange";
     return first.kind === "intake"
-      ? `in:${intakeSessionAckKey(first.item.id, first.item.listingStage)}`
+      ? `in:${intakeSessionAckKey(first.item.id, first.item.listingStage, first.item.fulfillmentStage)}`
       : `out:${first.summary.cartId}:${first.summary.status}`;
   }, [layers]);
 
@@ -339,16 +345,16 @@ export function ExchangeHeaderAlertStack({
             const { item } = layer;
             const stackAdvance =
               item.listingStage === "evaluation" || item.listingStage === "evaluated"
-                ? () => persistIntakeAck(item.id, item.listingStage)
+                ? () => persistIntakeAck(item.id, item.listingStage, item.fulfillmentStage)
                 : undefined;
             const onStackDismiss = () => {
-              persistIntakeAck(item.id, item.listingStage);
+              persistIntakeAck(item.id, item.listingStage, item.fulfillmentStage);
               router.refresh();
             };
 
             return (
               <div
-                key={intakeSessionAckKey(item.id, item.listingStage)}
+                key={intakeSessionAckKey(item.id, item.listingStage, item.fulfillmentStage)}
                 className="absolute left-0 right-0 top-0 origin-top will-change-transform"
                 style={{
                   transform: `translateY(${translateY}px) scale(${scale})`,
@@ -360,6 +366,7 @@ export function ExchangeHeaderAlertStack({
                   <div ref={frontLayerRef} className={cn(CARD_SHELL_CLASS, "w-full bg-white")}>
                     <ItemIntakePanel
                       itemId={item.id}
+                      itemTitle={item.title}
                       listingStage={item.listingStage}
                       fulfillmentStage={item.fulfillmentStage}
                       intakeMetadata={item.metadata}

@@ -11,7 +11,7 @@
  * - `return_member_dropped_parcel` : retour déposé au relais — e-mail + SMS si l’aller n’était pas Uber domicile  
  * - `return_exchange_complete` : retour `dropped_in` — **SMS seulement** (échange terminé côté membre ; contrôle Segna à suivre)  
  * - `return_received_by_segna` : retour réceptionné / en vérification côté Segna
- * - `member_intake_dropped_in` : envoi membre → Segna `dropped_in` — **SMS seul** (pièce en route, crédits d’échange après vérif)
+ * - `member_intake_dropped_in` : envoi membre → Segna `in_transit_out` — **SMS seul** (pièce en route, crédits d’échange après vérif)
  *
  * **Emprunt / délais** : `borrow_return_deadline_reminder` — cron J-3 / J-1 / J-J ; e-mail + SMS si `SEGNA_NOTIFY_SMS_ALERTS=1`  
  * - `borrow_overdue_daily` — pénalité journalière après échéance (`accrue_cart_borrow_overdue_day`) ; e-mail + SMS

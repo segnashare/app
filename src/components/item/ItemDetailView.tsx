@@ -319,11 +319,14 @@ export function ItemDetailView({
     setIsLoading(false);
   }, [itemId]);
 
-  const acknowledgeIntakeForSession = useCallback((ackItemId: string, listingStage: string) => {
-    const next = new Set(readIntakeSessionAckSet());
-    next.add(intakeSessionAckKey(ackItemId, listingStage));
-    writeIntakeSessionAckSet(next);
-  }, []);
+  const acknowledgeIntakeForSession = useCallback(
+    (ackItemId: string, listingStage: string, fulfillmentStage: string | null) => {
+      const next = new Set(readIntakeSessionAckSet());
+      next.add(intakeSessionAckKey(ackItemId, listingStage, fulfillmentStage));
+      writeIntakeSessionAckSet(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!itemId) return;
@@ -359,7 +362,7 @@ export function ItemDetailView({
   const cartToggleBusy = Boolean(itemId && cartBusyIds.has(itemId));
   const intakeAckSessionKey =
     itemId && data?.intake?.listing_stage
-      ? intakeSessionAckKey(itemId, data.intake.listing_stage)
+      ? intakeSessionAckKey(itemId, data.intake.listing_stage, data.intake.fulfillment_stage)
       : null;
   const intakeListingStage = data?.intake?.listing_stage?.trim().toLowerCase() ?? "";
   const isRefusedIntake = intakeListingStage === "refused";
@@ -703,6 +706,7 @@ export function ItemDetailView({
               <ItemIntakePanel
                 key={`${data.intake.listing_stage}-${data.intake.fulfillment_stage ?? ""}`}
                 itemId={itemId}
+                itemTitle={data.title}
                 listingStage={data.intake.listing_stage}
                 fulfillmentStage={data.intake.fulfillment_stage}
                 intakeMetadata={data.intake.metadata}
@@ -712,8 +716,9 @@ export function ItemDetailView({
                 defaultShippingGroupIds={defaultShippingGroupIds}
                 onEvaluationAcknowledged={() => {
                   const listingStage = data.intake?.listing_stage;
+                  const fulfillmentStage = data.intake?.fulfillment_stage ?? null;
                   if (!itemId || !listingStage) return;
-                  acknowledgeIntakeForSession(itemId, listingStage);
+                  acknowledgeIntakeForSession(itemId, listingStage, fulfillmentStage);
                 }}
                 onPipelineUpdated={() => void fetchData()}
               />
@@ -729,6 +734,7 @@ export function ItemDetailView({
                 <ItemIntakePanel
                   key={`${data.intake.listing_stage}-${data.intake.fulfillment_stage ?? ""}`}
                   itemId={itemId}
+                  itemTitle={data.title}
                   listingStage={data.intake.listing_stage}
                   fulfillmentStage={data.intake.fulfillment_stage}
                   intakeMetadata={data.intake.metadata}
@@ -738,8 +744,9 @@ export function ItemDetailView({
                   defaultShippingGroupIds={defaultShippingGroupIds}
                   onEvaluationAcknowledged={() => {
                     const listingStage = data.intake?.listing_stage;
+                    const fulfillmentStage = data.intake?.fulfillment_stage ?? null;
                     if (!itemId || !listingStage) return;
-                    acknowledgeIntakeForSession(itemId, listingStage);
+                    acknowledgeIntakeForSession(itemId, listingStage, fulfillmentStage);
                   }}
                   onPipelineUpdated={() => void fetchData()}
                 />

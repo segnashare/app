@@ -7,14 +7,16 @@ import { ShoppingCart } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { shouldShowFloatingCartButton } from "@/components/layout/navigation";
+import {
+  FLOATING_BOTTOM_ABOVE_TAB_BAR,
+  FLOATING_BOTTOM_WITHOUT_TAB_BAR,
+} from "@/components/layout/floating-action-chrome";
 import { useActiveCartItemCount } from "@/hooks/useActiveCartItemCount";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
-/** Au-dessus de la tab bar (noire ~56px + safe area). */
-const BOTTOM_ABOVE_TAB_BAR = "calc(56px + env(safe-area-inset-bottom, 0px) + 10px)";
-/** Quand la tab bar est masquée au scroll : même bande basse qu’elle (safe area + marge). */
-const BOTTOM_IN_TAB_BAR_SLOT = "calc(10px + env(safe-area-inset-bottom, 0px))";
+const BOTTOM_ABOVE_TAB_BAR = FLOATING_BOTTOM_ABOVE_TAB_BAR;
+const BOTTOM_IN_TAB_BAR_SLOT = FLOATING_BOTTOM_WITHOUT_TAB_BAR;
 
 function FloatingViewCartPill({ pathname, count, guideCartOnboarding }: { pathname: string; count: number; guideCartOnboarding: boolean }) {
   const [tabBarVisible, setTabBarVisible] = useState(true);

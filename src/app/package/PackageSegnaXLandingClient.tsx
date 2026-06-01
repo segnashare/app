@@ -5,6 +5,7 @@ import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
+import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import {
   PLAN_ENTITLEMENT_COMPARISON_FALLBACK,
   type PlanEntitlementComparisonLimits,
@@ -61,6 +62,8 @@ type PackageSegnaXLandingClientProps = {
   identityVerifiedForSubscription?: boolean;
   /** Onboarding offer : affiche la frame bonus de crédits offerts. */
   showOfferOnboarding?: boolean;
+  /** Contenu CMS cadeau de bienvenue (carte panier `onboarding_offer_only` + `/package?plan=credits`). */
+  welcomeGiftContent?: WelcomeGiftLandingContent | null;
   /** Plafonds affichés dans le comparatif (source `billing_plan_entitlement_limits`, chargé en SSR pour `plan=x`). */
   planEntitlementComparisonLimits?: PlanEntitlementComparisonLimits;
 };
@@ -78,6 +81,7 @@ export function PackageSegnaXLandingClient({
   planQuery = "x",
   identityVerifiedForSubscription = true,
   showOfferOnboarding = false,
+  welcomeGiftContent = null,
   planEntitlementComparisonLimits,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
@@ -114,7 +118,7 @@ export function PackageSegnaXLandingClient({
 
   const primaryCtaLabel = useMemo(() => {
     if (selectedFreeCredits) {
-      return "Profiter des crédits gratuits";
+      return welcomeGiftContent?.ctaLabel?.trim() || "Profiter des crédits gratuits";
     }
     if (subscriptionBlockedByKyc) {
       return "Vérifier d'abord mon identité";
@@ -131,7 +135,7 @@ export function PackageSegnaXLandingClient({
     const fallback = content.ctaLabel?.trim();
     if (fallback) return fallback;
     return "Continuer vers le paiement";
-  }, [content.ctaLabel, isCreditsLanding, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc]);
+  }, [content.ctaLabel, isCreditsLanding, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc, welcomeGiftContent?.ctaLabel]);
 
   const handleSubscriptionCheckout = async () => {
     if (subscriptionBlockedByKyc) {
@@ -238,6 +242,7 @@ export function PackageSegnaXLandingClient({
               <div className="w-5 shrink-0 snap-normal" aria-hidden />
               {showOfferOnboarding ? (
                 <OfferOnboardingCreditFrame
+                  content={welcomeGiftContent}
                   selected={selectedFreeCredits}
                   onSelect={() => setSelectedFreeCredits(true)}
                 />
@@ -446,7 +451,19 @@ function isNouveauOfferTier(tier: SubscriptionOfferTier): boolean {
   return tier.badge.trim().toLowerCase() === "nouveau";
 }
 
-function OfferOnboardingCreditFrame({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+function OfferOnboardingCreditFrame({
+  content,
+  selected,
+  onSelect,
+}: {
+  content: WelcomeGiftLandingContent | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const badge = content?.cardBadge?.trim() || "Crédits offerts";
+  const creditsAmount = content?.creditsAmount ?? 250;
+  const subtitle = content?.cardSubtitle?.trim() || "crédits offerts";
+
   return (
     <div
       className={cn(
@@ -462,11 +479,11 @@ function OfferOnboardingCreditFrame({ selected, onSelect }: { selected: boolean;
         className="flex min-h-0 min-w-0 flex-1 flex-col border-0 bg-transparent p-0 text-center text-inherit shadow-none outline-none ring-0 appearance-none hover:bg-transparent focus-visible:outline-none"
       >
         <div className="segna-guidance-shimmer-active segna-guidance-shimmer-target flex min-h-[40px] w-full items-center justify-center bg-zinc-950 px-3 py-2.5 text-[12px] font-semibold leading-tight text-white">
-          Crédits offerts
+          {badge}
         </div>
         <div className="flex min-h-[104px] flex-1 flex-col items-center justify-center bg-white px-5 py-5 text-center">
-          <p className="text-[28px] font-extrabold leading-none tracking-tight text-zinc-950">50</p>
-          <p className="mt-2 text-[17px] font-bold leading-snug text-zinc-950">crédits offerts</p>
+          <p className="text-[28px] font-extrabold leading-none tracking-tight text-zinc-950">{creditsAmount}</p>
+          <p className="mt-2 text-[17px] font-bold leading-snug text-zinc-950">{subtitle}</p>
         </div>
       </button>
     </div>

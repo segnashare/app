@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { promoteIntakeItemsToShippingOnDummyShipmentDeposited } from "@/lib/items/intake-fulfillment-from-shipment";
+import { promoteIntakeInVerificationFromShipment } from "@/lib/items/promote-intake-in-verification-from-shipment";
 import { syncIntakePiggybackFulfillmentFromCartReturn } from "@/lib/items/intake-cart-return-piggyback";
 import { notifyShipmentLifecycleAfterTransition } from "@/lib/notifications/lifecycle-shipment-notify";
 
@@ -68,6 +69,15 @@ export async function transitionShipmentStatus(
       const toSt = params.toStatus.toLowerCase();
       if (shipmentContext !== "member_intake" && (toSt === "dropped_in" || toSt === "dropped_out")) {
         await promoteIntakeItemsToShippingOnDummyShipmentDeposited(admin, params.shipmentId);
+      }
+      if (
+        (shipmentContext === "member_intake" || shipmentContext === "cart_return") &&
+        (toSt === "delivered" || toSt === "returned" || toSt === "en_verification")
+      ) {
+        await promoteIntakeInVerificationFromShipment(admin, params.shipmentId, {
+          shipmentContext,
+          toStatus: toSt,
+        });
       }
     } catch (e) {
       console.error("[transition_shipment_status] intake piggyback sync", e);

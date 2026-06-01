@@ -7,7 +7,6 @@ import { ShippingBordereauExperience } from "@/components/shipping/ShippingBorde
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { buildIntakeShippingPageHrefFromIds } from "@/lib/items/intake-cart-return-piggyback";
-import { readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
 
 import { parseShippingIdsFromSearch, shippingIdsAreWellFormed } from "./shipping-ids";
 
@@ -97,15 +96,6 @@ export function ShippingPageContent() {
 
     if (soloParam) {
       effectiveIds = primary ? [primary] : ids.slice(0, 1);
-    } else if (ids.length >= 2) {
-      const allPreferSolo = ids.every((id) => {
-        const row = found.find((r) => String(r.id) === id);
-        const emb = row ? (Array.isArray(row.item_intake) ? row.item_intake[0] : row.item_intake) : null;
-        return readShippingPreferSolo(emb && typeof emb === "object" ? emb.metadata : null);
-      });
-      if (allPreferSolo && primary) {
-        effectiveIds = [primary];
-      }
     }
 
     setValidatedIds(effectiveIds);
@@ -119,7 +109,7 @@ export function ShippingPageContent() {
   useEffect(() => {
     if (gate !== "ok") return;
     if (soloParam) return;
-    if (validatedIds.length < ids.length && validatedIds[0]) {
+    if (soloParam && validatedIds.length < ids.length && validatedIds[0]) {
       router.replace(
         `/items/shipping?ids=${encodeURIComponent(validatedIds[0])}&solo=1`,
       );

@@ -27,12 +27,13 @@ import {
 } from "@/lib/shop/shop-catalog-session";
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import {
-  CMS_HUB_LINK_CARD_WRAPPER_CLASS,
   CMS_SHOP_HUB_FRAME_OUTER_CLASS,
-  SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
+  CmsFrameLayoutModeProvider,
+  CmsShopHubLinkCardRail,
   CmsFrameHideChromeProvider,
   CmsFrameItem,
-  ShopWideLinkCardBlock,
+  ShopHubLinkCardFrame,
+  SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
   useCmsFrameHideChrome,
   useCmsHubFrameOuterOverride,
 } from "@/components/cms/CmsSectionBlocks";
@@ -892,7 +893,7 @@ export function ShopCatalog({
     const q = mode === "section" ? "" : search.trim().toLowerCase();
     return initialItems.filter((item) => {
       if (heartsOnly && !likedSet.has(item.id)) return false;
-      if (disponiblesOnly && item.status !== "available") return false;
+      if (disponiblesOnly && item.status !== "available" && item.status !== "in_cart") return false;
       if (!itemMatchesFilters(item, filters, categories)) return false;
       if (!q) return true;
       const brand = (item.brand_label ?? "").toLowerCase();
@@ -1924,22 +1925,18 @@ export function ShopCatalog({
       onCategoryFilter: applyCategoryFilterFromSection,
       onBrandFilter: applyBrandFilterFromSection,
       renderShopLinkCard: (row) => (
-        <div className={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "self-start")}>
-          <ShopWideLinkCardBlock
-            payload={row.payload}
-            aspectClassName="aspect-[2.32]"
-            wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-            onNavigate={() =>
-              persistShopCatalogStateForItemNavigation({
-                search,
-                sortMode,
-                heartsOnly,
-                disponiblesOnly,
-                filters: { ...filters },
-              })
-            }
-          />
-        </div>
+        <ShopHubLinkCardFrame
+          payload={row.payload}
+          onNavigate={() =>
+            persistShopCatalogStateForItemNavigation({
+              search,
+              sortMode,
+              heartsOnly,
+              disponiblesOnly,
+              filters: { ...filters },
+            })
+          }
+        />
       ),
       renderShopItemRef: (row) => {
         const p = row.payload;
@@ -2047,6 +2044,7 @@ export function ShopCatalog({
         );
       case "shop_section_categories": {
         if (categoriesHub.departmentRail.length === 0) return null;
+        const multiCategoryCards = categoriesHub.departmentRail.length > 1;
         return (
               <section className="min-w-0 space-y-3">
             {!categoriesHub.conf.hide_section_title ? (
@@ -2059,9 +2057,8 @@ export function ShopCatalog({
               }
             />
             ) : null}
-                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
               <CmsFrameHideChromeProvider>
+                <CmsShopHubLinkCardRail>
               {categoriesHub.departmentRail.map((dept) => {
                     const persist = () =>
                       persistShopCatalogStateForItemNavigation({
@@ -2073,17 +2070,12 @@ export function ShopCatalog({
                       });
                     if (dept.linkFrame) {
                     return (
-                        <div
+                        <ShopHubLinkCardFrame
                           key={dept.linkFrame.id}
-                          className={CMS_SHOP_HUB_FRAME_OUTER_CLASS}
-                        >
-                          <ShopWideLinkCardBlock
-                            payload={dept.linkFrame.payload}
-                            aspectClassName="aspect-[2.32]"
-                            wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-                            onNavigate={persist}
-                          />
-                        </div>
+                          payload={dept.linkFrame.payload}
+                          layout={multiCategoryCards ? "hub" : "stack"}
+                          onNavigate={persist}
+                        />
                       );
                     }
                     const pseudo = pickPseudoFrame(`dept-${dept.slug}`);
@@ -2091,7 +2083,10 @@ export function ShopCatalog({
                       <Link
                         key={dept.slug}
                         href={`/shop/${dept.slug}`}
-                        className={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, "rounded-2xl text-left")}
+                        className={cn(
+                          multiCategoryCards ? CMS_SHOP_HUB_FRAME_OUTER_CLASS : "block w-full min-w-0",
+                          "rounded-2xl text-left",
+                        )}
                         onClick={persist}
                       >
                         <div
@@ -2112,9 +2107,8 @@ export function ShopCatalog({
                       </Link>
                     );
                   })}
+                </CmsShopHubLinkCardRail>
               </CmsFrameHideChromeProvider>
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                </div>
               </section>
         );
       }
@@ -2161,6 +2155,7 @@ export function ShopCatalog({
             ? preferredBrandSections.map((b) => ({ kind: "brand", id: b.id, label: b.label }))
             : preferredBrandsHub.rail;
         if (brandsForRail.length === 0) return null;
+        const multiBrandCards = brandsForRail.length > 1;
         return (
           <section className="min-w-0 space-y-3">
             {!preferredBrandsHub.conf.hide_section_title ? (
@@ -2173,17 +2168,15 @@ export function ShopCatalog({
               }
             />
             ) : null}
-                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
                 <CmsFrameHideChromeProvider>
+                <CmsShopHubLinkCardRail>
                 {brandsForRail.map((entry) => {
                   if (entry.kind === "link") {
                     return (
-                      <ShopWideLinkCardBlock
+                      <ShopHubLinkCardFrame
                         key={entry.frame.id}
                         payload={entry.frame.payload}
-                        aspectClassName="aspect-[2.32]"
-                        wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, CMS_HUB_LINK_CARD_WRAPPER_CLASS, "self-start")}
+                        layout={multiBrandCards ? "hub" : "stack"}
                         onNavigate={() =>
                           persistShopCatalogStateForItemNavigation({
                             search,
@@ -2222,57 +2215,45 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
+                </CmsShopHubLinkCardRail>
                 </CmsFrameHideChromeProvider>
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                </div>
               </section>
         );
       }
       case "shop_home_capsules": {
         const capsulesCapTitle = shopHomeCapsulesSectionDisplay.title?.trim() || "À la une";
         const capsulesHideHeader = shopHomeCapsulesSectionDisplay.hide_section_title;
+        const multiAtLaUne = cmsAtLaUneRows.length > 1;
+        const multiPromo = cmsHomePromoRows.length > 1;
         const capsuleBlock =
           cmsAtLaUneRows.length > 0 ? (
             <div className="space-y-3">
               {!capsulesHideHeader ? (
                 <SectionHeader title={capsulesCapTitle} showAction={false} />
               ) : null}
-              <div
-                className={cn(
-                  "flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-                  cmsAtLaUneRows.length === 1
-                    ? "justify-center"
-                    : "snap-x snap-mandatory scroll-pl-3",
-                )}
-              >
-                {cmsAtLaUneRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
+              <CmsFrameLayoutModeProvider mode={multiAtLaUne ? "hub" : "stack"}>
                 <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
-                  {/* Enfants directs du flex : comme le panier (`CmsFrameItem` seul), pour une largeur de carte stable. */}
-                  {cmsAtLaUneRows.map((row) => (
-                    <CmsFrameItem key={row.id} row={row} />
-                  ))}
+                  <CmsShopHubLinkCardRail>
+                    {cmsAtLaUneRows.map((row) => (
+                      <CmsFrameItem key={row.id} row={row} />
+                    ))}
+                  </CmsShopHubLinkCardRail>
                 </CmsShopHubFramesProvider>
-                {cmsAtLaUneRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
-              </div>
+              </CmsFrameLayoutModeProvider>
             </div>
           ) : null;
         const promoBlock =
           cmsHomePromoRows.length > 0 ? (
               <section className="space-y-3">
-                <div
-                  className={cn(
-                    "flex items-start gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-                    cmsHomePromoRows.length === 1
-                      ? "justify-center"
-                      : "snap-x snap-mandatory scroll-pl-3",
-                  )}
-                >
-                  {cmsHomePromoRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
-                  {cmsHomePromoRows.map((row) => (
-                    <CmsFrameItem key={row.id} row={row} />
-                  ))}
-                  {cmsHomePromoRows.length === 1 ? null : <div className="w-3 shrink-0 snap-start" aria-hidden />}
-                </div>
+                <CmsFrameLayoutModeProvider mode={multiPromo ? "hub" : "stack"}>
+                  <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
+                    <CmsShopHubLinkCardRail>
+                      {cmsHomePromoRows.map((row) => (
+                        <CmsFrameItem key={row.id} row={row} />
+                      ))}
+                    </CmsShopHubLinkCardRail>
+                  </CmsShopHubFramesProvider>
+                </CmsFrameLayoutModeProvider>
               </section>
           ) : null;
         if (!capsuleBlock && !promoBlock) return null;
@@ -2382,7 +2363,9 @@ export function ShopCatalog({
                 </div>
               </section>
         );
-      case "shop_section_french":
+      case "shop_section_french": {
+        if (frenchHub.list.length === 0) return null;
+        const multiFrenchCards = frenchHub.list.length > 1;
         return (
               <section className="min-w-0 space-y-3">
             {!frenchHub.conf.hide_section_title ? (
@@ -2395,17 +2378,15 @@ export function ShopCatalog({
               }
             />
             ) : null}
-                <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
               <CmsFrameHideChromeProvider>
+                <CmsShopHubLinkCardRail>
               {frenchHub.list.map((entry) => {
                 if (entry.kind === "link") {
                   return (
-                    <ShopWideLinkCardBlock
+                    <ShopHubLinkCardFrame
                       key={entry.frame.id}
                       payload={entry.frame.payload}
-                      aspectClassName="aspect-[2.32]"
-                      wrapperClassName={cn(CMS_SHOP_HUB_FRAME_OUTER_CLASS, CMS_HUB_LINK_CARD_WRAPPER_CLASS, "self-start")}
+                      layout={multiFrenchCards ? "hub" : "stack"}
                       onNavigate={() =>
                         persistShopCatalogStateForItemNavigation({
                           search,
@@ -2425,7 +2406,10 @@ export function ShopCatalog({
                         key={brand.id}
                         type="button"
                         onClick={() => applyBrandFilterFromSection(brand.id)}
-                        className="w-[72%] max-w-[320px] shrink-0 rounded-2xl text-left"
+                        className={cn(
+                          multiFrenchCards ? "w-[72%] max-w-[320px] shrink-0" : "block w-full min-w-0",
+                          "rounded-2xl text-left",
+                        )}
                       >
                     <div
                       className={cn(
@@ -2444,11 +2428,11 @@ export function ShopCatalog({
                       </button>
                     );
                   })}
+                </CmsShopHubLinkCardRail>
               </CmsFrameHideChromeProvider>
-                  <div className="w-3 shrink-0 snap-start" aria-hidden />
-                </div>
               </section>
         );
+      }
       case "shop_system_available":
         return (
               <section className="space-y-3">

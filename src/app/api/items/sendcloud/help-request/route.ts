@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { patchItemIntakeSendcloudMetadata } from "@/lib/items/item-intake-sendcloud-patch";
+import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -22,8 +23,11 @@ export async function POST(request: Request) {
   const message = typeof o.message === "string" ? o.message.trim().slice(0, 800) : "";
 
   const valid = itemIds.filter((id) => UUID_RE.test(id));
-  if (valid.length < 1 || valid.length > 5) {
-    return NextResponse.json({ ok: false as const, error: "Entre 1 et 5 pièces requises" }, { status: 400 });
+  if (valid.length < 1 || valid.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return NextResponse.json(
+      { ok: false as const, error: `Entre 1 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises` },
+      { status: 400 },
+    );
   }
 
   const supabase = await createSupabaseServerClient();

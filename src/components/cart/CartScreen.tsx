@@ -6,8 +6,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Info, X } from "lucide-react";
 
-import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
-import { SegnaConsumptionCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
+import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
+import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
+import { SegnaConsumptionCreditPhrase, SegnaExchangeCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { CartPaymentGateModal } from "@/components/cart/CartPaymentGateModal";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
@@ -16,14 +17,19 @@ import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
 import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
-import { CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS, CmsHorizontalScrollRow } from "@/components/cms/CmsSectionBlocks";
+import {
+  CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
+  CmsHorizontalScrollRow,
+  CmsOnboardingOfferGuidanceProvider,
+} from "@/components/cms/CmsSectionBlocks";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
-import { walletCreditKindForMembership, walletCreditKindLabel } from "@/lib/wallet/credit-kind";
+import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import { isOnboardingOfferCmsFrame, isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -59,6 +65,8 @@ type CartScreenProps = {
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
+  /** Cadeau de bienvenue encore disponible (`onboarding_process === "offer"`). */
+  welcomeGiftOfferEligible?: boolean;
   /** Profil à 100 % + KYC validé requis pour le paiement. */
   profileComplete?: boolean;
   kycVerified?: boolean;
@@ -113,13 +121,13 @@ export function CartScreen({
   cmsShopHubCatalogItems = [],
   cartShopSystemForYouItems = [],
   showOfferOnboarding = false,
+  welcomeGiftOfferEligible = false,
   profileComplete = true,
   kycVerified = true,
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
-  const creditKindLabel = walletCreditKindLabel(walletCreditKind);
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
@@ -190,15 +198,6 @@ export function CartScreen({
   useEffect(() => {
     if (!cartExceedsWallet) setExchangeCreditsModalOpen(false);
   }, [cartExceedsWallet]);
-
-  useEffect(() => {
-    if (!exchangeCreditsModalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExchangeCreditsModalOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [exchangeCreditsModalOpen]);
 
   const openPaymentGateOrProceed = () => {
     if (!canAccessPayment) {
@@ -357,8 +356,8 @@ export function CartScreen({
               cartExceedsWallet={cartExceedsWallet}
               onWalletPanelOpenChange={setWalletPanelOpen}
               className={cn(
-                "min-w-0 max-w-[min(100%,14.5rem)] shrink",
-                showOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+                "relative z-20 min-w-0 max-w-[min(100%,14.5rem)] shrink overflow-hidden",
+                welcomeGiftOfferEligible && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
               )}
             />
           </div>
@@ -480,6 +479,13 @@ export function CartScreen({
             };
             const defaultTitle = slotKey === "cart_offers" ? "Des offres pour vous" : "À la une";
             const useStaticOfferFallback = slotKey === "cart_offers" && cms.frames.length === 0;
+            const guideOfferFrameCta =
+              welcomeGiftOfferEligible &&
+              slotKey === "cart_offers" &&
+              cms.frames.some(
+                (row) =>
+                  isOnboardingOfferCmsFrame(row) || isPackageCreditsTargetUrl(row.payload?.target_url),
+              );
 
             return (
               <section key={slotKey} className="bg-white px-5 py-4">
@@ -489,14 +495,16 @@ export function CartScreen({
                   </h2>
                 ) : null}
                 {cms.frames.length > 0 ? (
-                  <CmsHorizontalScrollRow
-                    rows={cms.frames}
-                    className={cn(
-                      cms.display.hide_section_title && "!mt-0",
-                      showOfferOnboarding && slotKey === "cart_offers" && "segna-guidance-shimmer-active",
-                    )}
-                    hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
-                  />
+                  <CmsOnboardingOfferGuidanceProvider active={guideOfferFrameCta}>
+                    <CmsHorizontalScrollRow
+                      rows={cms.frames}
+                      className={cn(
+                        cms.display.hide_section_title && "!mt-0",
+                        guideOfferFrameCta && "segna-guidance-shimmer-active",
+                      )}
+                      hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+                    />
+                  </CmsOnboardingOfferGuidanceProvider>
                 ) : (
                   <div
                     className={cn(
@@ -602,76 +610,68 @@ export function CartScreen({
         kycVerified={kycVerified}
       />
 
-      {exchangeCreditsModalOpen && cartExceedsWallet ? (
-        <div
-          className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40"
-          onClick={() => setExchangeCreditsModalOpen(false)}
-          role="presentation"
-        >
-          <div
-            id="cart-exchange-credits-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cart-exchange-credits-modal-title"
-            className={SEGNA_DIALOG_SHEET_CLASS}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
-            <h2 id="cart-exchange-credits-modal-title" className={segnaDialogTitleClass()}>
-              Crédits
-            </h2>
-            <div className="mt-5 space-y-4">
-              <p className={segnaDialogBodyClass()}>
-                Il manque{" "}
-                <span className="tabular-nums">{missingExchangeMods.toLocaleString("fr-FR")}</span>{" "}
-                {walletCreditKind === "consumption" ? (
-                  <SegnaConsumptionCreditPhrase />
-                ) : (
-                  <span>{creditKindLabel}</span>
-                )}{" "}
-                pour ce panier.{" "}
-                {walletCreditKind === "consumption" ? (
-                  <>
-                    Tarif : une unité représente{" "}
-                    {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    € — montant déjà inclus dans le sous-total.
-                  </>
-                ) : (
-                  <>
-                    Tarif : 1 unité de {creditKindLabel} ={" "}
-                    {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    € — montant déjà inclus dans le sous-total.
-                  </>
-                )}
-              </p>
-              <p className={segnaDialogBodyClass()}>
-                Tu peux acheter ces crédits au paiement, ou{" "}
-                <Link
-                  href="/items/new"
-                  className="font-semibold text-zinc-900 underline underline-offset-2"
-                  onClick={() => setExchangeCreditsModalOpen(false)}
-                >
-                  ajouter des pièces à l&apos;emprunt
-                </Link>{" "}
-                pour augmenter ton plafond.
-              </p>
-            </div>
-            <button
-              type="button"
+      <SegnaAppBottomSheet
+        open={exchangeCreditsModalOpen && cartExceedsWallet}
+        onClose={() => setExchangeCreditsModalOpen(false)}
+        dialogId="cart-exchange-credits-modal"
+        labelledBy="cart-exchange-credits-modal-title"
+        zIndexClassName="z-[100]"
+      >
+        <SegnaDialogSheetHandle />
+        <h2 id="cart-exchange-credits-modal-title" className={segnaDialogTitleClass()}>
+          Crédits
+        </h2>
+        <div className="mt-5 space-y-4">
+          <p className={segnaDialogBodyClass()}>
+            Il manque{" "}
+            <span className="tabular-nums">{missingExchangeMods.toLocaleString("fr-FR")}</span>{" "}
+            {walletCreditKind === "consumption" ? (
+              <SegnaConsumptionCreditPhrase />
+            ) : (
+              <SegnaExchangeCreditPhrase />
+            )}{" "}
+            pour ce panier.{" "}
+            {walletCreditKind === "consumption" ? (
+              <>
+                Tarif : une unité représente{" "}
+                {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{" "}
+                € — montant déjà inclus dans le sous-total.
+              </>
+            ) : (
+              <>
+                Tarif : 1 unité{" "}
+                <SegnaExchangeCreditPhrase className="mx-0.5 align-[-0.12em]" />={" "}
+                {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{" "}
+                € — montant déjà inclus dans le sous-total.
+              </>
+            )}
+          </p>
+          <p className={segnaDialogBodyClass()}>
+            Tu peux acheter ces crédits au paiement, ou{" "}
+            <Link
+              href="/items/new"
+              className="font-semibold text-zinc-900 underline underline-offset-2"
               onClick={() => setExchangeCreditsModalOpen(false)}
-              className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
             >
-              OK
-            </button>
-          </div>
+              ajouter des pièces à l&apos;emprunt
+            </Link>{" "}
+            pour augmenter ton plafond.
+          </p>
         </div>
-      ) : null}
+        <button
+          type="button"
+          onClick={() => setExchangeCreditsModalOpen(false)}
+          className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+        >
+          OK
+        </button>
+      </SegnaAppBottomSheet>
     </div>
   );
 }

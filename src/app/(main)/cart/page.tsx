@@ -9,6 +9,7 @@ import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition
 import { collectCmsShopItemIdsFromSectionsByKey } from "@/lib/cms/collect-cms-shop-item-ids";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
 import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
@@ -120,7 +121,11 @@ export default async function CartPage() {
         perf.measure(`cms.${sectionKey}.frames`, () => fetchCmsSectionFramesResolved(supabase, sectionKey)),
         perf.measure(`cms.${sectionKey}.display`, () => fetchCmsSectionPublishedDisplay(supabase, sectionKey)),
       ]);
-      cmsSectionsByKey[sectionKey] = { frames, display };
+      const visibleFrames =
+        sectionKey === "cart_offers"
+          ? filterCartOfferFramesForWelcomeGiftEligibility(frames, userState?.onboarding_process)
+          : frames;
+      cmsSectionsByKey[sectionKey] = { frames: visibleFrames, display };
     }),
   );
 
@@ -160,6 +165,7 @@ export default async function CartPage() {
         cmsShopHubCatalogItems={cmsShopHubCatalogItems}
         cartShopSystemForYouItems={cartShopSystemForYouItems}
         showOfferOnboarding={showOfferInAppOnboarding}
+        welcomeGiftOfferEligible={userState?.onboarding_process === "offer"}
         profileComplete={paymentEligibility.profileComplete}
         kycVerified={paymentEligibility.kycVerified}
       />

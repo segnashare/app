@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import type { ItemMemberPhoto, ItemMemberSectionData } from "@/components/item/ItemMemberSection";
+import { parsePhotoTransformRecord, parseUserProfilePhotoPath } from "@/lib/profile/parse-profile-photo-path";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
-import type { ItemMemberSectionData } from "@/components/item/ItemMemberSection";
 
 const MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const LOOK_CROP_STAGE_RATIO = 3 / 4;
+const PROFILE_CROP_STAGE_RATIO = 1;
 
 function formatMemberSince(createdAt: string | null): string | null {
   if (!createdAt) return null;
@@ -19,6 +22,19 @@ function formatMemberSince(createdAt: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+type PhotoEntryDraft = {
+  path: string;
+  transformRaw: unknown;
+  cropStageRatio: number;
+};
+
+function readLookPath(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const rec = entry as Record<string, unknown>;
+  const sp = rec.storage_path ?? rec.url ?? rec.path;
+  return typeof sp === "string" && sp.trim() ? sp.trim() : null;
 }
 
 export function useItemMemberData(ownerUserId: string | null) {
@@ -54,46 +70,45 @@ export function useItemMemberData(ownerUserId: string | null) {
 
     const pronouns = (profileData.pronouns as string)?.trim() || null;
 
-    const parseProfilePhotoPath = (): string | null => {
-      const photos = (profileRow?.photos ?? {}) as Record<string, unknown>;
-      const photosProfile = (photos.profile ?? {}) as Record<string, unknown>;
-      const candidates = [
-        photos.profile_photo_path,
-        photos.profilePhotoPath,
-        photosProfile.profile_photo_path,
-        photosProfile.profilePhotoPath,
-      ];
-      return candidates.find((v) => typeof v === "string" && (v as string).trim().length > 0)?.toString().trim() ?? null;
-    };
-    const profilePhotoPath = parseProfilePhotoPath();
+    const photosObj = (profileRow?.photos ?? {}) as Record<string, unknown>;
+    const profilePhotoPath = parseUserProfilePhotoPath(profileRow ?? {});
+
+    const photoEntries: PhotoEntryDraft[] = [];
+    if (profilePhotoPath) {
+      photoEntries.push({
+        path: profilePhotoPath,
+        transformRaw: photosObj.profile_photo_transform,
+        cropStageRatio: PROFILE_CROP_STAGE_RATIO,
+      });
+    }
 
     const looksRaw = profileRow?.looks ?? profileData.looks;
-    const parseLooksPaths = (): string[] => {
-      if (!looksRaw || typeof looksRaw !== "object") return [];
-      if (Array.isArray(looksRaw)) {
-        return looksRaw
-          .slice(0, 3)
-          .map((r) => {
-            if (!r || typeof r !== "object") return null;
-            const rec = r as Record<string, unknown>;
-            const sp = rec.storage_path ?? rec.url ?? rec.path;
-            return typeof sp === "string" && sp.trim() ? sp.trim() : null;
-          })
-          .filter((p): p is string => Boolean(p));
+    if (Array.isArray(looksRaw)) {
+      for (const entry of looksRaw.slice(0, 3)) {
+        const path = readLookPath(entry);
+        if (!path) continue;
+        const rec = entry as Record<string, unknown>;
+        photoEntries.push({
+          path,
+          transformRaw: rec.position,
+          cropStageRatio: LOOK_CROP_STAGE_RATIO,
+        });
       }
+    } else if (looksRaw && typeof looksRaw === "object") {
       const rec = looksRaw as Record<string, unknown>;
-      return [rec.look1, rec.look2, rec.look3]
-        .map((r) => {
-          if (!r || typeof r !== "object") return null;
-          const slot = r as Record<string, unknown>;
-          const sp = slot.storage_path ?? slot.url ?? slot.path;
-          return typeof sp === "string" && sp.trim() ? sp.trim() : null;
-        })
-        .filter((p): p is string => Boolean(p));
-    };
-    const lookPaths = parseLooksPaths();
+      for (const key of ["look1", "look2", "look3"] as const) {
+        const entry = rec[key];
+        const path = readLookPath(entry);
+        if (!path) continue;
+        const lookRec = entry as Record<string, unknown>;
+        photoEntries.push({
+          path,
+          transformRaw: lookRec.position,
+          cropStageRatio: LOOK_CROP_STAGE_RATIO,
+        });
+      }
+    }
 
-    const allPaths = [...(profilePhotoPath ? [profilePhotoPath] : []), ...lookPaths];
     const getSignedUrl = async (path: string) => {
       const signed = await createSignedUrlForStoragePath(supabase, path, 60 * 60 * 24, {
         explicitBucket: "bucket_focus",
@@ -103,13 +118,41 @@ export function useItemMemberData(ownerUserId: string | null) {
       return supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path;
     };
 
-    const photoUrls: string[] = [];
-    for (const path of allPaths) {
+    const getImageRatio = (url: string) =>
+      new Promise<number>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img.width > 0 && img.height > 0 ? img.width / img.height : 1);
+        img.onerror = () => resolve(1);
+        img.src = url;
+      });
+
+    const photos: ItemMemberPhoto[] = [];
+    for (const entry of photoEntries) {
       try {
-        photoUrls.push(await getSignedUrl(path));
+        const url = await getSignedUrl(entry.path);
+        const transform = parsePhotoTransformRecord(entry.transformRaw);
+        photos.push({
+          url,
+          offset: transform.offset,
+          zoom: transform.zoom,
+          imageRatio: await getImageRatio(url),
+          cropStageRatio: entry.cropStageRatio,
+        });
       } catch {
-        const normalized = path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
-        photoUrls.push(supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? path);
+        try {
+          const normalized = entry.path.replace(/^\/+/, "").replace(/^bucket_focus\//i, "");
+          const url = supabase.storage.from("bucket_focus").getPublicUrl(normalized).data.publicUrl ?? entry.path;
+          const transform = parsePhotoTransformRecord(entry.transformRaw);
+          photos.push({
+            url,
+            offset: transform.offset,
+            zoom: transform.zoom,
+            imageRatio: await getImageRatio(url),
+            cropStageRatio: entry.cropStageRatio,
+          });
+        } catch {
+          /* ignore broken photo */
+        }
       }
     }
 
@@ -126,7 +169,7 @@ export function useItemMemberData(ownerUserId: string | null) {
       displayName,
       pronouns,
       isVerified,
-      photoUrls,
+      photos,
       levelIcon,
       levelLabel,
       levelNumber: currentLevel,

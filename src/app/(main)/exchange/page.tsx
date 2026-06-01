@@ -10,6 +10,7 @@ import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
+import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -72,7 +73,8 @@ import {
   needsItemIntakeUi,
 } from "@/lib/items/item-intake-ui";
 import { fetchMemberPiggybackDepositConfirmQueue } from "@/lib/items/intake-cart-return-piggyback";
-import { dedupeIntakeBannerCandidatesForMergedShipping } from "@/lib/items/intake-shipping-metadata";
+import { dedupeIntakeBannerCandidatesForMergedShipping, readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
+import { blocksIntakeUntilPendingShipmentsSent } from "@/lib/items/member-intake-shipping-pipeline-gate";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -289,7 +291,7 @@ export default async function ExchangePage() {
     supabase
       .from("item_intake")
       .select(
-        "item_id,listing_stage,fulfillment_stage,updated_at,metadata, items!inner(id,price_points,status,owner_user_id,deleted_at)",
+        "item_id,listing_stage,fulfillment_stage,updated_at,metadata, items!inner(id,title,price_points,status,owner_user_id,deleted_at)",
       )
       .eq("items.owner_user_id", userId)
       .is("items.deleted_at", null)
@@ -492,7 +494,8 @@ export default async function ExchangePage() {
     .filter((l) => {
       const ls = l.intake?.listing_stage?.toLowerCase() ?? "";
       const fs = l.intake?.fulfillment_stage?.toLowerCase() ?? "";
-      return ls === "validated" && (fs === "ready" || fs === "shipping" || fs === "");
+      if (ls !== "validated" || !(fs === "ready" || fs === "shipping" || fs === "")) return false;
+      return !readShippingPreferSolo(l.intake?.metadata);
     })
     .map((l) => l.id);
 
@@ -505,11 +508,13 @@ export default async function ExchangePage() {
     items:
       | {
           id?: string | null;
+          title?: string | null;
           price_points?: number | null;
           status?: string | null;
         }
       | {
           id?: string | null;
+          title?: string | null;
           price_points?: number | null;
           status?: string | null;
         }[]
@@ -523,6 +528,7 @@ export default async function ExchangePage() {
 
   type IntakeBannerCandidate = {
     id: string;
+    title: string | null;
     itemStatus: string;
     listingStage: string;
     fulfillmentStage: string | null;
@@ -539,6 +545,7 @@ export default async function ExchangePage() {
       if (!needsItemIntakeUi(listingStage, fulfillmentStage)) return null;
       return {
         id: item?.id ?? row.item_id,
+        title: typeof item?.title === "string" && item.title.trim() ? item.title.trim() : null,
         itemStatus: item?.status ?? "inconnu",
         listingStage,
         fulfillmentStage,
@@ -573,13 +580,15 @@ export default async function ExchangePage() {
 
   const defaultShippingGroupIds =
     mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
+  const blockEvaluationValidation = blocksIntakeUntilPendingShipmentsSent(mergedShippingCandidateIds.length);
   const intakeBannerForStack = dedupeIntakeBannerCandidatesForMergedShipping(
     intakeBannerCandidates,
     defaultShippingGroupIds,
-  );
+  ).filter((c) => !(blockEvaluationValidation && c.listingStage === "validation_pending"));
 
   const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerForStack.map((c) => ({
     id: c.id,
+    title: c.title,
     listingStage: c.listingStage,
     fulfillmentStage: c.fulfillmentStage,
     metadata: c.metadata,
@@ -921,6 +930,14 @@ export default async function ExchangePage() {
   const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
   const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  for (const sectionKey of cmsKeysToResolve) {
+    const bundle = cmsSectionsByKey[sectionKey];
+    if (!bundle) continue;
+    cmsSectionsByKey[sectionKey] = {
+      ...bundle,
+      frames: filterCartOfferFramesForWelcomeGiftEligibility(bundle.frames, exchangeOnboardingRow.onboarding_process),
+    };
+  }
   await perf.measure("borrowOverdue.sync", async () => {
     try {
       const admin = createSupabaseAdminClient();

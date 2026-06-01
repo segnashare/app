@@ -60,6 +60,14 @@ const RETURN_FORWARD: ShipmentStatusTarget[] = [
   "en_verification",
 ];
 
+/** Retour intake membre → Segna : pas d’étape `dropped_in` (dépôt relais puis transit). */
+const MEMBER_INTAKE_RETURN_FORWARD: ShipmentStatusTarget[] = [
+  "dropped_out",
+  "in_transit_out",
+  "returned",
+  "en_verification",
+];
+
 function norm(v: unknown): string {
   return String(v ?? "")
     .trim()
@@ -124,7 +132,52 @@ export function mapSendcloudParcelToShipmentTarget(
     return null;
   }
 
-  if (ctx === "member_intake" || ctx === "cart_return") {
+  if (ctx === "member_intake") {
+    if (
+      (msg.includes("delivered") && !msg.includes("to sorting")) ||
+      msg.includes("returned to sender") ||
+      msg.includes("returned to merchant") ||
+      statusId === 11 ||
+      statusId === 80 ||
+      statusId === 639
+    ) {
+      return "returned";
+    }
+    if (
+      msg.includes("transit") ||
+      msg.includes("en route") ||
+      msg.includes("picked up by driver") ||
+      msg.includes("shipment on route") ||
+      msg.includes("driver on route") ||
+      msg.includes("accepted by carrier") ||
+      msg === "accepted" ||
+      msg.includes("parcel accepted") ||
+      msg.includes("accepted by the carrier") ||
+      msg.includes("sorting centre") ||
+      msg.includes("sorting center") ||
+      msg.includes("sorted") ||
+      msg.includes("to sorting") ||
+      statusId === 3 ||
+      statusId === 4 ||
+      statusId === 5 ||
+      statusId === 12 ||
+      statusId === 13
+    ) {
+      return "in_transit_out";
+    }
+    if (
+      msg.includes("service point") ||
+      msg.includes("dropped off") ||
+      msg.includes("collected by") ||
+      (msg.includes("collected") && !msg.includes("awaiting")) ||
+      statusId === 8
+    ) {
+      return "dropped_out";
+    }
+    return null;
+  }
+
+  if (ctx === "cart_return") {
     if (
       (msg.includes("delivered") && !msg.includes("to sorting")) ||
       msg.includes("returned to sender") ||
@@ -193,7 +246,11 @@ function buildForwardChain(
   target: ShipmentStatusTarget,
 ): ShipmentStatusTarget[] {
   const chain =
-    context === "cart_return" || context === "member_intake" ? RETURN_FORWARD : OUTBOUND_FORWARD;
+    context === "member_intake"
+      ? MEMBER_INTAKE_RETURN_FORWARD
+      : context === "cart_return"
+        ? RETURN_FORWARD
+        : OUTBOUND_FORWARD;
   const curRank = rankForward(chain, current);
   const targetRank = chain.indexOf(target);
   if (targetRank < 0) return [];

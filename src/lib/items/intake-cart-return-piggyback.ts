@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  bootstrapMemberIntakeSplitSecondaryPortals,
+} from "@/lib/items/member-intake-return-portal";
+import {
   archiveMemberIntakeShipment,
   cancelMemberIntakeSendcloudArtifacts,
   consolidateMemberIntakeShippingGroup,
   loadMemberIntakeSendcloudCancelInput,
+  MEMBER_INTAKE_SHIPMENT_MAX_ITEMS,
   needsMemberIntakeGroupConsolidation,
   readMemberIntakeShipmentIdFromMetadata,
   SC_MEMBER_INTAKE_SHIPMENT_ID,
@@ -241,7 +245,7 @@ export async function fetchDefaultIntakeShippingGroupIds(
     return [focus];
   }
 
-  const unique = [...new Set(ids)].sort((a, b) => a.localeCompare(b)).slice(0, 5);
+  const unique = [...new Set(ids)].sort((a, b) => a.localeCompare(b)).slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
   if (focus && SHIPPING_ITEM_ID_UUID_RE.test(focus) && !unique.includes(focus)) {
     const focusRow = rows.find((r) => String((r as { id?: string }).id) === focus);
     const emb = focusRow ? (focusRow as { item_intake?: unknown }).item_intake : null;
@@ -255,13 +259,46 @@ export async function fetchDefaultIntakeShippingGroupIds(
       unique.sort((a, b) => a.localeCompare(b));
     }
   }
-  return unique.slice(0, 5);
+  return unique.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
 }
 
 export function buildIntakeShippingPageHrefFromIds(itemIds: string[]): string {
   const sorted = [...new Set(itemIds.map((s) => s.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   if (sorted.length === 0) return "/items/shipping";
   return `/items/shipping?ids=${sorted.map(encodeURIComponent).join(",")}`;
+}
+
+/** Pièces cibles pour « Regrouper dans un seul envoi » (inclut les solos post-split). */
+export function resolveIntakeShippingRegroupTargetIds(
+  currentItemIds: string[],
+  defaultGroupIds: string[],
+  peerIds: string[],
+): string[] {
+  if (defaultGroupIds.length >= 2) {
+    return [...defaultGroupIds].sort((a, b) => a.localeCompare(b));
+  }
+  return [
+    ...new Set([
+      ...currentItemIds.map((s) => s.trim()).filter(Boolean),
+      ...peerIds.map((s) => s.trim()).filter(Boolean),
+    ]),
+  ]
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
+}
+
+export function parseItemIdsFromIntakeShippingPageHref(href: string | null | undefined): string[] {
+  if (!href?.includes("ids=")) return [];
+  try {
+    const query = href.includes("?") ? href.split("?")[1]! : "";
+    const raw = new URLSearchParams(query).get("ids");
+    if (!raw) return [];
+    return [...new Set(raw.split(",").map((s) => decodeURIComponent(s.trim())).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+  } catch {
+    return [];
+  }
 }
 
 /** Autres pièces du membre en phase expédition (même colis Sendcloud possible). */
@@ -307,16 +344,18 @@ export function buildIntakeMergeShippingHref(currentItemIds: string[], peerIds: 
   const merged = [...new Set([...currentItemIds, ...peerIds].map((s) => s.trim()).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b),
   );
-  if (merged.length < 2 || merged.length > 5) return null;
+  if (merged.length < 2 || merged.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) return null;
   if (current.length >= 2 && peerIds.every((p) => current.includes(p.trim()))) {
     return null;
   }
   return `/items/shipping?ids=${merged.map(encodeURIComponent).join(",")}`;
 }
 
-/** Lien pour ajouter des pièces éligibles pas encore dans l’URL courante (3ᵉ pièce, etc.). */
+/** Lien pour ajouter une pièce éligible pas encore dans l’URL courante (2ᵉ pièce max). */
 export function buildIntakeExpandShippingHref(currentItemIds: string[], peerIds: string[]): string | null {
-  const currentSet = new Set(currentItemIds.map((s) => s.trim()).filter(Boolean));
+  const current = [...new Set(currentItemIds.map((s) => s.trim()).filter(Boolean))];
+  if (current.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) return null;
+  const currentSet = new Set(current);
   const missing = peerIds.map((s) => s.trim()).filter((id) => id && !currentSet.has(id));
   if (missing.length === 0) return null;
   return buildIntakeMergeShippingHref(currentItemIds, missing);
@@ -553,8 +592,12 @@ export async function runIntakeCartReturnPiggybackConfirm(
   params: { userId: string; itemIds: string[]; cartId: string },
 ): Promise<{ ok: true; cart_id: string; return_shipment_id: string } | { ok: false; error: string; status: number }> {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  if (sortedIds.length < 1 || sortedIds.length > 5) {
-    return { ok: false, error: "Entre 1 et 5 pièces requises.", status: 400 };
+  if (sortedIds.length < 1 || sortedIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return {
+      ok: false,
+      error: `Entre 1 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises.`,
+      status: 400,
+    };
   }
 
   const cartId = params.cartId.trim();
@@ -629,7 +672,9 @@ export async function runIntakeCartReturnPiggybackConfirm(
     }
   }
   if (memberIntakeShipmentId) {
-    const archived = await archiveMemberIntakeShipment(service, memberIntakeShipmentId);
+    const archived = await archiveMemberIntakeShipment(service, memberIntakeShipmentId, {
+      skipSendcloudCancel: true,
+    });
     if (!archived.ok) {
       return { ok: false, error: archived.error, status: 500 };
     }
@@ -899,6 +944,7 @@ export type IntakeShippingOptionsSnapshot = {
   other_intake_shipping_peers: OtherIntakeShippingPeer[];
   merge_intake_shipping_href: string | null;
   default_shipping_group_ids: string[];
+  regroup_target_item_ids: string[];
 };
 
 export async function fetchIntakeShippingOptions(
@@ -959,6 +1005,11 @@ export async function fetchIntakeShippingOptions(
     other_intake_shipping_peers: peers,
     merge_intake_shipping_href: mergeHref,
     default_shipping_group_ids: defaultGroupIds,
+    regroup_target_item_ids: resolveIntakeShippingRegroupTargetIds(
+      sortedIds,
+      defaultGroupIds,
+      peers.map((p) => p.id),
+    ),
   };
 }
 
@@ -1221,8 +1272,12 @@ export async function runIntakeShippingUngroup(
   params: { userId: string; itemIds: string[] },
 ): Promise<{ ok: true; primary_item_id: string } | { ok: false; error: string; status: number }> {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  if (sortedIds.length < 2 || sortedIds.length > 5) {
-    return { ok: false, error: "Entre 2 et 5 pièces requises pour séparer.", status: 400 };
+  if (sortedIds.length < 2 || sortedIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return {
+      ok: false,
+      error: `Entre 2 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises pour séparer.`,
+      status: 400,
+    };
   }
 
   const groupIds = new Set<string>(sortedIds);
@@ -1262,6 +1317,15 @@ export async function runIntakeShippingUngroup(
     return { ok: false, error: split.error, status: 502 };
   }
 
+  const portals = await bootstrapMemberIntakeSplitSecondaryPortals(service, {
+    userId: params.userId,
+    primaryItemId: split.primary_item_id,
+    itemShipmentIds: split.item_shipment_ids,
+  });
+  if (!portals.ok) {
+    return { ok: false, error: portals.error, status: 502 };
+  }
+
   for (const id of ids) {
     await clearIntakeMrMergeItemIds(service, id);
   }
@@ -1275,14 +1339,28 @@ export async function runIntakeShippingAckGrouped(
   params: { userId: string; itemIds: string[] },
 ): Promise<{ ok: true; item_ids: string[] } | { ok: false; error: string; status: number }> {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
-  if (sortedIds.length < 2 || sortedIds.length > 5) {
-    return { ok: false, error: "Entre 2 et 5 pièces requises.", status: 400 };
+  if (sortedIds.length < 2 || sortedIds.length > MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) {
+    return {
+      ok: false,
+      error: `Entre 2 et ${MEMBER_INTAKE_SHIPMENT_MAX_ITEMS} pièces requises.`,
+      status: 400,
+    };
   }
 
-  const groupIds = await fetchDefaultIntakeShippingGroupIds(service, params.userId, {
-    focusItemId: sortedIds[0],
-  });
-  const target = groupIds.length >= 2 ? groupIds : sortedIds;
+  const [groupIds, peers] = await Promise.all([
+    fetchDefaultIntakeShippingGroupIds(service, params.userId, {
+      focusItemId: sortedIds[0],
+    }),
+    fetchOtherIntakeShippingPeers(service, params.userId, sortedIds),
+  ]);
+  const target = resolveIntakeShippingRegroupTargetIds(
+    sortedIds,
+    groupIds,
+    peers.map((p) => p.id),
+  );
+  if (target.length < 2) {
+    return { ok: false, error: "Au moins 2 pièces requises pour regrouper.", status: 400 };
+  }
 
   const { data: owned } = await service
     .from("items")

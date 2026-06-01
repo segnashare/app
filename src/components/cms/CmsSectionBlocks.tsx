@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { Children, createContext, isValidElement, useContext, useEffect, useState } from "react";
 
 import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
@@ -10,6 +10,7 @@ import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { CmsFramePayload, CmsFrameRow } from "@/lib/cms/cms-types";
 import { pickPseudoFrame } from "@/lib/cms/cms-pseudo-frame";
 import { renderCmsStarBoldSegments } from "@/lib/cms/render-cms-star-bold";
+import { isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { departmentSlugForCategoryId } from "@/lib/shop/shop-department-categories";
 import { cn } from "@/lib/utils/cn";
 
@@ -53,6 +54,25 @@ function useCmsLinkCardCtaTone(): CmsLinkCardCtaTone {
   return useContext(CmsLinkCardCtaToneContext);
 }
 
+/** Étape onboarding « offer » : balayage argenté sur le CTA de la carte crédits. */
+const CmsOnboardingOfferGuidanceContext = createContext(false);
+
+export function CmsOnboardingOfferGuidanceProvider({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <CmsOnboardingOfferGuidanceContext.Provider value={active}>{children}</CmsOnboardingOfferGuidanceContext.Provider>
+  );
+}
+
+function useCmsOnboardingOfferGuidance(): boolean {
+  return useContext(CmsOnboardingOfferGuidanceContext);
+}
+
 function cmsLinkCardCtaClassName(tone: CmsLinkCardCtaTone): string {
   return tone === "neutral" ? "text-zinc-900" : "text-[#5E3023]";
 }
@@ -70,6 +90,31 @@ export const CMS_FRAME_SURFACE_CLASS = "overflow-hidden";
 
 /** Wrapper lien des grandes cartes hub (`shop_link_card`, rail Catégories…). */
 export const CMS_HUB_LINK_CARD_WRAPPER_CLASS = "block w-full overflow-hidden rounded-2xl";
+
+/** Rail horizontal boutique — inset / snap alignés sur la section Catégories. */
+export const CMS_SHOP_HUB_LINK_CARD_RAIL_CLASS =
+  "flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+
+/**
+ * Rail grandes cartes shop : scroll + spacers latéraux si plusieurs frames ;
+ * une seule frame → pleine largeur utile (pas de décalage scroll-pl / w-3).
+ */
+export function CmsShopHubLinkCardRail({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children).filter(
+    (child) => isValidElement(child) || (typeof child === "string" && child.trim().length > 0),
+  );
+  if (items.length === 0) return null;
+  if (items.length === 1) {
+    return <div className="w-full min-w-0">{items[0]}</div>;
+  }
+  return (
+    <div className={CMS_SHOP_HUB_LINK_CARD_RAIL_CLASS}>
+      <div className="w-3 shrink-0 snap-start" aria-hidden />
+      {items}
+      <div className="w-3 shrink-0 snap-start" aria-hidden />
+    </div>
+  );
+}
 
 const CMS_FRAME_STACK_CARD_CLASS = cn(
   "relative flex shrink-0 flex-col rounded-2xl p-4",
@@ -196,17 +241,8 @@ function hubWidePayloadFromEditorial(p: CmsFramePayload): CmsFramePayload {
 function OfferCardInner({ payload }: { payload: CmsFramePayload }) {
   const layout = useCmsFrameLayoutMode();
   const linkCtaTone = useCmsLinkCardCtaTone();
-  const hubOuter = useCmsHubFrameOuterClass();
   if (layout === "hub") {
-    return (
-      <div className={hubOuter}>
-        <ShopWideLinkCardBlock
-          payload={hubWidePayloadFromOffer(payload)}
-          aspectClassName="aspect-[2.32]"
-          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-        />
-      </div>
-    );
+    return <ShopHubLinkCardFrame payload={hubWidePayloadFromOffer(payload)} layout="hub" />;
   }
 
   const href = payload.target_url?.trim() || "/shop";
@@ -270,6 +306,7 @@ export function ShopWideLinkCardBlock({
   surfaceRadiusClassName?: string;
 }) {
   const layout = useCmsFrameLayoutMode();
+  const guideOnboardingOffer = useCmsOnboardingOfferGuidance();
   const href = payload.target_url?.trim() || "/shop";
   const title = payload.title?.trim() || "";
   const pill = payload.cta_pill === true;
@@ -287,6 +324,11 @@ export function ShopWideLinkCardBlock({
   const showTitle = Boolean(title) && !visualOnly && (!bgUrl || coverState === "ready" || coverState === "failed");
   const fullCardShimmer = Boolean(bgUrl) && coverState === "loading";
   const showPillOverlay = pill && !visualOnly;
+  const showOfferCtaShimmer =
+    pill &&
+    !visualOnly &&
+    (payload.onboarding_offer_only === true ||
+      (guideOnboardingOffer && isPackageCreditsTargetUrl(payload.target_url)));
   /** En stack, sans `visualOnly`, on garde une hauteur souple ; bannière décorative = ratio imposé par l’appelant. */
   const surfaceAspectClass =
     visualOnly ? aspectClassName : layout === "stack" ? "aspect-auto min-h-[148px]" : aspectClassName;
@@ -350,7 +392,8 @@ export function ShopWideLinkCardBlock({
           {pill ? (
             <span
               className={cn(
-                "segna-guidance-shimmer-target mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
+                "mt-3 inline-block w-fit max-w-full whitespace-pre-wrap rounded-full bg-white px-4 py-2 text-left text-[14px] font-semibold not-italic leading-snug text-zinc-900",
+                showOfferCtaShimmer && "segna-guidance-shimmer-target relative z-[3]",
                 montserratWideCardCta.className,
               )}
             >
@@ -385,6 +428,45 @@ export function ShopWideLinkCardBlock({
     >
       {surface}
     </Link>
+  );
+}
+
+/** Grande carte hub : gabarit Catégories (outer fixe + lien `w-full` à l’intérieur — évite `w-full` sur le flex item). */
+export function ShopHubLinkCardFrame({
+  payload,
+  onNavigate,
+  outerClassName,
+  layout = "hub",
+  visualOnly = false,
+  asStatic = false,
+  surfaceRadiusClassName = "rounded-2xl",
+}: {
+  payload: CmsFramePayload;
+  onNavigate?: () => void;
+  outerClassName?: string;
+  layout?: CmsFrameLayoutMode;
+  visualOnly?: boolean;
+  asStatic?: boolean;
+  surfaceRadiusClassName?: string;
+}) {
+  const hubOuter = useCmsHubFrameOuterClass();
+  const outer =
+    layout === "stack"
+      ? cn("w-full min-w-0", outerClassName)
+      : cn(hubOuter, "self-start", outerClassName);
+
+  return (
+    <div className={outer}>
+      <ShopWideLinkCardBlock
+        payload={payload}
+        aspectClassName="aspect-[2.32]"
+        wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
+        onNavigate={onNavigate}
+        visualOnly={visualOnly}
+        asStatic={asStatic}
+        surfaceRadiusClassName={surfaceRadiusClassName}
+      />
+    </div>
   );
 }
 
@@ -441,19 +523,15 @@ function CategoryCapsuleInner({ payload }: { payload: CmsFramePayload }) {
 
 function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
   const layout = useCmsFrameLayoutMode();
-  const hubOuter = useCmsHubFrameOuterClass();
   const visualOnly = useCmsPromoVisualOnly();
 
   if (layout === "hub") {
     return (
-      <div className={hubOuter}>
-        <ShopWideLinkCardBlock
-          payload={hubWidePayloadFromPromo(payload)}
-          aspectClassName="aspect-[2.32]"
-          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-          visualOnly={visualOnly}
-        />
-      </div>
+      <ShopHubLinkCardFrame
+        payload={hubWidePayloadFromPromo(payload)}
+        layout="hub"
+        visualOnly={visualOnly}
+      />
     );
   }
 
@@ -527,17 +605,8 @@ function PromoAdInner({ payload }: { payload: CmsFramePayload }) {
 function EditorialCardInner({ payload }: { payload: CmsFramePayload }) {
   const layout = useCmsFrameLayoutMode();
   const linkCtaTone = useCmsLinkCardCtaTone();
-  const hubOuter = useCmsHubFrameOuterClass();
   if (layout === "hub") {
-    return (
-      <div className={hubOuter}>
-        <ShopWideLinkCardBlock
-          payload={hubWidePayloadFromEditorial(payload)}
-          aspectClassName="aspect-[2.32]"
-          wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-        />
-      </div>
-    );
+    return <ShopHubLinkCardFrame payload={hubWidePayloadFromEditorial(payload)} layout="hub" />;
   }
 
   const href = payload.target_url?.trim() || "/shop";
@@ -685,18 +754,8 @@ function CmsShopItemRefStandalone({ row }: { row: CmsFrameRow }) {
 
 function CmsShopLinkCardFrame({ row, hub }: { row: CmsFrameRow; hub: CmsShopHubFramesEnv | null }) {
   const layout = useCmsFrameLayoutMode();
-  const hubOuter = useCmsHubFrameOuterClass();
-  const payload = row.payload;
   if (hub?.renderShopLinkCard) return hub.renderShopLinkCard(row);
-  return (
-    <div className={layout === "stack" ? "w-full min-w-0" : hubOuter}>
-      <ShopWideLinkCardBlock
-        payload={payload}
-        aspectClassName="aspect-[2.32]"
-        wrapperClassName={CMS_HUB_LINK_CARD_WRAPPER_CLASS}
-      />
-    </div>
-  );
+  return <ShopHubLinkCardFrame payload={row.payload} layout={layout} />;
 }
 
 /** Hero Obtenir plus : image plein cadre, voile sombre, texte centré (Playfair + Montserrat) + pastille CTA. */
@@ -831,7 +890,13 @@ function renderCmsFrameContent(row: CmsFrameRow, hub: CmsShopHubFramesEnv | null
   }
 }
 
-export function CmsFrameItem({ row, layoutMode = "hub" }: { row: CmsFrameRow; layoutMode?: CmsFrameLayoutMode }) {
+export function CmsFrameItem({
+  row,
+  layoutMode = "hub",
+}: {
+  row: CmsFrameRow;
+  layoutMode?: CmsFrameLayoutMode;
+}) {
   const hub = useCmsShopHubFramesOptional();
   return (
     <CmsFrameLayoutModeProvider mode={layoutMode}>
@@ -871,8 +936,8 @@ export function CmsHorizontalScrollRow({
   promoVisualOnly?: boolean;
 }) {
   if (rows.length === 0) return null;
-  const single = rows.length === 1;
-  const rowList = rows.map((row) => <CmsFrameItem key={row.id} row={row} />);
+  const frameLayoutMode: CmsFrameLayoutMode = layout === "stack" ? "stack" : "hub";
+  const rowList = rows.map((row) => <CmsFrameItem key={row.id} row={row} layoutMode={frameLayoutMode} />);
   const inner =
     layout === "stack" ? (
       <div className={cn("mt-3 flex w-full min-w-0 flex-col gap-3", className)}>{rowList}</div>
@@ -880,7 +945,6 @@ export function CmsHorizontalScrollRow({
       <div
         className={cn(
           "-mx-5 mt-3 flex items-start gap-3 overflow-x-auto overflow-y-hidden pb-1 touch-pan-x px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
-          single && "justify-center",
           className,
         )}
       >
