@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 
 import { verifyCronRequest } from "@/lib/cron/verify-cron-request";
 import { runBorrowOverdueAccrual } from "@/lib/cron/run-borrow-overdue-accrual";
-import { runBorrowReturnReminders } from "@/lib/cron/run-borrow-return-reminders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
- * Legacy : exécute emprunt + retard en un seul appel (tests manuels).
- * En prod, préférer les routes séparées planifiées dans `vercel.json`.
+ * Pénalités + alertes retard retour emprunt (J+1…).
+ * Planifié 10h00 Paris (`vercel.json` + pg_cron).
  */
 export async function GET(request: Request) {
   const denied = verifyCronRequest(request);
@@ -16,11 +15,8 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdminClient();
 
   try {
-    const [reminders, overdue] = await Promise.all([
-      runBorrowReturnReminders(admin),
-      runBorrowOverdueAccrual(admin),
-    ]);
-    return NextResponse.json({ ok: true as const, reminders, overdue });
+    const overdue = await runBorrowOverdueAccrual(admin);
+    return NextResponse.json({ ok: true as const, overdue });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false as const, error: msg }, { status: 500 });

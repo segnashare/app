@@ -1,11 +1,16 @@
 /**
- * Appelle une route GET /api/cron/* en local (ou autre base URL) avec le même Bearer que la prod.
- * Usage : node scripts/dev-invoke-cron.mjs member-lifecycle-reminders
- *         node scripts/dev-invoke-cron.mjs member-engagement-reminders
- *         node scripts/dev-invoke-cron.mjs referral-referrer-sms
+ * Appelle une route GET /api/cron/* en local, preview ou prod avec le Bearer cron.
  *
- * Lit `.env.local` à la racine du projet (SEGNA_CRON_SECRET ou CRON_SECRET).
- * Surcharge : BASE_URL=https://preview... SEGNA_CRON_SECRET=... node ...
+ * Usage :
+ *   node scripts/dev-invoke-cron.mjs member-borrow-return-reminders
+ *   node scripts/dev-invoke-cron.mjs member-borrow-overdue-accrual
+ *   node scripts/dev-invoke-cron.mjs member-onboarding-reminders
+ *   node scripts/dev-invoke-cron.mjs member-abandoned-cart-reminders
+ *   node scripts/dev-invoke-cron.mjs all
+ *   node scripts/dev-invoke-cron.mjs all --preview
+ *
+ * Legacy (agrégats tests manuels) :
+ *   member-lifecycle-reminders | member-engagement-reminders
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -35,14 +40,23 @@ function loadDotEnvFile(relPath) {
   return out;
 }
 
-const name = process.argv[2] || "member-lifecycle-reminders";
-const allowed = new Set([
-  "member-lifecycle-reminders",
-  "member-engagement-reminders",
+const CRON_ROUTES = [
+  "member-borrow-overdue-accrual",
+  "member-onboarding-reminders",
+  "member-abandoned-cart-reminders",
+  "member-borrow-return-reminders",
   "referral-referrer-sms",
-]);
+];
+
+const LEGACY_ROUTES = ["member-lifecycle-reminders", "member-engagement-reminders"];
+
+const name = process.argv[2] || "member-borrow-return-reminders";
+const usePreview = process.argv.includes("--preview");
+const allowed = new Set([...CRON_ROUTES, ...LEGACY_ROUTES, "all"]);
 if (!allowed.has(name)) {
-  console.error(`Usage: node scripts/dev-invoke-cron.mjs <${[...allowed].join("|")}>`);
+  console.error(
+    `Usage: node scripts/dev-invoke-cron.mjs <${[...allowed].join("|")}> [--preview]`,
+  );
   process.exit(1);
 }
 
@@ -56,24 +70,44 @@ if (!secret) {
   process.exit(1);
 }
 
-const base = (env.CRON_DEV_BASE_URL || env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(
-  /\/$/,
-  "",
-);
-const url = `${base}/api/cron/${name}`;
+const base = (
+  (usePreview ? env.CRON_PREVIEW_BASE_URL : null) ||
+  env.CRON_DEV_BASE_URL ||
+  env.NEXT_PUBLIC_APP_URL ||
+  "http://localhost:3000"
+).replace(/\/$/, "");
 
-const res = await fetch(url, {
-  headers: { Authorization: `Bearer ${secret}` },
-});
+async function invokeCron(routeName) {
+  const url = `${base}/api/cron/${routeName}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
 
-const text = await res.text();
-let body;
-try {
-  body = JSON.parse(text);
-} catch {
-  body = text;
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
+
+  console.log(`\n→ ${routeName}`);
+  console.log(`  ${url}`);
+  console.log(`  ${res.status} ${res.statusText}`);
+  console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+  return res.ok;
 }
 
-console.log(res.status, res.statusText);
-console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
-if (!res.ok) process.exit(1);
+console.log(`Base: ${base}${usePreview ? " (preview)" : ""}`);
+
+const routes =
+  name === "all"
+    ? [...CRON_ROUTES]
+    : [name];
+
+let failed = false;
+for (const route of routes) {
+  const ok = await invokeCron(route);
+  if (!ok) failed = true;
+}
+if (failed) process.exit(1);

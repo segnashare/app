@@ -13,8 +13,8 @@
  * - `return_received_by_segna` : retour réceptionné / en vérification côté Segna
  * - `member_intake_dropped_in` : envoi membre → Segna `in_transit_out` — **SMS seul** (pièce en route, crédits d’échange après vérif)
  *
- * **Emprunt / délais** : `borrow_return_deadline_reminder` — cron J-3 / J-1 / J-J ; e-mail + SMS si `SEGNA_NOTIFY_SMS_ALERTS=1`  
- * - `borrow_overdue_daily` — pénalité journalière après échéance (`accrue_cart_borrow_overdue_day`) ; e-mail + SMS
+ * **Emprunt / délais** : `borrow_return_deadline_reminder` — cron 19h30 Paris ; e-mail + SMS si `SEGNA_NOTIFY_SMS_ALERTS=1`  
+ * - `borrow_overdue_daily` — 10h Paris ; pénalité journalière après échéance
  *
  * **Pièce / annonce** (via `POST /api/internal/member-lifecycle/notify`)  
  * - `item_listing_evaluated`, `item_received_by_segna`, `item_validated_by_segna`
@@ -24,11 +24,10 @@
  *
  * **Parrainage** : `referral_referrer_bonus` — SMS au parrain lorsque le filleul est qualifié (`POST /api/referral/dispatch-referrer-notify`, cron).
  *
- * **Engagement** (cron `GET /api/cron/member-engagement-reminders`, `SEGNA_NOTIFY_SMS_ALERTS=1`)  
- * - `onboarding_incomplete_reminder` — 1er rappel onboarding in-app (J+3 à J+9)  
- * - `onboarding_incomplete_reminder_followup` — 2e rappel (J+10+)  
- * - `liked_items_available_reminder` — favoris encore `available`, inactivité app depuis M jours  
- * - `abandoned_cart_reminder` — panier ouvert depuis 48 h+ avec pièces encore empruntables
+ * **Engagement** (crons séparés, `SEGNA_NOTIFY_SMS_ALERTS=1`, max 2 SMS/jour Paris — emprunt prioritaire)  
+ * - `onboarding_incomplete_reminder` — 15h Paris (`member-onboarding-reminders`)  
+ * - `onboarding_incomplete_reminder_followup` — idem  
+ * - `abandoned_cart_reminder` — 18h Paris (`member-abandoned-cart-reminders`)
  */
 export const NotificationKind = {
   cartOrderPaid: "cart_order_paid",
@@ -57,7 +56,6 @@ export const NotificationKind = {
   referralReferrerBonus: "referral_referrer_bonus",
   onboardingIncompleteReminder: "onboarding_incomplete_reminder",
   onboardingIncompleteReminderFollowup: "onboarding_incomplete_reminder_followup",
-  likedItemsAvailableReminder: "liked_items_available_reminder",
   abandonedCartReminder: "abandoned_cart_reminder",
 } as const;
 

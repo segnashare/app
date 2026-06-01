@@ -124,6 +124,7 @@ export async function runBorrowReturnReminders(
       phase: pick.phase,
       idempotencyBucket: pick.idempotencyBucket,
       templateDaysLeft: pick.templateDaysLeft,
+      cronSmsNowMs: nowMs,
     });
     notifyCalls++;
   }
