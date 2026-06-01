@@ -24,6 +24,7 @@ const FRAME_TYPES: CmsFrameType[] = [
   "auth_collage_image",
   "onboarding_stack_image",
   "subscription_plan_landing",
+  "welcome_gift_landing",
 ];
 const PLAN_CODES: CmsPlanCode[] = ["guest", "segna_plus", "segna_x"];
 

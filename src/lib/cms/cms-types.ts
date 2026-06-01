@@ -23,7 +23,9 @@ export type CmsFrameType =
   /** Pile visuelle onboarding (BO : page Onboarding) — même payload collage, rendu vertical sans flottement. */
   | "onboarding_stack_image"
   /** Page abonnement SegnaX (`/package?plan=x` ou alias `plan=credits`) : textes, offre mise en avant, CTA Stripe. */
-  | "subscription_plan_landing";
+  | "subscription_plan_landing"
+  /** Page cadeau de bienvenue (`/package?plan=credits` onboarding) : montant crédits offerts et textes. */
+  | "welcome_gift_landing";
 
 /** Config publiée d’une section hub catalogue (titre, flèche, lien « voir plus »). */
 export type CmsCatalogSectionConfig = {
@@ -77,6 +79,11 @@ export type CmsFramePayload = {
   cta_pill?: boolean;
   button_label?: string;
   target_url?: string;
+  /**
+   * Carte liée à `/package?plan=credits` : visible uniquement tant que
+   * `onboarding_process === "offer"` (offre spéciale onboarding).
+   */
+  onboarding_offer_only?: boolean;
   background?: CmsBackgroundPayload;
   /** Image encadrée (carte split) */
   inset_image?: CmsImageRef & { placement?: "right" | "bottom" | "left" };
@@ -153,6 +160,15 @@ export type CmsFramePayload = {
     /** Si renseigné (ex. 30) : période d’essai Stripe pour ce palier (`subscription_data.trial_period_days`). */
     trial_period_days?: number | string;
   }[];
+  /** --- welcome_gift_landing (section `offer_welcome_gift`) --- */
+  welcome_gift_page_title?: string;
+  welcome_gift_card_badge?: string;
+  welcome_gift_credits_amount?: number | string;
+  welcome_gift_card_subtitle?: string;
+  welcome_gift_intro_body?: string;
+  welcome_gift_cta_label?: string;
+  welcome_gift_footnote?: string;
+  welcome_gift_value_props?: { title?: string; body?: string }[];
 };
 
 export type CmsFrameRow = {

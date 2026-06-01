@@ -17,7 +17,11 @@ import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
 import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
-import { CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS, CmsHorizontalScrollRow } from "@/components/cms/CmsSectionBlocks";
+import {
+  CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
+  CmsHorizontalScrollRow,
+  CmsOnboardingOfferGuidanceProvider,
+} from "@/components/cms/CmsSectionBlocks";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -25,6 +29,7 @@ import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
+import { isOnboardingOfferCmsFrame, isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -60,6 +65,8 @@ type CartScreenProps = {
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
+  /** Cadeau de bienvenue encore disponible (`onboarding_process === "offer"`). */
+  welcomeGiftOfferEligible?: boolean;
   /** Profil à 100 % + KYC validé requis pour le paiement. */
   profileComplete?: boolean;
   kycVerified?: boolean;
@@ -114,6 +121,7 @@ export function CartScreen({
   cmsShopHubCatalogItems = [],
   cartShopSystemForYouItems = [],
   showOfferOnboarding = false,
+  welcomeGiftOfferEligible = false,
   profileComplete = true,
   kycVerified = true,
 }: CartScreenProps) {
@@ -348,8 +356,8 @@ export function CartScreen({
               cartExceedsWallet={cartExceedsWallet}
               onWalletPanelOpenChange={setWalletPanelOpen}
               className={cn(
-                "min-w-0 max-w-[min(100%,14.5rem)] shrink",
-                showOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+                "relative z-20 min-w-0 max-w-[min(100%,14.5rem)] shrink overflow-hidden",
+                welcomeGiftOfferEligible && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
               )}
             />
           </div>
@@ -471,6 +479,13 @@ export function CartScreen({
             };
             const defaultTitle = slotKey === "cart_offers" ? "Des offres pour vous" : "À la une";
             const useStaticOfferFallback = slotKey === "cart_offers" && cms.frames.length === 0;
+            const guideOfferFrameCta =
+              welcomeGiftOfferEligible &&
+              slotKey === "cart_offers" &&
+              cms.frames.some(
+                (row) =>
+                  isOnboardingOfferCmsFrame(row) || isPackageCreditsTargetUrl(row.payload?.target_url),
+              );
 
             return (
               <section key={slotKey} className="bg-white px-5 py-4">
@@ -480,14 +495,16 @@ export function CartScreen({
                   </h2>
                 ) : null}
                 {cms.frames.length > 0 ? (
-                  <CmsHorizontalScrollRow
-                    rows={cms.frames}
-                    className={cn(
-                      cms.display.hide_section_title && "!mt-0",
-                      showOfferOnboarding && slotKey === "cart_offers" && "segna-guidance-shimmer-active",
-                    )}
-                    hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
-                  />
+                  <CmsOnboardingOfferGuidanceProvider active={guideOfferFrameCta}>
+                    <CmsHorizontalScrollRow
+                      rows={cms.frames}
+                      className={cn(
+                        cms.display.hide_section_title && "!mt-0",
+                        guideOfferFrameCta && "segna-guidance-shimmer-active",
+                      )}
+                      hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+                    />
+                  </CmsOnboardingOfferGuidanceProvider>
                 ) : (
                   <div
                     className={cn(

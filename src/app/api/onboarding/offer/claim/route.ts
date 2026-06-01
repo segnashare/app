@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-const OFFER_CREDITS_AMOUNT = 50;
 
 export async function POST() {
   try {
@@ -18,6 +17,8 @@ export async function POST() {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
+    const { creditsAmount: offerCreditsAmount } = await fetchWelcomeGiftLandingContent(supabase);
+
     const { data: updatedUser, error: userUpdateError } = await admin
       .from("users")
       .update({ onboarding_process: "exchange" })
@@ -31,6 +32,31 @@ export async function POST() {
 
     if (!updatedUser?.id) {
       return NextResponse.json({ ok: true, alreadyClaimed: true, creditsAdded: 0 });
+    }
+
+    const idempotencyKey = `onboarding_welcome_gift:${user.id}`;
+    const { error: txInsertError } = await admin.from("wallet_transactions").insert({
+      user_id: user.id,
+      kind: "credit",
+      direction: "credit",
+      amount_points: offerCreditsAmount,
+      status: "posted",
+      idempotency_key: idempotencyKey,
+      credit_bucket: "consumption",
+      metadata: {
+        source: "onboarding_welcome_gift",
+        credits_kind: "consumption",
+      },
+    });
+
+    if (txInsertError) {
+      const code = String((txInsertError as { code?: string }).code ?? "");
+      const duplicate =
+        code === "23505" || txInsertError.message?.toLowerCase().includes("duplicate") === true;
+      if (duplicate) {
+        return NextResponse.json({ ok: true, alreadyClaimed: true, creditsAdded: 0 });
+      }
+      return NextResponse.json({ message: txInsertError.message }, { status: 500 });
     }
 
     const { data: walletRow, error: walletReadError } = await admin
@@ -50,7 +76,7 @@ export async function POST() {
       const { error: walletUpdateError } = await admin
         .from("user_wallets")
         .update({
-          balance_consumption_points: currentBalance + OFFER_CREDITS_AMOUNT,
+          balance_consumption_points: currentBalance + offerCreditsAmount,
           updated_at: new Date().toISOString(),
         })
         .eq("id", walletRow.id);
@@ -60,7 +86,7 @@ export async function POST() {
     } else {
       const { error: walletInsertError } = await admin.from("user_wallets").insert({
         user_id: user.id,
-        balance_consumption_points: OFFER_CREDITS_AMOUNT,
+        balance_consumption_points: offerCreditsAmount,
         balance_exchange_points: 0,
       });
       if (walletInsertError) {
@@ -68,7 +94,7 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({ ok: true, alreadyClaimed: false, creditsAdded: OFFER_CREDITS_AMOUNT });
+    return NextResponse.json({ ok: true, alreadyClaimed: false, creditsAdded: offerCreditsAmount });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Impossible de créditer le wallet.";
     return NextResponse.json({ message }, { status: 500 });

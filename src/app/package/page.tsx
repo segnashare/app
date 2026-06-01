@@ -3,6 +3,7 @@ import { PackageSegnaXLandingClient } from "@/app/package/PackageSegnaXLandingCl
 import { fetchPlanEntitlementComparisonLimits } from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { parseSubscriptionPlanLandingPayload } from "@/lib/cms/subscription-plan-landing";
+import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -43,12 +44,16 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
     const planEntitlementComparisonLimits =
       plan === "x" ? await fetchPlanEntitlementComparisonLimits() : undefined;
 
+    const welcomeGiftContent =
+      showOfferOnboarding && plan === "credits" ? await fetchWelcomeGiftLandingContent(supabase) : null;
+
     return (
       <PackageSegnaXLandingClient
         content={content}
         planQuery={planQuery}
         identityVerifiedForSubscription={identityVerifiedForSubscription}
         showOfferOnboarding={showOfferOnboarding}
+        welcomeGiftContent={welcomeGiftContent}
         planEntitlementComparisonLimits={planEntitlementComparisonLimits}
       />
     );

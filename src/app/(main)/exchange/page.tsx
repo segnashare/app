@@ -10,6 +10,7 @@ import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
+import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -929,6 +930,14 @@ export default async function ExchangePage() {
   const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
   const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  for (const sectionKey of cmsKeysToResolve) {
+    const bundle = cmsSectionsByKey[sectionKey];
+    if (!bundle) continue;
+    cmsSectionsByKey[sectionKey] = {
+      ...bundle,
+      frames: filterCartOfferFramesForWelcomeGiftEligibility(bundle.frames, exchangeOnboardingRow.onboarding_process),
+    };
+  }
   await perf.measure("borrowOverdue.sync", async () => {
     try {
       const admin = createSupabaseAdminClient();
