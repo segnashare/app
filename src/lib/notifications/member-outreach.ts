@@ -7,6 +7,7 @@ import {
   setNotificationDeliveryChannels,
   type NotificationDeliveryChannels,
 } from "@/lib/notifications/idempotency";
+import { shouldSendMemberCronSms } from "@/lib/notifications/member-sms-daily-cap";
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
@@ -45,6 +46,9 @@ export async function sendMemberOutreachNotification(
      * Si absent / `false` : SMS seulement avec `SEGNA_NOTIFY_SMS_ALERTS=1`.
      */
     transactionalSms?: boolean;
+    /** Plafond SMS crons (2/jour Paris, emprunt prioritaire). */
+    applyCronSmsDailyCap?: boolean;
+    cronSmsNowMs?: number;
   },
 ): Promise<void> {
   const claimed = await claimNotificationSend(admin, {
@@ -77,10 +81,18 @@ export async function sendMemberOutreachNotification(
     }
 
     const smsAlertsOn = getServerEnv().SEGNA_NOTIFY_SMS_ALERTS?.trim() === "1";
-    const allowSms =
+    let allowSms =
       input.channels === "email+phone" &&
       Boolean(input.smsBody?.trim()) &&
       (input.transactionalSms === true || smsAlertsOn);
+    if (allowSms && input.applyCronSmsDailyCap) {
+      allowSms = await shouldSendMemberCronSms(
+        admin,
+        input.userId,
+        input.kind,
+        input.cronSmsNowMs ?? Date.now(),
+      );
+    }
     let delivery: NotificationDeliveryChannels = "email";
     if (allowSms) {
       const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
@@ -117,8 +129,20 @@ export async function sendMemberSmsOnlyNotification(
     metadata?: Record<string, unknown>;
     smsBody: string;
     transactionalSms?: boolean;
+    applyCronSmsDailyCap?: boolean;
+    cronSmsNowMs?: number;
   },
 ): Promise<void> {
+  if (input.applyCronSmsDailyCap) {
+    const allowed = await shouldSendMemberCronSms(
+      admin,
+      input.userId,
+      input.kind,
+      input.cronSmsNowMs ?? Date.now(),
+    );
+    if (!allowed) return;
+  }
+
   const claimed = await claimNotificationSend(admin, {
     idempotencyKey: input.idempotencyKey,
     kind: input.kind,

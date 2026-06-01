@@ -476,6 +476,7 @@ export async function notifyBorrowDeadlineReminder(
     idempotencyBucket?: string;
     /** @deprecated conservé pour métadonnées (jours entiers avant l’instant limite). */
     templateDaysLeft?: number;
+    cronSmsNowMs?: number;
   },
 ): Promise<void> {
   const { data: user } = await admin.from("users").select("first_name").eq("id", input.userId).maybeSingle();
@@ -499,6 +500,8 @@ export async function notifyBorrowDeadlineReminder(
     html,
     channels: "email+phone",
     smsBody,
+    applyCronSmsDailyCap: true,
+    cronSmsNowMs: input.cronSmsNowMs,
   });
 }
 
@@ -515,6 +518,7 @@ export async function notifyBorrowOverdueDaily(
     chargeStatus: string;
     calendarDate: string;
     chargedViaStripe?: boolean;
+    cronSmsNowMs?: number;
   },
 ): Promise<void> {
   const { data: user } = await admin.from("users").select("first_name").eq("id", input.userId).maybeSingle();
@@ -548,5 +552,7 @@ export async function notifyBorrowOverdueDaily(
     html,
     channels: "email+phone",
     smsBody,
+    applyCronSmsDailyCap: true,
+    cronSmsNowMs: input.cronSmsNowMs,
   });
 }

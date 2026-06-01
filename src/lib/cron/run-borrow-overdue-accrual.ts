@@ -195,6 +195,7 @@ export async function runBorrowOverdueAccrual(
             chargeStatus,
             calendarDate,
             chargedViaStripe,
+            cronSmsNowMs: nowMs,
           });
           notified++;
         } catch (e) {

@@ -1,5 +1,9 @@
 import { escapeHtml, resolvePublicOriginForEmailImages, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
 import type { BorrowReturnReminderPhase } from "@/lib/emprunt/borrow-return-reminder-buckets";
+import {
+  appendSmsAppLink,
+  memberAppExchangeUrl,
+} from "@/lib/notifications/member-app-links";
 
 function firstNameOrBonjour(firstName: string | null | undefined): string {
   const t = firstName?.trim();
@@ -225,19 +229,28 @@ export function borrowDeadlineReminderEmail(
     subject = "Retour d’emprunt : échéance dépassée";
     bodyP2Text = `L’échéance de retour pour ${opts.cartLabel} est dépassée. Merci d’expédier ton retour ou de contacter le support.`;
     bodyP2Html = `L’échéance de retour pour <strong>${labelEsc}</strong> est <strong>dépassée</strong>. Merci d’expédier ton retour ou de contacter le support si besoin.`;
-    smsBody = `Segna : échéance de retour dépassée (${opts.cartLabel.trim().slice(0, 40)}). Ouvre l’app.`;
+    smsBody = appendSmsAppLink(
+      `Segna : échéance de retour dépassée (${opts.cartLabel.trim().slice(0, 40)}).`,
+      memberAppExchangeUrl(),
+    );
   } else if (phase === "jj") {
     subject = "Retour d’emprunt : échéance aujourd’hui";
     bodyP2Text = `Aujourd’hui est le dernier jour pour respecter l’échéance de retour pour ${opts.cartLabel}. Pense à déposer ton colis retour depuis l’app si ce n’est pas déjà fait.`;
     bodyP2Html = `Aujourd’hui est le <strong>dernier jour</strong> pour respecter l’échéance de retour pour <strong>${labelEsc}</strong>. Pense à déposer ton colis retour depuis l’app si ce n’est pas déjà fait.`;
-    smsBody = `Segna : dernier jour pour retourner (${opts.cartLabel.trim().slice(0, 40)}). Voir l’app Échange.`;
+    smsBody = appendSmsAppLink(
+      `Segna : dernier jour pour retourner (${opts.cartLabel.trim().slice(0, 40)}).`,
+      memberAppExchangeUrl(),
+    );
   } else {
     const days =
       phase === "jminus7" ? 7 : phase === "jminus3" ? 3 : 1;
     subject = `Retour d’emprunt : J-${days}`;
     bodyP2Text = `Il te reste environ ${days} jour(s) avant l’échéance de retour pour ${opts.cartLabel}. Pense à générer / déposer ton colis retour depuis l’app.`;
     bodyP2Html = `Il te reste environ <strong>${days}</strong> jour(s) avant l’échéance de retour pour <strong>${labelEsc}</strong>. Pense à générer / déposer ton colis retour depuis l’app.`;
-    smsBody = `Segna : J-${days} avant retour (${opts.cartLabel.trim().slice(0, 40)}). Voir l’app Échange.`;
+    smsBody = appendSmsAppLink(
+      `Segna : J-${days} avant retour (${opts.cartLabel.trim().slice(0, 40)}).`,
+      memberAppExchangeUrl(),
+    );
   }
 
   const { text, html } = shell(subject, subject, [
@@ -306,7 +319,10 @@ export function borrowOverdueDailyEmail(
     },
   ]);
 
-  const smsBody = `Segna : retard retour J${day} — ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}). Ouvre l’app.`;
+  const smsBody = appendSmsAppLink(
+    `Segna : retard retour J${day} — ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}).`,
+    memberAppExchangeUrl(),
+  );
 
   return { subject, text, html, smsBody };
 }

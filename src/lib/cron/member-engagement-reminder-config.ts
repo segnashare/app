@@ -13,7 +13,6 @@ export type MemberEngagementReminderConfig = {
   onboardingFirstReminderMinAgeMs: number;
   /** 2e rappel onboarding : âge minimum du compte (défaut J+10). */
   onboardingFollowupMinAgeMs: number;
-  likedItemsInactiveMs: number;
   abandonedCartMinAgeMs: number;
   maxCandidatesPerKind: number;
 };
@@ -23,14 +22,12 @@ export function getMemberEngagementReminderConfig(): MemberEngagementReminderCon
   const env = getServerEnv();
   const onboardingFirstDays = parsePositiveInt(env.SEGNA_REMINDER_ONBOARDING_DAYS, 3);
   const onboardingFollowupDays = parsePositiveInt(env.SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS, 10);
-  const inactiveDays = parsePositiveInt(env.SEGNA_REMINDER_INACTIVE_DAYS, 7);
   const abandonedCartHours = parsePositiveInt(env.SEGNA_REMINDER_ABANDONED_CART_HOURS, 48);
   const maxCandidates = parsePositiveInt(env.SEGNA_REMINDER_MAX_PER_RUN, 80);
 
   return {
     onboardingFirstReminderMinAgeMs: onboardingFirstDays * MS_PER_DAY,
     onboardingFollowupMinAgeMs: onboardingFollowupDays * MS_PER_DAY,
-    likedItemsInactiveMs: inactiveDays * MS_PER_DAY,
     abandonedCartMinAgeMs: abandonedCartHours * MS_PER_HOUR,
     maxCandidatesPerKind: maxCandidates,
   };

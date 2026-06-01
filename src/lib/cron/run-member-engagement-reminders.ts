@@ -5,16 +5,13 @@ import {
   getMemberEngagementReminderConfig,
   type MemberEngagementReminderConfig,
 } from "@/lib/cron/member-engagement-reminder-config";
-import { fetchMemberLastAppActivityMsByUserIds } from "@/lib/cron/member-last-app-activity";
 import { NotificationKind } from "@/lib/notifications/kinds";
-import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 import {
   buildAbandonedCartReminderSms,
-  buildLikedItemsAvailableReminderSms,
   buildOnboardingIncompleteFollowupReminderSms,
   buildOnboardingIncompleteReminderSms,
-  buildPieceSmsLabel,
 } from "@/lib/notifications/member-engagement-reminder-sms";
+import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 
 export type EngagementReminderRunStats = {
   scanned: number;
@@ -66,7 +63,6 @@ async function fetchOnboardingIncompleteCandidates(
   return (data ?? []) as UserRow[];
 }
 
-/** 1er rappel : J+3 à J+9 (évite 2 SMS le jour du 2e rappel). */
 async function runOnboardingIncompleteReminders(
   admin: SupabaseClient,
   cfg: MemberEngagementReminderConfig,
@@ -94,6 +90,8 @@ async function runOnboardingIncompleteReminders(
       idempotencyKey: `eng:onboarding_incomplete:1:${row.id}`,
       metadata: { onboarding_process: row.onboarding_process ?? null, phase: "first" },
       smsBody: buildOnboardingIncompleteReminderSms(),
+      applyCronSmsDailyCap: true,
+      cronSmsNowMs: nowMs,
     });
     notifyCalls++;
   }
@@ -101,7 +99,6 @@ async function runOnboardingIncompleteReminders(
   return { scanned, eligible, notifyCalls };
 }
 
-/** 2e rappel : compte ≥ J+10, onboarding in-app toujours incomplet. */
 async function runOnboardingIncompleteFollowupReminders(
   admin: SupabaseClient,
   cfg: MemberEngagementReminderConfig,
@@ -126,6 +123,8 @@ async function runOnboardingIncompleteFollowupReminders(
       idempotencyKey: `eng:onboarding_incomplete:2:${row.id}`,
       metadata: { onboarding_process: row.onboarding_process ?? null, phase: "followup" },
       smsBody: buildOnboardingIncompleteFollowupReminderSms(),
+      applyCronSmsDailyCap: true,
+      cronSmsNowMs: nowMs,
     });
     notifyCalls++;
   }
@@ -133,112 +132,24 @@ async function runOnboardingIncompleteFollowupReminders(
   return { scanned, eligible, notifyCalls };
 }
 
-type LikedFavoriteRow = {
-  user_id?: string;
-  created_at?: string;
-  items?: {
-    status?: string | null;
-    title?: string | null;
-    item_custom_brand_label?: string | null;
-    item_brands?: { label?: string | null } | { label?: string | null }[] | null;
-  } | null;
-};
-
-function resolveItemBrandLabel(row: LikedFavoriteRow["items"]): string | null {
-  if (!row) return null;
-  const custom = row.item_custom_brand_label?.trim();
-  if (custom) return custom;
-  const rel = row.item_brands;
-  const brand = Array.isArray(rel) ? rel[0] : rel;
-  const label = brand?.label?.trim();
-  return label || null;
+export async function runMemberOnboardingReminders(
+  admin: SupabaseClient,
+  nowMs: number = Date.now(),
+): Promise<{
+  onboardingIncompleteFirst: EngagementReminderRunStats;
+  onboardingIncompleteFollowup: EngagementReminderRunStats;
+}> {
+  const cfg = getMemberEngagementReminderConfig();
+  const onboardingIncompleteFirst = await runOnboardingIncompleteReminders(admin, cfg, nowMs);
+  const onboardingIncompleteFollowup = await runOnboardingIncompleteFollowupReminders(admin, cfg, nowMs);
+  return { onboardingIncompleteFirst, onboardingIncompleteFollowup };
 }
 
-async function runLikedItemsAvailableReminders(
+export async function runAbandonedCartReminders(
   admin: SupabaseClient,
-  cfg: MemberEngagementReminderConfig,
-  nowMs: number,
+  nowMs: number = Date.now(),
 ): Promise<EngagementReminderRunStats> {
-  const inactiveBeforeMs = nowMs - cfg.likedItemsInactiveMs;
-
-  const { data: favRows, error: favErr } = await admin
-    .from("item_favorites")
-    .select(
-      "user_id, created_at, items!inner(status, title, item_custom_brand_label, item_brands(label))",
-    )
-    .is("deleted_at", null)
-    .eq("items.status", "available")
-    .order("created_at", { ascending: false })
-    .limit(cfg.maxCandidatesPerKind * 12);
-
-  if (favErr) throw new Error(favErr.message);
-
-  const labelsByUser = new Map<string, string[]>();
-  for (const row of (favRows ?? []) as LikedFavoriteRow[]) {
-    const uid = typeof row.user_id === "string" ? row.user_id : "";
-    if (!uid) continue;
-    const item = row.items;
-    if (!item || item.status !== "available") continue;
-    const label = buildPieceSmsLabel(item.title, resolveItemBrandLabel(item));
-    const prev = labelsByUser.get(uid) ?? [];
-    if (prev.length >= 3) continue;
-    if (prev.includes(label)) continue;
-    labelsByUser.set(uid, [...prev, label]);
-  }
-
-  const candidateIds = [...labelsByUser.keys()].slice(0, cfg.maxCandidatesPerKind);
-  if (candidateIds.length === 0) {
-    return { scanned: 0, eligible: 0, notifyCalls: 0 };
-  }
-
-  const { data: users, error: uErr } = await admin
-    .from("users")
-    .select("id, phone")
-    .in("id", candidateIds)
-    .eq("onboarding_mode", "real")
-    .eq("status", "active")
-    .is("deleted_at", null)
-    .not("phone", "is", null);
-  if (uErr) throw new Error(uErr.message);
-
-  const activeUserIds = (users ?? []).map((u) => (u as { id: string }).id).filter(Boolean);
-  const lastActivityByUser = await fetchMemberLastAppActivityMsByUserIds(admin, activeUserIds);
-
-  let scanned = 0;
-  let eligible = 0;
-  let notifyCalls = 0;
-
-  for (const userId of activeUserIds) {
-    scanned++;
-    const lastMs = lastActivityByUser.get(userId);
-    if (lastMs == null || lastMs > inactiveBeforeMs) continue;
-
-    const pieceLabels = labelsByUser.get(userId) ?? [];
-    const smsBody = buildLikedItemsAvailableReminderSms(pieceLabels);
-    if (!smsBody) continue;
-
-    eligible++;
-    await sendMemberSmsOnlyNotification(admin, {
-      userId,
-      kind: NotificationKind.likedItemsAvailableReminder,
-      idempotencyKey: `eng:liked_items_available:${userId}`,
-      metadata: {
-        last_activity_at: new Date(lastMs).toISOString(),
-        piece_labels: pieceLabels,
-      },
-      smsBody,
-    });
-    notifyCalls++;
-  }
-
-  return { scanned, eligible, notifyCalls };
-}
-
-async function runAbandonedCartReminders(
-  admin: SupabaseClient,
-  cfg: MemberEngagementReminderConfig,
-  nowMs: number,
-): Promise<EngagementReminderRunStats> {
+  const cfg = getMemberEngagementReminderConfig();
   const createdBeforeIso = new Date(nowMs - cfg.abandonedCartMinAgeMs).toISOString();
 
   const { data: carts, error: cErr } = await admin
@@ -295,6 +206,8 @@ async function runAbandonedCartReminders(
       idempotencyKey: `eng:abandoned_cart:${cartId}`,
       metadata: { cart_id: cartId, cart_created_at: (cart as { created_at?: string }).created_at ?? null },
       smsBody: buildAbandonedCartReminderSms(),
+      applyCronSmsDailyCap: true,
+      cronSmsNowMs: nowMs,
     });
     notifyCalls++;
   }
@@ -302,24 +215,18 @@ async function runAbandonedCartReminders(
   return { scanned, eligible, notifyCalls };
 }
 
-export type MemberEngagementRemindersResult = {
-  onboardingIncompleteFirst: EngagementReminderRunStats;
-  onboardingIncompleteFollowup: EngagementReminderRunStats;
-  likedItemsAvailable: EngagementReminderRunStats;
-  abandonedCart: EngagementReminderRunStats;
-};
-
+/** Agrégat legacy (tests manuels) — préférer les routes cron séparées. */
 export async function runMemberEngagementReminders(
   admin: SupabaseClient,
   nowMs: number = Date.now(),
-): Promise<MemberEngagementRemindersResult> {
-  const cfg = getMemberEngagementReminderConfig();
-  const [onboardingIncompleteFirst, onboardingIncompleteFollowup, likedItemsAvailable, abandonedCart] =
-    await Promise.all([
-      runOnboardingIncompleteReminders(admin, cfg, nowMs),
-      runOnboardingIncompleteFollowupReminders(admin, cfg, nowMs),
-      runLikedItemsAvailableReminders(admin, cfg, nowMs),
-      runAbandonedCartReminders(admin, cfg, nowMs),
-    ]);
-  return { onboardingIncompleteFirst, onboardingIncompleteFollowup, likedItemsAvailable, abandonedCart };
+): Promise<{
+  onboardingIncompleteFirst: EngagementReminderRunStats;
+  onboardingIncompleteFollowup: EngagementReminderRunStats;
+  abandonedCart: EngagementReminderRunStats;
+}> {
+  const [onboarding, abandonedCart] = await Promise.all([
+    runMemberOnboardingReminders(admin, nowMs),
+    runAbandonedCartReminders(admin, nowMs),
+  ]);
+  return { ...onboarding, abandonedCart };
 }
