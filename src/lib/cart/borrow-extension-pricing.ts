@@ -1,6 +1,9 @@
 /** 0,02 € par crédit (point) et par jour de prolongation. */
 export const BORROW_EXTENSION_CENTS_PER_CREDIT_PER_DAY = 2;
 
+/** Prix minimum TTC facturé (aligné minimum Stripe EUR). */
+export const BORROW_EXTENSION_MIN_AMOUNT_CENTS = 50;
+
 /** Libellé affiché (€ / crédit / jour). */
 export const BORROW_EXTENSION_EURO_PER_CREDIT_DAY_LABEL = "0,02";
 
@@ -23,7 +26,8 @@ export function computeBorrowExtensionAmountCents(creditsTotal: number, extensio
   const credits = Math.max(0, Math.trunc(creditsTotal));
   const days = Math.max(0, Math.trunc(extensionDays));
   if (credits <= 0 || days <= 0) return 0;
-  return credits * days * BORROW_EXTENSION_CENTS_PER_CREDIT_PER_DAY;
+  const computed = credits * days * BORROW_EXTENSION_CENTS_PER_CREDIT_PER_DAY;
+  return Math.max(BORROW_EXTENSION_MIN_AMOUNT_CENTS, computed);
 }
 
 export function formatBorrowExtensionEuroTtc(cents: number): string {
