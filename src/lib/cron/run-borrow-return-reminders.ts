@@ -4,7 +4,11 @@ import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-de
 import { fetchCartBorrowExtensionDaysByCartIds } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
-import { pickBorrowReturnReminder } from "@/lib/emprunt/borrow-return-reminder-buckets";
+import {
+  matchesBorrowReturnReminderPhaseFilter,
+  pickBorrowReturnReminder,
+  type BorrowReturnReminderPhaseFilter,
+} from "@/lib/emprunt/borrow-return-reminder-buckets";
 import { notifyBorrowDeadlineReminder } from "@/lib/notifications/lifecycle-shipment-notify";
 import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
 
@@ -13,14 +17,21 @@ const OUTBOUND_FETCH_MULT = 3;
 
 type CartRow = { id: string; user_id: string; status: string; borrow_return_due_at?: string | null };
 
+export type RunBorrowReturnRemindersOpts = {
+  /** Défaut `all`. Prod : `advance` (soir) ou `jj` (matin). */
+  phases?: BorrowReturnReminderPhaseFilter;
+};
+
 /**
- * Rappels avant échéance (Guest J-3 / J-1 / J-J ; Membre + / X : J-7 / J-3 / J-J).
+ * Rappels avant échéance (Guest J-3 / J-1 ; Membre + / X : J-7 / J-3 ; J-J le matin à part).
  * Les retards J+1+ sont notifiés par `runBorrowOverdueAccrual` (`borrow_overdue_daily`).
  */
 export async function runBorrowReturnReminders(
   admin: SupabaseClient,
   nowMs: number = Date.now(),
+  opts: RunBorrowReturnRemindersOpts = {},
 ): Promise<{ scanned: number; eligible: number; notifyCalls: number }> {
+  const phaseFilter = opts.phases ?? "all";
   const { data: outboundRows, error: oErr } = await admin
     .from("shipments")
     .select("cart_id,updated_at,delivered_at")
@@ -115,7 +126,7 @@ export async function runBorrowReturnReminders(
     if (!Number.isFinite(deadlineMs)) continue;
 
     const pick = pickBorrowReturnReminder(nowMs, deadlineMs, membershipLabel);
-    if (!pick) continue;
+    if (!pick || !matchesBorrowReturnReminderPhaseFilter(pick.phase, phaseFilter)) continue;
     eligible++;
 
     await notifyBorrowDeadlineReminder(admin, {

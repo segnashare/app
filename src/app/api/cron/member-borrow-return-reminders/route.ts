@@ -5,7 +5,7 @@ import { runBorrowReturnReminders } from "@/lib/cron/run-borrow-return-reminders
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
- * Rappels avant échéance emprunt (J-7 / J-3 / J-1 / J-J).
+ * Rappels avant échéance emprunt (J-7 / J-3 / J-1). J-J : cron matin (`member-borrow-overdue-accrual`).
  * Planifié 19h30 Paris (`vercel.json` + pg_cron).
  */
 export async function GET(request: Request) {
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdminClient();
 
   try {
-    const reminders = await runBorrowReturnReminders(admin);
+    const reminders = await runBorrowReturnReminders(admin, Date.now(), { phases: "advance" });
     return NextResponse.json({ ok: true as const, reminders });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

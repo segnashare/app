@@ -15,6 +15,18 @@ export type BorrowReturnReminderPick = {
   templateDaysLeft: number;
 };
 
+/** `advance` = J-7 / J-3 / J-1 (soir) — `jj` = dernier jour (matin, avec retards). */
+export type BorrowReturnReminderPhaseFilter = "advance" | "jj" | "all";
+
+export function matchesBorrowReturnReminderPhaseFilter(
+  phase: BorrowReturnReminderPhase,
+  filter: BorrowReturnReminderPhaseFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "jj") return phase === "jj";
+  return phase === "jminus7" || phase === "jminus3" || phase === "jminus1";
+}
+
 /** Dernier jour calendaire avant dépassement (minuit Paris suivant). */
 export function isBorrowReturnDueJjDay(nowMs: number, deadlineMs: number): boolean {
   return isBorrowReturnDueJjDayParis(nowMs, deadlineMs);
@@ -26,7 +38,8 @@ function isSubscriberMembership(membership: SegnaBorrowMembershipLabel): boolean
 
 /**
  * Rappels cron avant échéance uniquement (jours calendaires Paris).
- * Guest : J-3, J-1, J-J — Membre + / X : J-7, J-3, J-J.
+ * Guest : J-3, J-1 (+ J-J le matin) — Membre + / X : J-7, J-3 (+ J-J le matin).
+ * J-J : cron matin (`member-borrow-overdue-accrual`). J-7 / J-3 / J-1 : cron soir.
  * Les jours de retard (J+1…) sont gérés par `borrowOverdueDaily` (accrue + notify séparés).
  */
 export function pickBorrowReturnReminder(

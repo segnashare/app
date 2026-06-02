@@ -13,8 +13,8 @@
  * - `return_received_by_segna` : retour réceptionné / en vérification côté Segna
  * - `member_intake_dropped_in` : envoi membre → Segna `in_transit_out` — **SMS seul** (pièce en route, crédits d’échange après vérif)
  *
- * **Emprunt / délais** : `borrow_return_deadline_reminder` — cron 19h30 Paris ; e-mail + SMS si `SEGNA_NOTIFY_SMS_ALERTS=1`  
- * - `borrow_overdue_daily` — 10h Paris ; pénalité journalière après échéance
+ * **Emprunt / délais** : `borrow_return_deadline_reminder` — J-7/J-3/J-1 (19h30 Paris) + J-J (10h Paris) ; e-mail + SMS  
+ * - `borrow_overdue_daily` — 10h Paris (même cron matin) ; pénalité journalière après échéance
  *
  * **Pièce / annonce** (via `POST /api/internal/member-lifecycle/notify`)  
  * - `item_listing_evaluated`, `item_received_by_segna`, `item_validated_by_segna`

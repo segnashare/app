@@ -1,0 +1,151 @@
+.scene {
+  perspective: 1200px;
+}
+
+.flipper {
+  position: relative;
+  min-height: 11.5rem;
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.flipperFlipped {
+  transform: rotateY(180deg);
+}
+
+.face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+
+.wallet {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: #09090b;
+  min-height: 11.5rem;
+  transition: min-height 0.45s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.walletExpanded {
+  min-height: 16.5rem;
+}
+
+.cardsStack {
+  position: absolute;
+  top: 0.85rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: transform 0.45s cubic-bezier(0.34, 1.2, 0.64, 1);
+  will-change: transform;
+}
+
+.cardsStackExpanded {
+  transform: translateY(-4.75rem);
+}
+
+.creditCard {
+  position: relative;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem 1rem;
+  min-height: 5.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.creditCardExchange {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 55%, #4338ca 100%);
+  color: #fff;
+}
+
+.creditCardSegna {
+  background: #fff;
+  color: #18181b;
+}
+
+.walletBody {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: 11.5rem;
+  width: 100%;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 1.25rem 1.25rem;
+  margin-top: 3.25rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.walletBody::before {
+  content: "";
+  position: absolute;
+  top: -1.35rem;
+  left: 0;
+  right: 0;
+  height: 2.5rem;
+  background: #09090b;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  pointer-events: none;
+}
+
+.walletBody:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 2px;
+  border-radius: 0 0 1.5rem 1.5rem;
+}
+
+.walletFooter {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.infoButton {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transition: background 0.15s ease;
+}
+
+.infoButton:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.infoButton:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.backPanel {
+  position: relative;
+  display: flex;
+  min-height: 11.5rem;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 1.5rem;
+  background: #09090b;
+  padding: 1.25rem 1.35rem;
+}

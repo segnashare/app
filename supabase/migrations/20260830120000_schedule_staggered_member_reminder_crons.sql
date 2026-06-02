@@ -1,8 +1,8 @@
 -- Crons étalés (UTC ≈ Paris hiver UTC+1) :
---   09:00 → retard emprunt (10h Paris)
+--   09:00 → J-J + retard emprunt (10h Paris)
 --   14:00 → onboarding (15h Paris)
 --   17:00 → panier abandonné (18h Paris)
---   18:30 → rappel emprunt J-X / J-J (19h30 Paris)
+--   18:30 → rappel emprunt J-7 / J-3 / J-1 (19h30 Paris)
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
