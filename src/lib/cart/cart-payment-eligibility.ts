@@ -1,3 +1,4 @@
+import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
 import {
   cartPaymentProfileGateMessage,
@@ -12,7 +13,8 @@ export type CartPaymentEligibility = {
 };
 
 /**
- * Profil « prêt » comme à l’onboarding (1 photo + infos essentielles) + KYC validé pour le paiement panier.
+ * Profil « prêt » comme à l’onboarding (1 photo + infos essentielles) ;
+ * KYC validé requis seulement si `KYC_REQUIRED_FOR_BORROW`.
  */
 export async function fetchCartPaymentEligibility(
   supabase: Parameters<typeof fetchOnboardingProfileRequirements>[0],
@@ -29,7 +31,7 @@ export async function fetchCartPaymentEligibility(
   return {
     profileComplete,
     kycVerified,
-    canAccessPayment: profileComplete && kycVerified,
+    canAccessPayment: profileComplete && (!KYC_REQUIRED_FOR_BORROW || kycVerified),
   };
 }
 

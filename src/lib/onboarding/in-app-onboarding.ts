@@ -1,7 +1,9 @@
 /**
  * Aligné sur le type Postgres `public.onboarding_process_status` (voir DB).
- * Ordre métier : intro → profile → kyc → panier → offer → exchange → reward → finished
+ * Ordre métier : intro → profile → [kyc] → panier → offer → exchange → reward → finished
  */
+import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
+
 export const ONBOARDING_PROCESS_STATUS = [
   "intro",
   "profile",
@@ -53,7 +55,11 @@ export function isIntroSnoozedForAuthSession(
 }
 
 /** Cartes onboarding in-app sur la page Échange (pile header). */
-export const EXCHANGE_ONBOARDING_SHEET_KINDS = ["profile", "kyc", "panier", "exchange"] as const;
+export const EXCHANGE_ONBOARDING_SHEET_KINDS = (
+  KYC_INCLUDED_IN_ONBOARDING
+    ? (["profile", "kyc", "panier", "exchange"] as const)
+    : (["profile", "panier", "exchange"] as const)
+);
 export type ExchangeOnboardingSheetKind = (typeof EXCHANGE_ONBOARDING_SHEET_KINDS)[number];
 
 const EXCHANGE_SHEET_DISMISS_STORAGE_KEY = "segna_in_app_onboarding_exchange_sheet_dismiss_v1";

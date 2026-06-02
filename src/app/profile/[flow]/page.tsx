@@ -4,6 +4,7 @@ import { SubflowShell } from "@/components/layout/SubflowShell";
 import { ProfileBlocksClient } from "@/components/profile/ProfileBlocksClient";
 import { ProfileCompleteFlow } from "@/components/profile/ProfileCompleteFlow";
 import { ProfileKycCore } from "@/components/profile/ProfileKycCore";
+import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -134,7 +135,7 @@ export default async function ProfileFlowPage({ params, searchParams }: ProfileF
           completionScore={completionScore}
           showOnboardingProfileHelp={showOnboardingProfileHelp}
           onboardingProfileRequirements={onboardingProfileRequirements}
-          onboardingProfileNextHref={`/profile/kyc?tab=${encodeURIComponent(backTab)}`}
+          onboardingProfileNextHref={KYC_INCLUDED_IN_ONBOARDING ? `/profile/kyc?tab=${encodeURIComponent(backTab)}` : "/shop"}
         />
       </SubflowShell>
     );

@@ -8,6 +8,7 @@ import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteM
 import { ProfileCompleteVisualizationCore } from "@/components/profile/ProfileCompleteVisualizationCore";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 import { normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
 
@@ -139,7 +140,7 @@ export function ProfileCompleteFlow({
   completionScore,
   showOnboardingProfileHelp = false,
   onboardingProfileRequirements = null,
-  onboardingProfileNextHref = "/profile/kyc?tab=me",
+  onboardingProfileNextHref = "/shop",
 }: ProfileCompleteFlowProps) {
   const router = useRouter();
   const [mode, setMode] = useState<ProfileCompleteMode>("edit");
@@ -190,7 +191,10 @@ export function ProfileCompleteFlow({
         setTransitionError("Complète les éléments indiqués avant de valider ton profil.");
         return;
       }
-      const { error } = await supabase.from("users").update({ onboarding_process: "kyc" }).eq("id", user.id);
+      const { error } = await supabase
+        .from("users")
+        .update({ onboarding_process: KYC_INCLUDED_IN_ONBOARDING ? "kyc" : "panier" })
+        .eq("id", user.id);
       if (error) {
         setTransitionError(error.message);
         return;

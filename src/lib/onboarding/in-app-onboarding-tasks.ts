@@ -1,13 +1,12 @@
 import type { OnboardingProcessStatus } from "@/lib/onboarding/in-app-onboarding";
+import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 
 /** Étapes comptées comme tâches onboarding in-app (hors intro, reward, finished). */
-export const IN_APP_ONBOARDING_TASK_STATUSES = [
-  "profile",
-  "kyc",
-  "panier",
-  "offer",
-  "exchange",
-] as const satisfies readonly OnboardingProcessStatus[];
+export const IN_APP_ONBOARDING_TASK_STATUSES = (
+  KYC_INCLUDED_IN_ONBOARDING
+    ? (["profile", "kyc", "panier", "offer", "exchange"] as const)
+    : (["profile", "panier", "offer", "exchange"] as const)
+) satisfies readonly OnboardingProcessStatus[];
 
 export type InAppOnboardingTaskStatus = (typeof IN_APP_ONBOARDING_TASK_STATUSES)[number];
 
@@ -26,12 +25,16 @@ export const IN_APP_ONBOARDING_TASKS: readonly InAppOnboardingTaskDefinition[] =
     description: "Photo et infos pour inspirer confiance aux autres membres.",
     href: "/profile/complete?tab=me",
   },
-  {
-    id: "kyc",
-    title: "Vérifie ton identité",
-    description: "Sécurise ton compte et débloque tes premiers échanges.",
-    href: "/profile/kyc?tab=me",
-  },
+  ...(KYC_INCLUDED_IN_ONBOARDING
+    ? ([
+        {
+          id: "kyc" as const,
+          title: "Vérifie ton identité",
+          description: "Sécurise ton compte et débloque tes premiers échanges.",
+          href: "/profile/kyc?tab=me",
+        },
+      ] satisfies readonly InAppOnboardingTaskDefinition[])
+    : []),
   {
     id: "panier",
     title: "Compose ton premier panier",
@@ -69,12 +72,21 @@ export type InAppOnboardingTaskProgress = {
 };
 
 export function isInAppOnboardingTaskStatus(value: string | null | undefined): value is InAppOnboardingTaskStatus {
-  return typeof value === "string" && TASK_INDEX.has(value);
+  return typeof value === "string" && TASK_INDEX.has(normalizeInAppOnboardingTaskStatus(value) ?? "");
+}
+
+/** Utilisateurs bloqués sur l’étape KYC avant désactivation : les traite comme « panier ». */
+export function normalizeInAppOnboardingTaskStatus(
+  process: string | null | undefined,
+): InAppOnboardingTaskStatus | null {
+  if (typeof process !== "string") return null;
+  if (!KYC_INCLUDED_IN_ONBOARDING && process === "kyc") return "panier";
+  return TASK_INDEX.has(process) ? (process as InAppOnboardingTaskStatus) : null;
 }
 
 /** Affiche le compteur flottant uniquement pendant les tâches actives (pas intro / reward / finished). */
 export function shouldShowInAppOnboardingTaskFab(process: string | null | undefined): boolean {
-  return isInAppOnboardingTaskStatus(process);
+  return normalizeInAppOnboardingTaskStatus(process) != null;
 }
 
 export function getInAppOnboardingTaskHref(taskId: InAppOnboardingTaskStatus): string {
@@ -84,8 +96,9 @@ export function getInAppOnboardingTaskHref(taskId: InAppOnboardingTaskStatus): s
 export function getInAppOnboardingTaskProgress(
   process: string | null | undefined,
 ): InAppOnboardingTaskProgress | null {
-  if (!isInAppOnboardingTaskStatus(process)) return null;
-  const currentIndex = TASK_INDEX.get(process) ?? 0;
+  const normalized = normalizeInAppOnboardingTaskStatus(process);
+  if (!normalized) return null;
+  const currentIndex = TASK_INDEX.get(normalized) ?? 0;
   const totalCount = IN_APP_ONBOARDING_TASK_STATUSES.length;
   const tasks = IN_APP_ONBOARDING_TASKS.map((task, index) => ({
     ...task,
@@ -95,7 +108,7 @@ export function getInAppOnboardingTaskProgress(
   return {
     completedCount: currentIndex,
     totalCount,
-    currentStatus: process,
+    currentStatus: normalized,
     tasks,
   };
 }

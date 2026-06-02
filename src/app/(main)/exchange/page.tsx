@@ -66,6 +66,7 @@ import {
 } from "@/lib/cms/echange-section-order";
 import { fetchEchangeSectionOrder } from "@/lib/cms/fetch-echange-section-order";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import {
   effectiveCatalogSortRank,
@@ -926,8 +927,11 @@ export default async function ExchangePage() {
 
   const exchangeOnboardingRow = await perf.measure("users.appState", () => getCurrentUserAppState(userId));
   const showProfileInAppOnboarding = exchangeOnboardingRow.onboarding_process === "profile";
-  const showKycInAppOnboarding = exchangeOnboardingRow.onboarding_process === "kyc";
-  const showCartInAppOnboarding = exchangeOnboardingRow.onboarding_process === "panier";
+  const showKycInAppOnboarding =
+    KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc";
+  const showCartInAppOnboarding =
+    exchangeOnboardingRow.onboarding_process === "panier" ||
+    (!KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc");
   const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
   for (const sectionKey of cmsKeysToResolve) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
+import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { cn } from "@/lib/utils/cn";
 
 const PROFILE_COMPLETE_HREF = "/profile/complete?tab=me";
@@ -23,7 +24,7 @@ export function CartPaymentGateModal({
   kycVerified,
 }: CartPaymentGateModalProps) {
   const needsProfile = !profileComplete;
-  const needsKyc = !kycVerified;
+  const needsKyc = KYC_REQUIRED_FOR_BORROW && !kycVerified;
 
   const body =
     needsProfile && needsKyc

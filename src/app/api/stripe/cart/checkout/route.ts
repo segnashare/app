@@ -15,6 +15,7 @@ import {
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
 import { cartPaymentProfileGateMessage, fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
+import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { fetchOnboardingProfileRequirements } from "@/lib/profile/onboarding-profile-requirements";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -197,11 +198,11 @@ export async function POST(request: Request) {
         ? await fetchOnboardingProfileRequirements(supabase as any, userId)
         : null;
       const message =
-        !paymentEligibility.profileComplete && !paymentEligibility.kycVerified
-          ? `${cartPaymentProfileGateMessage(profileRequirements)} Valide aussi ton identité (KYC).`
-          : !paymentEligibility.profileComplete
-            ? cartPaymentProfileGateMessage(profileRequirements)
-            : "Valide ton identité (KYC) avant de payer.";
+        !paymentEligibility.profileComplete
+          ? cartPaymentProfileGateMessage(profileRequirements)
+          : KYC_REQUIRED_FOR_BORROW
+            ? "Valide ton identité (KYC) avant de payer."
+            : "Complète ton profil avant de payer.";
       return NextResponse.json({ message, code: "payment_gate" }, { status: 403 });
     }
 

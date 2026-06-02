@@ -31,6 +31,7 @@ import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { isOnboardingOfferCmsFrame, isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
@@ -133,7 +134,7 @@ export function CartScreen({
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [exchangeCreditsModalOpen, setExchangeCreditsModalOpen] = useState(false);
   const [paymentGateModalOpen, setPaymentGateModalOpen] = useState(false);
-  const canAccessPayment = profileComplete && kycVerified;
+  const canAccessPayment = profileComplete && (KYC_REQUIRED_FOR_BORROW ? kycVerified : true);
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
