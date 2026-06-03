@@ -22,6 +22,8 @@ import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition
 import {
   confirmCartPaidWalletOnly,
   debitCartWalletOnly,
+  finalizeCartOutboundSendcloudAfterConfirm,
+  resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -31,14 +33,11 @@ import { fetchUberDeliveryQuoteRaw } from "@/lib/uber-direct/deliveries-api";
 import { uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shipping-postal";
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
-import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
-import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
 import { resolveCartCheckoutShippingRoundTrips } from "@/lib/sendcloud/resolve-cart-checkout-shipping-round-trips";
 import { resolveHomeCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-home-delivery-options";
 import { resolveRelayCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv, isSendcloudCheckoutLivePricingEnabled } from "@/lib/sendcloud/config";
-import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
@@ -407,13 +406,6 @@ export async function POST(request: Request) {
 
       try {
         await debitCartWalletOnly(admin as unknown as Parameters<typeof debitCartWalletOnly>[0], userId, activeCart.cartId, creditsKind);
-        if (sendcloudOutboundSelection) {
-          await persistCartOutboundSendcloudCheckoutMeta(
-            admin as unknown as Parameters<typeof persistCartOutboundSendcloudCheckoutMeta>[0],
-            activeCart.cartId,
-            sendcloudOutboundMetaFromSelection(sendcloudOutboundSelection),
-          );
-        }
         await confirmCartPaidWalletOnly(
           admin as unknown as Parameters<typeof confirmCartPaidWalletOnly>[0],
           userId,
@@ -423,15 +415,23 @@ export async function POST(request: Request) {
           deliveryLine1Meta,
           returnRelayFields,
         );
-        try {
-          await provisionCartOutboundSendcloudOrder(admin, {
+        const walletSendcloudOutbound = await resolveCartCheckoutSendcloudOutboundSelection({
+          deliveryChannel,
+          clientSelection: sendcloudOutboundSelection,
+          activeOutboundOptionCode,
+          relayCarrierHint: relaySelection?.sendcloudCarrier,
+          itemCount,
+          memberPostalCode,
+        });
+        await finalizeCartOutboundSendcloudAfterConfirm(
+          admin as unknown as Parameters<typeof finalizeCartOutboundSendcloudAfterConfirm>[0],
+          {
             cartId: activeCart.cartId,
             deliveryChannel,
             homeSpeed: homeSpeedBilling === "uber_direct" ? "uber_direct" : "standard",
-          });
-        } catch (provisionErr) {
-          console.error("[stripe/cart/checkout] sendcloud provision wallet-only", provisionErr);
-        }
+            sendcloudOutbound: walletSendcloudOutbound,
+          },
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : "wallet_checkout_failed";
         console.error("[stripe/cart/checkout] wallet-only cart completion failed", msg);

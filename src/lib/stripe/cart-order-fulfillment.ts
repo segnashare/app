@@ -3,7 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
+import { toRelayCheckoutSendcloudOutboundOption } from "@/lib/cart/use-checkout-relay-sendcloud-pricing";
 import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
+import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
+import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
 import { upsertCartOrderStripeInvoiceFromSession } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 
@@ -115,6 +118,76 @@ function sendcloudOutboundFromStripeMetadata(
   };
 }
 
+/**
+ * Transporteur aller pour provision Sendcloud : body checkout, ou repli serveur (wallet sans sessionStorage).
+ */
+export async function resolveCartCheckoutSendcloudOutboundSelection(params: {
+  deliveryChannel: "relay" | "home";
+  clientSelection: CheckoutSendcloudOutboundOption | null;
+  activeOutboundOptionCode: string | null;
+  relayCarrierHint?: string | null;
+  itemCount: number;
+  memberPostalCode: string;
+}): Promise<CheckoutSendcloudOutboundOption | null> {
+  if (params.clientSelection?.optionCode?.trim()) {
+    return params.clientSelection;
+  }
+
+  const code = params.activeOutboundOptionCode?.trim();
+  if (!code) return null;
+
+  const env = getSendcloudEnv();
+  const pc = params.memberPostalCode.replace(/\D/g, "").slice(0, 5);
+  if (params.deliveryChannel === "relay" && env && pc.length >= 5) {
+    const priced = await fetchCheckoutRelaySendcloudPricing(env, {
+      itemCount: params.itemCount,
+      memberPostalCode: pc,
+    });
+    if (priced.ok) {
+      return toRelayCheckoutSendcloudOutboundOption(priced.pricing, params.relayCarrierHint);
+    }
+  }
+
+  const carrier = (params.relayCarrierHint ?? "").trim();
+  return {
+    optionCode: code,
+    optionId: "",
+    title: params.deliveryChannel === "relay" ? "Livraison en relais" : "Livraison à domicile",
+    carrierCode: carrier,
+    carrierName: carrier,
+    shippingRateCents: null,
+  };
+}
+
+/** Après `confirm_cart_paid_from_stripe` : meta transporteur + commande Sendcloud importée (idempotent). */
+export async function finalizeCartOutboundSendcloudAfterConfirm(
+  admin: AdminClientWithTable,
+  params: {
+    cartId: string;
+    deliveryChannel: "relay" | "home";
+    homeSpeed?: string | null;
+    sendcloudOutbound: CheckoutSendcloudOutboundOption | null;
+  },
+): Promise<void> {
+  if (params.sendcloudOutbound?.optionCode?.trim()) {
+    await persistCartOutboundSendcloudCheckoutMeta(
+      admin as unknown as Parameters<typeof persistCartOutboundSendcloudCheckoutMeta>[0],
+      params.cartId,
+      sendcloudOutboundMetaFromSelection(params.sendcloudOutbound),
+    );
+  }
+
+  try {
+    await provisionCartOutboundSendcloudOrder(admin as unknown as SupabaseClient, {
+      cartId: params.cartId,
+      deliveryChannel: params.deliveryChannel,
+      homeSpeed: params.homeSpeed ?? null,
+    });
+  } catch (e) {
+    console.error("[cart-order] sendcloud provision after confirm", e);
+  }
+}
+
 export async function confirmCartPaidWalletOnly(
   admin: AdminClientWithTable,
   userId: string,
@@ -183,15 +256,6 @@ export async function confirmCartPaidFromStripeSession(
     throw new Error(error.message);
   }
 
-  const scOutbound = sendcloudOutboundFromStripeMetadata(session.metadata);
-  if (scOutbound) {
-    await persistCartOutboundSendcloudCheckoutMeta(
-      admin as unknown as Parameters<typeof persistCartOutboundSendcloudCheckoutMeta>[0],
-      cartId,
-      sendcloudOutboundMetaFromSelection(scOutbound),
-    );
-  }
-
   const alreadyConfirmed =
     confirmData != null &&
     typeof confirmData === "object" &&
@@ -205,15 +269,12 @@ export async function confirmCartPaidFromStripeSession(
   }
 
   const homeSpeed = (session.metadata?.home_speed ?? "").trim() || null;
-  try {
-    await provisionCartOutboundSendcloudOrder(admin as unknown as SupabaseClient, {
-      cartId,
-      deliveryChannel,
-      homeSpeed,
-    });
-  } catch (e) {
-    console.error("[cart-order] sendcloud provision after stripe confirm", e);
-  }
+  await finalizeCartOutboundSendcloudAfterConfirm(admin, {
+    cartId,
+    deliveryChannel,
+    homeSpeed,
+    sendcloudOutbound: sendcloudOutboundFromStripeMetadata(session.metadata),
+  });
 
   return { ok: true, alreadyConfirmed };
 }
