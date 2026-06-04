@@ -40,15 +40,15 @@ export function WalletPillFrameReveal({
       return;
     }
 
-    const root = scope.current;
+    const root = scope.current as HTMLElement | null;
     if (!root) return;
 
     let cancelled = false;
 
     const run = async () => {
-      const delta = root.querySelector<HTMLElement>("[data-wallet-pill-delta]");
-      const balance = root.querySelector<HTMLElement>("[data-wallet-pill-balance]");
-      if (!delta || !balance) {
+      const delta = root.querySelector("[data-wallet-pill-delta]");
+      const balance = root.querySelector("[data-wallet-pill-balance]");
+      if (!(delta instanceof HTMLElement) || !(balance instanceof HTMLElement)) {
         onCompleteRef.current();
         return;
       }

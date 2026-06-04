@@ -167,6 +167,8 @@ export type CmsFramePayload = {
   welcome_gift_card_subtitle?: string;
   welcome_gift_intro_body?: string;
   welcome_gift_cta_label?: string;
+  welcome_gift_card_cta_label?: string;
+  welcome_gift_activate_cta_label?: string;
   welcome_gift_footnote?: string;
   welcome_gift_value_props?: { title?: string; body?: string }[];
 };
