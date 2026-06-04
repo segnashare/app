@@ -5,15 +5,15 @@ import {
   confirmCartPaidFromStripeSession,
   debitCartExchangeWalletFromStripeSession,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
 
 /**
  * Retour utilisateur après Checkout commande panier.
- * Recrédite le wallet (complément) avec la même clé d’idempotence que le webhook — au cas où le webhook arrive après la redirection.
+ * Débit wallet (part non couverte par le complément €) — idempotent avec le webhook.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -54,23 +54,8 @@ export async function GET(request: Request) {
 
     const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
     const missing = Number.isFinite(missingRaw) ? Math.trunc(missingRaw) : 0;
-    if (missing > 0) {
-      const creditKind = walletCreditKindForBillingSubscription(null, null);
-      const { error: rpcError } = await admin.rpc("wallet_credit_purchase", {
-        p_user_id: user.id,
-        p_amount_points: missing,
-        p_credit_kind: creditKind,
-        p_provider: "stripe",
-        p_checkout_session_id: session.id,
-        p_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
-        p_idempotency_key: `stripe:cart_order_wallet:${session.id}`,
-        p_metadata: {
-          source: "cart_sync_route",
-        },
-      });
-      if (rpcError) {
-        return NextResponse.redirect(new URL("/cart/payment?checkout=error&reason=wallet_sync_failed", url.origin));
-      }
+    if (missing < 0) {
+      return NextResponse.redirect(new URL("/cart/payment?checkout=error&reason=invalid_missing_credits", url.origin));
     }
 
     const devDetail = (msg: string) =>
@@ -84,6 +69,12 @@ export async function GET(request: Request) {
       return NextResponse.redirect(
         new URL(`/cart/payment?checkout=error&reason=cart_debit_failed${devDetail(msg)}`, url.origin),
       );
+    }
+
+    try {
+      await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
+    } catch (e) {
+      console.error("[stripe/cart/sync] persist default payment method", e);
     }
 
     try {

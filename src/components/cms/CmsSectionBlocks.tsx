@@ -10,6 +10,7 @@ import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { CmsFramePayload, CmsFrameRow } from "@/lib/cms/cms-types";
 import { pickPseudoFrame } from "@/lib/cms/cms-pseudo-frame";
 import { renderCmsStarBoldSegments } from "@/lib/cms/render-cms-star-bold";
+import { useOnboardingIncludedCredits } from "@/components/onboarding/OnboardingIncludedCreditsProvider";
 import { isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { departmentSlugForCategoryId } from "@/lib/shop/shop-department-categories";
 import { cn } from "@/lib/utils/cn";
@@ -210,7 +211,7 @@ function hubWidePayloadFromOffer(p: CmsFramePayload): CmsFramePayload {
   return {
     ...p,
     title,
-    cta_label: p.cta_label?.trim() || "Découvrir →",
+    cta_label: p.cta_label?.trim() || "Activer mes crédits",
     cta_pill: true,
     title_color: "white",
   };
@@ -307,6 +308,9 @@ export function ShopWideLinkCardBlock({
 }) {
   const layout = useCmsFrameLayoutMode();
   const guideOnboardingOffer = useCmsOnboardingOfferGuidance();
+  const includedCreditsCtx = useOnboardingIncludedCredits();
+  const interceptActivation =
+    includedCreditsCtx?.shouldInterceptOfferNavigation(payload) === true;
   const href = payload.target_url?.trim() || "/shop";
   const title = payload.title?.trim() || "";
   const pill = payload.cta_pill === true;
@@ -410,6 +414,19 @@ export function ShopWideLinkCardBlock({
       <div className={shellClass} role="img" aria-label={title.trim() ? title : "Visuel d’invitation"}>
         {surface}
       </div>
+    );
+  }
+
+  if (interceptActivation) {
+    return (
+      <button
+        type="button"
+        className={cn(shellClass, "cursor-pointer border-0 bg-transparent p-0 text-left")}
+        onClick={() => includedCreditsCtx?.openActivationSheet()}
+        aria-label={title.trim() || ctaText}
+      >
+        {surface}
+      </button>
     );
   }
 
@@ -924,6 +941,7 @@ export function CmsHorizontalScrollRow({
   className,
   hubFrameOuterClass,
   layout = "rail",
+  frameLayoutMode: frameLayoutModeProp,
   promoVisualOnly = false,
 }: {
   rows: CmsFrameRow[];
@@ -932,11 +950,14 @@ export function CmsHorizontalScrollRow({
   hubFrameOuterClass?: string;
   /** `rail` : défilement horizontal. `stack` : cartes empilées sans scroll. */
   layout?: "rail" | "stack";
+  /** Gabarit carte indépendant du conteneur (ex. stack inset + carte hub large). */
+  frameLayoutMode?: CmsFrameLayoutMode;
   /** `promo_ad` hub / stack : image seule (section Prêts Échange abonnés). */
   promoVisualOnly?: boolean;
 }) {
   if (rows.length === 0) return null;
-  const frameLayoutMode: CmsFrameLayoutMode = layout === "stack" ? "stack" : "hub";
+  const frameLayoutMode: CmsFrameLayoutMode =
+    frameLayoutModeProp ?? (layout === "stack" ? "stack" : "hub");
   const rowList = rows.map((row) => <CmsFrameItem key={row.id} row={row} layoutMode={frameLayoutMode} />);
   const inner =
     layout === "stack" ? (

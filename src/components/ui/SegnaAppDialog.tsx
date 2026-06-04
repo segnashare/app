@@ -42,7 +42,7 @@ export function SegnaDialogTitleRow({
   className,
 }: {
   id?: string;
-  title: string;
+  title: ReactNode;
   right?: ReactNode;
   className?: string;
 }) {

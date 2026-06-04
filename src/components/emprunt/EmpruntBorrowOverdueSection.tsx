@@ -1,6 +1,12 @@
 import Link from "next/link";
 
 import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
+import {
+  formatBorrowOverdueEmpruntBodyLinesFr,
+  formatBorrowOverdueEscalationHintLinesFr,
+  formatBorrowOverdueFailedChargeLinesFr,
+  formatBorrowOverdueHeadlineLinesFr,
+} from "@/lib/cart/format-borrow-overdue-copy";
 import { segnaInlineActionLinkClass } from "@/lib/ui/segna-inline-link";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -17,12 +23,19 @@ function formatEuros(cents: number): string {
   );
 }
 
+const bodyLineClass = "text-[14px] leading-relaxed text-red-900/90";
+
 /**
  * Récap pénalités de retard sous le bloc emprunt (jours passés + alerte prélèvement carte).
  */
 export function EmpruntBorrowOverdueSection({ overdue }: EmpruntBorrowOverdueSectionProps) {
-  const dayCount = overdue.latestLateDayIndex;
-  const dayLabel = dayCount === 1 ? "1 jour" : `${dayCount} jours`;
+  const lateDayIndex = overdue.latestLateDayIndex;
+  const headlineLines = formatBorrowOverdueHeadlineLinesFr(lateDayIndex, {
+    escalated: overdue.status === "escalated",
+  });
+  const bodyLines = formatBorrowOverdueEmpruntBodyLinesFr(lateDayIndex);
+  const escalationLines = formatBorrowOverdueEscalationHintLinesFr(lateDayIndex);
+  const failedChargeLines = overdue.hasFailedCharge ? formatBorrowOverdueFailedChargeLinesFr() : null;
 
   return (
     <section
@@ -33,36 +46,54 @@ export function EmpruntBorrowOverdueSection({ overdue }: EmpruntBorrowOverdueSec
       aria-labelledby="emprunt-overdue-title"
     >
       <h3 id="emprunt-overdue-title" className="text-[16px] font-bold leading-snug text-red-900">
-        Retard de retour : {dayLabel}
-        {overdue.status === "escalated" ? " (dossier transmis)" : ""}
+        {headlineLines.map((line) => (
+          <span key={line} className="block">
+            {line}
+          </span>
+        ))}
       </h3>
-      <p className="mt-2 text-[14px] leading-relaxed text-red-900/90">
-        Des pénalités de retard s&apos;appliquent tant que ta box n&apos;est pas renvoyée
+      <div className="mt-2 space-y-2">
+        {bodyLines.map((line, i) => (
+          <p key={i} className={bodyLineClass}>
+            {line}
+          </p>
+        ))}
         {overdue.totalPenaltyCents > 0 ? (
-          <>
-            {" "}
-            (montant cumulé : <strong>{formatEuros(overdue.totalPenaltyCents)}</strong>)
-          </>
+          <p className={bodyLineClass}>
+            Total à ce jour : <strong>{formatEuros(overdue.totalPenaltyCents)}</strong>
+          </p>
         ) : null}
-        . Consulte les{" "}
-        <Link href={CG_LOCATION_HREF} className={cn(segnaInlineActionLinkClass, "text-red-900")}>
-          conditions générales de location
-        </Link>{" "}
-        pour le détail.
-      </p>
-      {overdue.hasFailedCharge ? (
-        <p className="mt-2 text-[14px] font-semibold leading-relaxed text-red-950">
-          Un ou plusieurs prélèvements sur ta carte n&apos;ont pas abouti.{" "}
-          <Link href="/profile?tab=plus" className="underline decoration-red-800/50">
-            Mets à jour ton moyen de paiement
-          </Link>{" "}
-          pour régulariser.
+        <p className={bodyLineClass}>
+          Détail dans les{" "}
+          <Link href={CG_LOCATION_HREF} className={cn(segnaInlineActionLinkClass, "text-red-900")}>
+            conditions générales de location
+          </Link>
+          .
         </p>
+      </div>
+      {failedChargeLines ? (
+        <div className="mt-2 space-y-2">
+          {failedChargeLines.map((line) => (
+            <p key={line} className="text-[14px] font-semibold leading-relaxed text-red-950">
+              {line}
+            </p>
+          ))}
+          <p className="text-[14px] font-semibold leading-relaxed text-red-950">
+            <Link href="/profile?tab=plus" className="underline decoration-red-800/50">
+              Mettre à jour mon moyen de paiement
+            </Link>
+            .
+          </p>
+        </div>
       ) : null}
-      {overdue.latestLateDayIndex >= 14 ? (
-        <p className="mt-2 text-[14px] leading-relaxed text-red-900/90">
-          Au-delà de 14 jours, ton dossier peut être escaladé. Contacte le support si besoin.
-        </p>
+      {escalationLines ? (
+        <div className="mt-2 space-y-2">
+          {escalationLines.map((line) => (
+            <p key={line} className={bodyLineClass}>
+              {line}
+            </p>
+          ))}
+        </div>
       ) : null}
     </section>
   );

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { walletTransactionDisplayLabel, type WalletRecentTransaction } from "@/lib/wallet/wallet-transaction-display";
+import { pickLatestWalletTransactionAnnouncement } from "@/lib/wallet/wallet-transaction-announcement";
+import {
+  attachWalletTransactionBalances,
+  isHiddenWalletTransactionRow,
+  mergeCartBorrowWalletDisplayRows,
+  walletTransactionDisplayLabel,
+  type WalletRecentTransaction,
+} from "@/lib/wallet/wallet-transaction-display";
+import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
@@ -15,18 +23,38 @@ export async function GET() {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
-    const { data, error } = await supabase
-      .from("wallet_transactions")
-      .select("id, created_at, direction, amount_points, metadata, idempotency_key")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(20);
+    const [{ data, error }, { data: walletRow, error: walletError }] = await Promise.all([
+      supabase
+        .from("wallet_transactions")
+        .select("id, created_at, direction, amount_points, metadata, idempotency_key, credit_bucket")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("user_wallets")
+        .select("balance_points, balance_consumption_points, balance_exchange_points")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .maybeSingle(),
+    ]);
 
     if (error) {
       return NextResponse.json({ message: error.message }, { status: 500 });
     }
+    if (walletError) {
+      return NextResponse.json({ message: walletError.message }, { status: 500 });
+    }
 
-    const transactions: WalletRecentTransaction[] = (data ?? []).map((row: Record<string, unknown>) => {
+    const currentBalancePoints = parseUserWalletPointsRow(
+      walletRow as Record<string, unknown> | null,
+    ).total;
+
+    const baseTransactions = (data ?? [])
+      .filter((row: Record<string, unknown>) => {
+        const idempotencyKey = typeof row.idempotency_key === "string" ? row.idempotency_key : null;
+        return !isHiddenWalletTransactionRow(idempotencyKey);
+      })
+      .map((row: Record<string, unknown>) => {
       const meta = (row.metadata as Record<string, unknown> | null) ?? null;
       const idempotencyKey = typeof row.idempotency_key === "string" ? row.idempotency_key : null;
       const { label, subtitle, isAdminAdjustment } = walletTransactionDisplayLabel(meta, idempotencyKey);
@@ -40,10 +68,18 @@ export async function GET() {
         label,
         subtitle,
         isAdminAdjustment,
+        idempotency_key: idempotencyKey,
+        metadata: meta,
+        credit_bucket: typeof row.credit_bucket === "string" ? row.credit_bucket : null,
       };
     });
 
-    return NextResponse.json({ transactions });
+    const mergedTransactions = mergeCartBorrowWalletDisplayRows(baseTransactions);
+
+    const transactions = attachWalletTransactionBalances(mergedTransactions, currentBalancePoints);
+    const latestAnnouncement = pickLatestWalletTransactionAnnouncement(mergedTransactions);
+
+    return NextResponse.json({ transactions, latestAnnouncement });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Impossible de charger le wallet.";
     return NextResponse.json({ message }, { status: 500 });

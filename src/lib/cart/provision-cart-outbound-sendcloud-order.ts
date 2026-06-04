@@ -154,6 +154,10 @@ export async function provisionCartOutboundSendcloudOrder(
     cartId: string;
     deliveryChannel?: "relay" | "home";
     homeSpeed?: string | null;
+    /** Ignore `sendcloud_order_provisioned_at` (recréation BO). */
+    force?: boolean;
+    /** Numéro de commande Sendcloud (`buildSendcloudOrderNumber`). */
+    generation?: number;
   },
 ): Promise<ProvisionCartOutboundSendcloudOrderResult> {
   const env = getSendcloudEnv();
@@ -195,8 +199,18 @@ export async function provisionCartOutboundSendcloudOrder(
     dest?.metadata && typeof dest.metadata === "object"
       ? (dest.metadata as Record<string, unknown>)
       : {};
+  const generation = Math.max(
+    1,
+    Math.trunc(
+      params.generation ??
+        ((typeof destMeta.sendcloud_label_generation === "number"
+          ? destMeta.sendcloud_label_generation
+          : Number(destMeta.sendcloud_label_generation)) ||
+          1),
+    ),
+  );
 
-  if (destMeta.sendcloud_order_provisioned_at) {
+  if (destMeta.sendcloud_order_provisioned_at && !params.force) {
     const existingOrderNumber = String(destMeta.sendcloud_order_number ?? "").trim();
     if (existingOrderNumber) {
       await persistCartSendcloudOutboundRef(admin, params.cartId, {
@@ -322,7 +336,7 @@ export async function provisionCartOutboundSendcloudOrder(
   const orderNumber = buildSendcloudOrderNumber({
     cartId: params.cartId,
     shipmentId,
-    generation: 1,
+    generation,
   });
 
   const existing = await findSendcloudOrderByNumber(env, orderNumber, integrationId);
@@ -335,7 +349,8 @@ export async function provisionCartOutboundSendcloudOrder(
         sendcloud_order_number: orderNumber,
         sendcloud_panel_order_id: panelId,
         sendcloud_order_provisioned_at: new Date().toISOString(),
-        sendcloud_label_generation: 1,
+        sendcloud_label_generation: generation,
+        sendcloud_order_cancelled_at: null,
       },
       params.cartId,
     );
@@ -373,7 +388,8 @@ export async function provisionCartOutboundSendcloudOrder(
       sendcloud_order_number: orderNumber,
       sendcloud_panel_order_id: panelId,
       sendcloud_order_provisioned_at: new Date().toISOString(),
-      sendcloud_label_generation: 1,
+      sendcloud_label_generation: generation,
+      sendcloud_order_cancelled_at: null,
     },
     params.cartId,
   );

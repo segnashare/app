@@ -1,3 +1,8 @@
+import {
+  formatBorrowOverdueEmailBodyLinesFr,
+  formatBorrowOverdueEmailSubjectFr,
+  formatBorrowOverdueEmailTierNoteLinesFr,
+} from "@/lib/cart/format-borrow-overdue-copy";
 import { escapeHtml, resolvePublicOriginForEmailImages, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
 import type { BorrowReturnReminderPhase } from "@/lib/emprunt/borrow-return-reminder-buckets";
 import {
@@ -283,44 +288,50 @@ export function borrowOverdueDailyEmail(
   },
 ): { subject: string; text: string; html: string; smsBody: string } {
   const pEsc = escapeHtml(firstNameOrBonjour(firstName));
-  const labelEsc = escapeHtml(opts.cartLabel);
   const day = Math.max(1, Math.trunc(opts.lateDayIndex));
   const amountLabel = formatPenaltyEuros(opts.penaltyCents);
-  const amountEsc = escapeHtml(amountLabel);
-  const rateEsc = escapeHtml(String(opts.ratePercent));
-  const tier =
-    day <= 7
-      ? "Une pénalité de retard de 3 % de la valeur de ton panier s’applique chaque jour cette première semaine."
-      : "À partir du 8ᵉ jour de retard, la pénalité passe à 5 % de la valeur de ton panier par jour.";
+  const tierLines = formatBorrowOverdueEmailTierNoteLinesFr(day);
+  const subject = formatBorrowOverdueEmailSubjectFr(day);
 
-  const subject =
-    day === 1
-      ? "Retour en retard — 1er jour de pénalité"
-      : `Retour en retard — jour ${day}`;
-
-  const chargeNote =
+  const chargeNoteLines =
     opts.chargeStatus === "failed"
-      ? "Nous n’avons pas pu prélever ta carte : mets à jour ton moyen de paiement depuis l’app."
+      ? [
+          "Nous n’avons pas pu prélever ta carte.",
+          "Mets à jour ton moyen de paiement depuis l’app.",
+        ]
       : opts.chargeStatus === "charged"
-        ? `Montant du jour : ${amountLabel} (prélevé sur ta carte enregistrée).`
+        ? [`Montant du jour : ${amountLabel}.`, "Prélevé sur ta carte enregistrée."]
         : opts.chargeStatus === "pending"
-          ? `Montant du jour : ${amountLabel} (prélèvement en attente — cumul minimum 0,50 €).`
-          : `Montant du jour : ${amountLabel}.`;
+          ? [
+              `Montant du jour : ${amountLabel}.`,
+              "Prélèvement en attente (cumul minimum 0,50 €).",
+            ]
+          : [`Montant du jour : ${amountLabel}.`];
 
-  const bodyP2Text = `Jour ${day} de retard pour ${opts.cartLabel} (${rateEsc} % / jour). ${chargeNote} ${tier} Dépose ton colis au relais ou prolonge l’échange depuis l’app.`;
-  const bodyP2Html = `Jour <strong>${day}</strong> de retard pour <strong>${labelEsc}</strong> (<strong>${rateEsc} %</strong> / jour). ${escapeHtml(chargeNote)} ${escapeHtml(tier)} Dépose ton colis au relais ou prolonge l’échange depuis l’app.`;
+  const bodyLines = formatBorrowOverdueEmailBodyLinesFr({
+    lateDayIndex: day,
+    cartLabel: opts.cartLabel,
+    ratePercent: opts.ratePercent,
+    chargeNoteLines,
+    tierLines,
+  });
+
+  const bodyParagraphs = bodyLines.map((line) => ({
+    text: line,
+    html: escapeHtml(line),
+  }));
 
   const { text, html } = shell(subject, subject, [
     { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
-    { text: bodyP2Text, html: bodyP2Html },
+    ...bodyParagraphs,
     {
-      text: "Détail : rubrique Échange → emprunt en cours.",
-      html: "Détail : rubrique <strong>Échange</strong> → emprunt en cours.",
+      text: "Détail : rubrique Échange, emprunt en cours.",
+      html: "Détail : rubrique <strong>Échange</strong>, emprunt en cours.",
     },
   ]);
 
   const smsBody = appendSmsAppLink(
-    `Segna : retard retour J${day} — ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}).`,
+    `Segna : retard retour J${day}, ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}).`,
     memberAppExchangeUrl(),
   );
 

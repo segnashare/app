@@ -23,7 +23,8 @@
     "cron:dev:referral-sms": "node scripts/dev-invoke-cron.mjs referral-referrer-sms",
     "cron:dev:all": "node scripts/dev-invoke-cron.mjs all",
     "cron:preview:all": "node scripts/dev-invoke-cron.mjs all --preview",
-    "dev:accrue-borrow-overdue": "node scripts/dev-accrue-borrow-overdue.mjs"
+    "dev:accrue-borrow-overdue": "node scripts/dev-accrue-borrow-overdue.mjs",
+    "backfill:stripe-payment-methods": "node scripts/backfill-stripe-customer-payment-methods.mjs"
   },
   "dependencies": {
     "@fontsource-variable/montserrat": "^5.2.8",

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { MemberFeedbackFab } from "@/components/feedback/MemberFeedbackFab";
+import { MemberFeedbackModal } from "@/components/feedback/MemberFeedbackModal";
 import { InAppOnboardingTaskFab } from "@/components/onboarding/InAppOnboardingTaskFab";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
@@ -45,6 +46,7 @@ export function MainShell({
       </div>
       <FloatingViewCartButton />
       <InAppOnboardingTaskFab />
+      <MemberFeedbackModal />
       <MemberFeedbackFab />
       <BottomTabBar />
       {inAppOnboardingIntro ? (

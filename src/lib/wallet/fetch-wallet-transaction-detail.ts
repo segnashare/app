@@ -106,7 +106,10 @@ function statusLineForSource(source: string, cartStatus?: string | null): string
   if (s === "modif_admin") return "État : ajustement admin Segna";
   if (s.includes("cancel") || s.includes("refund")) return "État : crédits rendus";
   if (s === "subscription_monthly_consumption_grant") return "État : crédits mensuels";
-  if (s === "onboarding_welcome_gift") return "État : cadeau activé";
+  if (s === "onboarding_included_credits" || s === "onboarding_welcome_gift") {
+    return "État : crédits inclus activés";
+  }
+  if (s === "subscription_monthly_consumption") return "État : crédits inclus du mois";
   if (s.includes("referral")) return "État : parrainage";
   if (s.includes("overdue")) return "État : pénalité retard";
   return "État : enregistré";
@@ -316,7 +319,7 @@ export async function fetchWalletTransactionDetail(
 
   if (returnContext) {
     summaryRows.push({
-      label: "Crédits consommés sur la commande",
+      label: "Crédits utilisés pour l'emprunt",
       value: `${returnContext.creditsConsumedOnOrder.toLocaleString("fr-FR")} crédits`,
     });
     summaryRows.push({
@@ -373,12 +376,17 @@ export async function fetchWalletTransactionDetail(
     if (subtitle) {
       summaryRows.push({ label: "Détail", value: subtitle });
     }
+    const displayAmountPoints =
+      source === "cart_order_stripe" && cartContext != null ? cartContext.creditsDebited : amountPoints;
     summaryRows.push({
       label: "Montant",
-      value: `${direction === "credit" ? "+" : "−"}${amountPoints.toLocaleString("fr-FR")} crédits`,
+      value: `${direction === "credit" ? "+" : "−"}${displayAmountPoints.toLocaleString("fr-FR")} crédits`,
       emphasize: true,
     });
   }
+
+  const displayAmountPoints =
+    source === "cart_order_stripe" && cartContext != null ? cartContext.creditsDebited : amountPoints;
 
   const contextHint = isAdminAdjustment
     ? WALLET_ADMIN_ADJUSTMENT_SUBTITLE
@@ -394,7 +402,7 @@ export async function fetchWalletTransactionDetail(
     id: tx.id,
     createdAt: tx.created_at,
     direction,
-    amountPoints,
+    amountPoints: displayAmountPoints,
     label,
     source,
     statusLine: isAdminAdjustment ? "État : ajustement admin Segna" : statusLineForSource(source, cartStatus),

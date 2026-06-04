@@ -1,12 +1,52 @@
+import { sortWalletTransactionsNewestFirst } from "@/lib/wallet/wallet-transaction-sort";
+
 export type WalletRecentTransaction = {
   id: string;
   createdAt: string;
   direction: "credit" | "debit";
   amountPoints: number;
+  balanceBeforePoints: number;
   label: string;
   subtitle: string | null;
   isAdminAdjustment?: boolean;
 };
+
+export function walletTransactionSignedDelta(
+  direction: WalletRecentTransaction["direction"],
+  amountPoints: number,
+): number {
+  const amount = Math.max(0, Math.trunc(amountPoints));
+  return direction === "credit" ? amount : -amount;
+}
+
+export function walletTransactionBalanceAfter(
+  balanceBeforePoints: number,
+  direction: WalletRecentTransaction["direction"],
+  amountPoints: number,
+): number {
+  return balanceBeforePoints + walletTransactionSignedDelta(direction, amountPoints);
+}
+
+/** Transactions triées du plus récent au plus ancien ; `currentBalancePoints` = solde après la tx la plus récente. */
+export function attachWalletTransactionBalances<
+  T extends Pick<WalletRecentTransaction, "direction" | "amountPoints" | "createdAt" | "id"> & {
+    idempotency_key?: string | null;
+    metadata?: Record<string, unknown> | null;
+    credit_bucket?: string | null;
+  },
+>(transactions: T[], currentBalancePoints: number): (T & { balanceBeforePoints: number })[] {
+  let balanceAfter = Math.max(0, Math.trunc(currentBalancePoints));
+
+  const sorted = sortWalletTransactionsNewestFirst(transactions);
+
+  return sorted.map((tx) => {
+    const delta = walletTransactionSignedDelta(tx.direction, tx.amountPoints);
+    const balanceBefore = balanceAfter - delta;
+    const next = { ...tx, balanceBeforePoints: balanceBefore };
+    balanceAfter = balanceBefore;
+    return next;
+  });
+}
 
 export const WALLET_ADMIN_ADJUSTMENT_LABEL = "Ajustement Segna";
 export const WALLET_ADMIN_ADJUSTMENT_SUBTITLE = "Action manuelle de l'équipe admin";
@@ -29,6 +69,71 @@ export function isAdminWalletTransaction(
   const key = typeof idempotencyKey === "string" ? idempotencyKey.trim() : "";
   if (key.startsWith("modif_admin:")) return true;
   return false;
+}
+
+/** Complément panier Stripe (legacy) : pass-through €, pas un crédit wallet réel. */
+export function isHiddenWalletTransactionRow(idempotencyKey?: string | null): boolean {
+  const key = typeof idempotencyKey === "string" ? idempotencyKey.trim() : "";
+  return key.startsWith("stripe:cart_order_wallet:");
+}
+
+function cartBorrowDisplayGroupKey(row: {
+  direction: string;
+  metadata?: Record<string, unknown> | null;
+  idempotency_key?: string | null;
+}): string | null {
+  if (row.direction !== "debit") return null;
+  const source = readMetaString(row.metadata, "source")?.toLowerCase() ?? "";
+  if (source !== "cart_order_stripe") return null;
+
+  const cartId = readMetaString(row.metadata, "cart_id");
+  if (cartId) return `cart:${cartId}`;
+
+  const key = (row.idempotency_key ?? "").trim();
+  if (!key) return null;
+  return `key:${key.replace(/:(exchange|consumption)$/, "")}`;
+}
+
+/** Regroupe les débits emprunt mixtes (bonus + échange) en une seule ligne affichée. */
+export function mergeCartBorrowWalletDisplayRows<
+  T extends Pick<WalletRecentTransaction, "id" | "createdAt" | "direction" | "amountPoints"> & {
+    idempotency_key?: string | null;
+    metadata?: Record<string, unknown> | null;
+    credit_bucket?: string | null;
+  },
+>(rows: T[]): T[] {
+  const grouped = new Map<string, T[]>();
+  const passthrough: T[] = [];
+
+  for (const row of rows) {
+    const groupKey = cartBorrowDisplayGroupKey(row);
+    if (!groupKey) {
+      passthrough.push(row);
+      continue;
+    }
+    const bucket = grouped.get(groupKey) ?? [];
+    bucket.push(row);
+    grouped.set(groupKey, bucket);
+  }
+
+  const mergedGroups: T[] = [];
+  for (const group of grouped.values()) {
+    if (group.length === 1) {
+      mergedGroups.push(group[0]!);
+      continue;
+    }
+
+    const primary =
+      group.find((row) => (row.credit_bucket ?? "").trim().toLowerCase() === "exchange") ?? group[0]!;
+    const totalAmount = group.reduce((sum, row) => sum + Math.max(0, Math.trunc(row.amountPoints)), 0);
+
+    mergedGroups.push({
+      ...primary,
+      amountPoints: totalAmount,
+    });
+  }
+
+  return [...passthrough, ...mergedGroups];
 }
 
 export function walletTransactionDisplayLabel(
@@ -61,14 +166,17 @@ export function walletTransactionDisplayLabel(
   if (source === "credits_purchase") {
     return { label: "Complément panier", subtitle: null, isAdminAdjustment: false };
   }
-  if (source === "subscription_monthly_consumption_grant") {
-    return { label: "Crédits Segna", subtitle: "Renouvellement mensuel", isAdminAdjustment: false };
+  if (source === "subscription_monthly_consumption_grant" || source === "subscription_monthly_consumption") {
+    const plan = readMetaString(metadata, "plan_code")?.toLowerCase();
+    const subtitle =
+      plan === "guest" ? "Crédits inclus (profil Guest)" : "Crédits inclus du mois";
+    return { label: "Crédits inclus", subtitle, isAdminAdjustment: false };
   }
-  if (source === "onboarding_welcome_gift") {
-    return { label: "Cadeau de bienvenue", subtitle: null, isAdminAdjustment: false };
+  if (source === "onboarding_included_credits" || source === "onboarding_welcome_gift") {
+    return { label: "Crédits inclus", subtitle: "Activation onboarding", isAdminAdjustment: false };
   }
   if (source.includes("borrow_overdue") || source.includes("overdue")) {
-    return { label: "Retard de retour", subtitle: null, isAdminAdjustment: false };
+    return { label: "Pénalité de retard", subtitle: "Retour non déposé à temps", isAdminAdjustment: false };
   }
   if (source.includes("referral")) {
     return { label: "Parrainage", subtitle: null, isAdminAdjustment: false };

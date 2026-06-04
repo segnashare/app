@@ -6,6 +6,9 @@ import { ShopCatalogLoadingFallback } from "@/components/shop/ShopCatalogLoading
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
+import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import { isShopFeaturedRealMember } from "@/lib/shop/merge-featured-lenders";
 import {
@@ -70,6 +73,21 @@ function withCollectionSegnaTargetBundle(bundle: CmsCatalogSectionBundle): CmsCa
   };
 }
 
+function filterShopCmsBundleForOnboardingOffer(
+  bundle: CmsCatalogSectionBundle,
+  onboardingProcess: string | null | undefined,
+  includedCreditsClaimed: boolean,
+): CmsCatalogSectionBundle {
+  return {
+    ...bundle,
+    frames: filterCartOfferFramesForWelcomeGiftEligibility(
+      withCollectionSegnaTarget(bundle.frames),
+      onboardingProcess,
+      includedCreditsClaimed,
+    ),
+  };
+}
+
 export default function ShopPage() {
   return (
     <Suspense fallback={<ShopCatalogLoadingFallback />}>
@@ -86,7 +104,17 @@ async function ShopPageAsync() {
     return null;
   }
 
-  const userState = await perf.measure("users.appState", () => getCurrentUserAppState(user.id));
+  const admin = createSupabaseAdminClient() as any;
+  const [userState, includedCreditsClaimed] = await Promise.all([
+    perf.measure("users.appState", () => getCurrentUserAppState(user.id)),
+    perf.measure("wallet.onboardingGrant", () => hasOnboardingIncludedCreditsGrant(admin, user.id)),
+  ]);
+  const onboardingProcess = await resolveOnboardingProcessForOfferVisibility(
+    admin,
+    user.id,
+    userState.onboarding_process ?? null,
+    includedCreditsClaimed,
+  );
   const isDemoMode = userState.onboarding_mode === "demo";
   const guideCartOnboarding = userState.onboarding_process === "panier";
   const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
@@ -160,14 +188,22 @@ async function ShopPageAsync() {
 
   const catalogPayload = (catalogResFinal.data ?? { items: [] }) as { items?: ShopCatalogItem[] };
   const initialItems = Array.isArray(catalogPayload.items) ? catalogPayload.items : [];
-  const cmsShopFramesWithTargets = withCollectionSegnaTarget(cmsShopFrames);
+  const cmsShopFramesWithTargets = filterCartOfferFramesForWelcomeGiftEligibility(
+    withCollectionSegnaTarget(cmsShopFrames),
+    onboardingProcess,
+    includedCreditsClaimed,
+  );
 
   const hubBundles: Record<string, CmsCatalogSectionBundle | undefined> = {
-    discover: withCollectionSegnaTargetBundle(cmsHubDiscover),
-    categories: withCollectionSegnaTargetBundle(cmsHubCategories),
-    preferredBrands: withCollectionSegnaTargetBundle(cmsHubPreferredBrands),
-    deals: withCollectionSegnaTargetBundle(cmsHubDeals),
-    french: withCollectionSegnaTargetBundle(cmsHubFrench),
+    discover: filterShopCmsBundleForOnboardingOffer(cmsHubDiscover, onboardingProcess, includedCreditsClaimed),
+    categories: filterShopCmsBundleForOnboardingOffer(cmsHubCategories, onboardingProcess, includedCreditsClaimed),
+    preferredBrands: filterShopCmsBundleForOnboardingOffer(
+      cmsHubPreferredBrands,
+      onboardingProcess,
+      includedCreditsClaimed,
+    ),
+    deals: filterShopCmsBundleForOnboardingOffer(cmsHubDeals, onboardingProcess, includedCreditsClaimed),
+    french: filterShopCmsBundleForOnboardingOffer(cmsHubFrench, onboardingProcess, includedCreditsClaimed),
   };
 
   const hubReferencedItemIds = new Set<string>();

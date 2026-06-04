@@ -9,7 +9,9 @@ import {
 } from "@/lib/cart/member-receipt-validation";
 import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { fetchMemberCartBorrowOverdue } from "@/lib/cart/fetch-member-cart-borrow-overdue";
+import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -68,6 +70,13 @@ export default async function EmpruntPage({ params }: PageProps) {
     )
   ) {
     redirect(`/commande/${cartId}`);
+  }
+
+  try {
+    const admin = createSupabaseAdminClient();
+    await syncMemberBorrowOverdueAccrual(admin, userId);
+  } catch (e) {
+    console.error("[emprunt] borrow overdue sync", e);
   }
 
   const [borrowExtensionDaysTotal, borrowOverdue] = await Promise.all([

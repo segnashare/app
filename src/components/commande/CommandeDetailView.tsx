@@ -6,6 +6,7 @@ import {
   CommandeCancelOrderButton,
   type CommandeCancelStripeEuroLines,
 } from "@/components/commande/CommandeCancelOrderButton";
+import { CommandeCanceledNoticeModal } from "@/components/commande/CommandeCanceledNoticeModal";
 import {
   CommandeExpeditionSummarySection,
   type CommandeUberPhases,
@@ -17,6 +18,7 @@ import {
   checkoutPaymentIndicatesUberDirect,
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
+import { formatCartBorrowRentalDurationLabel } from "@/lib/emprunt/borrow-period";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 import {
@@ -158,7 +160,10 @@ export function CommandeDetailView({
   const showReceptionExchange = isDelivered && detail.cartStatus !== "canceled";
   const statusTitle = showReceptionExchange ? "Contenu de la box" : commandeStatusTitle(detail);
   const receiptConfirmed = Boolean(detail.memberReceiptConfirmedAt?.trim());
-  const rentalDurationLabel = membershipLabel === "Guest" ? "10 jours de location" : "1 mois de location";
+  const rentalDurationLabel = formatCartBorrowRentalDurationLabel(
+    detail.checkoutBorrowDurationDays,
+    membershipLabel,
+  );
 
   const euro = detail.paymentBreakdown?.euroDetail ?? null;
   const showFraisFactures =
@@ -203,16 +208,7 @@ export function CommandeDetailView({
       </header>
 
       {detail.cartStatus === "canceled" ? (
-        <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-[14px] leading-snug text-amber-950">
-          Cette commande a été annulée. Les crédits prélevés ont été recrédités sur ton wallet
-          {cancelStripeEuroLines ? (
-            <>
-              , le paiement carte remboursé après retenue de 20&nbsp;% (frais d&apos;annulation sur le montant
-              encaissé par carte)
-            </>
-          ) : null}
-          , et les pièces sont de nouveau disponibles à l&apos;achat.
-        </div>
+        <CommandeCanceledNoticeModal cartId={detail.cartId} hasStripeRefund={cancelStripeEuroLines != null} />
       ) : null}
 
       {showReceptionExchange ? (
@@ -265,33 +261,6 @@ export function CommandeDetailView({
                   />
                 </span>
               </div>
-            </div>
-          ) : null}
-          {detail.pointsPaidSplit &&
-          (detail.pointsPaidSplit.exchangePoints > 0 || detail.pointsPaidSplit.consumptionPoints > 0) ? (
-            <div className="mt-3 space-y-2 text-[14px] leading-snug text-zinc-600">
-              {detail.pointsPaidSplit.exchangePoints > 0 ? (
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 pr-2">Crédits d&apos;échange</span>
-                  <SegnaPointsUnitDisplay
-                    points={detail.pointsPaidSplit.exchangePoints}
-                    creditKind="exchange"
-                    unitDisplay="icon"
-                    numberClassName="font-medium text-zinc-900"
-                  />
-                </div>
-              ) : null}
-              {detail.pointsPaidSplit.consumptionPoints > 0 ? (
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 pr-2">Crédits de consommation</span>
-                  <SegnaPointsUnitDisplay
-                    points={detail.pointsPaidSplit.consumptionPoints}
-                    creditKind="consumption"
-                    unitDisplay="icon"
-                    numberClassName="font-medium text-zinc-900"
-                  />
-                </div>
-              ) : null}
             </div>
           ) : null}
         </section>

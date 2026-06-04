@@ -7,10 +7,17 @@ import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
 import { BorrowReturnJjDayBanner } from "@/components/exchange/BorrowReturnJjDayBanner";
 import { BorrowReturnOverdueBanner } from "@/components/exchange/BorrowReturnOverdueBanner";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
+import { ExchangeWalletAnnouncementProvider } from "@/components/exchange/ExchangeWalletAnnouncementContext";
+import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
-import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
+import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
+import {
+  canShowWelcomeGiftOffer,
+  filterCartOfferFramesForWelcomeGiftEligibility,
+} from "@/lib/cms/welcome-gift-offer-visibility";
+import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -330,8 +337,12 @@ export default async function ExchangePage() {
   const stripeSubscriptionGrantsWallet =
     (subPlan === "segna_x" || subPlan === "segna_plus") && (subStatus === "active" || subStatus === "trialing");
 
+  const userAppStateForEntitlements = await perf.measure("users.appState.early", () =>
+    getCurrentUserAppState(userId),
+  );
+
   let walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
-  /** Ré-applique le crédit mensuel consommation (idempotent) si la migration / webhook n’a pas encore tourné. */
+  /** Crédit wallet mensuel : abonnés Segna+ / SegnaX uniquement (Guest = activation onboarding one-shot). */
   if (stripeSubscriptionGrantsWallet) {
     await perf.measure("billing.entitlementUpsert", () => supabase.rpc("billing_upsert_monthly_entitlement", {
       p_user_id: userId,
@@ -780,7 +791,7 @@ export default async function ExchangePage() {
       return {
         id: order.id,
         orderNumberCompact: formatOrderNumberCompact(order.id),
-        statusLabel: borrowReturnOverdue ? "Retard" : phase.title,
+        statusLabel: borrowReturnOverdue ? "En retard" : phase.title,
         deliveryLabel,
         itemThumbUrls: thumbs,
         detailHref: `/exchange/retour/${order.id}` as const,
@@ -823,7 +834,7 @@ export default async function ExchangePage() {
     return {
       id: order.id,
       orderNumberCompact: formatOrderNumberCompact(order.id),
-      statusLabel: borrowReturnOverdue ? "Retard" : deliveredBorrowUrgent ? "Retour" : phase.title,
+      statusLabel: borrowReturnOverdue ? "En retard" : deliveredBorrowUrgent ? "Retour" : phase.title,
       deliveryLabel: borrowOverdueSubtitle ?? deliveryLabel,
       itemThumbUrls: thumbs,
       ...(detailHref ? { detailHref } : {}),
@@ -925,26 +936,55 @@ export default async function ExchangePage() {
     );
   const uberRelayFallback = uberRelayFallbackFromShipment;
 
-  const exchangeOnboardingRow = await perf.measure("users.appState", () => getCurrentUserAppState(userId));
+  const exchangeOnboardingRow = userAppStateForEntitlements;
+  const admin = createSupabaseAdminClient() as any;
+  const includedCreditsClaimed = await perf.measure("wallet.onboardingGrant", () =>
+    hasOnboardingIncludedCreditsGrant(admin, userId),
+  );
+  const onboardingProcessForOffer = await resolveOnboardingProcessForOfferVisibility(
+    admin,
+    userId,
+    exchangeOnboardingRow.onboarding_process ?? null,
+    includedCreditsClaimed,
+  );
   const showProfileInAppOnboarding = exchangeOnboardingRow.onboarding_process === "profile";
   const showKycInAppOnboarding =
     KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc";
   const showCartInAppOnboarding =
     exchangeOnboardingRow.onboarding_process === "panier" ||
     (!KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc");
-  const showOfferInAppOnboarding = exchangeOnboardingRow.onboarding_process === "offer";
+  const showOfferInAppOnboarding = canShowWelcomeGiftOffer(
+    onboardingProcessForOffer,
+    includedCreditsClaimed,
+  );
+  const includedCreditsActivationContent = showOfferInAppOnboarding
+    ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
+    : null;
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  emptyCartCms.frames = filterCartOfferFramesForWelcomeGiftEligibility(
+    emptyCartCms.frames,
+    onboardingProcessForOffer,
+    includedCreditsClaimed,
+  );
+  emptyLendsCms.frames = filterCartOfferFramesForWelcomeGiftEligibility(
+    emptyLendsCms.frames,
+    onboardingProcessForOffer,
+    includedCreditsClaimed,
+  );
   for (const sectionKey of cmsKeysToResolve) {
     const bundle = cmsSectionsByKey[sectionKey];
     if (!bundle) continue;
     cmsSectionsByKey[sectionKey] = {
       ...bundle,
-      frames: filterCartOfferFramesForWelcomeGiftEligibility(bundle.frames, exchangeOnboardingRow.onboarding_process),
+      frames: filterCartOfferFramesForWelcomeGiftEligibility(
+        bundle.frames,
+        onboardingProcessForOffer,
+        includedCreditsClaimed,
+      ),
     };
   }
   await perf.measure("borrowOverdue.sync", async () => {
     try {
-      const admin = createSupabaseAdminClient();
       await syncMemberBorrowOverdueAccrual(admin, userId);
     } catch (e) {
       console.error("[exchange] borrow overdue sync", e);
@@ -982,8 +1022,9 @@ export default async function ExchangePage() {
   });
 
   return (
-    <>
+    <ExchangeWalletAnnouncementProvider>
       <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
+      <ExchangeWalletTransactionAnnounceLayer userId={userId} />
       {piggybackDepositQueue.length > 0 ? (
         <ExchangePiggybackDepositConfirmModal initialQueue={piggybackDepositQueue} />
       ) : null}
@@ -991,10 +1032,7 @@ export default async function ExchangePage() {
         <ExchangeHeader
           membershipLabel={membershipLabel}
           availablePoints={availablePoints}
-          balanceConsumptionPoints={walletPoints.consumption}
-          balanceExchangePoints={walletPoints.exchange}
           activeCartCostPoints={activeCartCostPoints}
-          hasReachedLendingCap={hasReachedLendingCap}
           guideOfferOnboarding={showOfferInAppOnboarding}
         />
         {borrowReturnOverdueAlerts.length > 0 ? (
@@ -1091,6 +1129,7 @@ export default async function ExchangePage() {
                     sectionKey={sectionKey}
                     cms={cms}
                     guideOfferOnboarding={showOfferInAppOnboarding}
+                    includedCreditsActivationContent={includedCreditsActivationContent}
                   />
                 );
               }
@@ -1099,6 +1138,6 @@ export default async function ExchangePage() {
         </div>
         <ExchangeEmptyFill />
       </MainContent>
-    </>
+    </ExchangeWalletAnnouncementProvider>
   );
 }

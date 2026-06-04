@@ -1,5 +1,5 @@
 /**
- * Tarif d’achat des crédits d’échange (unités manquantes vs capacité wallet).
- * 1 mod de crédit = ce montant en centimes d’euro (10 → 0,10 € / mod).
+ * @deprecated Utiliser `fetchBorrowCheckoutOptions` + `centsPerMissingCreditForDuration`.
+ * Conservé temporairement pour le checkout panier en cours de migration durée v2.
  */
 export const EXCHANGE_CREDIT_CENTS_PER_MOD = 10;

@@ -2,10 +2,11 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { SegnaExchangeCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
 import {
-  computeBorrowComplementDailyEuroCents,
+  centsPerMissingCreditForDuration,
   computeBorrowDailyPriceDisplayDiscountPercent,
-  formatEuroPerDay,
+  formatEuroPerCredit,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import { cn } from "@/lib/utils/cn";
@@ -17,7 +18,7 @@ type BorrowComplementCheckoutBlockProps = {
   cartTotalPoints: number;
   availablePoints: number;
   missingPoints: number;
-  /** Panier : prix loc/jour + badge. Frais facturés : masqué. */
+  /** Panier : prix unitaire sous la durée. Frais facturés : masqué. */
   showDailyPrice?: boolean;
   className?: string;
 };
@@ -63,7 +64,7 @@ function CalcRow({
   );
 }
 
-function DailyPriceDiscountBadge({ percent }: { percent: number }) {
+function UnitCreditDiscountBadge({ percent }: { percent: number }) {
   if (percent <= 0) return null;
   return (
     <span className="inline-flex shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-emerald-800">
@@ -89,20 +90,20 @@ export function BorrowComplementCheckoutBlock({
   const canPrev = idx > 0;
   const canNext = idx < sorted.length - 1;
   const durationLabel = compactDurationLabel(durationDays);
-  const dailyEuroCents = showDailyPrice
-    ? computeBorrowComplementDailyEuroCents(missingPoints, durationDays, options)
-    : 0;
-  const dailyPriceLabel = `${formatEuroPerDay(dailyEuroCents)}/j`;
-  const dailyDiscountPercent = showDailyPrice
+  const unitCreditPriceLabel = showDailyPrice
+    ? formatEuroPerCredit(centsPerMissingCreditForDuration(options, durationDays))
+    : null;
+  const unitCreditDiscountPercent = showDailyPrice
     ? computeBorrowDailyPriceDisplayDiscountPercent(durationDays, options)
     : 0;
 
   return (
     <div className={cn("space-y-5", className)} role="status" aria-live="polite">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[15px] font-semibold text-zinc-900">Durée</span>
-        <div className="flex items-center gap-2">
-          <button
+      <div className="flex items-start justify-between gap-3">
+        <span className="pt-1.5 text-[15px] font-semibold text-zinc-900">Durée</span>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
               type="button"
               onClick={() => canPrev && onDurationChange(sorted[idx - 1]!.durationDays)}
               disabled={!canPrev}
@@ -121,8 +122,24 @@ export function BorrowComplementCheckoutBlock({
               aria-label="Durée plus longue"
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-25"
             >
-            <ChevronRight className="h-5 w-5" strokeWidth={2.5} />
-          </button>
+              <ChevronRight className="h-5 w-5" strokeWidth={2.5} />
+            </button>
+          </div>
+          {unitCreditPriceLabel ? (
+            <span
+              className="inline-flex flex-wrap items-center justify-end gap-2 text-[14px] font-medium tabular-nums text-zinc-700"
+              aria-label={`${unitCreditPriceLabel} par crédit`}
+            >
+              <UnitCreditDiscountBadge percent={unitCreditDiscountPercent} />
+              <span className="inline-flex items-center gap-1">
+                <span className="font-semibold text-zinc-900">{unitCreditPriceLabel}</span>
+                <span className="text-zinc-500" aria-hidden>
+                  /
+                </span>
+                <SegnaExchangeCreditPhrase textClassName="text-zinc-700" />
+              </span>
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -135,16 +152,6 @@ export function BorrowComplementCheckoutBlock({
           emphasis
         />
       </div>
-
-      {showDailyPrice ? (
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 pt-5">
-          <span className="text-[15px] font-medium text-zinc-700">Prix loc/jour</span>
-          <div className="flex items-center gap-2">
-            <DailyPriceDiscountBadge percent={dailyDiscountPercent} />
-            <span className="text-[15px] font-semibold tabular-nums leading-none text-zinc-950">{dailyPriceLabel}</span>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -28,7 +28,9 @@ import {
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import {
   CMS_SHOP_HUB_FRAME_OUTER_CLASS,
+  CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
   CmsFrameLayoutModeProvider,
+  CmsHorizontalScrollRow,
   CmsShopHubLinkCardRail,
   CmsFrameHideChromeProvider,
   CmsFrameItem,
@@ -1727,13 +1729,12 @@ export function ShopCatalog({
     [initialItems],
   );
 
-  /** Rail « À la une » : refs catalogue + capsules `category_capsule`. */
+  /** Rail « À la une » : refs catalogue + capsules (pas les grandes cartes édito / offre). */
   const cmsAtLaUneRows = useMemo(() => {
     const types = new Set<string>([
       "shop_category_ref",
       "shop_brand_ref",
       "shop_item_ref",
-      "shop_link_card",
       "category_capsule",
     ]);
     return [...initialCmsShopFrames]
@@ -1742,7 +1743,7 @@ export function ShopCatalog({
   }, [initialCmsShopFrames]);
 
   const cmsHomePromoRows = useMemo(() => {
-    const types = new Set<string>(["editorial_card", "offer_card", "promo_ad"]);
+    const types = new Set<string>(["editorial_card", "offer_card", "promo_ad", "shop_link_card"]);
     return [...initialCmsShopFrames]
       .filter((r) => types.has(r.frame_type))
       .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
@@ -2224,7 +2225,6 @@ export function ShopCatalog({
         const capsulesCapTitle = shopHomeCapsulesSectionDisplay.title?.trim() || "À la une";
         const capsulesHideHeader = shopHomeCapsulesSectionDisplay.hide_section_title;
         const multiAtLaUne = cmsAtLaUneRows.length > 1;
-        const multiPromo = cmsHomePromoRows.length > 1;
         const capsuleBlock =
           cmsAtLaUneRows.length > 0 ? (
             <div className="space-y-3">
@@ -2244,17 +2244,17 @@ export function ShopCatalog({
           ) : null;
         const promoBlock =
           cmsHomePromoRows.length > 0 ? (
-              <section className="space-y-3">
-                <CmsFrameLayoutModeProvider mode={multiPromo ? "hub" : "stack"}>
-                  <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
-                    <CmsShopHubLinkCardRail>
-                      {cmsHomePromoRows.map((row) => (
-                        <CmsFrameItem key={row.id} row={row} />
-                      ))}
-                    </CmsShopHubLinkCardRail>
-                  </CmsShopHubFramesProvider>
-                </CmsFrameLayoutModeProvider>
-              </section>
+            <section className="px-5">
+              <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
+                <CmsHorizontalScrollRow
+                  rows={cmsHomePromoRows}
+                  className="!mt-0"
+                  hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+                  layout={cmsHomePromoRows.length === 1 ? "stack" : "rail"}
+                  frameLayoutMode="hub"
+                />
+              </CmsShopHubFramesProvider>
+            </section>
           ) : null;
         if (!capsuleBlock && !promoBlock) return null;
         return (

@@ -8,11 +8,22 @@ import { Info, X } from "lucide-react";
 
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
-import { SegnaConsumptionCreditPhrase, SegnaExchangeCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
+import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplementCheckoutBlock";
+import { BorrowLocationInfoContent } from "@/components/cart/BorrowLocationInfoContent";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { CartPaymentGateModal } from "@/components/cart/CartPaymentGateModal";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
-import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import {
+  computeMissingCreditsCashCents,
+  type BorrowCheckoutOption,
+} from "@/lib/billing/fetch-borrow-checkout-options";
+import {
+  clearCheckoutBorrowDurationDays,
+  defaultCheckoutBorrowDurationDays,
+  readCheckoutBorrowDurationDays,
+  resolveCheckoutBorrowDurationDays,
+  writeCheckoutBorrowDurationDays,
+} from "@/lib/cart/checkout-borrow-duration-storage";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
@@ -22,11 +33,12 @@ import {
   CmsHorizontalScrollRow,
   CmsOnboardingOfferGuidanceProvider,
 } from "@/components/cms/CmsSectionBlocks";
+import { OnboardingIncludedCreditsProvider } from "@/components/onboarding/OnboardingIncludedCreditsProvider";
+import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
-import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { isOnboardingOfferCmsFrame, isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
@@ -66,11 +78,15 @@ type CartScreenProps = {
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
-  /** Cadeau de bienvenue encore disponible (`onboarding_process === "offer"`). */
+  /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
   welcomeGiftOfferEligible?: boolean;
+  /** Textes + montant (BO) pour la feuille d’activation sur la carte CMS. */
+  includedCreditsActivationContent?: WelcomeGiftLandingContent | null;
   /** Profil à 100 % + KYC validé requis pour le paiement. */
   profileComplete?: boolean;
   kycVerified?: boolean;
+  /** Durées / tarifs complément crédits (RPC BO economy v2). */
+  borrowCheckoutOptions?: BorrowCheckoutOption[];
 };
 
 const OFFERS: OfferCardData[] = [
@@ -123,12 +139,13 @@ export function CartScreen({
   cartShopSystemForYouItems = [],
   showOfferOnboarding = false,
   welcomeGiftOfferEligible = false,
+  includedCreditsActivationContent = null,
   profileComplete = true,
   kycVerified = true,
+  borrowCheckoutOptions = [],
 }: CartScreenProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
-  const walletCreditKind = walletCreditKindForMembership(membershipLabel);
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
@@ -138,6 +155,9 @@ export function CartScreen({
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
+  const [borrowDurationDays, setBorrowDurationDays] = useState(() =>
+    defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
+  );
 
   const orderedLines = useMemo(() => sortCartLinesByPriceAsc(lines), [lines]);
   const hasReservedElsewhere = useMemo(() => orderedLines.some((l) => l.reservedByOther), [orderedLines]);
@@ -189,8 +209,29 @@ export function CartScreen({
   /** Panier total > capacité d’emprunt (wallet). */
   const cartExceedsWallet = activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalPoints - availablePoints) : 0;
-  const exchangeCreditsEuroCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
-  /** Crédits d’échange si le panier dépasse le wallet (hors option protection, bientôt disponible). */
+
+  useEffect(() => {
+    if (!cartExceedsWallet) {
+      clearCheckoutBorrowDurationDays();
+      return;
+    }
+    const resolved = resolveCheckoutBorrowDurationDays(
+      readCheckoutBorrowDurationDays(),
+      borrowCheckoutOptions,
+    );
+    setBorrowDurationDays(resolved);
+    writeCheckoutBorrowDurationDays(resolved);
+  }, [borrowCheckoutOptions, cartExceedsWallet]);
+
+  const handleBorrowDurationChange = useCallback((durationDays: number) => {
+    setBorrowDurationDays(durationDays);
+    writeCheckoutBorrowDurationDays(durationDays);
+  }, []);
+
+  const exchangeCreditsEuroCents = cartExceedsWallet
+    ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
+    : 0;
+  /** Complément € si le panier dépasse le wallet. */
   const subtotalCashFees = useMemo(() => {
     const creditsEuros = cartExceedsWallet ? exchangeCreditsEuroCents / 100 : 0;
     return creditsEuros;
@@ -279,18 +320,6 @@ export function CartScreen({
     }
   };
 
-  /** Sous-titre type Uber Eats : durée d’emprunt (abonnés = 1 mois, invité = location 10 j.). */
-  const panierSubtitle = useMemo(() => {
-    if (membershipLabel === "Guest") {
-      return "10 jours de location à partir de la réception de votre commande";
-    }
-    const until = new Date();
-    until.setMonth(until.getMonth() + 1);
-    const dd = String(until.getDate()).padStart(2, "0");
-    const mm = String(until.getMonth() + 1).padStart(2, "0");
-    return `Emprunte jusqu'au ${dd}/${mm} (1 mois)`;
-  }, [membershipLabel]);
-
   const removeLine = useCallback(
     async (lineId: string) => {
       if (!activeCartId) {
@@ -336,6 +365,10 @@ export function CartScreen({
     : "calc(88px + env(safe-area-inset-bottom, 0px))";
 
   return (
+    <OnboardingIncludedCreditsProvider
+      active={welcomeGiftOfferEligible}
+      content={includedCreditsActivationContent}
+    >
     <div className="flex w-full flex-col bg-zinc-100">
       <header className="fixed left-1/2 top-0 z-40 w-full max-w-[430px] -translate-x-1/2 bg-white">
         <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
@@ -351,9 +384,6 @@ export function CartScreen({
             <ExchangeWalletPill
               membershipLabel={membershipLabel}
               availablePoints={availablePoints}
-              balanceConsumptionPoints={balanceConsumptionPoints}
-              balanceExchangePoints={balanceExchangePoints}
-              hasReachedLendingCap={hasReachedLendingCap}
               cartExceedsWallet={cartExceedsWallet}
               onWalletPanelOpenChange={setWalletPanelOpen}
               className={cn(
@@ -363,13 +393,12 @@ export function CartScreen({
             />
           </div>
           <h1 className={cn("mt-5", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Panier</h1>
-          <p className="mt-1.5 text-[18px] font-medium leading-snug text-zinc-600">{panierSubtitle}</p>
         </div>
       </header>
 
-      {/* Réserve la place du header fixe (titre + sous-titre) ; aligné sur la colonne max-w phone. */}
+      {/* Réserve la place du header fixe ; aligné sur la colonne max-w phone. */}
       <div
-        className="mx-auto h-[calc(env(safe-area-inset-top,0px)+10.25rem)] w-full max-w-[430px] shrink-0 bg-white"
+        className="mx-auto h-[calc(env(safe-area-inset-top,0px)+8.5rem)] w-full max-w-[430px] shrink-0 bg-white"
         aria-hidden
       />
 
@@ -416,45 +445,44 @@ export function CartScreen({
             if (slotKey === "cart_system_exchange") {
               return (
                 <section key={slotKey} className="bg-white px-5 py-4">
-                  <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>Échange</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className={cn("min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+                      Location
+                    </h2>
+                    {cartExceedsWallet && borrowCheckoutOptions.length > 0 ? (
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={exchangeCreditsModalOpen}
+                        aria-controls="cart-exchange-credits-modal"
+                        id="cart-exchange-credits-modal-trigger"
+                        aria-label="Comment est calculé le montant de location"
+                        onClick={() => setExchangeCreditsModalOpen(true)}
+                        className="-ml-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+                      >
+                        <Info className="h-[18px] w-[18px]" strokeWidth={2.2} />
+                      </button>
+                    ) : null}
+                  </div>
 
                   <div className="mt-4">
                     <div className="space-y-3">
-                      {cartExceedsWallet ? (
-                        <div className="relative space-y-2" role="status" aria-live="polite">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex min-w-0 items-center gap-1">
-                              <span className="text-[15px] font-semibold text-red-600">Crédits</span>
-                              <button
-                                type="button"
-                                aria-haspopup="dialog"
-                                aria-expanded={exchangeCreditsModalOpen}
-                                aria-controls="cart-exchange-credits-modal"
-                                id="cart-exchange-credits-modal-trigger"
-                                aria-label="Informations sur les crédits manquants"
-                                onClick={() => setExchangeCreditsModalOpen(true)}
-                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-600 transition hover:bg-red-50"
-                              >
-                                <Info className="h-4 w-4" strokeWidth={2.2} />
-                              </button>
-                            </div>
-                            <span className="text-[15px] font-semibold tabular-nums text-red-600">
-                              {euros(exchangeCreditsEuroCents / 100)}
-                            </span>
-                          </div>
-                        </div>
+                      {cartExceedsWallet && borrowCheckoutOptions.length > 0 ? (
+                        <BorrowComplementCheckoutBlock
+                          options={borrowCheckoutOptions}
+                          durationDays={borrowDurationDays}
+                          onDurationChange={handleBorrowDurationChange}
+                          cartTotalPoints={cartTotalPoints}
+                          availablePoints={availablePoints}
+                          missingPoints={missingExchangeMods}
+                        />
                       ) : null}
-
-                      <div className="flex items-center justify-between gap-3 py-1">
-                        <span className="min-w-0 text-[15px] font-medium text-zinc-900">Protection commande</span>
-                        <span className="shrink-0 text-[15px] font-medium text-zinc-500">Bientôt disponible</span>
-                      </div>
                     </div>
 
                     <div className="mt-6 w-full border-t border-zinc-200 pt-4">
                       <div className="flex w-full items-baseline justify-between gap-3">
-                        <span className="text-[17px] font-extrabold leading-tight text-zinc-950">Sous-total</span>
-                        <span className="text-[17px] font-extrabold tabular-nums leading-tight text-zinc-950">
+                        <span className="text-[20px] font-extrabold leading-tight text-zinc-950">Sous-total</span>
+                        <span className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950">
                           {euros(subtotalCashFees)}
                         </span>
                       </div>
@@ -478,6 +506,9 @@ export function CartScreen({
               frames: [] as CmsFrameRow[],
               display: { hide_section_title: false, title: null } satisfies CmsSectionPublishedDisplay,
             };
+            if (slotKey === "cart_offers" && cms.frames.length === 0) {
+              return null;
+            }
             const defaultTitle = slotKey === "cart_offers" ? "Des offres pour vous" : "À la une";
             const useStaticOfferFallback = slotKey === "cart_offers" && cms.frames.length === 0;
             const guideOfferFrameCta =
@@ -620,49 +651,20 @@ export function CartScreen({
       >
         <SegnaDialogSheetHandle />
         <h2 id="cart-exchange-credits-modal-title" className={segnaDialogTitleClass()}>
-          Crédits
+          Location
         </h2>
         <div className="mt-5 space-y-4">
+          <BorrowLocationInfoContent />
           <p className={segnaDialogBodyClass()}>
-            Il manque{" "}
-            <span className="tabular-nums">{missingExchangeMods.toLocaleString("fr-FR")}</span>{" "}
-            {walletCreditKind === "consumption" ? (
-              <SegnaConsumptionCreditPhrase />
-            ) : (
-              <SegnaExchangeCreditPhrase />
-            )}{" "}
-            pour ce panier.{" "}
-            {walletCreditKind === "consumption" ? (
-              <>
-                Tarif : une unité représente{" "}
-                {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{" "}
-                € — montant déjà inclus dans le sous-total.
-              </>
-            ) : (
-              <>
-                Tarif : 1 unité{" "}
-                <SegnaExchangeCreditPhrase className="mx-0.5 align-[-0.12em]" />={" "}
-                {(EXCHANGE_CREDIT_CENTS_PER_MOD / 100).toLocaleString("fr-FR", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{" "}
-                € — montant déjà inclus dans le sous-total.
-              </>
-            )}
-          </p>
-          <p className={segnaDialogBodyClass()}>
-            Tu peux acheter ces crédits au paiement, ou{" "}
+            Pour réduire le complément,{" "}
             <Link
               href="/items/new"
               className="font-semibold text-zinc-900 underline underline-offset-2"
               onClick={() => setExchangeCreditsModalOpen(false)}
             >
-              ajouter des pièces à l&apos;emprunt
-            </Link>{" "}
-            pour augmenter ton plafond.
+              prête des pièces
+            </Link>
+            .
           </p>
         </div>
         <button
@@ -674,5 +676,6 @@ export function CartScreen({
         </button>
       </SegnaAppBottomSheet>
     </div>
+    </OnboardingIncludedCreditsProvider>
   );
 }

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { CartPaymentScreen } from "@/components/cart/CartPaymentScreen";
-import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
 import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -153,7 +153,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   /** Même logique que le panier : seuls les crédits au-delà du solde sont facturés en €. */
   const cartExceedsWallet = cartTotalMods > availableWalletMods;
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalMods - availableWalletMods) : 0;
-  const exchangeCreditsChargeEuros = (missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD) / 100;
+  const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
 
   const sendcloudEnv = getSendcloudEnv();
   const initialSendcloudFeatures = {
@@ -168,7 +168,8 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
       <CartPaymentScreen
         initialLines={lines}
         walletCreditKind={walletCreditKindForMembership(membershipLabel)}
-        exchangeCreditsChargeEuros={exchangeCreditsChargeEuros}
+        missingExchangeMods={missingExchangeMods}
+        borrowCheckoutOptions={borrowCheckoutOptions}
         availableWalletMods={availableWalletMods}
         hideReservationTimer={false}
         includedExchangeShipping={includedExchangeShipping}

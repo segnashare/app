@@ -114,33 +114,6 @@ export function EmpruntDetailView({
               numberClassName="text-[17px] font-bold text-zinc-900"
             />
           </div>
-          {detail.pointsPaidSplit &&
-          (detail.pointsPaidSplit.exchangePoints > 0 || detail.pointsPaidSplit.consumptionPoints > 0) ? (
-            <div className="mt-3 space-y-2 text-[14px] leading-snug text-zinc-600">
-              {detail.pointsPaidSplit.exchangePoints > 0 ? (
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 pr-2">Crédits d&apos;échange</span>
-                  <SegnaPointsUnitDisplay
-                    points={detail.pointsPaidSplit.exchangePoints}
-                    creditKind="exchange"
-                    unitDisplay="icon"
-                    numberClassName="font-medium text-zinc-900"
-                  />
-                </div>
-              ) : null}
-              {detail.pointsPaidSplit.consumptionPoints > 0 ? (
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 pr-2">Crédits de consommation</span>
-                  <SegnaPointsUnitDisplay
-                    points={detail.pointsPaidSplit.consumptionPoints}
-                    creditKind="consumption"
-                    unitDisplay="icon"
-                    numberClassName="font-medium text-zinc-900"
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
           {detail.paymentBreakdown?.creditSplit &&
           detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">

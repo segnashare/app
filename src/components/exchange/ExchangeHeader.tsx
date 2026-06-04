@@ -14,10 +14,7 @@ import { cn } from "@/lib/utils/cn";
 type ExchangeHeaderProps = {
   membershipLabel: string;
   availablePoints: number;
-  balanceConsumptionPoints: number;
-  balanceExchangePoints: number;
   activeCartCostPoints: number | null;
-  hasReachedLendingCap: boolean;
   guideOfferOnboarding?: boolean;
 };
 
@@ -26,10 +23,7 @@ type ExchangeHeaderProps = {
 export function ExchangeHeader({
   membershipLabel,
   availablePoints,
-  balanceConsumptionPoints,
-  balanceExchangePoints,
   activeCartCostPoints,
-  hasReachedLendingCap,
   guideOfferOnboarding = false,
 }: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
@@ -60,9 +54,6 @@ export function ExchangeHeader({
         <ExchangeWalletPill
           membershipLabel={membershipLabel}
           availablePoints={availablePoints}
-          balanceConsumptionPoints={balanceConsumptionPoints}
-          balanceExchangePoints={balanceExchangePoints}
-          hasReachedLendingCap={hasReachedLendingCap}
           cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
           className={cn(guideOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target")}
         />
@@ -78,10 +69,10 @@ export function ExchangeHeader({
             </div>
             {membershipLabel === "Guest" ? (
               <div className="mt-2 space-y-2 text-sm text-zinc-600">
-                <p>Tu es en mode Guest : tu peux emprunter et utiliser tes crédits d&apos;échange.</p>
+                <p>Tu es en mode Guest avec tes crédits Segna (prêt + allocation mensuelle).</p>
                 <p>
-                  Avec une adhésion SegnaX, tu débloques <strong className="font-bold text-zinc-900">500 crédits SegnaX</strong>{" "}
-                  inclus et <strong className="font-bold text-zinc-900">2 échanges mensuels</strong> inclus (gratuits).
+                  Avec Segna X, tu débloques <strong className="font-bold text-zinc-900">500 crédits Segna</strong>{" "}
+                  par mois et plus d&apos;échanges inclus.
                 </p>
               </div>
             ) : subscriberMembershipDescription ? (

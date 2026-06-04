@@ -38,6 +38,8 @@ export const BORROW_PERIOD_DAYS_GUEST = 10;
 /** Durée d’emprunt pour Segna X (à partir de la livraison). */
 export const BORROW_PERIOD_DAYS_SEGNA_X = 30;
 
+import { BORROW_CHECKOUT_OPTIONS_FALLBACK } from "@/lib/billing/fetch-borrow-checkout-options";
+
 export type SegnaBorrowMembershipLabel = "Guest" | "Membre +" | "Membre X";
 
 /**
@@ -66,6 +68,28 @@ export function describeBorrowPeriodForMembership(membershipLabel: SegnaBorrowMe
     return "30 jours à compter de la réception de ta commande";
   }
   return "1 mois calendaire à compter de la réception de ta commande";
+}
+
+/** « 7 jours de location », « 1 mois de location », etc. — durée checkout ou repli membership. */
+export function formatCartBorrowRentalDurationLabel(
+  checkoutBorrowDurationDays: number | null | undefined,
+  membershipLabel: SegnaBorrowMembershipLabel,
+): string {
+  const days =
+    checkoutBorrowDurationDays != null && Number.isFinite(Number(checkoutBorrowDurationDays))
+      ? Math.max(1, Math.trunc(Number(checkoutBorrowDurationDays)))
+      : null;
+
+  if (days != null) {
+    const fromOptions = BORROW_CHECKOUT_OPTIONS_FALLBACK.find((o) => o.durationDays === days)?.label;
+    if (fromOptions === "1 mois" || days === 30) return "1 mois de location";
+    if (fromOptions) return `${fromOptions} de location`;
+    return `${days} jours de location`;
+  }
+
+  if (membershipLabel === "Guest") return "10 jours de location";
+  if (membershipLabel === "Membre X") return "30 jours de location";
+  return "1 mois de location";
 }
 
 export function computeBorrowDeadlineMs(

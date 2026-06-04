@@ -5,17 +5,12 @@ import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
+import { IncludedCreditsSummaryText } from "@/components/onboarding/IncludedCreditsSummaryText";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import {
   PLAN_ENTITLEMENT_COMPARISON_FALLBACK,
   type PlanEntitlementComparisonLimits,
 } from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
-import {
-  CREDIT_PACK_AMOUNTS,
-  CREDIT_PACK_DISPLAY,
-  creditPackUnitEuroPerCreditLabel,
-  type CreditPackAmount,
-} from "@/lib/stripe/credit-packs";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -24,39 +19,9 @@ const montserrat = segnaMontserrat;
 
 const SEGNA_X_LOGO_BLANC_SRC = "/ressources/segnaX_logo_blanc.png";
 
-const CREDITS_LANDING_VALUE_PROPS: { title: string; body: string }[] = [
-  {
-    title: "Plus de crédits",
-    body: "Ajoute des crédits à ton compte pour accéder à plus de pièces dans le dressing partagé.",
-  },
-  {
-    title: "Plus de looks",
-    body: "Compose plus de paniers et emprunte selon tes envies, sans changer de formule.",
-  },
-  {
-    title: "Plus de liberté",
-    body: "Achète des crédits uniquement quand tu en as besoin, sans engagement mensuel.",
-  },
-];
-
-function creditPackOfferTiers(): SubscriptionOfferTier[] {
-  return CREDIT_PACK_AMOUNTS.map((pack) => {
-    const d = CREDIT_PACK_DISPLAY[pack];
-    return {
-      badge: d.headerTitle,
-      title: creditPackUnitEuroPerCreditLabel(pack),
-      subtitle: "",
-      priceLine: d.priceLine,
-      microLine: d.tagline,
-      featured: d.featured,
-      checkoutPlanCode: "segna_x",
-    };
-  });
-}
-
 type PackageSegnaXLandingClientProps = {
   content: SubscriptionPlanLandingContent;
-  /** Alias URL de la même landing SegnaX (`plan=x` | `plan=credits`) — utilisé pour le retour annulation Stripe. */
+  /** `plan=credits` : cadeau onboarding uniquement (achat packs retiré). */
   planQuery?: "x" | "credits";
   /** SegnaX (`plan=x`) : abonnement réservé aux comptes avec KYC validé (sinon redirection profil). */
   identityVerifiedForSubscription?: boolean;
@@ -85,49 +50,29 @@ export function PackageSegnaXLandingClient({
   planEntitlementComparisonLimits,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
-  const isCreditsLanding = planQuery === "credits";
+  const isWelcomeGiftPage = planQuery === "credits";
   const subscriptionBlockedByKyc = planQuery === "x" && !identityVerifiedForSubscription;
-  const offerTiers = useMemo(
-    () => (planQuery === "credits" ? creditPackOfferTiers() : content.offerTiers),
-    [planQuery, content.offerTiers],
-  );
-  const pageTitle = isCreditsLanding
-    ? "Obtenir plus de crédits"
+  const offerTiers = useMemo(() => content.offerTiers, [content.offerTiers]);
+  const pageTitle = isWelcomeGiftPage
+    ? welcomeGiftContent?.pageTitle?.trim() || "Active tes crédits offerts"
     : (content.pageTitle.trim() || "Devenez membre SegnaX").replace(/^Devenez membre segna X$/i, "Devenez membre SegnaX");
-  const valueProps = isCreditsLanding ? CREDITS_LANDING_VALUE_PROPS : content.valueProps;
-  const footnote = isCreditsLanding
-    ? "Les crédits achetés s'ajoutent à ton solde existant et peuvent être utilisés sur les pièces disponibles dans le dressing partagé, selon les conditions en vigueur."
-    : null;
 
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
-  const [selectedOfferIndex, setSelectedOfferIndex] = useState(() =>
-    defaultSelectedTierIndex(planQuery === "credits" ? creditPackOfferTiers() : content.offerTiers),
-  );
-  const [selectedFreeCredits, setSelectedFreeCredits] = useState(showOfferOnboarding);
+  const [selectedOfferIndex, setSelectedOfferIndex] = useState(() => defaultSelectedTierIndex(content.offerTiers));
+  const [selectedFreeCredits, setSelectedFreeCredits] = useState(showOfferOnboarding || isWelcomeGiftPage);
 
   const selectedCheckout = useMemo(() => {
-    if (selectedFreeCredits) return null;
+    if (selectedFreeCredits || isWelcomeGiftPage) return null;
     const tier = offerTiers[selectedOfferIndex];
     return tier?.checkoutPlanCode ?? content.fallbackCheckoutPlanCode;
-  }, [content.fallbackCheckoutPlanCode, offerTiers, selectedFreeCredits, selectedOfferIndex]);
-
-  const selectedCreditPack: CreditPackAmount | null = useMemo(() => {
-    if (!isCreditsLanding || selectedFreeCredits) return null;
-    return CREDIT_PACK_AMOUNTS[selectedOfferIndex] ?? null;
-  }, [isCreditsLanding, selectedFreeCredits, selectedOfferIndex]);
+  }, [content.fallbackCheckoutPlanCode, isWelcomeGiftPage, offerTiers, selectedFreeCredits, selectedOfferIndex]);
 
   const primaryCtaLabel = useMemo(() => {
-    if (selectedFreeCredits) {
-      return welcomeGiftContent?.ctaLabel?.trim() || "Profiter des crédits gratuits";
+    if (selectedFreeCredits || isWelcomeGiftPage) {
+      return welcomeGiftContent?.activateCtaLabel?.trim() || "Activer mes crédits inclus";
     }
     if (subscriptionBlockedByKyc) {
       return "Vérifier d'abord mon identité";
-    }
-    if (isCreditsLanding) {
-      const pack = CREDIT_PACK_AMOUNTS[selectedOfferIndex];
-      if (!pack) return "Continuer vers le paiement";
-      const d = CREDIT_PACK_DISPLAY[pack];
-      return `${d.headerTitle} pour ${d.priceLine}`;
     }
     const tier = offerTiers[selectedOfferIndex];
     const synthetic = tier?.syntheticCheckoutCta?.trim();
@@ -135,7 +80,7 @@ export function PackageSegnaXLandingClient({
     const fallback = content.ctaLabel?.trim();
     if (fallback) return fallback;
     return "Continuer vers le paiement";
-  }, [content.ctaLabel, isCreditsLanding, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc, welcomeGiftContent?.ctaLabel]);
+  }, [content.ctaLabel, isWelcomeGiftPage, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc, welcomeGiftContent?.activateCtaLabel]);
 
   const handleSubscriptionCheckout = async () => {
     if (subscriptionBlockedByKyc) {
@@ -175,41 +120,18 @@ export function PackageSegnaXLandingClient({
       const response = await fetch("/api/onboarding/offer/claim", { method: "POST" });
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       if (!response.ok) {
-        throw new Error(payload?.message ?? "Impossible de créditer le wallet.");
+        throw new Error(payload?.message ?? "Impossible d’activer tes crédits inclus.");
       }
-      router.push("/exchange");
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible de créditer le wallet.";
-      window.alert(message);
-      setIsCheckoutLoading(false);
-    }
-  };
-
-  const handleCreditsCheckout = async () => {
-    if (isCheckoutLoading || !selectedCreditPack) return;
-    setIsCheckoutLoading(true);
-    try {
-      const response = await fetch("/api/stripe/credits/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pack: selectedCreditPack }),
-      });
-      const payload = (await response.json().catch(() => null)) as { url?: string; message?: string } | null;
-      if (!response.ok || !payload?.url) {
-        throw new Error(payload?.message ?? "Impossible de rediriger vers Stripe.");
-      }
-      window.location.assign(payload.url);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible de lancer le paiement.";
+      const message = error instanceof Error ? error.message : "Impossible d’activer tes crédits inclus.";
       window.alert(message);
       setIsCheckoutLoading(false);
     }
   };
 
   const handlePrimaryCta = () => {
-    if (selectedFreeCredits) return void handleClaimFreeCredits();
-    if (isCreditsLanding) return void handleCreditsCheckout();
+    if (selectedFreeCredits || isWelcomeGiftPage) return void handleClaimFreeCredits();
     return void handleSubscriptionCheckout();
   };
 
@@ -240,56 +162,40 @@ export function PackageSegnaXLandingClient({
           <div className="-mx-5 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-pl-5 scroll-pr-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
               <div className="w-5 shrink-0 snap-normal" aria-hidden />
-              {showOfferOnboarding ? (
+              {showOfferOnboarding || isWelcomeGiftPage ? (
                 <OfferOnboardingCreditFrame
                   content={welcomeGiftContent}
                   selected={selectedFreeCredits}
                   onSelect={() => setSelectedFreeCredits(true)}
                 />
               ) : null}
-              {offerTiers.map((tier, idx) => (
-                <OfferTierCard
-                  key={`${tier.badge}-${idx}`}
-                  tier={tier}
-                  selected={!selectedFreeCredits && selectedOfferIndex === idx}
-                  onSelect={() => {
-                    setSelectedFreeCredits(false);
-                    setSelectedOfferIndex(idx);
-                  }}
-                  highlightAsFeatured={isCreditsLanding ? tier.featured : isNouveauOfferTier(tier)}
-                  creditPackCard={isCreditsLanding}
-                />
-              ))}
+              {!isWelcomeGiftPage
+                ? offerTiers.map((tier, idx) => (
+                    <OfferTierCard
+                      key={`${tier.badge}-${idx}`}
+                      tier={tier}
+                      selected={!selectedFreeCredits && selectedOfferIndex === idx}
+                      onSelect={() => {
+                        setSelectedFreeCredits(false);
+                        setSelectedOfferIndex(idx);
+                      }}
+                      highlightAsFeatured={isNouveauOfferTier(tier)}
+                      creditPackCard={false}
+                    />
+                  ))
+                : null}
             </div>
           </div>
         </section>
 
-        {isCreditsLanding ? (
-          <section className="mt-8 space-y-0">
-            {valueProps.map((row, idx) => (
-              <div key={`${row.title}-${idx}`}>
-                {idx > 0 ? <div className="my-4 h-px w-full bg-zinc-200" /> : null}
-                <article className="space-y-1.5">
-                  <h2 className={cn(montserrat.className, "text-[20px] font-semibold text-zinc-950 md:text-[22px]")}>
-                    {row.title}
-                  </h2>
-                  <p className={cn(montserrat.className, "text-[14px] leading-snug text-zinc-600 md:text-[16px]")}>
-                    {row.body}
-                  </p>
-                </article>
-              </div>
-            ))}
-          </section>
-        ) : (
+        {isWelcomeGiftPage && welcomeGiftContent ? (
+          <IncludedCreditsExplanation content={welcomeGiftContent} />
+        ) : null}
+
+        {!isWelcomeGiftPage ? (
           <SegnaXGuestComparisonTable
             limits={{ ...PLAN_ENTITLEMENT_COMPARISON_FALLBACK, ...planEntitlementComparisonLimits }}
           />
-        )}
-
-        {footnote ? (
-          <p className={cn(montserrat.className, "mt-8 text-center text-[12px] leading-snug text-zinc-600")}>
-            {footnote}
-          </p>
         ) : null}
       </div>
 
@@ -451,6 +357,20 @@ function isNouveauOfferTier(tier: SubscriptionOfferTier): boolean {
   return tier.badge.trim().toLowerCase() === "nouveau";
 }
 
+function IncludedCreditsExplanation({ content }: { content: WelcomeGiftLandingContent }) {
+  return (
+    <section className="mt-8" aria-labelledby="included-credits-explainer">
+      <h2 id="included-credits-explainer" className="sr-only">
+        À quoi servent tes crédits inclus
+      </h2>
+      <IncludedCreditsSummaryText
+        introBody={content.introBody}
+        className={cn(montserrat.className, "text-[15px]")}
+      />
+    </section>
+  );
+}
+
 function OfferOnboardingCreditFrame({
   content,
   selected,
@@ -461,7 +381,7 @@ function OfferOnboardingCreditFrame({
   onSelect: () => void;
 }) {
   const badge = content?.cardBadge?.trim() || "Crédits offerts";
-  const creditsAmount = content?.creditsAmount ?? 250;
+  const creditsAmount = content?.creditsAmount ?? 100;
   const subtitle = content?.cardSubtitle?.trim() || "crédits offerts";
 
   return (

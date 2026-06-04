@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { applyCartBorrowExtension } from "@/lib/cart/apply-cart-borrow-extension";
+import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { computeBorrowExtensionAmountCents } from "@/lib/cart/borrow-extension-pricing";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -67,6 +68,12 @@ export async function GET(request: Request) {
       return NextResponse.redirect(
         new URL(`/commande/${cartId}/prolonger?extension=error&reason=invalid_metadata`, url.origin),
       );
+    }
+
+    try {
+      await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
+    } catch (e) {
+      console.error("[stripe/cart-extension/sync] persist default payment method", e);
     }
 
     let cartItemIds: string[] = [];

@@ -13,7 +13,12 @@ import {
   computeCartCheckoutRoundTripShippingHtCents,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
-import { EXCHANGE_CREDIT_CENTS_PER_MOD } from "@/lib/cart/exchangeCredits";
+import {
+  centsPerMissingCreditForDuration,
+  computeMissingCreditsCashCents,
+  fetchBorrowCheckoutOptions,
+} from "@/lib/billing/fetch-borrow-checkout-options";
+import { defaultCheckoutBorrowDurationDays } from "@/lib/cart/checkout-borrow-duration-storage";
 import { cartPaymentProfileGateMessage, fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { fetchOnboardingProfileRequirements } from "@/lib/profile/onboarding-profile-requirements";
@@ -135,6 +140,34 @@ function parseSendcloudOutboundSelection(raw: unknown): CheckoutSendcloudOutboun
   };
 }
 
+function parseBorrowDurationDays(raw: unknown, allowed: ReadonlySet<number>): number | null {
+  const n =
+    typeof raw === "number" && Number.isFinite(raw)
+      ? Math.trunc(raw)
+      : typeof raw === "string" && raw.trim() !== ""
+        ? Math.trunc(Number(raw))
+        : NaN;
+  if (!Number.isFinite(n) || n < 1 || n > 90 || !allowed.has(n)) return null;
+  return n;
+}
+
+async function persistCartCheckoutBorrowDurationDays(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  cartId: string,
+  userId: string,
+  durationDays: number,
+): Promise<void> {
+  const { error } = await admin
+    .from("carts")
+    .update({ checkout_borrow_duration_days: durationDays, updated_at: new Date().toISOString() })
+    .eq("id", cartId)
+    .eq("user_id", userId)
+    .is("deleted_at", null);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -250,7 +283,30 @@ export async function POST(request: Request) {
     const availableWalletMods = parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
     const cartExceedsWallet = cartTotalMods > availableWalletMods;
     const missingExchangeMods = cartExceedsWallet ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods)) : 0;
-    const creditsCents = missingExchangeMods * EXCHANGE_CREDIT_CENTS_PER_MOD;
+
+    const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
+    const allowedBorrowDurations = new Set(borrowCheckoutOptions.map((o) => o.durationDays));
+    const borrowDurationDays =
+      missingExchangeMods > 0
+        ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
+        : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
+    if (borrowDurationDays == null) {
+      return NextResponse.json({ message: "Choisis une durée d'emprunt valide." }, { status: 400 });
+    }
+
+    const centsPerMissingCredit = centsPerMissingCreditForDuration(borrowCheckoutOptions, borrowDurationDays);
+    const creditsCents =
+      missingExchangeMods > 0
+        ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
+        : 0;
+
+    try {
+      await persistCartCheckoutBorrowDurationDays(admin, activeCart.cartId, userId, borrowDurationDays);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "borrow_duration_persist_failed";
+      console.error("[stripe/cart/checkout] checkout_borrow_duration_days", msg);
+      return NextResponse.json({ message: "Impossible d'enregistrer la durée d'emprunt." }, { status: 500 });
+    }
 
     const memberPostalCode = memberPostalCodeForCheckoutShipping({
       deliveryChannel,
@@ -492,7 +548,7 @@ export async function POST(request: Request) {
           unit_amount: creditsCents,
           product_data: {
             name: "Complément crédits Segna",
-            description: `${missingExchangeMods} unité(s) au-delà du solde`,
+            description: `${missingExchangeMods} crédit(s) manquant(s) · ${borrowDurationDays} j`,
           },
         },
       });
@@ -543,6 +599,9 @@ export async function POST(request: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer: stripeCustomerId,
+      payment_intent_data: {
+        setup_future_usage: "off_session",
+      },
       line_items: lineItems,
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -566,6 +625,8 @@ export async function POST(request: Request) {
         delivery_instructions:
           deliveryChannel === "home" && deliveryInstructions ? deliveryInstructions.slice(0, 450) : "",
         missing_exchange_mods: String(missingExchangeMods),
+        borrow_duration_days: String(borrowDurationDays),
+        cents_per_missing_credit: String(centsPerMissingCredit),
         /** Historique : clé Stripe « exchange_credits_kind » ; valeur = seau wallet du complément € (consommation). */
         exchange_credits_kind: stripeWalletTopupKind,
         credits_line_cents: String(creditsCents),

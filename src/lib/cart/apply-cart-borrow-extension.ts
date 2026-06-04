@@ -22,7 +22,7 @@ type AdminLike = {
   };
 };
 
-const MS_PER_DAY = 86_400_000;
+import { addBorrowCalendarDaysParis } from "@/lib/cart/borrow-return-calendar";
 
 export type ApplyCartBorrowExtensionInput = {
   userId: string;
@@ -134,7 +134,7 @@ async function applyCartBorrowExtensionDirect(
       : null;
   const baseMs = storedDue ? Date.parse(storedDue) : Number.NaN;
   if (Number.isFinite(baseMs)) {
-    const nextIso = new Date(baseMs + input.extensionDays * MS_PER_DAY).toISOString();
+    const nextIso = new Date(addBorrowCalendarDaysParis(baseMs, input.extensionDays)).toISOString();
     await admin.from("carts").update({ borrow_return_due_at: nextIso }).eq("id", input.cartId);
   }
 

@@ -7,6 +7,10 @@ import {
   segnaDialogBodyClass,
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
+import {
+  BORROW_OVERDUE_CG_LOCATION_HREF,
+  formatBorrowOverdueRateTiersSummaryLinesFr,
+} from "@/lib/cart/format-borrow-overdue-copy";
 import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { segnaInlineActionLinkClass } from "@/lib/ui/segna-inline-link";
@@ -53,23 +57,35 @@ export function EmpruntBorrowDelayLearnMore({ membershipLabel: _membershipLabel,
             <h3 className={cn(segnaMontserrat.className, "mt-5 text-[15px] font-bold leading-snug text-zinc-900")}>
               Que se passe-t-il ?
             </h3>
-            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              Si la date limite est dépassée sans retour engagé, ton échange est considéré en{" "}
-              <strong className="font-semibold text-zinc-900">retard</strong> : tu peux toujours{" "}
-              <strong className="font-semibold text-zinc-900">prolonger l&apos;échange</strong> (si disponible) ou{" "}
-              <strong className="font-semibold text-zinc-900">organiser ton retour</strong> depuis l&apos;app. Des
-              rappels peuvent continuer tant que le colis n&apos;est pas déposé au relais. Les conséquences éventuelles
-              (pénalités, suspension) sont détaillées dans les{" "}
-              <a
-                href="https://www.segnashare.com/conditions-location"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2 transition hover:text-blue-700"
-              >
-                conditions générales de location
-              </a>
-              .
-            </p>
+            <div className={cn(segnaDialogBodyClass(), "mt-2 space-y-2")}>
+              <p>
+                Si la date limite est dépassée sans dépôt au relais, ton échange passe en{" "}
+                <strong className="font-semibold text-zinc-900">retard</strong>.
+              </p>
+              <p>
+                Tu peux encore <strong className="font-semibold text-zinc-900">prolonger l&apos;échange</strong> (si
+                disponible) ou <strong className="font-semibold text-zinc-900">organiser ton retour</strong> depuis
+                l&apos;app.
+              </p>
+              <p>Des pénalités journalières peuvent s&apos;appliquer :</p>
+              {formatBorrowOverdueRateTiersSummaryLinesFr().map((line, i) => (
+                <p key={i}>
+                  <strong className="font-semibold text-zinc-900">{line}</strong>
+                </p>
+              ))}
+              <p>
+                Autres mesures (suspension, etc.) :{" "}
+                <a
+                  href={BORROW_OVERDUE_CG_LOCATION_HREF}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2 transition hover:text-blue-700"
+                >
+                  conditions générales de location
+                </a>
+                .
+              </p>
+            </div>
 
             <h3 className={cn(segnaMontserrat.className, "mt-5 text-[15px] font-bold leading-snug text-zinc-900")}>
               Dépôt au point relais

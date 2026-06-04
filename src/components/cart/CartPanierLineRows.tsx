@@ -63,7 +63,7 @@ export type CartPanierLineRowsProps = {
   onRemoveLine: (lineId: string) => void;
   /** Si false : pas de lien « Ajouter des articles » sous la liste (ex. aperçu). */
   showAddArticlesLink?: boolean;
-  /** Page Échange : pas de rouge ni de classes d’animation sur surplus / concurrence. */
+  /** Page Échange : typo plus compacte. */
   exchangeUiCalm?: boolean;
   /** Onboarding panier : attire l'oeil vers l'ajout d'articles. */
   guideAddArticlesLink?: boolean;
@@ -86,7 +86,6 @@ export function CartPanierLineRows({
 }: CartPanierLineRowsProps) {
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
   const isGuest = membershipLabel === "Guest";
-  const isSurplusLine = (line: CartLineRowData) => line.pricePoints > availablePoints;
 
   return (
     <>
@@ -103,7 +102,6 @@ export function CartPanierLineRows({
       {lines.length > 0 ? (
       <div className="-mx-5 divide-y-[1px] divide-zinc-200">
         {lines.map((line) => {
-          const surplus = isSurplusLine(line);
           const otherMembersHint = formatOtherMembersDiscreteLine(line.otherShoppersInCart ?? 0);
           const showCompetitionBlock = line.reservedByOther;
           return (
@@ -169,19 +167,11 @@ export function CartPanierLineRows({
                         {line.description}
                       </p>
                     ) : null}
-                    <p
-                      className={cn(
-                        "mt-1 text-[15px] tracking-tight",
-                        surplus && !exchangeUiCalm ? "text-red-600" : "text-zinc-900",
-                      )}
-                    >
+                    <p className="mt-1 text-[15px] tracking-tight text-zinc-900">
                       <SegnaPointsUnitDisplay
                         points={line.pricePoints}
                         creditKind={walletCreditKind}
-                        numberClassName={cn(
-                          "text-[15px] font-semibold tabular-nums",
-                          surplus && !exchangeUiCalm ? "text-red-600" : "text-zinc-900",
-                        )}
+                        numberClassName="text-[15px] font-semibold tabular-nums text-zinc-900"
                       />
                     </p>
                     {!isGuest && otherMembersHint ? (
@@ -209,16 +199,8 @@ export function CartPanierLineRows({
                     className={cn(
                       "inline-flex h-9 w-9 items-center justify-center rounded-md disabled:opacity-50",
                       showCompetitionBlock
-                        ? cn(
-                            "bg-zinc-800/80 text-white ring-1 ring-zinc-900/20",
-                            !exchangeUiCalm && "cart-competition-trash-vibrate",
-                          )
-                        : surplus
-                          ? cn(
-                              exchangeUiCalm ? "bg-zinc-100 text-zinc-800" : "bg-red-50 text-red-600",
-                              !exchangeUiCalm && "cart-surplus-trash-vibrate",
-                            )
-                          : "bg-zinc-100 text-zinc-700",
+                        ? "bg-zinc-800/80 text-white ring-1 ring-zinc-900/20"
+                        : "bg-zinc-100 text-zinc-700",
                     )}
                     aria-label="Retirer du panier"
                     onClick={(e) => {

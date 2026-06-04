@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
-import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
 
 /**
@@ -15,6 +15,8 @@ export async function ensureCartBorrowReturnDueAt(
     cartId: string;
     userId: string;
     borrowReturnDueAtIso?: string | null;
+    memberReceiptConfirmedAtIso?: string | null;
+    checkoutBorrowDurationDays?: number | null;
     outboundDeliveredAtIso?: string | null;
     outboundUpdatedAtIso?: string | null;
     borrowExtensionDaysTotal?: number;
@@ -38,6 +40,8 @@ export async function ensureCartBorrowReturnDueAt(
 
   const dueMs = resolveCartBorrowReturnDueMs({
     borrowReturnDueAtIso: null,
+    memberReceiptConfirmedAtIso: input.memberReceiptConfirmedAtIso,
+    checkoutBorrowDurationDays: input.checkoutBorrowDurationDays,
     outboundDeliveredAtIso: input.outboundDeliveredAtIso,
     outboundUpdatedAtIso: input.outboundUpdatedAtIso,
     membershipLabel: membershipLabel as SegnaBorrowMembershipLabel,
@@ -46,11 +50,9 @@ export async function ensureCartBorrowReturnDueAt(
 
   if (!Number.isFinite(dueMs)) return Number.NaN;
 
-  const deliveredIso = resolveOutboundBorrowDeliveredAtIso(
-    input.outboundDeliveredAtIso,
-    input.outboundUpdatedAtIso,
-  );
-  if (!deliveredIso) return dueMs;
+  const receiptIso =
+    typeof input.memberReceiptConfirmedAtIso === "string" ? input.memberReceiptConfirmedAtIso.trim() : "";
+  if (!receiptIso) return dueMs;
 
   await admin
     .from("carts")

@@ -31,8 +31,8 @@ type AdminClientWithTable = AdminClient & {
 };
 
 /**
- * Débite le wallet du montant total échange du panier (somme des `price_points` en base).
- * Après `wallet_credit_purchase` du complément € (seau consommation), le solde total couvre le panier.
+ * Débite le wallet pour la part du panier non couverte par le complément Stripe €.
+ * Le complément Stripe ne crédite pas le wallet (metadata `stripe_wallet_comp_points`).
  */
 export async function debitCartExchangeWalletFromStripeSession(
   admin: AdminClient,
@@ -49,6 +49,8 @@ export async function debitCartExchangeWalletFromStripeSession(
   }
 
   const creditsKind = session.metadata?.exchange_credits_kind ?? null;
+  const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
+  const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
 
   const { error } = await admin.rpc("wallet_debit_cart_order_stripe", {
     p_user_id: userId,
@@ -57,6 +59,8 @@ export async function debitCartExchangeWalletFromStripeSession(
     p_idempotency_key: `stripe:cart_order_debit:${session.id}`,
     p_metadata: {
       exchange_credits_kind: creditsKind,
+      stripe_wallet_comp_points: stripeCompPoints,
+      stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
     },
   });

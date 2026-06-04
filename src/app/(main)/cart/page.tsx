@@ -9,7 +9,13 @@ import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition
 import { collectCmsShopItemIdsFromSectionsByKey } from "@/lib/cms/collect-cms-shop-item-ids";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
-import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
+import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
+import {
+  canShowWelcomeGiftOffer,
+  filterCartOfferFramesForWelcomeGiftEligibility,
+} from "@/lib/cms/welcome-gift-offer-visibility";
+import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
+import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
 import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
@@ -52,7 +58,7 @@ export default async function CartPage() {
 
   const userId = user.id as string;
   const admin = createSupabaseAdminClient() as any;
-  const [userState, membershipLabel, walletRes, paymentEligibility] = (await Promise.all([
+  const [userState, membershipLabel, walletRes, paymentEligibility, includedCreditsClaimed] = (await Promise.all([
     perf.measure("users.appState", () => getCurrentUserAppState(userId)),
     perf.measure("membership.label", () => resolveMembershipLabel(supabase, userId)),
     perf.measure("wallet.read", () =>
@@ -64,12 +70,21 @@ export default async function CartPage() {
         .maybeSingle(),
     ),
     perf.measure("cart.paymentEligibility", () => fetchCartPaymentEligibility(supabase as any, admin, userId)),
+    perf.measure("wallet.onboardingGrant", () => hasOnboardingIncludedCreditsGrant(admin, userId)),
   ])) as [
     Awaited<ReturnType<typeof getCurrentUserAppState>>,
     MembershipLabel,
     { data: unknown },
     Awaited<ReturnType<typeof fetchCartPaymentEligibility>>,
+    boolean,
   ];
+  const onboardingProcess = await resolveOnboardingProcessForOfferVisibility(
+    admin,
+    userId,
+    userState?.onboarding_process ?? null,
+    includedCreditsClaimed,
+  );
+  const welcomeGiftOfferEligible = canShowWelcomeGiftOffer(onboardingProcess, includedCreditsClaimed);
 
   const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
   const isDemoMode = userState?.onboarding_mode === "demo";
@@ -93,7 +108,10 @@ export default async function CartPage() {
   };
   const availablePoints = isDemoMode ? demoWalletPoints.total : walletPoints.total;
 
-  const panierSectionOrder = await perf.measure("cms.panier.order", () => fetchPanierSectionOrder(supabase));
+  const [panierSectionOrder, borrowCheckoutOptions] = await Promise.all([
+    perf.measure("cms.panier.order", () => fetchPanierSectionOrder(supabase)),
+    perf.measure("billing.borrowCheckoutOptions", () => fetchBorrowCheckoutOptions(supabase as never)),
+  ]);
   const needsShopSystemForYou = panierSectionOrder.includes("shop_system_for_you");
 
   const tuple = (await Promise.all([
@@ -121,10 +139,11 @@ export default async function CartPage() {
         perf.measure(`cms.${sectionKey}.frames`, () => fetchCmsSectionFramesResolved(supabase, sectionKey)),
         perf.measure(`cms.${sectionKey}.display`, () => fetchCmsSectionPublishedDisplay(supabase, sectionKey)),
       ]);
-      const visibleFrames =
-        sectionKey === "cart_offers"
-          ? filterCartOfferFramesForWelcomeGiftEligibility(frames, userState?.onboarding_process)
-          : frames;
+      const visibleFrames = filterCartOfferFramesForWelcomeGiftEligibility(
+        frames,
+        onboardingProcess,
+        includedCreditsClaimed,
+      );
       cmsSectionsByKey[sectionKey] = { frames: visibleFrames, display };
     }),
   );
@@ -143,6 +162,10 @@ export default async function CartPage() {
       cartLines = mergeCompetitionIntoCartLines(cartLinesBase, compRes.data);
     }
   }
+  const includedCreditsActivationContent = welcomeGiftOfferEligible
+    ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
+    : null;
+
   perf.log({
     cartLines: cartLines.length,
     cmsSections: cmsKeys.length,
@@ -165,9 +188,11 @@ export default async function CartPage() {
         cmsShopHubCatalogItems={cmsShopHubCatalogItems}
         cartShopSystemForYouItems={cartShopSystemForYouItems}
         showOfferOnboarding={showOfferInAppOnboarding}
-        welcomeGiftOfferEligible={userState?.onboarding_process === "offer"}
+        welcomeGiftOfferEligible={welcomeGiftOfferEligible}
+        includedCreditsActivationContent={includedCreditsActivationContent}
         profileComplete={paymentEligibility.profileComplete}
         kycVerified={paymentEligibility.kycVerified}
+        borrowCheckoutOptions={borrowCheckoutOptions}
       />
     </main>
   );

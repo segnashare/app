@@ -192,7 +192,7 @@ const DEFAULTS: Omit<SubscriptionPlanLandingContent, "offerTiers" | "heroImageUr
     },
     {
       title: "Plus de style",
-      body: "Tu reçois 500 crédits de consommation à utiliser sur les pièces qui te plaisent le plus.",
+      body: "Tu reçois 500 crédits bonus à utiliser sur les pièces qui te plaisent le plus.",
     },
     {
       title: "Plus de liberté",

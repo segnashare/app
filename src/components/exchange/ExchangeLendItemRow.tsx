@@ -262,6 +262,7 @@ export function ExchangeLendItemRow({
   const evaluationRefused = isEvaluationRefused(itemStatus, intake);
   const showEditDelete = isDraftLike(itemStatus, intake);
   const showEvaluationEdit = canEditEvaluationDraft(itemStatus, intake);
+  const showDraftQuickActions = showEditDelete || showEvaluationEdit;
   const shippingQuickAction = isFulfillmentShipping(intake);
   const priceConfirmQuickAction = isValidationPendingPriceConfirm(intake);
   const showPriceRow =
@@ -274,6 +275,7 @@ export function ExchangeLendItemRow({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
   const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluationGateOpen, setEvaluationGateOpen] = useState(false);
 
   const handleDelete = async () => {
@@ -304,10 +306,12 @@ export function ExchangeLendItemRow({
       if (activeDraftId === id) {
         window.sessionStorage.removeItem("segna:new-item:active-draft-id");
         window.sessionStorage.removeItem("segna:new-item:slots-draft");
+        window.sessionStorage.removeItem("segna:new-item:text-draft");
       }
     } catch {
       // no-op
     }
+    setDeleteConfirmOpen(false);
     setIsDeleted(true);
     router.refresh();
   };
@@ -440,19 +444,11 @@ export function ExchangeLendItemRow({
               <CircleDollarSign className="h-5 w-5" aria-hidden />
             </Link>
           )
-        ) : showEvaluationEdit ? (
-          <Link
-            href={`/items/new?itemId=${encodeURIComponent(id)}&from=item`}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
-            aria-label="Modifier l'item"
-          >
-            <Pencil className="h-5 w-5" />
-          </Link>
-        ) : showEditDelete ? (
+        ) : showDraftQuickActions ? (
           <>
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={() => setDeleteConfirmOpen(true)}
               disabled={isDeleting}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
               aria-label="Supprimer l'item"
@@ -513,6 +509,45 @@ export function ExchangeLendItemRow({
                 className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
               >
                 Oui, récupérer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deleteConfirmOpen ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[1px]">
+          <div
+            className={cn(SEGNA_DIALOG_CARD_CLASS, "relative")}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`confirm-delete-${id}`}
+          >
+            <SegnaDialogDismissButton onClick={() => setDeleteConfirmOpen(false)} />
+            <h2
+              id={`confirm-delete-${id}`}
+              className={segnaDialogTitleClass("pr-10 text-[20px] sm:text-[22px]")}
+            >
+              Supprimer cette pièce ?
+            </h2>
+            <p className={cn(segnaDialogBodyClass(), "mt-2")}>
+              Elle sera retirée de ton espace. Tu pourras créer une nouvelle fiche plus tard si besoin.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={isDeleting}
+                className="h-10 rounded-lg border border-zinc-200 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={isDeleting}
+                className="h-10 rounded-lg bg-[#E44D3E] text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isDeleting ? "Suppression…" : "Supprimer"}
               </button>
             </div>
           </div>

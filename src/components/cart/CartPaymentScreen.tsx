@@ -24,6 +24,17 @@ import {
   type CheckoutDeliveryAddress,
   type CheckoutRelaySelection,
 } from "@/lib/cart/checkout-delivery-storage";
+import {
+  computeMissingCreditsCashCents,
+  type BorrowCheckoutOption,
+} from "@/lib/billing/fetch-borrow-checkout-options";
+import {
+  clearCheckoutBorrowDurationDays,
+  defaultCheckoutBorrowDurationDays,
+  readCheckoutBorrowDurationDays,
+  resolveCheckoutBorrowDurationDays,
+  writeCheckoutBorrowDurationDays,
+} from "@/lib/cart/checkout-borrow-duration-storage";
 import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
 import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
 import {
@@ -106,10 +117,10 @@ type CartPaymentScreenProps = {
   /** Unité de crédit affichée (consommation vs échange), alignée commande / échange. */
   walletCreditKind: WalletCreditKind;
   /**
-   * € à régler pour les crédits d’échange au-delà du solde wallet.
-   * Aligné sur la section « Échange » du panier : les crédits wallet couvrent la partie correspondante.
+   * Crédits manquants au-delà du solde wallet (complément € selon durée choisie).
    */
-  exchangeCreditsChargeEuros: number;
+  missingExchangeMods: number;
+  borrowCheckoutOptions: BorrowCheckoutOption[];
   /** Solde wallet au moment du chargement (complément d’échange vs couverture). */
   availableWalletMods: number;
   /** Invité : pas de compteur explicite en tête (réservation serveur inchangée). */
@@ -148,7 +159,8 @@ function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | 
 export function CartPaymentScreen({
   initialLines,
   walletCreditKind,
-  exchangeCreditsChargeEuros,
+  missingExchangeMods,
+  borrowCheckoutOptions,
   availableWalletMods,
   hideReservationTimer = false,
   includedExchangeShipping = "none",
@@ -193,6 +205,9 @@ export function CartPaymentScreen({
   const [remainingMs, setRemainingMs] = useState(TIMER_MS);
   const [stripeCheckoutBusy, setStripeCheckoutBusy] = useState(false);
   const [stripeCheckoutError, setStripeCheckoutError] = useState<string | null>(null);
+  const [borrowDurationDays, setBorrowDurationDays] = useState(() =>
+    defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
+  );
   const [uberQuote, setUberQuote] = useState<Record<string, unknown> | null>(null);
   const [uberQuoteFetch, setUberQuoteFetch] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [uberQuoteError, setUberQuoteError] = useState<string | null>(null);
@@ -221,6 +236,28 @@ export function CartPaymentScreen({
   useEffect(() => {
     refreshCheckoutLocalState();
   }, [refreshCheckoutLocalState]);
+
+  useEffect(() => {
+    if (missingExchangeMods <= 0) {
+      clearCheckoutBorrowDurationDays();
+      return;
+    }
+    const resolved = resolveCheckoutBorrowDurationDays(
+      readCheckoutBorrowDurationDays(),
+      borrowCheckoutOptions,
+    );
+    setBorrowDurationDays(resolved);
+    writeCheckoutBorrowDurationDays(resolved);
+  }, [borrowCheckoutOptions, missingExchangeMods]);
+
+  const exchangeCreditsEuroCents = useMemo(
+    () =>
+      missingExchangeMods > 0
+        ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
+        : 0,
+    [borrowCheckoutOptions, borrowDurationDays, missingExchangeMods],
+  );
+  const exchangeCreditsChargeEuros = exchangeCreditsEuroCents / 100;
 
   useEffect(() => {
     let cancelled = false;
@@ -1007,6 +1044,10 @@ export function CartPaymentScreen({
           deliveryInstructions: deliveryChannel === "home" ? instructionsSaved.trim() : undefined,
           sendcloudOutboundSelection: sendcloudOutboundSelection ?? undefined,
           acceptRentalTerms: true,
+          borrowDurationDays:
+            missingExchangeMods > 0
+              ? borrowDurationDays
+              : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
         }),
       });
       const j = (await res.json()) as { url?: string; message?: string };
@@ -1038,6 +1079,9 @@ export function CartPaymentScreen({
     selectedOutboundOptionCode,
     sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
+    borrowDurationDays,
+    missingExchangeMods,
+    borrowCheckoutOptions,
   ]);
 
   const searchRelayPoints = useCallback(async () => {
@@ -1614,7 +1658,8 @@ export function CartPaymentScreen({
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Complément d&apos;échange</span>
-                <span className="shrink-0 font-medium text-zinc-900">
+                <span className="inline-flex shrink-0 items-baseline gap-1.5 font-medium text-zinc-900">
+                  <span className="tabular-nums">{borrowDurationDays}j&nbsp;×</span>
                   <SegnaPointsUnitDisplay
                     points={complementMods}
                     creditKind={walletCreditKind}
@@ -1649,14 +1694,7 @@ export function CartPaymentScreen({
           <div className="space-y-2.5 text-[15px] leading-snug">
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
               <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
-              <span
-                className={cn(
-                  "shrink-0 tabular-nums font-medium",
-                  exchangeCreditsChargeEuros > 0 ? "text-red-600" : "text-zinc-900",
-                )}
-              >
-                {euros(exchangeCreditsChargeEuros)}
-              </span>
+              <span className="shrink-0 tabular-nums font-medium text-zinc-900">{euros(exchangeCreditsChargeEuros)}</span>
             </div>
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
               <span className="min-w-0 pr-2">Frais de service (TTC)</span>
@@ -1664,7 +1702,7 @@ export function CartPaymentScreen({
             </div>
             {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
               <IncludedExchangeFeeReductionLine
-                label="Échange inclus — frais de service (TTC)"
+                label="1er échange inclus"
                 amountEuros={includedServiceReductionEuros}
               />
             ) : null}
@@ -1691,7 +1729,7 @@ export function CartPaymentScreen({
             )}
             {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
               <IncludedExchangeFeeReductionLine
-                label="Échange inclus — livraison (TTC)"
+                label="1er échange inclus"
                 amountEuros={includedShippingReductionEuros}
               />
             ) : null}
@@ -1784,7 +1822,7 @@ export function CartPaymentScreen({
                 </div>
                 {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
                   <IncludedExchangeFeeReductionLine
-                    label="Échange inclus — frais de service (TTC)"
+                    label="1er échange inclus"
                     amountEuros={includedServiceReductionEuros}
                     className="mt-1.5"
                   />
@@ -1804,7 +1842,7 @@ export function CartPaymentScreen({
                 </div>
                 {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
                   <IncludedExchangeFeeReductionLine
-                    label="Échange inclus — livraison (TTC)"
+                    label="1er échange inclus"
                     amountEuros={includedShippingReductionEuros}
                     className="mt-1.5"
                   />

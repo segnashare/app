@@ -1,4 +1,4 @@
-import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
+import { walletBonusCreditsAriaLabel, type WalletCreditKind } from "@/lib/wallet/credit-kind";
 import { SEGNA_BRAND_LOGO_SRC, SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 
@@ -12,7 +12,7 @@ type SegnaPointsUnitDisplayProps = {
   numberClassName?: string;
   iconClassName?: string;
   /**
-   * `label` : consommation → logotype Segna ; échange → jeton crédit (`icon/segan.svg`).
+   * `label` : bonus (seau consumption) → logotype Segna ; échange → jeton crédit (`icon/segan.svg`).
    * `icon` : chiffre + jeton crédit (détail commande / total).
    */
   unitDisplay?: "label" | "icon";
@@ -35,7 +35,7 @@ const segnaCreditTokenMaskStyle = {
 } as const;
 
 /**
- * Montant + unité visuelle : logotype Segna (consommation) ou jeton crédit (échange / mode icon).
+ * Montant + unité visuelle : logotype Segna (crédits bonus) ou jeton crédit (échange / mode icon).
  */
 export function SegnaPointsUnitDisplay({
   points,
@@ -48,11 +48,10 @@ export function SegnaPointsUnitDisplay({
 }: SegnaPointsUnitDisplayProps) {
   const n = Number.isFinite(points) ? Math.floor(points) : 0;
   const formatted = n.toLocaleString("fr-FR");
-  const consumptionAriaLabel = `${formatted} ${n === 1 ? "point" : "points"} Segna de consommation`;
   const exchangeAriaLabel = `${formatted} ${n === 1 ? "crédit" : "crédits"}`;
   const iconMode = unitDisplay === "icon";
   const useCreditTokenIcon = iconMode || creditKind === "exchange";
-  const ariaLabel = creditKind === "consumption" ? consumptionAriaLabel : exchangeAriaLabel;
+  const ariaLabel = creditKind === "consumption" ? walletBonusCreditsAriaLabel(n) : exchangeAriaLabel;
 
   return (
     <span
@@ -94,7 +93,7 @@ type SegnaConsumptionCreditPhraseProps = {
   textClassName?: string;
 };
 
-/** Logotype Segna seul — pour phrases (« X … couverts ») où l’unité consommation est déjà implicite. */
+/** Logotype Segna seul — crédits bonus (seau consumption). */
 export function SegnaConsumptionCreditPhrase({ className, textClassName }: SegnaConsumptionCreditPhraseProps) {
   return (
     <span className={cn("inline-flex items-center", className, textClassName)} aria-hidden>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
+import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import type { WalletTransactionDetail } from "@/lib/wallet/fetch-wallet-transaction-detail";
@@ -47,6 +48,7 @@ export function WalletTransactionDetailView({ detail, loading = false, onBack }:
             >
               <ArrowLeft className="h-8 w-8" strokeWidth={2.25} />
             </button>
+            <ExchangeOrderHelpSection placement="header" triggerLabel="Besoin d'aide ?" />
           </div>
           <h1 className={cn("mt-4 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
             <span className="inline-flex flex-wrap items-center gap-2">
@@ -86,7 +88,7 @@ export function WalletTransactionDetailView({ detail, loading = false, onBack }:
           <strong className="font-semibold text-zinc-950">
             {detail.returnContext.creditsConsumedOnOrder.toLocaleString("fr-FR")} crédits
           </strong>{" "}
-          consommés pour cette commande.
+          utilisés pour cette commande.
         </div>
       ) : null}
 

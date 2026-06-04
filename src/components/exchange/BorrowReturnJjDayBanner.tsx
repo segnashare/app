@@ -9,6 +9,10 @@ import {
   segnaDialogBodyClass,
 } from "@/components/ui/SegnaAppDialog";
 import { formatBorrowReturnDueDateFr } from "@/lib/cart/cart-borrow-return-due";
+import {
+  BORROW_OVERDUE_CG_LOCATION_HREF,
+  formatBorrowOverdueRateTiersSummaryLinesFr,
+} from "@/lib/cart/format-borrow-overdue-copy";
 import type { MemberBorrowReturnJjAlert } from "@/lib/cart/fetch-member-borrow-return-jj-alerts";
 import {
   dismissBorrowReturnJjForToday,
@@ -65,20 +69,28 @@ export function BorrowReturnJjDayBanner({ alerts }: Props) {
         <strong className="font-semibold text-zinc-900">{dueLabel}</strong>.
         {multiple ? ` (${alerts.length} retours en cours)` : null}
       </p>
-      <p className={cn(segnaDialogBodyClass(), "mt-2 text-zinc-700")}>
-        Si tu dépasses la date limite sans avoir déposé ton colis au relais, ton échange passe en{" "}
-        <strong className="font-semibold text-zinc-900">retard</strong> : des{" "}
-        <strong className="font-semibold text-zinc-900">pénalités</strong> ou mesures prévues aux{" "}
-        <a
-          href="https://www.segnashare.com/conditions-location"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2"
-        >
-          conditions générales de location
-        </a>{" "}
-        peuvent s&apos;appliquer.
-      </p>
+      <div className={cn(segnaDialogBodyClass(), "mt-2 space-y-1.5 text-zinc-700")}>
+        <p>
+          Si tu dépasses la date limite sans dépôt au relais, ton échange passe en{" "}
+          <strong className="font-semibold text-zinc-900">retard</strong>.
+        </p>
+        {formatBorrowOverdueRateTiersSummaryLinesFr().map((line, i) => (
+          <p key={i}>
+            <strong className="font-semibold text-zinc-900">{line}</strong>
+          </p>
+        ))}
+        <p>
+          <a
+            href={BORROW_OVERDUE_CG_LOCATION_HREF}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2"
+          >
+            Conditions générales de location
+          </a>
+          .
+        </p>
+      </div>
       <div className="segna-urgent-red-shimmer-active mt-4">
         <Link
           href={visibleAlert.retourHref}

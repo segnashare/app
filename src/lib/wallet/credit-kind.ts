@@ -3,8 +3,20 @@ import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 /** Valeurs canoniques (RPC `wallet_credit_purchase`, metadata Stripe, `wallet_transactions.metadata.credits_kind`). */
 export type WalletCreditKind = "consumption" | "exchange";
 
+/** Libellé court du seau bonus (wallet, filtres). */
+export const WALLET_BONUS_BUCKET_SHORT_LABEL = "Bonus";
+
+/** Libellé membre pour les crédits offerts par Segna (`consumption` en base). */
+export const WALLET_BONUS_CREDITS_LABEL = "crédits bonus";
+
+export function walletBonusCreditsAriaLabel(points: number): string {
+  const n = Number.isFinite(points) ? Math.floor(points) : 0;
+  const formatted = n.toLocaleString("fr-FR");
+  return `${formatted} ${n === 1 ? "crédit bonus" : "crédits bonus"}`;
+}
+
 export function walletCreditKindLabel(kind: WalletCreditKind): string {
-  return kind === "consumption" ? "crédits de consommation" : "crédits";
+  return kind === "consumption" ? WALLET_BONUS_CREDITS_LABEL : "crédits";
 }
 
 /**

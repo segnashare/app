@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
+import { activateOnboardingIncludedCredits } from "@/lib/onboarding/activate-included-credits";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -17,86 +17,17 @@ export async function POST() {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
-    const { creditsAmount: offerCreditsAmount } = await fetchWelcomeGiftLandingContent(supabase);
+    const result = await activateOnboardingIncludedCredits(admin, user.id);
 
-    const { data: updatedUser, error: userUpdateError } = await admin
-      .from("users")
-      .update({ onboarding_process: "exchange" })
-      .eq("id", user.id)
-      .eq("onboarding_process", "offer")
-      .select("id")
-      .maybeSingle();
-    if (userUpdateError) {
-      return NextResponse.json({ message: userUpdateError.message }, { status: 500 });
-    }
-
-    if (!updatedUser?.id) {
-      return NextResponse.json({ ok: true, alreadyClaimed: true, creditsAdded: 0 });
-    }
-
-    const idempotencyKey = `onboarding_welcome_gift:${user.id}`;
-    const { error: txInsertError } = await admin.from("wallet_transactions").insert({
-      user_id: user.id,
-      kind: "credit",
-      direction: "credit",
-      amount_points: offerCreditsAmount,
-      status: "posted",
-      idempotency_key: idempotencyKey,
-      credit_bucket: "consumption",
-      metadata: {
-        source: "onboarding_welcome_gift",
-        credits_kind: "consumption",
-      },
+    return NextResponse.json({
+      ok: true,
+      alreadyClaimed: result.alreadyClaimed,
+      creditsAdded: result.creditsGranted,
+      includedCreditsAmount: result.includedCreditsAmount,
+      monthlyIncludedCredits: result.includedCreditsAmount,
     });
-
-    if (txInsertError) {
-      const code = String((txInsertError as { code?: string }).code ?? "");
-      const duplicate =
-        code === "23505" || txInsertError.message?.toLowerCase().includes("duplicate") === true;
-      if (duplicate) {
-        return NextResponse.json({ ok: true, alreadyClaimed: true, creditsAdded: 0 });
-      }
-      return NextResponse.json({ message: txInsertError.message }, { status: 500 });
-    }
-
-    const { data: walletRow, error: walletReadError } = await admin
-      .from("user_wallets")
-      .select("id,balance_consumption_points")
-      .eq("user_id", user.id)
-      .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (walletReadError) {
-      return NextResponse.json({ message: walletReadError.message }, { status: 500 });
-    }
-
-    if (walletRow?.id) {
-      const currentBalance = Math.max(0, Math.floor(Number(walletRow.balance_consumption_points ?? 0)));
-      const { error: walletUpdateError } = await admin
-        .from("user_wallets")
-        .update({
-          balance_consumption_points: currentBalance + offerCreditsAmount,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", walletRow.id);
-      if (walletUpdateError) {
-        return NextResponse.json({ message: walletUpdateError.message }, { status: 500 });
-      }
-    } else {
-      const { error: walletInsertError } = await admin.from("user_wallets").insert({
-        user_id: user.id,
-        balance_consumption_points: offerCreditsAmount,
-        balance_exchange_points: 0,
-      });
-      if (walletInsertError) {
-        return NextResponse.json({ message: walletInsertError.message }, { status: 500 });
-      }
-    }
-
-    return NextResponse.json({ ok: true, alreadyClaimed: false, creditsAdded: offerCreditsAmount });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Impossible de créditer le wallet.";
+    const message = error instanceof Error ? error.message : "Impossible d’activer tes crédits inclus.";
     return NextResponse.json({ message }, { status: 500 });
   }
 }

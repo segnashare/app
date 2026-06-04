@@ -8,7 +8,12 @@ import {
   SegnaDialogTitleRow,
   segnaDialogBodyClass,
 } from "@/components/ui/SegnaAppDialog";
-import { formatBorrowOverdueDaysLabelFr } from "@/lib/cart/format-borrow-overdue-copy";
+import {
+  BORROW_OVERDUE_CG_LOCATION_HREF,
+  formatBorrowOverdueBannerBodyLinesFr,
+  formatBorrowOverdueHeadlineLinesFr,
+  formatBorrowOverdueOrderLinesFr,
+} from "@/lib/cart/format-borrow-overdue-copy";
 import type { MemberBorrowReturnOverdueAlert } from "@/lib/cart/fetch-member-borrow-return-overdue-alerts";
 import {
   dismissBorrowReturnOverdueForToday,
@@ -23,6 +28,18 @@ type Props = {
 
 function pickVisibleAlert(alerts: MemberBorrowReturnOverdueAlert[]): MemberBorrowReturnOverdueAlert | null {
   return alerts.find((a) => !isBorrowReturnOverdueDismissed(a.cartId)) ?? null;
+}
+
+function CopyLines({ lines, className }: { lines: string[]; className?: string }) {
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      {lines.map((line, i) => (
+        <p key={i} className={segnaDialogBodyClass()}>
+          {line}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 /** Bandeau retard en haut de la page Échange (après l’échéance de retour). */
@@ -45,7 +62,12 @@ export function BorrowReturnOverdueBanner({ alerts }: Props) {
 
   if (!visibleAlert) return null;
 
-  const overdueLabel = formatBorrowOverdueDaysLabelFr(visibleAlert.lateDayIndex);
+  const headlineLines = formatBorrowOverdueHeadlineLinesFr(visibleAlert.lateDayIndex);
+  const orderLines = formatBorrowOverdueOrderLinesFr(
+    visibleAlert.orderNumberCompact,
+    visibleAlert.lateDayIndex,
+  );
+  const bodyLines = formatBorrowOverdueBannerBodyLinesFr(visibleAlert.lateDayIndex);
   const multiple = alerts.length > 1;
 
   return (
@@ -56,25 +78,30 @@ export function BorrowReturnOverdueBanner({ alerts }: Props) {
     >
       <SegnaDialogTitleRow
         id="borrow-return-overdue-title"
-        title="Ton échange est en retard"
+        title={
+          <>
+            {headlineLines.map((line) => (
+              <span key={line} className="block">
+                {line}
+              </span>
+            ))}
+          </>
+        }
         right={<SegnaDialogDismissButton variant="inline" onClick={dismiss} aria-label="Fermer" />}
       />
-      <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-        Commande{" "}
-        <strong className="font-semibold text-zinc-900">{visibleAlert.orderNumberCompact}</strong> :{" "}
-        <strong className="font-semibold text-zinc-900">{overdueLabel}</strong>.
-        {multiple ? ` (${alerts.length} retours en retard)` : null}
-      </p>
+      <CopyLines lines={orderLines} className="mt-2" />
+      {multiple ? (
+        <p className={cn(segnaDialogBodyClass(), "mt-1")}>{alerts.length} retours en cours.</p>
+      ) : null}
+      <CopyLines lines={bodyLines} className="mt-2 text-zinc-700" />
       <p className={cn(segnaDialogBodyClass(), "mt-2 text-zinc-700")}>
-        Des <strong className="font-semibold text-zinc-900">pénalités journalières</strong> s&apos;appliquent (
-        {visibleAlert.ratePercent} % de la valeur du panier par jour de retard, selon la tranche en cours). Consulte les{" "}
         <a
-          href="https://www.segnashare.com/conditions-location"
+          href={BORROW_OVERDUE_CG_LOCATION_HREF}
           target="_blank"
           rel="noopener noreferrer"
           className="font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2"
         >
-          conditions générales de location
+          Conditions générales de location
         </a>
         .
       </p>

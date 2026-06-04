@@ -18,6 +18,20 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
   const planRaw = Array.isArray(sp.plan) ? sp.plan[0] : sp.plan;
   const plan = planRaw?.trim().toLowerCase() ?? "";
 
+  if (plan === "credits") {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const showOfferOnboarding = user?.id
+      ? (await getCurrentUserAppState(user.id)).onboarding_process === "offer"
+      : false;
+    if (!showOfferOnboarding) {
+      const { redirect } = await import("next/navigation");
+      redirect("/exchange");
+    }
+  }
+
   if (plan === "x" || plan === "credits") {
     const supabase = await createSupabaseServerClient();
     const frames = await fetchCmsSectionFramesResolved(supabase, "package_segna_x");

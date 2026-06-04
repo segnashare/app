@@ -43,9 +43,9 @@ export const IN_APP_ONBOARDING_TASKS: readonly InAppOnboardingTaskDefinition[] =
   },
   {
     id: "offer",
-    title: "Profite de tes crédits offerts",
-    description: "Récupère ton cadeau de bienvenue depuis le panier.",
-    href: "/package?plan=credits",
+    title: "Active tes crédits offerts",
+    description: "Ouvre la carte sur Échange ou le panier pour activer tes crédits et composer ton premier panier.",
+    href: "/exchange",
   },
   {
     id: "exchange",

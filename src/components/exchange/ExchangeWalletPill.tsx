@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChevronDown } from "lucide-react";
+import { motion, useAnimate, useReducedMotion } from "framer-motion";
 
-import { WalletPanel, type WalletPanelStateContent } from "@/components/exchange/WalletPanel";
+import { useExchangeWalletAnnouncement } from "@/components/exchange/ExchangeWalletAnnouncementContext";
+import { useWalletPillBalanceAnimation } from "@/components/exchange/useWalletPillBalanceAnimation";
+import { WalletPanel } from "@/components/exchange/WalletPanel";
+import { WalletPillAnimatedBalance } from "@/components/exchange/WalletPillAnimatedBalance";
+import { WalletPillFrameReveal } from "@/components/exchange/WalletPillFrameReveal";
 import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
+import {
+  WALLET_PILL_EASE_IN_OUT,
+  WALLET_PILL_GROW_SCALE,
+  WALLET_PILL_GROW_VIBRATE_MS,
+  WALLET_PILL_SPRING,
+} from "@/lib/wallet/wallet-pill-frame-animation";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeWalletPillProps = {
   membershipLabel: string;
   availablePoints: number;
-  /** Solde crédits de consommation (persisté `balance_consumption_points`). */
-  balanceConsumptionPoints: number;
-  /** Solde crédits d'échange (persisté `balance_exchange_points`). */
-  balanceExchangePoints: number;
-  hasReachedLendingCap: boolean;
   /** Total panier > capacité emprunt : pastille contrastée (sans rouge ni animation). */
   cartExceedsWallet?: boolean;
   /** Ouverture / fermeture du panneau Wallet (ex. masquer le CTA panier). */
@@ -26,89 +32,98 @@ type ExchangeWalletPillProps = {
 export function ExchangeWalletPill({
   membershipLabel,
   availablePoints,
-  balanceConsumptionPoints,
-  balanceExchangePoints,
-  hasReachedLendingCap,
   cartExceedsWallet = false,
   onWalletPanelOpenChange,
   className,
 }: ExchangeWalletPillProps) {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const announcementCtx = useExchangeWalletAnnouncement();
+  const reducedMotion = useReducedMotion();
+  const frameAnimation = announcementCtx?.frameAnimation ?? null;
+  const passiveMotion = useWalletPillBalanceAnimation(availablePoints, {
+    enabled: !announcementCtx?.suppressPassiveBalanceAnimation && !frameAnimation,
+  });
+  const { burst, pulseKind, slideFromY } = passiveMotion;
 
   useEffect(() => {
     onWalletPanelOpenChange?.(walletModalOpen);
   }, [walletModalOpen, onWalletPanelOpenChange]);
 
-  const walletPillLabel = `${availablePoints}`;
+  const pillElRef = useRef<HTMLButtonElement | null>(null);
+  const [, pillAnimate] = useAnimate();
 
-  const walletState = useMemo(() => {
-    if (membershipLabel === "Guest") return "guest";
-    if (membershipLabel === "Membre +" && hasReachedLendingCap) return "segna_plus_cap_reached";
-    if (membershipLabel === "Membre X" && hasReachedLendingCap) return "segna_x_cap_reached";
-    return "subscriber_not_maxed";
-  }, [hasReachedLendingCap, membershipLabel]);
+  useLayoutEffect(() => {
+    if (!frameAnimation || reducedMotion || !pillElRef.current) return;
 
-  const walletStateContent = useMemo<WalletPanelStateContent>(() => {
-    if (walletState === "guest") {
-      return {
-        title: "Mode Guest",
-        description:
-          "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Obtenir des crédits",
-        primaryCtaHref: "/package?plan=credits",
-        secondaryCtaLabel: "Devenir membre SegnaX",
-        secondaryCtaHref: "/package?plan=x",
-      };
-    }
+    const pillEl = pillElRef.current;
+    let cancelled = false;
 
-    if (walletState === "segna_plus_cap_reached") {
-      return {
-        title: "Plafond Segna+ atteint",
-        description:
-          "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        primaryCtaLabel: "Voir les offres Segna+",
-        primaryCtaHref: "/package",
-        secondaryCtaLabel: "Obtenir des crédits",
-        secondaryCtaHref: "/package?plan=credits",
-      };
-    }
+    void (async () => {
+      await pillAnimate(
+        pillEl,
+        { scale: WALLET_PILL_GROW_SCALE, x: 0, rotate: 0 },
+        WALLET_PILL_SPRING.pillGrow,
+      );
+      if (cancelled) return;
 
-    if (walletState === "segna_x_cap_reached") {
-      return {
-        title: "Plafond de prêt atteint",
-        description: "Tu as atteint le nombre maximum de pièces en prêt simultané pour ton abonnement.",
-        primaryCtaLabel: "Obtenir des crédits",
-        primaryCtaHref: "/package?plan=credits",
-        secondaryCtaLabel: "Comprendre",
-        secondaryCtaHref: "/package",
-      };
-    }
+      await pillAnimate(
+        pillEl,
+        {
+          x: [0, -1, 1, -0.6, 0.6, 0],
+          rotate: [0, -1.2, 1.2, -0.8, 0.8, 0],
+          scale: WALLET_PILL_GROW_SCALE,
+        },
+        { duration: WALLET_PILL_GROW_VIBRATE_MS / 1000, ease: WALLET_PILL_EASE_IN_OUT },
+      );
+    })();
 
-    return {
-      title: "Capacité de prêt disponible",
-      description:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-      primaryCtaLabel: "Ajouter",
-      primaryCtaHref: "/shop",
-      secondaryCtaLabel: "Obtenir des crédits",
-      secondaryCtaHref: "/package?plan=credits",
+    return () => {
+      cancelled = true;
+      pillEl.style.transform = "";
     };
-  }, [walletState]);
+  }, [frameAnimation, pillAnimate, reducedMotion]);
+
+  useLayoutEffect(() => {
+    if (frameAnimation || reducedMotion || !pillElRef.current) return;
+    pillElRef.current.style.transform = "";
+  }, [frameAnimation, reducedMotion]);
 
   return (
     <>
-      <button
+      <motion.button
+        ref={(node) => {
+          pillElRef.current = node;
+          announcementCtx?.registerPillRef(node);
+        }}
         type="button"
+        data-segna-wallet-pill
         onClick={() => setWalletModalOpen(true)}
         className={cn(
-          "relative z-20 inline-flex items-center gap-2 rounded-[14px] px-3 py-2 text-left outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
+          "relative z-20 inline-flex origin-center items-center gap-2 overflow-visible rounded-[14px] px-3 py-2 text-left outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
           cartExceedsWallet
             ? "border-2 border-zinc-300 bg-white text-zinc-900 shadow-sm"
             : "bg-zinc-950 text-white shadow-sm",
+          !frameAnimation && pulseKind === "credit" && (cartExceedsWallet ? "wallet-pill-pulse-credit-light" : "wallet-pill-pulse-credit"),
+          !frameAnimation && pulseKind === "debit" && (cartExceedsWallet ? "wallet-pill-pulse-debit-light" : "wallet-pill-pulse-debit"),
           className,
         )}
+        aria-label={`Wallet : ${availablePoints} crédits Segna`}
       >
-        <span className="min-w-0 truncate text-sm font-semibold">{walletPillLabel}</span>
+        {frameAnimation ? (
+          <WalletPillFrameReveal
+            animation={frameAnimation}
+            availablePoints={availablePoints}
+            cartExceedsWallet={cartExceedsWallet}
+            onComplete={() => announcementCtx?.finishFrameAnimation()}
+          />
+        ) : (
+          <WalletPillAnimatedBalance
+            availablePoints={availablePoints}
+            cartExceedsWallet={cartExceedsWallet}
+            burst={burst}
+            slideFromY={slideFromY}
+          />
+        )}
         {cartExceedsWallet ? (
           <img
             src={SEGNA_BRAND_LOGO_SRC}
@@ -125,15 +140,13 @@ export function ExchangeWalletPill({
           />
         )}
         <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.25} />
-      </button>
+      </motion.button>
 
       <WalletPanel
         open={walletModalOpen}
         onClose={() => setWalletModalOpen(false)}
         availablePoints={availablePoints}
-        balanceConsumptionPoints={balanceConsumptionPoints}
-        balanceExchangePoints={balanceExchangePoints}
-        walletStateContent={walletStateContent}
+        membershipLabel={membershipLabel}
       />
     </>
   );

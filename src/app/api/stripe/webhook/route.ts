@@ -7,6 +7,7 @@ import {
   debitCartExchangeWalletFromStripeSession,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
+import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -14,7 +15,7 @@ import {
   notifyWalletCreditsPurchased,
 } from "@/lib/notifications/checkout-notifications";
 import { notifySegnaXSubscriptionWelcomeIfApplicable } from "@/lib/notifications/subscription-notifications";
-import { normalizeWalletCreditKind, walletCreditKindForBillingSubscription } from "@/lib/wallet/credit-kind";
+import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
 
 async function resolveUserIdFromCustomer(admin: any, stripeCustomerId: string): Promise<string | null> {
   const { data: customerRow } = await admin
@@ -26,35 +27,9 @@ async function resolveUserIdFromCustomer(admin: any, stripeCustomerId: string): 
   return (customerRow?.user_id as string | undefined) ?? null;
 }
 
-/** Complément crédits payé dans une commande panier (montant = metadata). */
-async function applyCartOrderWalletFromCheckout(admin: any, session: Stripe.Checkout.Session, userId: string): Promise<boolean> {
-  const checkoutKind = session.metadata?.checkout_kind ?? null;
-  if (checkoutKind !== "cart_order") return false;
-
-  const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
-  const missing = Number.isFinite(missingRaw) ? Math.trunc(missingRaw) : 0;
-  if (missing <= 0) return true;
-
-  /** Complément payé en € au checkout panier : mêmes crédits que l’achat pack → consommation (Segna), pas l’échange. */
-  const creditKind = walletCreditKindForBillingSubscription(null, null);
-
-  const { error: creditRpcError } = await admin.rpc("wallet_credit_purchase", {
-    p_user_id: userId,
-    p_amount_points: missing,
-    p_credit_kind: creditKind,
-    p_provider: "stripe",
-    p_checkout_session_id: session.id,
-    p_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
-    p_idempotency_key: `stripe:cart_order_wallet:${session.id}`,
-    p_metadata: {
-      customer_id: typeof session.customer === "string" ? session.customer : null,
-      webhook_event: "checkout.session.completed",
-      checkout_kind: "cart_order",
-    },
-  });
-  if (creditRpcError) throw new Error(creditRpcError.message);
-
-  return true;
+/** Complément panier payé en € : ne crédite plus le wallet (débit direct dans wallet_debit_cart_order_stripe). */
+async function applyCartOrderWalletFromCheckout(_admin: unknown, _session: Stripe.Checkout.Session, _userId: string): Promise<boolean> {
+  return false;
 }
 
 async function applyWalletCreditFromCheckout(admin: any, session: Stripe.Checkout.Session, userId: string): Promise<boolean> {
@@ -100,6 +75,12 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       if (!stripeCustomerId || !userId) return "ignored";
 
       await upsertBillingCustomer(admin, userId, stripeCustomerId, session.metadata ?? {});
+
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
+      } catch (e) {
+        console.error("[stripe/webhook] persist default payment method", e);
+      }
 
       const creditsPurchaseApplied = await applyWalletCreditFromCheckout(admin, session, userId);
       await applyCartOrderWalletFromCheckout(admin, session, userId);

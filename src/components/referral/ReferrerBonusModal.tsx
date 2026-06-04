@@ -11,6 +11,7 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import { cn } from "@/lib/utils/cn";
+import { WALLET_BONUS_CREDITS_LABEL } from "@/lib/wallet/credit-kind";
 
 export type ReferrerBonusModalPayload = {
   referredDisplayName: string;
@@ -79,7 +80,7 @@ export function ReferrerBonusModal({ payload }: ReferrerBonusModalProps) {
           <span className={cn(segnaDialogMontserrat.className, "font-semibold text-zinc-900")}>{name}</span> vient de
           rejoindre Segna grâce à ton parrainage.{" "}
           <span className="font-semibold text-zinc-900">
-            +{points} crédits de consommation
+            +{points} {WALLET_BONUS_CREDITS_LABEL}
           </span>{" "}
           ont été ajoutés à ton wallet. Merci de faire grandir la communauté&nbsp;!
         </p>

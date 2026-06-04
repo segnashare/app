@@ -124,6 +124,8 @@ export type MemberCartOrderDetail = {
   memberReceiptConfirmedAt: string | null;
   /** Échéance de retour figée (`carts.borrow_return_due_at`), null avant livraison / legacy. */
   borrowReturnDueAt: string | null;
+  /** Durée d'emprunt choisie au checkout (`carts.checkout_borrow_duration_days`). */
+  checkoutBorrowDurationDays: number | null;
   createdAtIso: string;
   lines: MemberCartOrderLine[];
   totalPoints: number;
@@ -201,7 +203,7 @@ export async function fetchMemberCartOrderDetail(
 ): Promise<MemberCartOrderDetail | null> {
   const cartRes = await supabase
     .from("carts")
-    .select("id,status,created_at,updated_at,user_id,borrow_return_due_at,member_receipt_confirmed_at")
+    .select("id,status,created_at,updated_at,user_id,borrow_return_due_at,member_receipt_confirmed_at,checkout_borrow_duration_days")
     .eq("id", cartId)
     .eq("user_id", userId)
     .is("deleted_at", null)
@@ -216,6 +218,7 @@ export async function fetchMemberCartOrderDetail(
         user_id: string;
         borrow_return_due_at?: string | null;
         member_receipt_confirmed_at?: string | null;
+        checkout_borrow_duration_days?: number | null;
       }
     | null;
 
@@ -504,6 +507,12 @@ export async function fetchMemberCartOrderDetail(
     borrowReturnDueAt:
       typeof cart.borrow_return_due_at === "string" && cart.borrow_return_due_at.trim()
         ? cart.borrow_return_due_at
+        : null,
+    checkoutBorrowDurationDays:
+      cart.checkout_borrow_duration_days != null &&
+      Number.isFinite(Number(cart.checkout_borrow_duration_days)) &&
+      Number(cart.checkout_borrow_duration_days) >= 1
+        ? Math.trunc(Number(cart.checkout_borrow_duration_days))
         : null,
     createdAtIso: cart.created_at,
     lines,
