@@ -16,6 +16,7 @@ import {
   walletTransactionBalanceAfter,
 } from "@/lib/wallet/wallet-transaction-display";
 import type { WalletOverview } from "@/lib/wallet/fetch-wallet-overview";
+import { subscribeOnboardingOfferClaimed } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import { WALLET_BONUS_BUCKET_SHORT_LABEL } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
@@ -369,6 +370,13 @@ export function WalletPanel({ open, onClose, availablePoints }: WalletPanelProps
   const [detail, setDetail] = useState<WalletTransactionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [walletReloadNonce, setWalletReloadNonce] = useState(0);
+
+  useEffect(() => {
+    return subscribeOnboardingOfferClaimed(() => {
+      setWalletReloadNonce((n) => n + 1);
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -412,7 +420,7 @@ export function WalletPanel({ open, onClose, availablePoints }: WalletPanelProps
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, walletReloadNonce]);
 
   useEffect(() => {
     if (!selectedTxId) {

@@ -11,6 +11,10 @@ import {
 } from "@/components/ui/SegnaAppDialog";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
+import {
+  dispatchOnboardingOfferClaimed,
+  useOnboardingOfferActive,
+} from "@/lib/onboarding/onboarding-offer-claimed-event";
 import type { CmsFramePayload } from "@/lib/cms/cms-types";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -34,16 +38,17 @@ export function OnboardingIncludedCreditsProvider({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const offerActive = useOnboardingOfferActive(active);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const shouldInterceptOfferNavigation = useCallback(
     (payload: CmsFramePayload) => {
-      if (!active || !content) return false;
+      if (!offerActive || !content) return false;
       if (payload.onboarding_offer_only === true) return true;
       return isPackageCreditsTargetUrl(payload.target_url);
     },
-    [active, content],
+    [offerActive, content],
   );
 
   const handleActivate = useCallback(async () => {
@@ -51,34 +56,38 @@ export function OnboardingIncludedCreditsProvider({
     setLoading(true);
     try {
       const response = await fetch("/api/onboarding/offer/claim", { method: "POST" });
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        message?: string;
+        creditsAdded?: number;
+      } | null;
       if (!response.ok) {
         throw new Error(payload?.message ?? "Impossible d’activer tes crédits inclus.");
       }
       setOpen(false);
-      setLoading(false);
+      dispatchOnboardingOfferClaimed({ creditsAdded: payload?.creditsAdded });
       router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible d’activer tes crédits inclus.";
       window.alert(message);
+    } finally {
       setLoading(false);
     }
   }, [loading, router]);
 
   const value = useMemo<ContextValue>(
     () => ({
-      active,
+      active: offerActive,
       content,
       openActivationSheet: () => setOpen(true),
       shouldInterceptOfferNavigation,
     }),
-    [active, content, shouldInterceptOfferNavigation],
+    [offerActive, content, shouldInterceptOfferNavigation],
   );
 
   return (
     <OnboardingIncludedCreditsContext.Provider value={value}>
       {children}
-      {active && content && open ? (
+      {offerActive && content && open ? (
         <div
           className="fixed inset-0 z-[80] flex flex-col justify-end bg-black/40"
           role="presentation"

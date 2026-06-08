@@ -200,6 +200,7 @@ export async function confirmCartPaidWalletOnly(
   relayPointId: string,
   deliveryLine1: string,
   returnRelay?: ConfirmCartReturnRelayFields,
+  usedIncludedOrder = false,
 ): Promise<void> {
   const { error } = await admin.rpc("confirm_cart_paid_from_stripe", {
     p_cart_id: cartId,
@@ -211,6 +212,7 @@ export async function confirmCartPaidWalletOnly(
     p_return_relay_point_id: returnRelay?.returnRelayPointId?.trim() || null,
     p_return_relay_label: returnRelay?.returnRelayLabel?.trim() || null,
     p_return_relay_search_postal_code: returnRelay?.returnRelaySearchPostalCode?.trim() || null,
+    p_used_included_order: usedIncludedOrder,
   });
 
   if (error) {
@@ -243,6 +245,9 @@ export async function confirmCartPaidFromStripeSession(
   const returnRelayPointId = (session.metadata?.return_relay_code ?? "").trim();
   const returnRelayLabel = (session.metadata?.return_relay_label ?? "").trim();
   const returnRelaySearchPostalCode = (session.metadata?.return_relay_search_postal_code ?? "").trim();
+  const usedIncludedOrder =
+    session.metadata?.used_included_order === "true" ||
+    session.metadata?.shipping_round_trip_waived === "true";
 
   const { data: confirmData, error } = await admin.rpc("confirm_cart_paid_from_stripe", {
     p_cart_id: cartId,
@@ -254,6 +259,7 @@ export async function confirmCartPaidFromStripeSession(
     p_return_relay_point_id: returnRelayPointId || null,
     p_return_relay_label: returnRelayLabel || null,
     p_return_relay_search_postal_code: returnRelaySearchPostalCode || null,
+    p_used_included_order: usedIncludedOrder,
   });
 
   if (error) {

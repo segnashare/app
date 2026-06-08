@@ -75,7 +75,8 @@ export function ReferrerBonusModal({ payload }: ReferrerBonusModalProps) {
         </h2>
         <p className={cn(segnaDialogBodyClass(), "mt-3 font-medium text-zinc-800")}>
           <span className={cn(segnaDialogMontserrat.className, "font-semibold text-zinc-900")}>{name}</span> vient de
-          rejoindre Segna grâce à ton parrainage. Merci de faire grandir la communauté&nbsp;!
+          rejoindre Segna grâce à ton parrainage. Tu viens de gagner{" "}
+          <strong className="font-bold text-zinc-900">un échange inclus</strong> (livraison et frais offerts)&nbsp;!
         </p>
         {error ? <p className={cn(segnaDialogMontserrat.className, "mt-3 text-sm text-red-600")}>{error}</p> : null}
         <div className={cn(segnaDialogMontserrat.className, "mt-5")}>

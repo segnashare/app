@@ -24,6 +24,7 @@ import {
   getInAppOnboardingTaskProgress,
   shouldShowInAppOnboardingTaskFab,
 } from "@/lib/onboarding/in-app-onboarding-tasks";
+import { subscribeOnboardingOfferClaimed } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -67,6 +68,24 @@ export function InAppOnboardingTaskFab() {
       cancelled = true;
     };
   }, [pathname]);
+
+  useEffect(() => {
+    return subscribeOnboardingOfferClaimed(() => {
+      void (async () => {
+        const supabase = createSupabaseBrowserClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+          .from("users")
+          .select("onboarding_process")
+          .eq("id", user.id)
+          .maybeSingle<{ onboarding_process?: string | null }>();
+        setOnboardingProcess(data?.onboarding_process ?? null);
+      })();
+    });
+  }, []);
 
   useEffect(() => {
     const onVisibility = (e: Event) => {

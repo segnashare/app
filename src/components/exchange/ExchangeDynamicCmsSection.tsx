@@ -7,6 +7,7 @@ import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { isWelcomeGiftOfferCmsFrame } from "@/lib/cms/welcome-gift-offer-visibility";
+import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
@@ -23,14 +24,15 @@ export function ExchangeDynamicCmsSection({
   guideOfferOnboarding = false,
   includedCreditsActivationContent = null,
 }: ExchangeDynamicCmsSectionProps) {
-  const visibleFrames = guideOfferOnboarding
+  const showOfferOnboarding = useOnboardingOfferActive(guideOfferOnboarding);
+  const visibleFrames = showOfferOnboarding
     ? cms.frames
     : cms.frames.filter((row) => !isWelcomeGiftOfferCmsFrame(row));
   if (visibleFrames.length === 0) return null;
 
   return (
     <OnboardingIncludedCreditsProvider
-      active={guideOfferOnboarding}
+      active={showOfferOnboarding}
       content={includedCreditsActivationContent}
     >
     <CartCmsShopHubProvider catalogItems={[]}>

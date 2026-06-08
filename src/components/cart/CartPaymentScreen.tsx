@@ -46,7 +46,8 @@ import {
   computeCartCheckoutRoundTripShippingHtCents,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import type { IncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
-import { includedOrdersUsedThisMonth } from "@/lib/billing/membership-included-orders";
+import { formatIncludedShippingQuotaLabel } from "@/lib/billing/membership-included-orders";
+import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
@@ -134,6 +135,8 @@ type CartPaymentScreenProps = {
   remainingIncludedOrdersThisMonth?: number;
   /** Plafond mensuel `included_orders_limit` (pour affichage type 1/2). */
   includedOrdersLimitThisMonth?: number;
+  membershipLabel?: MembershipLabel;
+  subscriptionIncludedOrdersRemaining?: number;
   /** Sous-titre bleu sous Mondial Relay (forfait SegnaX / Segna+). */
   includedShippingForfaitLine?: string;
   /** Retour Stripe `/api/stripe/cart/sync` en erreur (débit wallet ou confirmation panier). */
@@ -166,6 +169,8 @@ export function CartPaymentScreen({
   includedExchangeShipping = "none",
   remainingIncludedOrdersThisMonth = 0,
   includedOrdersLimitThisMonth = 0,
+  membershipLabel = "Guest",
+  subscriptionIncludedOrdersRemaining = 0,
   includedShippingForfaitLine,
   postStripeSyncError = null,
   initialProfileDeliveryAddress = null,
@@ -786,8 +791,12 @@ export function CartPaymentScreen({
   ]);
 
   const includedShippingQuotaLabel =
-    includedExchangeShipping !== "none" && includedOrdersLimitThisMonth > 0
-      ? `${includedOrdersUsedThisMonth(remainingIncludedOrdersThisMonth, includedOrdersLimitThisMonth)}/${includedOrdersLimitThisMonth}`
+    includedExchangeShipping !== "none" && remainingIncludedOrdersThisMonth > 0
+      ? formatIncludedShippingQuotaLabel(
+          membershipLabel,
+          subscriptionIncludedOrdersRemaining,
+          includedOrdersLimitThisMonth,
+        )
       : null;
 
   const creditsTtcCents = Math.round(exchangeCreditsChargeEuros * 100);
@@ -816,9 +825,7 @@ export function CartPaymentScreen({
     uberOutboundCentsFromQuote,
   ]);
 
-  const relayInboundShowsZero =
-    includedExchangeShipping === "member_all_modes" ||
-    (includedExchangeShipping === "guest_relay_round_trip_equivalent" && deliveryChannel === "relay");
+  const relayInboundShowsZero = includedExchangeShipping !== "none";
 
   const relayHeaderPriceLoading =
     deliveryChannel === "relay" &&
@@ -1346,10 +1353,13 @@ export function CartPaymentScreen({
         {deliveryChannel === "relay" ? (
           <>
             <section className="px-5 py-4">
-              <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
+              <h2 className={cn("min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
                 Point relais
               </h2>
-              <div className="mb-4 flex items-start justify-between gap-3">
+              {includedExchangeShipping !== "none" && includedShippingForfaitLine ? (
+                <p className="mt-1 text-[14px] font-bold leading-snug text-zinc-900">{includedShippingForfaitLine}</p>
+              ) : null}
+              <div className="mb-4 mt-3 flex items-start justify-between gap-3">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
@@ -1357,9 +1367,6 @@ export function CartPaymentScreen({
                     <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">
                       Choisis ton point relais sur la carte (Chronopost ou Mondial Relay).
                     </p>
-                    {includedExchangeShipping !== "none" && includedShippingForfaitLine ? (
-                      <p className="mt-0.5 text-[14px] font-bold leading-snug text-zinc-900">{includedShippingForfaitLine}</p>
-                    ) : null}
                   </div>
                 </div>
                 <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">
@@ -1514,8 +1521,11 @@ export function CartPaymentScreen({
             </section>
             <section className="px-5 py-4">
               <h2 className={cn("min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
-                Options de livraison
+                Livraison à Domicile
               </h2>
+              {includedExchangeShipping !== "none" && includedShippingForfaitLine ? (
+                <p className="mt-1 text-[14px] font-bold leading-snug text-zinc-900">{includedShippingForfaitLine}</p>
+              ) : null}
               <div className="mt-3 grid gap-2">
                 {homeDeliveryOptionsLoadingMessage ? (
                   <p className="text-[13px] text-zinc-500">Chargement des options…</p>
@@ -1624,8 +1634,7 @@ export function CartPaymentScreen({
               </div>
               {homeSendcloudPlanSelected || homeSpeed === "uber_direct" ? (
                 <p className="mt-2 text-[12px] leading-snug text-zinc-500">
-                  Le retour se fait dans un point relais de notre réseau (défini par Segna, hors de ton choix de
-                  livraison).
+                  Le retour se fait via dépôt en point relais Chronopost/Mondial Relay.
                 </p>
               ) : null}
             </section>
@@ -1859,11 +1868,9 @@ export function CartPaymentScreen({
                         : null}
                   {showIncludedFeeReductionLines ? (
                     <span className="mt-1 block text-emerald-800/90">
-                      {includedExchangeShipping === "guest_relay_round_trip_equivalent"
-                        ? "La partie point relais du barème aller-retour et les frais de service sont pris en charge pour cette commande"
-                        : "Le trajet aller-retour du barème et les frais de service sont pris en charge par ton forfait"}
+                      Livraison (tous modes) et frais de service pris en charge pour cet échange inclus
                       {remainingIncludedOrdersThisMonth > 0
-                        ? ` (${remainingIncludedOrdersThisMonth} inclusion${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} restante${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} ce mois-ci avant paiement)`
+                        ? ` (${remainingIncludedOrdersThisMonth} échange${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} inclus restant${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} avant paiement)`
                         : ""}
                       .
                     </span>

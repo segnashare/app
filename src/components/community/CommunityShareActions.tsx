@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils/cn";
 const STEPS: string[] = [
   "Partage ton lien d’invitation.",
   "Ton amie crée son compte sur Segna.",
-  "Merci de faire grandir la communauté.",
+  "Tu gagnes un échange inclus (livraison et frais offerts).",
 ];
 
 type CommunityShareActionsProps = {

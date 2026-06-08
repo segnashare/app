@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
 import { IncludedCreditsSummaryText } from "@/components/onboarding/IncludedCreditsSummaryText";
+import {
+  dispatchOnboardingOfferClaimed,
+  useOnboardingOfferActive,
+} from "@/lib/onboarding/onboarding-offer-claimed-event";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import {
   PLAN_ENTITLEMENT_COMPARISON_FALLBACK,
@@ -50,6 +54,7 @@ export function PackageSegnaXLandingClient({
   planEntitlementComparisonLimits,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
+  const offerOnboardingVisible = useOnboardingOfferActive(showOfferOnboarding);
   const isWelcomeGiftPage = planQuery === "credits";
   const subscriptionBlockedByKyc = planQuery === "x" && !identityVerifiedForSubscription;
   const offerTiers = useMemo(() => content.offerTiers, [content.offerTiers]);
@@ -118,14 +123,19 @@ export function PackageSegnaXLandingClient({
     setIsCheckoutLoading(true);
     try {
       const response = await fetch("/api/onboarding/offer/claim", { method: "POST" });
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        message?: string;
+        creditsAdded?: number;
+      } | null;
       if (!response.ok) {
         throw new Error(payload?.message ?? "Impossible d’activer tes crédits inclus.");
       }
+      dispatchOnboardingOfferClaimed({ creditsAdded: payload?.creditsAdded });
       router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Impossible d’activer tes crédits inclus.";
       window.alert(message);
+    } finally {
       setIsCheckoutLoading(false);
     }
   };
@@ -162,7 +172,7 @@ export function PackageSegnaXLandingClient({
           <div className="-mx-5 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-pl-5 scroll-pr-5 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex w-max max-w-none touch-pan-x gap-3 pr-5">
               <div className="w-5 shrink-0 snap-normal" aria-hidden />
-              {showOfferOnboarding || isWelcomeGiftPage ? (
+              {offerOnboardingVisible || isWelcomeGiftPage ? (
                 <OfferOnboardingCreditFrame
                   content={welcomeGiftContent}
                   selected={selectedFreeCredits}

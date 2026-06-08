@@ -5,7 +5,7 @@ import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outrea
 
 export function buildReferrerBonusSmsBody(referredFirstNameForSms: string): string {
   const name = referredFirstNameForSms.trim() || "Ton invitée";
-  return `Segna : ${name} vient de rejoindre Segna grâce à ton parrainage. Merci !`;
+  return `Segna : ${name} vient de rejoindre Segna grâce à ton parrainage. Tu gagnes un échange inclus !`;
 }
 
 /**

@@ -9,8 +9,10 @@ import type { CheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-stora
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import {
   formatIncludedShippingForfaitLine,
+  parseBonusIncludedOrdersRemaining,
   parseIncludedOrdersLimitThisMonth,
   parseRemainingIncludedOrdersThisMonth,
+  parseSubscriptionIncludedOrdersRemaining,
 } from "@/lib/billing/membership-included-orders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -96,6 +98,8 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   const profileDeliveryAddress = readProfileDeliveryAddress(profileRow as Record<string, unknown> | null);
   const { data: membershipState } = await supabase.rpc("get_current_membership_state");
   const remainingIncludedOrdersThisMonth = parseRemainingIncludedOrdersThisMonth(membershipState);
+  const bonusIncludedOrdersRemaining = parseBonusIncludedOrdersRemaining(membershipState);
+  const subscriptionIncludedOrdersRemaining = parseSubscriptionIncludedOrdersRemaining(membershipState);
   const includedOrdersLimitThisMonth = parseIncludedOrdersLimitThisMonth(membershipState);
   const includedExchangeShipping = resolveIncludedExchangeShippingKind({
     membershipLabel,
@@ -114,8 +118,11 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   });
 
   const includedShippingForfaitLine =
-    includedExchangeShipping !== "none" && includedOrdersLimitThisMonth > 0
-      ? formatIncludedShippingForfaitLine(membershipLabel, includedOrdersLimitThisMonth)
+    includedExchangeShipping !== "none"
+      ? formatIncludedShippingForfaitLine(membershipLabel, remainingIncludedOrdersThisMonth, {
+          bonusRemaining: bonusIncludedOrdersRemaining,
+          subscriptionRemaining: subscriptionIncludedOrdersRemaining,
+        })
       : undefined;
 
   const activeCart = await fetchActiveCartForUser(supabase as never, userId);
@@ -175,6 +182,8 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         includedExchangeShipping={includedExchangeShipping}
         remainingIncludedOrdersThisMonth={remainingIncludedOrdersThisMonth}
         includedOrdersLimitThisMonth={includedOrdersLimitThisMonth}
+        membershipLabel={membershipLabel}
+        subscriptionIncludedOrdersRemaining={subscriptionIncludedOrdersRemaining}
         includedShippingForfaitLine={includedShippingForfaitLine}
         postStripeSyncError={postStripeSyncError}
         initialProfileDeliveryAddress={profileDeliveryAddress}

@@ -9,7 +9,7 @@ export type PlanEntitlementComparisonLimits = {
 };
 
 const FALLBACK: PlanEntitlementComparisonLimits = {
-  guestIncludedOrders: 1,
+  guestIncludedOrders: 0,
   guestMonthlyCredits: 100,
   segnaXIncludedOrders: 2,
   segnaXMonthlyCredits: 500,

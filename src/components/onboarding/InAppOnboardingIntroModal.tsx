@@ -41,6 +41,13 @@ export function InAppOnboardingIntroModal({
     setOpen(!snoozed);
   }, [userId, lastSignInAt]);
 
+  useLayoutEffect(() => {
+    if (referralInvite !== "pending") return;
+    void fetch("/api/referral/try-qualify-pending", { method: "POST", credentials: "same-origin" })
+      .then((res) => (res.ok ? router.refresh() : null))
+      .catch(() => {});
+  }, [referralInvite, router]);
+
   if (open !== true) return null;
 
   const dismissIntroForSession = () => {
@@ -120,7 +127,9 @@ export function InAppOnboardingIntroModal({
             >
               <p>
                 Tu es arrivée ici grâce à <strong className="font-bold text-zinc-900">une amie Segna</strong>.
-                Bienvenue dans le <strong className="font-bold text-zinc-900">dressing partagé</strong>&nbsp;!
+                Tu as <strong className="font-bold text-zinc-900">2 échanges inclus</strong> disponibles (inscription +
+                parrainage). Bienvenue dans le <strong className="font-bold text-zinc-900">dressing partagé</strong>
+                &nbsp;!
               </p>
             </div>
           </div>
@@ -133,10 +142,12 @@ export function InAppOnboardingIntroModal({
               )}
             >
               <p>
-                Tu es arrivée grâce au <strong className="font-bold text-zinc-900">parrainage Segna</strong>. Une fois
-                ton <strong className="font-bold text-zinc-900">numéro vérifié</strong> et ton{" "}
-                <strong className="font-bold text-zinc-900">parcours d’accueil terminé</strong>, ton compte sera lié à
-                ton amie parrain.
+                Tu es arrivée grâce au <strong className="font-bold text-zinc-900">parrainage Segna</strong>.
+                Tu bénéficies de <strong className="font-bold text-zinc-900">2 échanges inclus</strong>&nbsp;: 1 déjà
+                crédité à l&apos;inscription, + 1 lié au parrainage dès que ton{" "}
+                <strong className="font-bold text-zinc-900">numéro est vérifié</strong> et ton{" "}
+                <strong className="font-bold text-zinc-900">parcours d&apos;accueil terminé</strong> (ton amie reçoit
+                aussi un échange inclus).
               </p>
             </div>
           </div>

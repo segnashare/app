@@ -9,6 +9,7 @@ import { Info } from "lucide-react";
 
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { SegnaDialogDismissButton } from "@/components/ui/SegnaAppDialog";
+import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeHeaderProps = {
@@ -27,6 +28,7 @@ export function ExchangeHeader({
   guideOfferOnboarding = false,
 }: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
+  const showOfferOnboarding = useOnboardingOfferActive(guideOfferOnboarding);
 
   const subscriberMembershipDescription = useMemo(() => {
     if (membershipLabel === "Membre X") {
@@ -55,7 +57,7 @@ export function ExchangeHeader({
           membershipLabel={membershipLabel}
           availablePoints={availablePoints}
           cartExceedsWallet={activeCartCostPoints != null && activeCartCostPoints > availablePoints}
-          className={cn(guideOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target")}
+          className={cn(showOfferOnboarding && "segna-guidance-shimmer-active segna-guidance-shimmer-target")}
         />
       </header>
 

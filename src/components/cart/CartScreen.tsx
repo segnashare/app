@@ -34,6 +34,7 @@ import {
   CmsOnboardingOfferGuidanceProvider,
 } from "@/components/cms/CmsSectionBlocks";
 import { OnboardingIncludedCreditsProvider } from "@/components/onboarding/OnboardingIncludedCreditsProvider";
+import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
@@ -145,6 +146,8 @@ export function CartScreen({
   borrowCheckoutOptions = [],
 }: CartScreenProps) {
   const router = useRouter();
+  const offerOnboardingActive = useOnboardingOfferActive(welcomeGiftOfferEligible);
+  const showOfferOnboardingUi = useOnboardingOfferActive(showOfferOnboarding);
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
@@ -366,7 +369,7 @@ export function CartScreen({
 
   return (
     <OnboardingIncludedCreditsProvider
-      active={welcomeGiftOfferEligible}
+      active={offerOnboardingActive}
       content={includedCreditsActivationContent}
     >
     <div className="flex w-full flex-col bg-zinc-100">
@@ -388,7 +391,7 @@ export function CartScreen({
               onWalletPanelOpenChange={setWalletPanelOpen}
               className={cn(
                 "relative z-20 min-w-0 max-w-[min(100%,14.5rem)] shrink overflow-hidden",
-                welcomeGiftOfferEligible && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+                welcomeGiftOfferEligible && offerOnboardingActive && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
               )}
             />
           </div>
@@ -410,7 +413,7 @@ export function CartScreen({
             if (slotKey === "cart_system_items") {
               return (
                 <section key={slotKey} className="bg-white px-5 pb-4 pt-8">
-                  {showOfferOnboarding ? (
+                  {showOfferOnboardingUi ? (
                     <div
                       className="mb-5 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-[0_8px_28px_rgba(24,24,27,0.07)]"
                       role="status"
@@ -512,7 +515,7 @@ export function CartScreen({
             const defaultTitle = slotKey === "cart_offers" ? "Des offres pour vous" : "À la une";
             const useStaticOfferFallback = slotKey === "cart_offers" && cms.frames.length === 0;
             const guideOfferFrameCta =
-              welcomeGiftOfferEligible &&
+              offerOnboardingActive &&
               slotKey === "cart_offers" &&
               cms.frames.some(
                 (row) =>

@@ -376,7 +376,7 @@ export async function POST(request: Request) {
     const needsUberQuote =
       deliveryChannel === "home" &&
       homeSpeedBilling === "uber_direct" &&
-      includedExchangeShipping !== "member_all_modes";
+      includedExchangeShipping === "none";
 
     let uberFeeCents: number | null = null;
     if (needsUberQuote) {
@@ -452,6 +452,8 @@ export async function POST(request: Request) {
 
     const config = getStripeConfig();
 
+    const usedIncludedOrder = includedExchangeShipping !== "none";
+
     if (totalCents === 0) {
       const creditsKind = walletCreditKindForMembership(membershipLabel);
       const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
@@ -470,6 +472,7 @@ export async function POST(request: Request) {
           relayMeta,
           deliveryLine1Meta,
           returnRelayFields,
+          usedIncludedOrder,
         );
         const walletSendcloudOutbound = await resolveCartCheckoutSendcloudOutboundSelection({
           deliveryChannel,
@@ -637,6 +640,7 @@ export async function POST(request: Request) {
         shipping_ttc_cents: String(fees.shippingTtcCents),
         shipping_round_trip_waived:
           remainingIncludedOrders > 0 && billedRoundTripHtCents === 0 ? "true" : "false",
+        used_included_order: usedIncludedOrder ? "true" : "false",
         shipping_included_kind: String(includedExchangeShipping),
         remaining_included_orders_at_checkout: String(remainingIncludedOrders),
         round_trip_shipping_ht_cents_if_billed: String(billedRoundTripHtCents),
