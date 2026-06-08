@@ -51,7 +51,7 @@ const COPY: Record<
     crossLink: {
       label: "Problème à la réception du colis ?",
       href: (id) => `/commande/${id}/probleme?kind=reception`,
-      hint: "Colis, contenu ou conformité constatés à l’ouverture : déclaration distincte, dans les 48 h après livraison.",
+      hint: "Colis, contenu ou conformité constatés à l’ouverture : déclaration distincte, dans les 24 h après livraison.",
     },
     itemsHeading: "Articles concernés",
     categoryHeading: "Que s’est-il passé ?",

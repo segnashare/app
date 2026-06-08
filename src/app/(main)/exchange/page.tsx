@@ -38,6 +38,7 @@ import {
   ensureMemberReceiptAutoConfirmed,
   isMemberReceiptAutoConfirmDue,
   isMemberReceiptValidated,
+  memberReceiptAnchorFromOutboundShipment,
 } from "@/lib/cart/member-receipt-validation";
 import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import { isBorrowReturnAlertPhaseParis, isBorrowReturnOverdueParis } from "@/lib/cart/borrow-return-calendar";
@@ -688,12 +689,15 @@ export default async function ExchangePage() {
     const ship = outboundShipmentByCartId.get(row.id);
     if (!ship || ship.status.toLowerCase() !== "delivered") continue;
     const confirmedAt = memberReceiptConfirmedAtByCartId.get(row.id) ?? null;
-    if (confirmedAt?.trim() || !isMemberReceiptAutoConfirmDue(ship, null, Date.now())) continue;
+    const receiptAnchor = memberReceiptAnchorFromOutboundShipment(ship);
+    if (confirmedAt?.trim() || !receiptAnchor || !isMemberReceiptAutoConfirmDue(receiptAnchor, null, Date.now())) {
+      continue;
+    }
     const persisted = await ensureMemberReceiptAutoConfirmed(supabase, {
       cartId: row.id,
       userId,
       memberReceiptConfirmedAt: confirmedAt,
-      shipment: ship,
+      shipment: receiptAnchor,
     });
     if (persisted) memberReceiptConfirmedAtByCartId.set(row.id, persisted);
   }
@@ -815,7 +819,7 @@ export default async function ExchangePage() {
     const receiptConfirmedAt = memberReceiptConfirmedAtByCartId.get(order.id) ?? null;
     const exchangeReceiptValidated = isMemberReceiptValidated(
       receiptConfirmedAt,
-      ship,
+      memberReceiptAnchorFromOutboundShipment(ship),
       exchangeListNowMs,
     );
     const deliveryLabel = getOutboundShipmentDeliverySubtitle(

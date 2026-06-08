@@ -9,14 +9,19 @@
  *   node scripts/backfill-stripe-customer-payment-methods.mjs
  *   node scripts/backfill-stripe-customer-payment-methods.mjs --user-id=<uuid>
  *   node scripts/backfill-stripe-customer-payment-methods.mjs --force
+ *   node scripts/backfill-stripe-customer-payment-methods.mjs --env-file=.env.production.local --user-id=<uuid>
+ *   node scripts/backfill-stripe-customer-payment-methods.mjs --payment-intent=pi_xxx --stripe-customer=cus_xxx
  *
  * Options:
  *   --dry-run     Affiche les actions sans appeler Stripe (sauf lecture client si besoin)
- *   --user-id=    Un seul membre
+ *   --env-file=   Fichier env (ex. .env.production.local) — prioritaire sur .env.local
+ *   --user-id=    Un seul membre (lit cart_order_stripe_invoices sur Supabase)
+ *   --payment-intent= + --stripe-customer=  Backfill direct sans Supabase
  *   --force       Met à jour le moyen de paiement par défaut même si une carte existe déjà
  *   --limit=N     Traite au plus N membres (après déduplication)
  *
- * Env (.env.local) : NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY, STRIPE_SECRET_KEY
+ * Env : NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY, STRIPE_SECRET_KEY
+ * (vercel env pull laisse souvent les secrets vides — copier STRIPE + Supabase depuis le dashboard Vercel)
  *
  * Après backfill, relancer le règlement des pénalités en attente :
  *   npm run cron:dev:borrow-overdue
@@ -52,16 +57,29 @@ function loadDotEnvFile(relPath) {
 }
 
 function parseArgs(argv) {
-  const opts = { dryRun: false, force: false, userId: null, limit: null };
+  const opts = {
+    dryRun: false,
+    force: false,
+    userId: null,
+    limit: null,
+    envFile: null,
+    paymentIntentId: null,
+    stripeCustomerId: null,
+  };
   for (const raw of argv) {
     if (raw === "--dry-run") opts.dryRun = true;
     else if (raw === "--force") opts.force = true;
     else if (raw.startsWith("--user-id=")) opts.userId = raw.slice("--user-id=".length).trim();
-    else if (raw.startsWith("--limit=")) {
+    else if (raw.startsWith("--env-file=")) opts.envFile = raw.slice("--env-file=".length).trim();
+    else if (raw.startsWith("--payment-intent=")) {
+      opts.paymentIntentId = raw.slice("--payment-intent=".length).trim();
+    } else if (raw.startsWith("--stripe-customer=")) {
+      opts.stripeCustomerId = raw.slice("--stripe-customer=".length).trim();
+    } else if (raw.startsWith("--limit=")) {
       const n = Number.parseInt(raw.slice("--limit=".length), 10);
       if (Number.isFinite(n) && n > 0) opts.limit = n;
     } else if (raw === "--help" || raw === "-h") {
-      console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(0, 22).join("\n"));
+      console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(0, 28).join("\n"));
       process.exit(0);
     } else {
       console.error(`Option inconnue: ${raw}`);
@@ -72,18 +90,48 @@ function parseArgs(argv) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
-const env = { ...loadDotEnvFile(".env.local"), ...loadDotEnvFile(".env"), ...process.env };
+const envFileLayers = opts.envFile ? [opts.envFile] : [".env.local", ".env"];
+const env = {
+  ...Object.assign({}, ...envFileLayers.map((f) => loadDotEnvFile(f))),
+  ...process.env,
+};
+const directMode = Boolean(opts.paymentIntentId || opts.stripeCustomerId);
+if (directMode && (!opts.paymentIntentId || !opts.stripeCustomerId)) {
+  console.error("Mode direct : fournir --payment-intent= et --stripe-customer= ensemble.");
+  process.exit(1);
+}
+
 const supabaseUrl = (env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseKey = (env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || "").trim();
 const stripeSecret = (env.STRIPE_SECRET_KEY || "").trim();
 
-if (!supabaseUrl || !supabaseKey) {
-  console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY");
+if (!directMode && (!supabaseUrl || !supabaseKey)) {
+  console.error(
+    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY",
+  );
+  console.error(
+    "Astuce : vercel env pull laisse souvent les secrets vides — copie-les depuis Vercel → Settings → Environment Variables (Production).",
+  );
   process.exit(1);
 }
 if (!stripeSecret && !opts.dryRun) {
   console.error("Missing STRIPE_SECRET_KEY (requis sauf avec --dry-run)");
   process.exit(1);
+}
+
+function supabaseHostLabel(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url || "(non configuré)";
+  }
+}
+
+function stripeModeLabel(secret) {
+  if (!secret) return "(absent)";
+  if (secret.startsWith("sk_live_")) return "Stripe LIVE";
+  if (secret.startsWith("sk_test_")) return "Stripe TEST";
+  return "Stripe (mode inconnu)";
 }
 
 const headers = {
@@ -127,6 +175,20 @@ async function customerHasCard(stripe, customerId) {
   return { ok: true, hasCard: false };
 }
 
+async function setCustomerDefaultPaymentMethod(stripe, customerId, paymentMethodId) {
+  await stripe.customers.update(customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  });
+}
+
+async function persistPaymentMethodFromExistingCustomerCards(stripe, customerId) {
+  const pms = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 10 });
+  const pmId = pms.data[0]?.id ?? null;
+  if (!pmId) return { ok: false, error: "no_card_on_customer" };
+  await setCustomerDefaultPaymentMethod(stripe, customerId, pmId);
+  return { ok: true, paymentMethodId: pmId, source: "existing_on_customer" };
+}
+
 async function persistPaymentMethod(stripe, customerId, paymentIntentId, dryRun) {
   if (dryRun) {
     return { ok: true, dryRun: true, paymentIntentId };
@@ -147,14 +209,36 @@ async function persistPaymentMethod(stripe, customerId, paymentIntentId, dryRun)
         : null;
 
   if (!attached) {
-    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+    try {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const notReusable =
+        msg.includes("may not be used again") ||
+        msg.includes("previously used without being attached");
+      if (notReusable) {
+        const fallback = await persistPaymentMethodFromExistingCustomerCards(stripe, customerId);
+        if (fallback.ok) {
+          return {
+            ...fallback,
+            warning: "pi_payment_method_not_reusable_used_existing_card",
+          };
+        }
+        return {
+          ok: false,
+          error: "payment_method_not_reusable",
+          hint:
+            "Paiement antérieur sans setup_future_usage : impossible de réutiliser cette carte. " +
+            "Le membre doit ré-enregistrer sa carte (node scripts/dev-create-member-card-setup.mjs).",
+        };
+      }
+      throw e;
+    }
   } else if (attached !== customerId) {
     return { ok: false, error: "payment_method_other_customer" };
   }
 
-  await stripe.customers.update(customerId, {
-    invoice_settings: { default_payment_method: paymentMethodId },
-  });
+  await setCustomerDefaultPaymentMethod(stripe, customerId, paymentMethodId);
 
   return { ok: true, paymentMethodId, paymentIntentId };
 }
@@ -205,16 +289,110 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function backfillOneInvoice(stripe, inv, customerId, stats) {
+  if (!customerId) {
+    stats.skipped_no_billing++;
+    console.log(`[skip] ${inv.userId ?? "(direct)"} — pas de billing_customers Stripe`);
+    return;
+  }
+
+  if (!opts.force && stripe) {
+    try {
+      const cardState = await customerHasCard(stripe, customerId);
+      if (!cardState.ok) {
+        stats.failed++;
+        console.log(`[fail] ${inv.userId ?? customerId} — ${cardState.reason}`);
+        return;
+      }
+      if (cardState.hasCard) {
+        stats.skipped_has_card++;
+        console.log(`[skip] ${inv.userId ?? customerId} — carte déjà présente (${cardState.source})`);
+        return;
+      }
+    } catch (e) {
+      stats.failed++;
+      console.log(`[fail] ${inv.userId ?? customerId} — ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+  }
+
+  const label = `cart ${inv.cartId ?? "—"} · PI ${inv.paymentIntentId.slice(0, 20)}…`;
+  if (opts.dryRun) {
+    stats.updated++;
+    console.log(`[dry-run] ${inv.userId ?? customerId} — ${label} → customer ${customerId}`);
+    return;
+  }
+
+  try {
+    const result = await persistPaymentMethod(stripe, customerId, inv.paymentIntentId, false);
+      if (result.ok) {
+        stats.updated++;
+        const warn = result.warning ? ` (${result.warning})` : "";
+        console.log(
+          `[ok] ${inv.userId ?? customerId} — ${label} → PM ${result.paymentMethodId}${result.source ? ` [${result.source}]` : ""}${warn}`,
+        );
+      } else {
+        stats.failed++;
+        console.log(`[fail] ${inv.userId ?? customerId} — ${result.error}`);
+        if (result.hint) console.log(`       → ${result.hint}`);
+      }
+  } catch (e) {
+    stats.failed++;
+    console.log(`[fail] ${inv.userId ?? customerId} — ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 async function main() {
   console.log("Backfill Stripe — moyen de paiement par défaut");
-  console.log("Mode:", opts.dryRun ? "DRY-RUN" : "LIVE");
+  console.log("Exécution:", opts.dryRun ? "DRY-RUN" : "réelle");
+  console.log("Stripe:", stripeModeLabel(stripeSecret));
+  if (opts.envFile) console.log("Env file:", opts.envFile);
+  if (!directMode) console.log("Supabase:", supabaseHostLabel(supabaseUrl));
   if (opts.force) console.log("Force: oui (écrase le défaut existant)");
   if (opts.userId) console.log("Filtre user:", opts.userId);
+
+  if (directMode) {
+    console.log("Mode: direct (sans Supabase)");
+    console.log("PaymentIntent:", opts.paymentIntentId);
+    console.log("Customer:", opts.stripeCustomerId);
+    const stripe = opts.dryRun ? null : new Stripe(stripeSecret);
+    const stats = {
+      skipped_no_billing: 0,
+      skipped_has_card: 0,
+      updated: 0,
+      failed: 0,
+    };
+    await backfillOneInvoice(
+      stripe,
+      { paymentIntentId: opts.paymentIntentId, cartId: null, userId: null },
+      opts.stripeCustomerId,
+      stats,
+    );
+    console.log("\nRésumé:", stats);
+    if (!opts.dryRun && stats.updated > 0) {
+      console.log("\nÉtape suivante :");
+      console.log(
+        "  CRON_DEV_BASE_URL=https://app.segnashare.com node scripts/dev-invoke-cron.mjs member-borrow-overdue-accrual",
+      );
+    }
+    return;
+  }
 
   const invoices = await fetchLatestInvoiceByUser();
   console.log(`Membres avec facture commande Stripe: ${invoices.length}`);
   if (invoices.length === 0) {
     console.log("Rien à faire.");
+    if (opts.userId && supabaseHostLabel(supabaseUrl).includes("ptkeulrf")) {
+      console.log(
+        "→ Tu es sur Supabase DEV (ptkeulrf…). Ce membre est en prod (lzdtip…). Copie STRIPE_SECRET_KEY + SUPABASE prod depuis Vercel, ou utilise le mode direct :",
+      );
+      console.log(
+        "  STRIPE_SECRET_KEY=sk_live_… node scripts/backfill-stripe-customer-payment-methods.mjs \\",
+      );
+      console.log(
+        "    --payment-intent=pi_3TZ95wKHxrskIC2R0NW3i5kO --stripe-customer=cus_UYFa2SfJqnMYbD",
+      );
+    }
     return;
   }
 
@@ -229,54 +407,7 @@ async function main() {
   };
 
   for (const inv of invoices) {
-    const customerId = billingByUser.get(inv.userId);
-    if (!customerId) {
-      stats.skipped_no_billing++;
-      console.log(`[skip] ${inv.userId} — pas de billing_customers Stripe`);
-      continue;
-    }
-
-    if (!opts.force && stripe) {
-      try {
-        const cardState = await customerHasCard(stripe, customerId);
-        if (!cardState.ok) {
-          stats.failed++;
-          console.log(`[fail] ${inv.userId} — ${cardState.reason}`);
-          continue;
-        }
-        if (cardState.hasCard) {
-          stats.skipped_has_card++;
-          console.log(`[skip] ${inv.userId} — carte déjà présente (${cardState.source})`);
-          continue;
-        }
-      } catch (e) {
-        stats.failed++;
-        console.log(`[fail] ${inv.userId} — ${e instanceof Error ? e.message : String(e)}`);
-        continue;
-      }
-    }
-
-    const label = `cart ${inv.cartId} · PI ${inv.paymentIntentId.slice(0, 20)}…`;
-    if (opts.dryRun) {
-      stats.updated++;
-      console.log(`[dry-run] ${inv.userId} — ${label} → customer ${customerId}`);
-      continue;
-    }
-
-    try {
-      const result = await persistPaymentMethod(stripe, customerId, inv.paymentIntentId, false);
-      if (result.ok) {
-        stats.updated++;
-        console.log(`[ok] ${inv.userId} — ${label} → PM ${result.paymentMethodId}`);
-      } else {
-        stats.failed++;
-        console.log(`[fail] ${inv.userId} — ${result.error}`);
-      }
-    } catch (e) {
-      stats.failed++;
-      console.log(`[fail] ${inv.userId} — ${e instanceof Error ? e.message : String(e)}`);
-    }
-
+    await backfillOneInvoice(stripe, inv, billingByUser.get(inv.userId), stats);
     await sleep(120);
   }
 

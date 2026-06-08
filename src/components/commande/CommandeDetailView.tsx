@@ -19,6 +19,11 @@ import {
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
 import { formatCartBorrowRentalDurationLabel } from "@/lib/emprunt/borrow-period";
+import {
+  isOutboundDeliveredForReceipt,
+  memberReceiptAnchorFromOrderShipment,
+  memberReceiptAutoConfirmEligibleAtMs,
+} from "@/lib/cart/member-receipt-validation";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 import {
@@ -160,6 +165,12 @@ export function CommandeDetailView({
   const showReceptionExchange = isDelivered && detail.cartStatus !== "canceled";
   const statusTitle = showReceptionExchange ? "Contenu de la box" : commandeStatusTitle(detail);
   const receiptConfirmed = Boolean(detail.memberReceiptConfirmedAt?.trim());
+  const receiptAnchor = memberReceiptAnchorFromOrderShipment(detail.shipment);
+  const autoConfirmEligibleAtIso = (() => {
+    if (receiptConfirmed || !receiptAnchor || !isOutboundDeliveredForReceipt(receiptAnchor)) return null;
+    const eligibleMs = memberReceiptAutoConfirmEligibleAtMs(receiptAnchor);
+    return Number.isFinite(eligibleMs) ? new Date(eligibleMs).toISOString() : null;
+  })();
   const rentalDurationLabel = formatCartBorrowRentalDurationLabel(
     detail.checkoutBorrowDurationDays,
     membershipLabel,
@@ -216,6 +227,7 @@ export function CommandeDetailView({
           cartId={detail.cartId}
           rentalDurationLabel={rentalDurationLabel}
           receiptAlreadyConfirmed={receiptConfirmed}
+          autoConfirmEligibleAtIso={autoConfirmEligibleAtIso}
         />
       ) : (
         <CommandeExpeditionSummarySection

@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/member-receipt-auto-confirm",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/member-borrow-overdue-accrual",
       "schedule": "0 9 * * *"
     },

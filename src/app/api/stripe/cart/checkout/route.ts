@@ -523,6 +523,8 @@ export async function POST(request: Request) {
         const setupSession = await stripe.checkout.sessions.create({
           mode: "setup",
           customer: stripeCustomerId,
+          currency: "eur",
+          payment_method_types: ["card"],
           success_url: `${config.returnUrlBase}/api/stripe/cart/setup-sync?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${config.returnUrlBase}/cart/payment?checkout=cancelled`,
           client_reference_id: userId,

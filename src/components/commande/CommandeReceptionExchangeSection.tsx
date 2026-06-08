@@ -3,8 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { formatMemberReceiptAutoConfirmRemainingFr } from "@/lib/cart/member-receipt-validation";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -12,6 +13,8 @@ type Props = {
   cartId: string;
   rentalDurationLabel: string;
   receiptAlreadyConfirmed: boolean;
+  /** Instant UTC où l’auto-validation interviendra (livraison + 24 h). */
+  autoConfirmEligibleAtIso?: string | null;
 };
 
 const bodyText = cn("text-[15px] leading-relaxed text-zinc-800", segnaMontserrat.className);
@@ -21,14 +24,47 @@ const btnPrimary = cn(
   "flex h-12 w-full items-center justify-center rounded-full bg-zinc-950 text-[15px] font-bold text-white transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50",
 );
 
+function useAutoConfirmCountdownLabel(eligibleAtIso: string | null | undefined): string | null {
+  const [label, setLabel] = useState<string | null>(() => {
+    if (!eligibleAtIso) return null;
+    const eligibleMs = Date.parse(eligibleAtIso);
+    if (Number.isNaN(eligibleMs)) return null;
+    return formatMemberReceiptAutoConfirmRemainingFr(eligibleMs - Date.now());
+  });
+
+  useEffect(() => {
+    if (!eligibleAtIso) {
+      setLabel(null);
+      return;
+    }
+    const eligibleMs = Date.parse(eligibleAtIso);
+    if (Number.isNaN(eligibleMs)) {
+      setLabel(null);
+      return;
+    }
+
+    function tick() {
+      setLabel(formatMemberReceiptAutoConfirmRemainingFr(eligibleMs - Date.now()));
+    }
+
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [eligibleAtIso]);
+
+  return label;
+}
+
 export function CommandeReceptionExchangeSection({
   cartId,
   rentalDurationLabel,
   receiptAlreadyConfirmed,
+  autoConfirmEligibleAtIso = null,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoConfirmLabel = useAutoConfirmCountdownLabel(autoConfirmEligibleAtIso);
 
   async function handleConfirmReceipt() {
     if (busy) return;
@@ -89,6 +125,9 @@ export function CommandeReceptionExchangeSection({
         <p className={bodyText}>
           Vérifie le contenu de ta box et valide la réception si tout est conforme.
         </p>
+        {autoConfirmLabel ? (
+          <p className={cn(bodyText, "text-zinc-600")}>{autoConfirmLabel}</p>
+        ) : null}
 
         <div className="flex flex-col gap-2.5 pt-3">
           <button type="button" disabled={busy} onClick={() => void handleConfirmReceipt()} className={btnPrimary}>
