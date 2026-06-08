@@ -119,10 +119,8 @@ export function InAppOnboardingIntroModal({
               )}
             >
               <p>
-                Tu es arrivée ici grâce à <strong className="font-bold text-zinc-900">une amie Segna</strong> :{" "}
-                <strong className="font-bold text-zinc-900">100&nbsp;crédits</strong> viennent d’être ajoutés sur ton
-                compte, avec un <strong className="font-bold text-zinc-900">premier échange offert</strong> pour
-                découvrir le <strong className="font-bold text-zinc-900">dressing partagé</strong>.
+                Tu es arrivée ici grâce à <strong className="font-bold text-zinc-900">une amie Segna</strong>.
+                Bienvenue dans le <strong className="font-bold text-zinc-900">dressing partagé</strong>&nbsp;!
               </p>
             </div>
           </div>
@@ -137,10 +135,8 @@ export function InAppOnboardingIntroModal({
               <p>
                 Tu es arrivée grâce au <strong className="font-bold text-zinc-900">parrainage Segna</strong>. Une fois
                 ton <strong className="font-bold text-zinc-900">numéro vérifié</strong> et ton{" "}
-                <strong className="font-bold text-zinc-900">parcours d’accueil terminé</strong>,{" "}
-                <strong className="font-bold text-zinc-900">100&nbsp;crédits</strong> et ton{" "}
-                <strong className="font-bold text-zinc-900">premier échange offert</strong> seront activés sur ton
-                compte.
+                <strong className="font-bold text-zinc-900">parcours d’accueil terminé</strong>, ton compte sera lié à
+                ton amie parrain.
               </p>
             </div>
           </div>

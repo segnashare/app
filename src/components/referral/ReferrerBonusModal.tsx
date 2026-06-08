@@ -11,11 +11,9 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import { cn } from "@/lib/utils/cn";
-import { WALLET_BONUS_CREDITS_LABEL } from "@/lib/wallet/credit-kind";
 
 export type ReferrerBonusModalPayload = {
   referredDisplayName: string;
-  points: number;
 };
 
 type ReferrerBonusModalProps = {
@@ -53,8 +51,7 @@ export function ReferrerBonusModal({ payload }: ReferrerBonusModalProps) {
     }
   };
 
-  const { referredDisplayName, points } = payload;
-  const name = referredDisplayName.trim() || "Ton invitée";
+  const name = payload.referredDisplayName.trim() || "Ton invitée";
 
   return (
     <div
@@ -74,15 +71,11 @@ export function ReferrerBonusModal({ payload }: ReferrerBonusModalProps) {
           aria-label="Fermer"
         />
         <h2 id="referrer-bonus-title" className={cn(segnaDialogTitleClass(), "pr-10")}>
-          Parrainage&nbsp;: +{points} crédits
+          Parrainage confirmé
         </h2>
         <p className={cn(segnaDialogBodyClass(), "mt-3 font-medium text-zinc-800")}>
           <span className={cn(segnaDialogMontserrat.className, "font-semibold text-zinc-900")}>{name}</span> vient de
-          rejoindre Segna grâce à ton parrainage.{" "}
-          <span className="font-semibold text-zinc-900">
-            +{points} {WALLET_BONUS_CREDITS_LABEL}
-          </span>{" "}
-          ont été ajoutés à ton wallet. Merci de faire grandir la communauté&nbsp;!
+          rejoindre Segna grâce à ton parrainage. Merci de faire grandir la communauté&nbsp;!
         </p>
         {error ? <p className={cn(segnaDialogMontserrat.className, "mt-3 text-sm text-red-600")}>{error}</p> : null}
         <div className={cn(segnaDialogMontserrat.className, "mt-5")}>

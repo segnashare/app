@@ -3,9 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 
-export function buildReferrerBonusSmsBody(referredFirstNameForSms: string, points: number): string {
+export function buildReferrerBonusSmsBody(referredFirstNameForSms: string): string {
   const name = referredFirstNameForSms.trim() || "Ton invitée";
-  return `Segna : ${name} vient de rejoindre Segna grâce à ton parrainage. +${points} crédits conso ont été ajoutés à ton wallet. Merci !`;
+  return `Segna : ${name} vient de rejoindre Segna grâce à ton parrainage. Merci !`;
 }
 
 /**
@@ -39,21 +39,13 @@ export async function dispatchReferrerBonusSmsForReferredUser(
       : "";
   /** SMS : prénom filleul à jour ; repli sur le libellé figé dans la modale (e-mail / ancien flux). */
   const referredFirstNameForSms = referredFirstName || referredNameFromModal || "Ton invitée";
-  const pointsRaw = modal?.points;
-  const points =
-    typeof pointsRaw === "number" && Number.isFinite(pointsRaw)
-      ? pointsRaw
-      : typeof pointsRaw === "string"
-        ? Number(pointsRaw)
-        : 100;
-  const pointsSafe = Number.isFinite(points) && points > 0 ? Math.floor(points) : 100;
 
   await sendMemberSmsOnlyNotification(admin, {
     userId: refRow.referrer_user_id,
     kind: NotificationKind.referralReferrerBonus,
     idempotencyKey: `txn:referral_referrer_bonus_sms:${refRow.id}`,
     metadata: { referred_user_id: referredUserId, referral_id: refRow.id },
-    smsBody: buildReferrerBonusSmsBody(referredFirstNameForSms, pointsSafe),
+    smsBody: buildReferrerBonusSmsBody(referredFirstNameForSms),
     transactionalSms: true,
   });
 }

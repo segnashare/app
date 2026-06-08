@@ -71,10 +71,12 @@ export function isAdminWalletTransaction(
   return false;
 }
 
-/** Complément panier Stripe (legacy) : pass-through €, pas un crédit wallet réel. */
+/** Complément panier Stripe (legacy) + anciens bonus parrainage : masqués dans l’historique wallet. */
 export function isHiddenWalletTransactionRow(idempotencyKey?: string | null): boolean {
   const key = typeof idempotencyKey === "string" ? idempotencyKey.trim() : "";
-  return key.startsWith("stripe:cart_order_wallet:");
+  if (key.startsWith("stripe:cart_order_wallet:")) return true;
+  if (key.startsWith("referral_signup_bonus:")) return true;
+  return false;
 }
 
 function cartBorrowDisplayGroupKey(row: {

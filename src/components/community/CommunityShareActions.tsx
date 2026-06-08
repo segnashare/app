@@ -16,8 +16,8 @@ import { cn } from "@/lib/utils/cn";
 
 const STEPS: string[] = [
   "Partage ton lien d’invitation.",
-  "Ton amie reçoit 100 crédits et un premier échange inclus.",
-  "Et toi aussi, dès son inscription.",
+  "Ton amie crée son compte sur Segna.",
+  "Merci de faire grandir la communauté.",
 ];
 
 type CommunityShareActionsProps = {
@@ -84,7 +84,7 @@ export function CommunityShareActions({ referralCode, referralBannerRow = null }
               Invite une amie
             </h3>
             <p className="text-sm font-medium leading-snug text-zinc-600">
-              100&nbsp;crédits offerts chacune, et un échange inclus pour démarrer.
+              Invite une amie à rejoindre le dressing partagé Segna.
             </p>
           </header>
 

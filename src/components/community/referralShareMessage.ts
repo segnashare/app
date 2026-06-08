@@ -18,7 +18,7 @@ export function buildReferralInviteUrl(origin: string, code: string | null): str
 export function buildReferralInviteShareBody(_code: string | null): string {
   return `Échange de vêtements entre filles, dressing partagé.
 
-Avec mon lien : 100 crédits chacune + ton premier échange offert.`;
+Rejoins-moi sur Segna avec mon lien.`;
 }
 
 /** Données pour `navigator.share` : texte marketing + lien (comme un partage « app + offre », cf. aperçu iOS). */

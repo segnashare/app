@@ -21,8 +21,8 @@ export type CurrentUserAppState = {
   referredViaQualifiedInvite: boolean;
   /** Bannière intro parrainage : `pending` = code capturé, avant fin onboarding / crédits ; `qualified` = filleul actif. */
   referralInviteForIntro: ReferralInviteIntroKind;
-  /** Modale « bonus parrain » : présent si quelqu’un s’est inscrit avec son code et les crédits ont été crédités. */
-  referrerBonusModal: { referredDisplayName: string; points: number } | null;
+  /** Modale « bonus parrain » : présent si quelqu’un s’est inscrit avec son code. */
+  referrerBonusModal: { referredDisplayName: string } | null;
 };
 
 export const getCurrentUserAppState = cache(async (userId: string): Promise<CurrentUserAppState> => {
@@ -59,15 +59,8 @@ export const getCurrentUserAppState = cache(async (userId: string): Promise<Curr
   if (rawModal && typeof rawModal === "object") {
     const referredDisplayName =
       typeof rawModal.referred_display_name === "string" ? rawModal.referred_display_name.trim() : "";
-    const pointsRaw = rawModal.points;
-    const points =
-      typeof pointsRaw === "number" && Number.isFinite(pointsRaw)
-        ? pointsRaw
-        : typeof pointsRaw === "string"
-          ? Number(pointsRaw)
-          : NaN;
-    if (referredDisplayName && Number.isFinite(points) && points > 0) {
-      referrerBonusModal = { referredDisplayName, points: Math.floor(points) };
+    if (referredDisplayName) {
+      referrerBonusModal = { referredDisplayName };
     }
   }
 
