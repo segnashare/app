@@ -34,11 +34,13 @@ import {
   CmsShopHubLinkCardRail,
   CmsFrameHideChromeProvider,
   CmsFrameItem,
+  CmsOnboardingOfferGuidanceProvider,
   ShopHubLinkCardFrame,
   SHOP_HUB_SPOTLIGHT_ITEM_RAIL_OUTER_CLASS,
   useCmsFrameHideChrome,
   useCmsHubFrameOuterOverride,
 } from "@/components/cms/CmsSectionBlocks";
+import { OnboardingIncludedCreditsProvider } from "@/components/onboarding/OnboardingIncludedCreditsProvider";
 import { pickPseudoFrame } from "@/lib/cms/cms-pseudo-frame";
 import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
@@ -55,6 +57,12 @@ import {
   departmentSlugForCategoryId,
 } from "@/lib/shop/shop-department-categories";
 import { mergeShopHubSectionDisplay, type ShopHubSectionSlug } from "@/lib/cms/shop-hub-sections";
+import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
+import {
+  isOnboardingOfferCmsFrame,
+  isPackageCreditsTargetUrl,
+} from "@/lib/cms/welcome-gift-offer-visibility";
+import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import { SizeFilterSections } from "@/components/shop/SizeFilterSections";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -197,6 +205,10 @@ type ShopCatalogProps = {
   boutiqueHubSectionOrder?: string[];
   /** Onboarding panier : attire l'oeil vers les + d'ajout au panier. */
   guideCartOnboarding?: boolean;
+  /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
+  welcomeGiftOfferEligible?: boolean;
+  /** Textes + montant pour la feuille d’activation sur la carte CMS offres. */
+  includedCreditsActivationContent?: WelcomeGiftLandingContent | null;
   /** Couvertures déjà résolues côté serveur (id → URL signée). */
   initialCoverUrlById?: Record<string, string>;
 };
@@ -822,8 +834,11 @@ export function ShopCatalog({
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
   guideCartOnboarding = false,
+  welcomeGiftOfferEligible = false,
+  includedCreditsActivationContent = null,
   initialCoverUrlById: initialCoverUrlByIdProp = {},
 }: ShopCatalogProps) {
+  const offerOnboardingActive = useOnboardingOfferActive(welcomeGiftOfferEligible);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { itemIds: cartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
 
@@ -1749,6 +1764,15 @@ export function ShopCatalog({
       .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
   }, [initialCmsShopFrames]);
 
+  const guideOfferFrameCta = useMemo(
+    () =>
+      offerOnboardingActive &&
+      cmsHomePromoRows.some(
+        (row) => isOnboardingOfferCmsFrame(row) || isPackageCreditsTargetUrl(row.payload?.target_url),
+      ),
+    [cmsHomePromoRows, offerOnboardingActive],
+  );
+
   const discoverHub = useMemo(() => {
     const conf = mergeShopHubSectionDisplay("discover", initialShopHubSections.discover?.config);
     const frames = initialShopHubSections.discover?.frames ?? [];
@@ -2245,15 +2269,17 @@ export function ShopCatalog({
         const promoBlock =
           cmsHomePromoRows.length > 0 ? (
             <section className="px-5">
-              <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
-                <CmsHorizontalScrollRow
-                  rows={cmsHomePromoRows}
-                  className="!mt-0"
-                  hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
-                  layout={cmsHomePromoRows.length === 1 ? "stack" : "rail"}
-                  frameLayoutMode="hub"
-                />
-              </CmsShopHubFramesProvider>
+              <CmsOnboardingOfferGuidanceProvider active={guideOfferFrameCta}>
+                <CmsShopHubFramesProvider value={cmsAtLaUneHubEnv}>
+                  <CmsHorizontalScrollRow
+                    rows={cmsHomePromoRows}
+                    className={cn("!mt-0", guideOfferFrameCta && "segna-guidance-shimmer-active")}
+                    hubFrameOuterClass={CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS}
+                    layout={cmsHomePromoRows.length === 1 ? "stack" : "rail"}
+                    frameLayoutMode="hub"
+                  />
+                </CmsShopHubFramesProvider>
+              </CmsOnboardingOfferGuidanceProvider>
             </section>
           ) : null;
         if (!capsuleBlock && !promoBlock) return null;
@@ -2493,6 +2519,10 @@ export function ShopCatalog({
   }
 
   return (
+    <OnboardingIncludedCreditsProvider
+      active={offerOnboardingActive}
+      content={includedCreditsActivationContent}
+    >
     <div className={cn("min-h-0 bg-white text-zinc-900", guideCartOnboarding && "segna-guidance-shimmer-active")}>
       {/* En-tête recherche + filtres : sticky dans la colonne (comme /exchange). */}
       <div className="sticky top-0 z-40 bg-white">
@@ -3019,6 +3049,7 @@ export function ShopCatalog({
         </div>
       ) : null}
     </div>
+    </OnboardingIncludedCreditsProvider>
   );
 }
 

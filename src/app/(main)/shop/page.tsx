@@ -6,7 +6,11 @@ import { ShopCatalogLoadingFallback } from "@/components/shop/ShopCatalogLoading
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
-import { filterCartOfferFramesForWelcomeGiftEligibility } from "@/lib/cms/welcome-gift-offer-visibility";
+import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
+import {
+  canShowWelcomeGiftOffer,
+  filterCartOfferFramesForWelcomeGiftEligibility,
+} from "@/lib/cms/welcome-gift-offer-visibility";
 import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
@@ -115,6 +119,10 @@ async function ShopPageAsync() {
     userState.onboarding_process ?? null,
     includedCreditsClaimed,
   );
+  const welcomeGiftOfferEligible = canShowWelcomeGiftOffer(onboardingProcess, includedCreditsClaimed);
+  const includedCreditsActivationContent = welcomeGiftOfferEligible
+    ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
+    : null;
   const isDemoMode = userState.onboarding_mode === "demo";
   const guideCartOnboarding = userState.onboarding_process === "panier";
   const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
@@ -312,6 +320,8 @@ async function ShopPageAsync() {
         }}
         boutiqueHubSectionOrder={boutiqueHubSectionOrder}
         guideCartOnboarding={guideCartOnboarding}
+        welcomeGiftOfferEligible={welcomeGiftOfferEligible}
+        includedCreditsActivationContent={includedCreditsActivationContent}
       />
     </MainContent>
   );
