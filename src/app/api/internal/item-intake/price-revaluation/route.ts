@@ -149,6 +149,7 @@ export async function POST(request: Request) {
     old_price_points: previousPrice,
     new_price_points: adjustedPrice,
     reason: "ai_price_revaluation",
+    price_type: "exchange",
     source: "ai",
     metadata: priceRevaluation,
   });

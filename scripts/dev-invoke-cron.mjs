@@ -46,6 +46,8 @@ const CRON_ROUTES = [
   "member-abandoned-cart-reminders",
   "member-borrow-return-reminders",
   "referral-referrer-sms",
+  "economy-demand-metrics",
+  "economy-exchange-recalibration",
 ];
 
 const LEGACY_ROUTES = ["member-lifecycle-reminders", "member-engagement-reminders"];

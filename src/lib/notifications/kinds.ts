@@ -57,6 +57,10 @@ export const NotificationKind = {
   onboardingIncompleteReminder: "onboarding_incomplete_reminder",
   onboardingIncompleteReminderFollowup: "onboarding_incomplete_reminder_followup",
   abandonedCartReminder: "abandoned_cart_reminder",
+  /** Valeur d'échange catalogue ajustée par le moteur demande. */
+  itemExchangePriceChanged: "item_exchange_price_changed",
+  /** Prix panier actif actualisé après recalibrage. */
+  cartExchangePriceChanged: "cart_exchange_price_changed",
 } as const;
 
 export type NotificationKindId = (typeof NotificationKind)[keyof typeof NotificationKind];

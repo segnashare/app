@@ -124,6 +124,7 @@ export default function ItemEvaluationAnalysisPage() {
 
   const [title, setTitle] = useState<string>("");
   const [pricePoints, setPricePoints] = useState<number | null>(null);
+  const [replacementValuePoints, setReplacementValuePoints] = useState<number | null>(null);
   const [intake, setIntake] = useState<IntakeSnap | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -165,7 +166,7 @@ export default function ItemEvaluationAnalysisPage() {
     }
     const { data: row, error } = await supabase
       .from("items")
-      .select("title,price_points, item_intake(listing_stage,fulfillment_stage,metadata)")
+      .select("title,price_points,replacement_value_points, item_intake(listing_stage,fulfillment_stage,metadata)")
       .eq("id", itemId)
       .eq("owner_user_id", user.id)
       .is("deleted_at", null)
@@ -178,6 +179,9 @@ export default function ItemEvaluationAnalysisPage() {
     const r = row as Record<string, unknown>;
     setTitle(typeof r.title === "string" && r.title.trim() ? r.title.trim() : "");
     setPricePoints(r.price_points != null ? Number(r.price_points) : null);
+    setReplacementValuePoints(
+      r.replacement_value_points != null ? Number(r.replacement_value_points) : null,
+    );
     const rawIntake = r.item_intake as unknown;
     const emb = Array.isArray(rawIntake) ? rawIntake[0] : rawIntake;
     if (emb && typeof emb === "object") {
@@ -382,8 +386,17 @@ export default function ItemEvaluationAnalysisPage() {
   const hasExampleGroups = evaluationExampleGroups.length > 0;
   const proposedPtsRounded =
     pricePoints != null && Number.isFinite(Number(pricePoints)) ? Math.round(Number(pricePoints)) : null;
+  const replacementPtsRounded =
+    replacementValuePoints != null && Number.isFinite(Number(replacementValuePoints))
+      ? Math.round(Number(replacementValuePoints))
+      : proposedPtsRounded;
   const showMemberProposalPending =
     ls === "validation_pending" && proposedPtsRounded != null && proposedPtsRounded > 0;
+  const showCurrentValuations =
+    !showMemberProposalPending &&
+    proposedPtsRounded != null &&
+    proposedPtsRounded > 0 &&
+    ls === "validated";
   /** Padding bas : hors proposition en attente ; sinon réserve gérée par un bloc blanc (évite la bande grise zinc). */
   const contentBottomPadding = showMemberProposalPending ? "" : "pb-10";
   const footerOverlapSpacerClass =
@@ -449,11 +462,27 @@ export default function ItemEvaluationAnalysisPage() {
       >
         {showMemberProposalPending ? (
           <section className="w-full bg-white px-5 pb-5 pt-0">
-            <div className="space-y-3">
-              <p className="text-[2rem] font-semibold leading-none tracking-tight text-zinc-900">
-                {proposedPtsRounded}{" "}
-                <span className="text-[1.15rem] font-semibold text-zinc-500">pts</span>
-              </p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                    Valeur d&apos;échange
+                  </p>
+                  <p className="mt-1 text-[1.75rem] font-semibold leading-none tracking-tight text-zinc-900">
+                    {proposedPtsRounded}{" "}
+                    <span className="text-[1rem] font-semibold text-zinc-500">pts</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                    Valeur de remplacement
+                  </p>
+                  <p className="mt-1 text-[1.75rem] font-semibold leading-none tracking-tight text-zinc-900">
+                    {replacementPtsRounded}{" "}
+                    <span className="text-[1rem] font-semibold text-zinc-500">pts</span>
+                  </p>
+                </div>
+              </div>
               <p className="text-[14px] leading-relaxed text-zinc-600">
                 Segna te propose cette valorisation pour l&apos;entrée au catalogue.{" "}
                 <button
@@ -464,6 +493,34 @@ export default function ItemEvaluationAnalysisPage() {
                   En savoir plus
                 </button>
               </p>
+            </div>
+          </section>
+        ) : null}
+
+        {showCurrentValuations ? (
+          <section className="w-full bg-white px-5 py-4">
+            <h2 className={cn(segnaPlayfairDisplay.className, "text-[1.125rem] font-bold text-zinc-900")}>
+              Tes valorisations
+            </h2>
+            <div className="mt-3 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Valeur d&apos;échange
+                </p>
+                <p className="mt-1 text-[1.5rem] font-semibold text-zinc-900">
+                  {proposedPtsRounded} <span className="text-[0.95rem] text-zinc-500">pts</span>
+                </p>
+                <p className="mt-1 text-[12px] text-zinc-500">Évolue avec la demande</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Valeur de remplacement
+                </p>
+                <p className="mt-1 text-[1.5rem] font-semibold text-zinc-900">
+                  {replacementPtsRounded} <span className="text-[0.95rem] text-zinc-500">pts</span>
+                </p>
+                <p className="mt-1 text-[12px] text-zinc-500">Base garantie Segna</p>
+              </div>
             </div>
           </section>
         ) : null}
