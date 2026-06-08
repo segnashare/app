@@ -20,6 +20,39 @@ function resolvePaymentMethodId(paymentIntent: Stripe.PaymentIntent): string | n
   return null;
 }
 
+function resolveSetupIntentId(session: Stripe.Checkout.Session): string | null {
+  const si = session.setup_intent;
+  if (typeof si === "string") return si.trim() || null;
+  if (si && typeof si === "object" && "id" in si) {
+    const id = String((si as { id: string }).id).trim();
+    return id || null;
+  }
+  return null;
+}
+
+async function persistPaymentMethodOnCustomer(
+  stripe: Stripe,
+  customerId: string,
+  paymentMethodId: string,
+): Promise<void> {
+  try {
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const attachedCustomer =
+      typeof pm.customer === "string" ? pm.customer : pm.customer && typeof pm.customer === "object" ? pm.customer.id : null;
+    if (!attachedCustomer) {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+    } else if (attachedCustomer !== customerId) {
+      return;
+    }
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+  } catch (e) {
+    console.error("[stripe] persist default PM", customerId, paymentMethodId, e);
+  }
+}
+
 /**
  * Après un Checkout `mode: payment`, enregistre la carte sur le client Stripe
  * pour les prélèvements off-session (pénalités retard emprunt, etc.).
@@ -48,20 +81,52 @@ export async function persistStripeCustomerDefaultPaymentMethodFromCheckout(
   const paymentMethodId = resolvePaymentMethodId(paymentIntent);
   if (!paymentMethodId) return;
 
-  try {
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
-    const attachedCustomer =
-      typeof pm.customer === "string" ? pm.customer : pm.customer && typeof pm.customer === "object" ? pm.customer.id : null;
-    if (!attachedCustomer) {
-      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
-    } else if (attachedCustomer !== customerId) {
-      return;
-    }
+  await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
+}
 
-    await stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
+/**
+ * Après un Checkout `mode: setup` (réservation panier 0 €), enregistre la carte
+ * pour les prélèvements off-session futurs.
+ */
+export async function persistStripeCustomerDefaultPaymentMethodFromSetupSession(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  if (session.mode !== "setup") return;
+  if (session.status !== "complete") return;
+
+  const customerId = typeof session.customer === "string" ? session.customer.trim() : "";
+  if (!customerId) return;
+
+  const setupIntentId = resolveSetupIntentId(session);
+  if (!setupIntentId) return;
+
+  let setupIntent: Stripe.SetupIntent;
+  try {
+    setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
   } catch (e) {
-    console.error("[stripe] persist default PM", customerId, paymentMethodId, e);
+    console.error("[stripe] persist default PM: retrieve SI", setupIntentId, e);
+    return;
+  }
+
+  const pm = setupIntent.payment_method;
+  const paymentMethodId =
+    typeof pm === "string" ? pm.trim() : pm && typeof pm === "object" ? String(pm.id).trim() : "";
+  if (!paymentMethodId) return;
+
+  await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
+}
+
+/** Checkout payment ou setup : persiste la carte par défaut si applicable. */
+export async function persistStripeCustomerDefaultPaymentMethodFromCheckoutSession(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  if (session.mode === "payment") {
+    await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
+    return;
+  }
+  if (session.mode === "setup") {
+    await persistStripeCustomerDefaultPaymentMethodFromSetupSession(stripe, session);
   }
 }

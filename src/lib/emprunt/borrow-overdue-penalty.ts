@@ -1,6 +1,6 @@
 import { BORROW_RETURN_TZ, borrowCalendarDaysUntilDue } from "@/lib/cart/borrow-return-calendar";
 
-/** 1 crédit Segna = 5 centimes (aligné prolongation / wallet). */
+/** Conversion pénalité € → crédits wallet débités (5 cts/crédit, aligné wallet/prolongation). */
 export const BORROW_PENALTY_CENTS_PER_CREDIT = 5;
 
 export const BORROW_OVERDUE_MAX_ACCRUAL_DAY = 14;

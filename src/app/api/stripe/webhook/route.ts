@@ -7,7 +7,7 @@ import {
   debitCartExchangeWalletFromStripeSession,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
-import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
+import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -77,7 +77,7 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       await upsertBillingCustomer(admin, userId, stripeCustomerId, session.metadata ?? {});
 
       try {
-        await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
+        await persistStripeCustomerDefaultPaymentMethodFromCheckoutSession(stripe, session);
       } catch (e) {
         console.error("[stripe/webhook] persist default payment method", e);
       }
@@ -87,7 +87,7 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       await debitCartExchangeWalletFromStripeSession(admin, session, userId);
       await confirmCartPaidFromStripeSession(admin, session, userId);
 
-      if (session.metadata?.checkout_kind === "cart_order") {
+      if (session.metadata?.checkout_kind === "cart_order" || session.metadata?.checkout_kind === "cart_order_wallet_setup") {
         const cartId = session.metadata?.cart_id?.trim();
         if (cartId) {
           try {

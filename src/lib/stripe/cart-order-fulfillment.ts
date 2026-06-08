@@ -13,6 +13,10 @@ import { upsertCartOrderStripeInvoiceFromSession } from "@/lib/stripe/upsert-car
 /** Même valeur en metadata expédition que pour un paiement 100 % wallet (pas de session Checkout). */
 export const CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID = "wallet_only";
 
+function isCartOrderCheckoutKind(kind: string | undefined | null): boolean {
+  return kind === "cart_order" || kind === "cart_order_wallet_setup";
+}
+
 type AdminClient = {
   rpc: (
     fn: string,
@@ -39,7 +43,7 @@ export async function debitCartExchangeWalletFromStripeSession(
   session: Stripe.Checkout.Session,
   userId: string,
 ): Promise<{ ok: boolean; skipped?: boolean }> {
-  if (session.metadata?.checkout_kind !== "cart_order") {
+  if (!isCartOrderCheckoutKind(session.metadata?.checkout_kind)) {
     return { ok: true, skipped: true };
   }
 
@@ -230,7 +234,7 @@ export async function confirmCartPaidFromStripeSession(
   session: Stripe.Checkout.Session,
   userId: string,
 ): Promise<{ ok: boolean; alreadyConfirmed?: boolean; skipped?: boolean }> {
-  if (session.metadata?.checkout_kind !== "cart_order") {
+  if (!isCartOrderCheckoutKind(session.metadata?.checkout_kind)) {
     return { ok: true, skipped: true };
   }
 

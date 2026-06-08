@@ -24,12 +24,14 @@ import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { fetchOnboardingProfileRequirements } from "@/lib/profile/onboarding-profile-requirements";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
+import { buildCartOrderCheckoutMetadata } from "@/lib/stripe/cart-checkout-stripe-metadata";
 import {
   confirmCartPaidWalletOnly,
   debitCartWalletOnly,
   finalizeCartOutboundSendcloudAfterConfirm,
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
@@ -461,6 +463,78 @@ export async function POST(request: Request) {
         deliveryChannel === "home" && deliveryAddress != null
           ? deliveryAddress.label.trim().slice(0, 450)
           : "";
+      const checkoutMetadata = buildCartOrderCheckoutMetadata({
+        checkoutKind: "cart_order_wallet_setup",
+        userId,
+        cartId: activeCart.cartId,
+        itemCount,
+        deliveryChannel,
+        homeSpeedBilling,
+        deliveryAddress,
+        deliveryInstructions,
+        relayMeta,
+        deliveryLine1Meta,
+        returnRelayFields,
+        missingExchangeMods,
+        borrowDurationDays,
+        centsPerMissingCredit,
+        exchangeCreditsKind: creditsKind,
+        creditsCents,
+        shippingHtCents,
+        serviceHtCents,
+        fees,
+        billedRoundTripHtCents,
+        remainingIncludedOrders,
+        usedIncludedOrder,
+        includedExchangeShipping,
+        priorityCents,
+        sendcloudOutboundSelection,
+      });
+
+      const stripe = new Stripe(config.secretKey);
+
+      const { data: billingCustomerRow } = await admin
+        .from("billing_customers")
+        .select("provider_customer_id")
+        .eq("provider", "stripe")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      let stripeCustomerId = billingCustomerRow?.provider_customer_id ?? null;
+      if (!stripeCustomerId) {
+        const createdCustomer = await stripe.customers.create({
+          email: user.email ?? undefined,
+          metadata: { user_id: userId },
+        });
+        stripeCustomerId = createdCustomer.id;
+        await admin.from("billing_customers").upsert(
+          {
+            user_id: userId,
+            provider: "stripe",
+            provider_customer_id: stripeCustomerId,
+            metadata: { source: "cart_checkout" },
+          },
+          { onConflict: "user_id" },
+        );
+      }
+
+      const hasSavedPaymentMethod = await stripeCustomerHasSavedPaymentMethod(stripe, admin, userId);
+      if (!hasSavedPaymentMethod) {
+        const setupSession = await stripe.checkout.sessions.create({
+          mode: "setup",
+          customer: stripeCustomerId,
+          success_url: `${config.returnUrlBase}/api/stripe/cart/setup-sync?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${config.returnUrlBase}/cart/payment?checkout=cancelled`,
+          client_reference_id: userId,
+          metadata: checkoutMetadata,
+        });
+
+        if (!setupSession.url) {
+          return NextResponse.json({ message: "Stripe n'a pas renvoyé d'URL d'enregistrement carte." }, { status: 500 });
+        }
+
+        return NextResponse.json({ url: setupSession.url });
+      }
 
       try {
         await debitCartWalletOnly(admin as unknown as Parameters<typeof debitCartWalletOnly>[0], userId, activeCart.cartId, creditsKind);
@@ -610,59 +684,33 @@ export async function POST(request: Request) {
       cancel_url: cancelUrl,
       allow_promotion_codes: true,
       client_reference_id: userId,
-      metadata: {
-        checkout_kind: "cart_order",
-        user_id: userId,
-        cart_id: activeCart.cartId,
-        item_count: String(itemCount),
-        delivery_channel: deliveryChannel,
-        home_speed: homeSpeedBilling === "uber_direct" ? "uber_direct" : "standard",
-        delivery_lat:
-          deliveryChannel === "home" && deliveryAddress != null ? String(deliveryAddress.lat) : "",
-        delivery_lon:
-          deliveryChannel === "home" && deliveryAddress != null ? String(deliveryAddress.lon) : "",
-        delivery_city:
-          deliveryChannel === "home" && deliveryAddress != null
-            ? (deliveryAddress.city ?? deliveryAddress.relativeCity ?? "").trim().slice(0, 120)
-            : "",
-        delivery_instructions:
-          deliveryChannel === "home" && deliveryInstructions ? deliveryInstructions.slice(0, 450) : "",
-        missing_exchange_mods: String(missingExchangeMods),
-        borrow_duration_days: String(borrowDurationDays),
-        cents_per_missing_credit: String(centsPerMissingCredit),
-        /** Historique : clé Stripe « exchange_credits_kind » ; valeur = seau wallet du complément € (consommation). */
-        exchange_credits_kind: stripeWalletTopupKind,
-        credits_line_cents: String(creditsCents),
-        // HT — mêmes champs qu’historique `shipping_cents` / `service_cents`.
-        shipping_cents: String(shippingHtCents),
-        service_cents: String(serviceHtCents),
-        shipping_ht_cents: String(shippingHtCents),
-        shipping_ttc_cents: String(fees.shippingTtcCents),
-        shipping_round_trip_waived:
-          remainingIncludedOrders > 0 && billedRoundTripHtCents === 0 ? "true" : "false",
-        used_included_order: usedIncludedOrder ? "true" : "false",
-        shipping_included_kind: String(includedExchangeShipping),
-        remaining_included_orders_at_checkout: String(remainingIncludedOrders),
-        round_trip_shipping_ht_cents_if_billed: String(billedRoundTripHtCents),
-        priority_cents: String(priorityCents),
-        service_ht_cents: String(serviceHtCents),
-        service_ttc_cents: String(fees.serviceTtcCents),
-        fees_vat_cents: String(fees.feesVatCents),
-        fees_ttc_cents: String(fees.feesTtcCents),
-        relay_code: relayMeta,
-        delivery_line1: deliveryLine1Meta,
-        return_relay_code: returnRelayFields.returnRelayPointId,
-        return_relay_label: returnRelayFields.returnRelayLabel,
-        return_relay_search_postal_code: returnRelayFields.returnRelaySearchPostalCode,
-        ...(sendcloudOutboundSelection
-          ? {
-              sendcloud_outbound_option_code: sendcloudOutboundSelection.optionCode.slice(0, 120),
-              sendcloud_outbound_option_id: sendcloudOutboundSelection.optionId.slice(0, 64),
-              sendcloud_outbound_method_title: sendcloudOutboundSelection.title.slice(0, 120),
-              sendcloud_outbound_carrier: sendcloudOutboundSelection.carrierCode.slice(0, 40),
-            }
-          : {}),
-      },
+      metadata: buildCartOrderCheckoutMetadata({
+        checkoutKind: "cart_order",
+        userId,
+        cartId: activeCart.cartId,
+        itemCount,
+        deliveryChannel,
+        homeSpeedBilling,
+        deliveryAddress,
+        deliveryInstructions,
+        relayMeta,
+        deliveryLine1Meta,
+        returnRelayFields,
+        missingExchangeMods,
+        borrowDurationDays,
+        centsPerMissingCredit,
+        exchangeCreditsKind: stripeWalletTopupKind,
+        creditsCents,
+        shippingHtCents,
+        serviceHtCents,
+        fees,
+        billedRoundTripHtCents,
+        remainingIncludedOrders,
+        usedIncludedOrder,
+        includedExchangeShipping,
+        priorityCents,
+        sendcloudOutboundSelection,
+      }),
     });
 
     if (!session.url) {

@@ -28,14 +28,25 @@ export function stripeInvoiceRowFromCartOrderSession(
   session: Stripe.Checkout.Session,
   userId: string,
 ): Record<string, unknown> | null {
-  if (session.metadata?.checkout_kind !== "cart_order") return null;
-  if (session.payment_status !== "paid") return null;
+  const kind = session.metadata?.checkout_kind ?? null;
+  if (kind === "cart_order") {
+    if (session.payment_status !== "paid") return null;
+  } else if (kind === "cart_order_wallet_setup") {
+    if (session.mode !== "setup" || session.status !== "complete") return null;
+  } else {
+    return null;
+  }
 
   const cartId = session.metadata?.cart_id?.trim();
   if (!cartId) return null;
 
   const md = session.metadata;
-  const amountTotal = typeof session.amount_total === "number" ? Math.trunc(session.amount_total) : 0;
+  const amountTotal =
+    kind === "cart_order_wallet_setup"
+      ? 0
+      : typeof session.amount_total === "number"
+        ? Math.trunc(session.amount_total)
+        : 0;
   const feesTtc = metaCents(md, "fees_ttc_cents");
   const feesVat = metaCents(md, "fees_vat_cents");
   const deliveryCh = typeof md?.delivery_channel === "string" ? md.delivery_channel.trim().toLowerCase() : "";
