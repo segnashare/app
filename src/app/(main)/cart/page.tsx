@@ -175,6 +175,7 @@ export default async function CartPage() {
   return (
     <main className="flex w-full flex-col bg-zinc-100">
       <CartScreen
+        userId={userId}
         initialLines={cartLines}
         activeCartId={activeCart.cartId}
         cartStatus={activeCart.status}

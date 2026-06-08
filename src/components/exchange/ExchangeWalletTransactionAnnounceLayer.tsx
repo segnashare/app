@@ -9,6 +9,7 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import { useExchangeWalletAnnouncement } from "@/components/exchange/ExchangeWalletAnnouncementContext";
+import { subscribeOnboardingOfferClaimed } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import {
   acknowledgeWalletTransaction,
   ensureWalletTransactionAckBaseline,
@@ -28,41 +29,46 @@ type ExchangeWalletTransactionAnnounceLayerProps = {
   userId: string;
 };
 
+async function fetchLatestWalletTransactionAnnouncement(): Promise<WalletTransactionAnnouncement | null> {
+  const res = await fetch("/api/wallet/recent-transactions", { credentials: "same-origin" });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { latestAnnouncement?: WalletTransactionAnnouncement | null };
+  return json.latestAnnouncement ?? null;
+}
+
 export function ExchangeWalletTransactionAnnounceLayer({ userId }: ExchangeWalletTransactionAnnounceLayerProps) {
   const announcementCtx = useExchangeWalletAnnouncement();
   const [announcement, setAnnouncement] = useState<WalletTransactionAnnouncement | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/wallet/recent-transactions", { credentials: "same-origin" })
-      .then(async (res) => {
-        if (!res.ok) return { latestAnnouncement: null as WalletTransactionAnnouncement | null };
-        return (await res.json()) as { latestAnnouncement?: WalletTransactionAnnouncement | null };
-      })
-      .then((json) => {
-        if (cancelled) return;
-        const latest = json.latestAnnouncement ?? null;
-        if (!latest) {
-          ensureWalletTransactionAckBaseline(userId, null, new Date().toISOString());
-          return;
-        }
+  const syncLatestAnnouncement = useCallback(async () => {
+    try {
+      const latest = await fetchLatestWalletTransactionAnnouncement();
+      if (!latest) {
+        ensureWalletTransactionAckBaseline(userId, null, new Date().toISOString());
+        return;
+      }
 
-        ensureWalletTransactionAckBaseline(userId, latest.id, latest.createdAt);
+      ensureWalletTransactionAckBaseline(userId, latest.id, latest.createdAt);
 
-        if (shouldAnnounceWalletTransaction(userId, latest.id)) {
-          setAnnouncement(latest);
-          setModalOpen(true);
-        }
-      })
-      .catch(() => {
-        /* ignore */
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      if (shouldAnnounceWalletTransaction(userId, latest.id)) {
+        setAnnouncement(latest);
+        setModalOpen(true);
+      }
+    } catch {
+      /* ignore */
+    }
   }, [userId]);
+
+  useEffect(() => {
+    void syncLatestAnnouncement();
+  }, [syncLatestAnnouncement]);
+
+  useEffect(() => {
+    return subscribeOnboardingOfferClaimed(() => {
+      void syncLatestAnnouncement();
+    });
+  }, [syncLatestAnnouncement]);
 
   const handleCta = useCallback(() => {
     if (!announcement) return;

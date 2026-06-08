@@ -12,7 +12,9 @@ import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplemen
 import { BorrowLocationInfoContent } from "@/components/cart/BorrowLocationInfoContent";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { CartPaymentGateModal } from "@/components/cart/CartPaymentGateModal";
+import { ExchangeWalletAnnouncementProvider } from "@/components/exchange/ExchangeWalletAnnouncementContext";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
+import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
 import {
   computeMissingCreditsCashCents,
   type BorrowCheckoutOption,
@@ -60,6 +62,7 @@ type OfferCardData = {
 };
 
 type CartScreenProps = {
+  userId: string;
   initialLines: CartLineRowData[];
   /** Panier actif côté serveur (après `reserve_cart_atomic` → `checkout_pending`). */
   activeCartId: string | null;
@@ -126,6 +129,7 @@ function euros(value: number): string {
 }
 
 export function CartScreen({
+  userId,
   initialLines,
   activeCartId,
   cartStatus,
@@ -368,10 +372,12 @@ export function CartScreen({
     : "calc(88px + env(safe-area-inset-bottom, 0px))";
 
   return (
-    <OnboardingIncludedCreditsProvider
-      active={offerOnboardingActive}
-      content={includedCreditsActivationContent}
-    >
+    <ExchangeWalletAnnouncementProvider>
+      <ExchangeWalletTransactionAnnounceLayer userId={userId} />
+      <OnboardingIncludedCreditsProvider
+        active={offerOnboardingActive}
+        content={includedCreditsActivationContent}
+      >
     <div className="flex w-full flex-col bg-zinc-100">
       <header className="fixed left-1/2 top-0 z-40 w-full max-w-[430px] -translate-x-1/2 bg-white">
         <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
@@ -679,6 +685,7 @@ export function CartScreen({
         </button>
       </SegnaAppBottomSheet>
     </div>
-    </OnboardingIncludedCreditsProvider>
+      </OnboardingIncludedCreditsProvider>
+    </ExchangeWalletAnnouncementProvider>
   );
 }
