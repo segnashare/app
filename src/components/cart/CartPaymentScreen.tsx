@@ -8,7 +8,10 @@ import { Briefcase, Check, ChevronLeft, ChevronRight, Store, User } from "lucide
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServicePointPicker";
+import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
+import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
   readCheckoutDeliveryAddress,
@@ -147,6 +150,8 @@ type CartPaymentScreenProps = {
     checkoutLivePricing: boolean;
     checkoutConfigured: boolean;
   };
+  /** Upsell tenue contextuel (checkout). */
+  checkoutOutfitSuggestionItems?: ShopCatalogItem[];
 };
 
 function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
@@ -170,6 +175,7 @@ export function CartPaymentScreen({
   postStripeSyncError = null,
   initialProfileDeliveryAddress = null,
   initialSendcloudFeatures,
+  checkoutOutfitSuggestionItems = [],
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
@@ -1631,6 +1637,12 @@ export function CartPaymentScreen({
             </section>
           </>
         )}
+
+        {checkoutOutfitSuggestionItems.length > 0 ? (
+          <CartCmsShopHubProvider catalogItems={checkoutOutfitSuggestionItems}>
+            <CartOutfitSuggestionsSection items={checkoutOutfitSuggestionItems} compact />
+          </CartCmsShopHubProvider>
+        ) : null}
 
         {/* Panier — même grille que le détail commande */}
         <section className="px-5 pb-4 pt-2">

@@ -20,6 +20,7 @@ import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import { fetchCartOutfitSuggestions } from "@/lib/shop/fetch-cart-outfit-suggestions";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -148,9 +149,23 @@ export default async function CartPage() {
     }),
   );
 
+  const itemIdsForOutfit = [...new Set(cartLinesBase.map((l) => l.itemId))];
+  const cartOutfitSuggestionItems =
+    itemIdsForOutfit.length > 0
+      ? await perf.measure("cart.outfitSuggestions", () =>
+          fetchCartOutfitSuggestions(catalogSb, itemIdsForOutfit, {
+            excludeItemIds: itemIdsForOutfit,
+            limit: 10,
+          }),
+        )
+      : [];
+
   const cmsShopItemIds = collectCmsShopItemIdsFromSectionsByKey(cmsSectionsByKey);
   const cmsShopHubCatalogItemsBase = await perf.measure("cms.shopItems", () => fetchShopCatalogItemsByIds(supabase, cmsShopItemIds));
-  const cmsShopHubCatalogItems = mergeShopCatalogItemsDedupe(cmsShopHubCatalogItemsBase, cartShopSystemForYouItems);
+  const cmsShopHubCatalogItems = mergeShopCatalogItemsDedupe(
+    mergeShopCatalogItemsDedupe(cmsShopHubCatalogItemsBase, cartShopSystemForYouItems),
+    cartOutfitSuggestionItems,
+  );
 
   const itemIdsForComp = [...new Set(cartLinesBase.map((l) => l.itemId))];
   let cartLines = cartLinesBase;
@@ -187,6 +202,7 @@ export default async function CartPage() {
         cmsSectionsByKey={cmsSectionsByKey}
         cmsShopHubCatalogItems={cmsShopHubCatalogItems}
         cartShopSystemForYouItems={cartShopSystemForYouItems}
+        cartOutfitSuggestionItems={cartOutfitSuggestionItems}
         showOfferOnboarding={showOfferInAppOnboarding}
         welcomeGiftOfferEligible={welcomeGiftOfferEligible}
         includedCreditsActivationContent={includedCreditsActivationContent}

@@ -10,10 +10,13 @@ import type { ItemInfoCardData } from "./ItemInfoCard";
 import { ItemWornPhotosSection } from "./ItemWornPhotosSection";
 import type { ItemFeedbackDisplayRow, ItemWornPhotoDisplayRow } from "@/lib/feedback/item-feedback-types";
 import { ItemMemberSection } from "./ItemMemberSection";
+import { ItemOutfitSection } from "./ItemOutfitSection";
 import { ItemSegnaPropertyCmsSection } from "./ItemSegnaPropertyCmsSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
 import { useSegnaStockPropertyCmsRows } from "@/hooks/useSegnaStockPropertyCmsRows";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import type { ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
@@ -85,6 +88,10 @@ type ItemViewViewProps = {
   segnaStockPropertyCmsFrames?: CmsFrameRow[];
   itemFeedbacks?: ItemFeedbackDisplayRow[];
   wornPhotos?: ItemWornPhotoDisplayRow[];
+  /** Tenue CMS + pièces complémentaires résolues (fiche catalogue). */
+  outfitLook?: ItemOutfitLookPayload | null;
+  outfitCompanionItems?: ShopCatalogItem[];
+  outfitCompanionCoverUrlById?: Record<string, string>;
 };
 
 function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
@@ -170,6 +177,9 @@ export function ItemViewView({
   segnaStockPropertyCmsFrames,
   itemFeedbacks = [],
   wornPhotos = [],
+  outfitLook = null,
+  outfitCompanionItems = [],
+  outfitCompanionCoverUrlById = {},
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
@@ -235,6 +245,14 @@ export function ItemViewView({
 
         {/* 4. Description */}
         <ItemDescriptionCard description={description} />
+
+        {outfitLook && outfitCompanionItems.length > 0 ? (
+          <ItemOutfitSection
+            outfit={outfitLook}
+            companionItems={outfitCompanionItems}
+            initialCoverUrlById={outfitCompanionCoverUrlById}
+          />
+        ) : null}
 
         {/* 5. Autres photos produit (photo2–photo6) */}
         {catalogExtraPhotos.map(({ slotIndex, slot }) => (

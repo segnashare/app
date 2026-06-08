@@ -27,6 +27,7 @@ import {
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
+import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
 import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
 import {
   CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
@@ -76,6 +77,8 @@ type CartScreenProps = {
   cmsShopHubCatalogItems?: ShopCatalogItem[];
   /** Échantillon catalogue pour le bloc AUTO « Susceptibles de vous plaire » sur le panier (`shop_system_for_you`). */
   cartShopSystemForYouItems?: ShopCatalogItem[];
+  /** Suggestions contextuelles tenue (`cart_system_outfit_suggestions`). */
+  cartOutfitSuggestionItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
   /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
@@ -133,10 +136,11 @@ export function CartScreen({
   balanceConsumptionPoints,
   balanceExchangePoints,
   hasReachedLendingCap,
-  panierSectionOrder = ["cart_system_items", "cart_offers", "cart_system_exchange"],
+  panierSectionOrder = ["cart_system_items", "cart_system_outfit_suggestions", "cart_offers", "cart_system_exchange"],
   cmsSectionsByKey = {},
   cmsShopHubCatalogItems = [],
   cartShopSystemForYouItems = [],
+  cartOutfitSuggestionItems = [],
   showOfferOnboarding = false,
   welcomeGiftOfferEligible = false,
   includedCreditsActivationContent = null,
@@ -440,6 +444,11 @@ export function CartScreen({
                   />
                 </section>
               );
+            }
+
+            if (slotKey === "cart_system_outfit_suggestions") {
+              if (orderedLines.length === 0 || cartOutfitSuggestionItems.length === 0) return null;
+              return <CartOutfitSuggestionsSection key={slotKey} items={cartOutfitSuggestionItems} />;
             }
 
             if (slotKey === "cart_system_exchange") {

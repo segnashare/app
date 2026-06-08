@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartPaymentScreen } from "@/components/cart/CartPaymentScreen";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
+import { fetchCartOutfitSuggestions } from "@/lib/shop/fetch-cart-outfit-suggestions";
 import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -155,6 +156,11 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalMods - availableWalletMods) : 0;
   const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
 
+  const checkoutOutfitSuggestionItems = await fetchCartOutfitSuggestions(supabase, itemIdsForComp, {
+    excludeItemIds: itemIdsForComp,
+    limit: 4,
+  });
+
   const sendcloudEnv = getSendcloudEnv();
   const initialSendcloudFeatures = {
     relaySearch: isSendcloudRelaySearchEnabled(),
@@ -179,6 +185,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         postStripeSyncError={postStripeSyncError}
         initialProfileDeliveryAddress={profileDeliveryAddress}
         initialSendcloudFeatures={initialSendcloudFeatures}
+        checkoutOutfitSuggestionItems={checkoutOutfitSuggestionItems}
       />
     </main>
   );

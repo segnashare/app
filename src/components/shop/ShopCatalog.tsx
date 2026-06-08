@@ -3176,10 +3176,11 @@ export function ItemRailTwoUp({
   searchState,
   itemFromQuery = "shop",
   skipCatalogNavigationPersist = false,
+  hideSectionHeader = false,
 }: {
   title: string;
   items: ShopCatalogItem[];
-  sectionHref: string;
+  sectionHref?: string;
   coverUrlById: Record<string, string>;
   shimmerDurationSec: number;
   cartItemIds: Set<string>;
@@ -3197,13 +3198,14 @@ export function ItemRailTwoUp({
   };
   itemFromQuery?: string;
   skipCatalogNavigationPersist?: boolean;
+  hideSectionHeader?: boolean;
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
 
   return (
     <section className="space-y-3">
-      <SectionHeader title={title} sectionHref={sectionHref} />
+      {hideSectionHeader ? null : <SectionHeader title={title} sectionHref={sectionHref} />}
       <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="w-3 shrink-0" aria-hidden />
         {railItems.map((item, index) => (

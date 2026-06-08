@@ -14,8 +14,10 @@ import { LogisticsRefusalEntryModal } from "./LogisticsRefusalEntryModal";
 import { ItemViewView } from "./ItemViewView";
 import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { FetchItemDetailResult, ItemDetailPayload } from "@/lib/items/fetch-item-detail-core";
+import type { ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
@@ -126,6 +128,9 @@ type ItemDetailViewProps = {
   initialDetailResult?: FetchItemDetailResult;
   /** Lot expédition groupé par défaut (pièces prêtes du membre). */
   defaultShippingGroupIds?: string[];
+  initialOutfitLook?: ItemOutfitLookPayload | null;
+  initialOutfitCompanionItems?: ShopCatalogItem[];
+  initialOutfitCompanionCoverUrlById?: Record<string, string>;
 };
 
 export function ItemDetailView({
@@ -133,6 +138,9 @@ export function ItemDetailView({
   initialAuthUserId = null,
   initialDetailResult,
   defaultShippingGroupIds = [],
+  initialOutfitLook = null,
+  initialOutfitCompanionItems = [],
+  initialOutfitCompanionCoverUrlById = {},
 }: ItemDetailViewProps = {}) {
   const params = useParams();
   const router = useRouter();
@@ -358,6 +366,9 @@ export function ItemDetailView({
   const showCartHeaderAction =
     Boolean(itemId && data && !isOwner && !showHeaderActions) &&
     (itemStatus === "available" || itemStatus === "in_cart");
+  const showOutfitSection =
+    Boolean(!isOwner && data && (itemStatus === "available" || itemStatus === "in_cart")) &&
+    Boolean(initialOutfitLook && initialOutfitCompanionItems.length > 0);
   const itemInCart = Boolean(itemId && cartItemIds.has(itemId));
   const cartToggleBusy = Boolean(itemId && cartBusyIds.has(itemId));
   const intakeAckSessionKey =
@@ -844,6 +855,9 @@ export function ItemDetailView({
           segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
           itemFeedbacks={data.itemFeedbacks}
           wornPhotos={data.wornPhotos}
+          outfitLook={showOutfitSection ? initialOutfitLook : null}
+          outfitCompanionItems={showOutfitSection ? initialOutfitCompanionItems : []}
+          outfitCompanionCoverUrlById={showOutfitSection ? initialOutfitCompanionCoverUrlById : {}}
         />
       </div>
 
