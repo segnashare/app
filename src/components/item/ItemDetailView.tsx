@@ -850,6 +850,7 @@ export function ItemDetailView({
           title={data.title}
           description={data.description}
           slots={data.slots}
+          photosLayout={data.photosLayout}
           infoCard={data.infoCard}
           ownerUserId={data.ownerUserId}
           segnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}

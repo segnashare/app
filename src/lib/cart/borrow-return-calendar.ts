@@ -1,5 +1,7 @@
 /** Fuseau pour l’échéance de retour : jour calendaire uniquement (dépassement après minuit Paris). */
-export const BORROW_RETURN_TZ = "Europe/Paris";
+import { SEGNA_TIMEZONE } from "@/lib/datetime/segna-datetime";
+
+export const BORROW_RETURN_TZ = SEGNA_TIMEZONE;
 
 const MS_PER_DAY = 86_400_000;
 

@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { verifyCronRequest } from "@/lib/cron/verify-cron-request";
+import { PARIS_CRON_SLOTS, parisCronGuardResponse } from "@/lib/cron/paris-cron-guard";
 import { runExchangePriceRecalibration } from "@/lib/cron/run-exchange-price-recalibration";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-/** Recalibrage hebdomadaire des valeurs d'échange (lundi 06:00 UTC). */
+/** Lundi 08:00 Europe/Paris — recalibrage hebdomadaire des valeurs d'échange. */
 export async function GET(request: Request) {
   const denied = verifyCronRequest(request);
   if (denied) return denied;
+
+  const skipped = parisCronGuardResponse(PARIS_CRON_SLOTS.economyExchangeRecalibration);
+  if (skipped) return skipped;
 
   const admin = createSupabaseAdminClient();
 

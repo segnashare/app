@@ -10,6 +10,7 @@ import {
   resolveOutboundBorrowDeliveredAtIso,
   type SegnaBorrowMembershipLabel,
 } from "@/lib/emprunt/borrow-period";
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import {
   borrowDeadlineReminderEmail,
@@ -73,11 +74,7 @@ type CartItemJoinForNotify = {
 } | null;
 
 function formatReturnDeadlineForEmail(ms: number): string {
-  return new Date(ms).toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatDateParis(ms, { day: "numeric", month: "long", year: "numeric" });
 }
 
 /** Statuts « avant livraison » pour lesquels on envoie le récap livré (Uber, relais, legacy). */

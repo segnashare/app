@@ -8,10 +8,7 @@ import { Briefcase, Check, ChevronLeft, ChevronRight, Store, User } from "lucide
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServicePointPicker";
-import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
-import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
-import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
   readCheckoutDeliveryAddress,
@@ -50,7 +47,6 @@ import {
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import type { IncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import { includedOrdersUsedThisMonth } from "@/lib/billing/membership-included-orders";
-import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 import {
@@ -150,8 +146,6 @@ type CartPaymentScreenProps = {
     checkoutLivePricing: boolean;
     checkoutConfigured: boolean;
   };
-  /** Upsell tenue contextuel (checkout). */
-  checkoutOutfitSuggestionItems?: ShopCatalogItem[];
 };
 
 function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
@@ -175,7 +169,6 @@ export function CartPaymentScreen({
   postStripeSyncError = null,
   initialProfileDeliveryAddress = null,
   initialSendcloudFeatures,
-  checkoutOutfitSuggestionItems = [],
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
@@ -1261,7 +1254,7 @@ export function CartPaymentScreen({
   }, [hideReservationTimer]);
 
   const onBack = useCallback(() => {
-    exitCartFlow(router);
+    router.push("/cart");
   }, [router]);
 
   /** Moins d’une minute restante : chiffres rouges (y compris 0:00). */
@@ -1637,12 +1630,6 @@ export function CartPaymentScreen({
             </section>
           </>
         )}
-
-        {checkoutOutfitSuggestionItems.length > 0 ? (
-          <CartCmsShopHubProvider catalogItems={checkoutOutfitSuggestionItems}>
-            <CartOutfitSuggestionsSection items={checkoutOutfitSuggestionItems} compact />
-          </CartCmsShopHubProvider>
-        ) : null}
 
         {/* Panier — même grille que le détail commande */}
         <section className="px-5 pb-4 pt-2">

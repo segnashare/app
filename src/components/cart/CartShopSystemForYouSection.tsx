@@ -76,7 +76,7 @@ export function CartShopSystemForYouSection({ catalogItems }: CartShopSystemForY
   if (railItems.length === 0) return null;
 
   return (
-    <div className="bg-white px-5 py-4">
+    <div className="bg-white py-4">
       <ItemRailTwoUp
         title="Pièces susceptibles de vous plaire"
         items={railItems}
@@ -92,6 +92,7 @@ export function CartShopSystemForYouSection({ catalogItems }: CartShopSystemForY
         searchState={CART_FOR_YOU_SEARCH_STATE}
         itemFromQuery="cart"
         skipCatalogNavigationPersist
+        sectionInsetScroll
       />
     </div>
   );

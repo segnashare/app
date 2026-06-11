@@ -2,6 +2,7 @@ import { isCartReturnMemberTrackingNumber } from "@/lib/cart/cart-return-shipmen
 import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import { getMemberReturnShipmentPhaseCopy, getReturnShipmentSubtitle } from "@/lib/cart/member-return-shipment-copy";
 import { formatBorrowReturnDueDateShortFr, resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import type { SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 
@@ -53,7 +54,7 @@ type Ctx = {
 };
 
 function fmt(iso: string) {
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateParis(iso);
 }
 
 function meta(ctx: Ctx, status: string): string {

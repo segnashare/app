@@ -21,8 +21,9 @@ import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-in
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
+import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
+import { itemPhotoSlotAspectClass } from "@/lib/items/item-photo-layout";
 
-const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 /** photo1 : principale ; photo2–photo6 : autres vues produit (`items.photos`). */
 const CATALOG_EXTRA_PHOTO_SLOT_INDICES = [1, 2, 3, 4, 5] as const;
 
@@ -73,6 +74,8 @@ type ItemViewViewProps = {
   title: string;
   description: string;
   slots: Array<ItemViewSlot | null>;
+  /** Orientation des photos catalogue (portrait 3:4 ou paysage 4:3). */
+  photosLayout?: ItemPhotoLayout;
   infoCard: ItemInfoCardData;
   ownerUserId?: string | null;
   onLikeFrame?: () => void;
@@ -108,6 +111,7 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
 function ItemViewPhotoFrame({
   slot,
   frameKey,
+  photoFrameClass,
   showPlaceholder,
   hideFrameLikeButtons,
   frameActionVariant,
@@ -120,6 +124,7 @@ function ItemViewPhotoFrame({
 }: {
   slot: ItemViewSlot | null;
   frameKey: string;
+  photoFrameClass: string;
   showPlaceholder?: boolean;
   hideFrameLikeButtons: boolean;
   frameActionVariant: "heart" | "plus";
@@ -134,7 +139,7 @@ function ItemViewPhotoFrame({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-      <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
+      <div className={cn("relative w-full", photoFrameClass)}>
         {slot ? (
           <ItemViewCoverPhoto slot={slot} />
         ) : (
@@ -166,6 +171,7 @@ function ItemViewPhotoFrame({
 export function ItemViewView({
   description,
   slots,
+  photosLayout = "portrait",
   infoCard,
   ownerUserId,
   onLikeFrame,
@@ -183,6 +189,7 @@ export function ItemViewView({
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
+  const photoFrameClass = itemPhotoSlotAspectClass(photosLayout);
   const isSegnaStockOwner = isSegnaCorporateInventoryUserId(ownerUserId);
   const fetchSegnaCmsClient = isSegnaStockOwner && segnaStockPropertyCmsFrames === undefined;
   const { rows: clientSegnaCmsRows, loading: segnaCmsLoading } = useSegnaStockPropertyCmsRows(fetchSegnaCmsClient);
@@ -199,6 +206,7 @@ export function ItemViewView({
   }
 
   const photoFrameProps = {
+    photoFrameClass,
     hideFrameLikeButtons,
     frameActionVariant,
     frameActionActive,

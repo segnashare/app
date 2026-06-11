@@ -38,6 +38,7 @@ import { OnboardingIncludedCreditsProvider } from "@/components/onboarding/Onboa
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -174,6 +175,37 @@ export function CartScreen({
         .join(","),
     [lines],
   );
+
+  useEffect(() => {
+    setLines(sortCartLinesByPriceAsc(initialLines));
+  }, [initialLines]);
+
+  const refreshCartLinesFromServer = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const nextLines = await fetchActiveCartLinesForUser(supabase, user.id);
+    const itemIds = [...new Set(nextLines.map((line) => line.itemId))];
+    if (itemIds.length === 0) {
+      setLines([]);
+      return;
+    }
+
+    const { data, error } = await supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIds });
+    if (error) {
+      setLines(sortCartLinesByPriceAsc(nextLines));
+      return;
+    }
+    setLines(sortCartLinesByPriceAsc(mergeCompetitionIntoCartLines(nextLines, data)));
+  }, [supabase]);
+
+  useEffect(() => {
+    const onCartChanged = () => void refreshCartLinesFromServer();
+    window.addEventListener("segna:cart-changed", onCartChanged as EventListener);
+    return () => window.removeEventListener("segna:cart-changed", onCartChanged as EventListener);
+  }, [refreshCartLinesFromServer]);
 
   useEffect(() => {
     if (!competitionItemIdsKey) return;
@@ -314,7 +346,7 @@ export function CartScreen({
         if (isNewReservation) {
           setCartReservationTimerStart();
         }
-        router.push("/cart/payment");
+        router.push("/cart/outfit");
         router.refresh();
       } else {
         setReserveError("Réponse inattendue du serveur — réessaie ou recharge la page.");
@@ -447,8 +479,15 @@ export function CartScreen({
             }
 
             if (slotKey === "cart_system_outfit_suggestions") {
-              if (orderedLines.length === 0 || cartOutfitSuggestionItems.length === 0) return null;
-              return <CartOutfitSuggestionsSection key={slotKey} items={cartOutfitSuggestionItems} />;
+              if (orderedLines.length === 0) return null;
+              const cartItemIds = [...new Set(orderedLines.map((line) => line.itemId))];
+              return (
+                <CartOutfitSuggestionsSection
+                  key={slotKey}
+                  cartItemIds={cartItemIds}
+                  initialItems={cartOutfitSuggestionItems}
+                />
+              );
             }
 
             if (slotKey === "cart_system_exchange") {
@@ -607,7 +646,7 @@ export function CartScreen({
                   type="button"
                   onClick={() => {
                     if (!openPaymentGateOrProceed()) return;
-                    router.push("/cart/payment");
+                    router.push("/cart/outfit");
                   }}
                   className={cn(
                     "flex h-12 w-full items-center justify-center rounded-2xl text-[15px] font-bold text-white shadow-sm transition",

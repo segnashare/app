@@ -7,6 +7,7 @@ import {
 import type { ItemFeedbackDisplayRow, ItemWornPhotoDisplayRow } from "@/lib/feedback/item-feedback-types";
 import type { ItemViewSlot } from "@/components/item/ItemViewView";
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
+import { parseItemPhotosLayout, type ItemPhotoLayout } from "@/lib/items/item-photo-layout";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
 const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
@@ -92,6 +93,7 @@ export type ItemDetailPayload = {
   title: string;
   description: string;
   status: string;
+  photosLayout: ItemPhotoLayout;
   outtake: {
     stage: string | null;
     deletedAt: string | null;
@@ -189,6 +191,7 @@ export async function fetchItemDetailPayloadForUser(
   const colorLabel = (colorRes.data as { label?: string } | null)?.label ?? "—";
 
   const photoEntries = getPhotoEntriesFromJson(row.photos).slice(0, 6);
+  const photosLayout = parseItemPhotosLayout(row.photos);
   const slots: Array<ItemViewSlot | null> = [null, null, null, null, null, null];
 
   const slotTasks = photoEntries.map(async (entry, index) => {
@@ -249,6 +252,7 @@ export async function fetchItemDetailPayloadForUser(
       title: (row.title as string)?.trim() || "Sans titre",
       description: (row.description as string)?.trim() || "",
       status: (row.status as string) ?? "",
+      photosLayout,
       outtake,
       slots,
       intake,

@@ -2,23 +2,23 @@
   "crons": [
     {
       "path": "/api/cron/member-borrow-overdue-accrual",
-      "schedule": "0 9 * * *"
+      "schedule": "0,30 * * * *"
     },
     {
       "path": "/api/cron/member-onboarding-reminders",
-      "schedule": "0 14 * * *"
+      "schedule": "0,30 * * * *"
     },
     {
       "path": "/api/cron/member-abandoned-cart-reminders",
-      "schedule": "0 17 * * *"
+      "schedule": "0,30 * * * *"
     },
     {
       "path": "/api/cron/member-borrow-return-reminders",
-      "schedule": "30 18 * * *"
+      "schedule": "0,30 * * * *"
     },
     {
       "path": "/api/cron/economy-exchange-recalibration",
-      "schedule": "0 6 * * 1"
+      "schedule": "0,30 * * * *"
     }
   ]
 }

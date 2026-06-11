@@ -1,3 +1,4 @@
+import { SEGNA_TIMEZONE } from "@/lib/datetime/segna-datetime";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 
 const ISO_TRY = /^\d{4}-\d{2}-\d{2}T/;
@@ -42,6 +43,7 @@ export function formatUberMaybeDateFr(v: unknown): string | null {
   return new Intl.DateTimeFormat("fr-FR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: SEGNA_TIMEZONE,
   }).format(d);
 }
 

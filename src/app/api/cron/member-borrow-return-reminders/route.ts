@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 
 import { verifyCronRequest } from "@/lib/cron/verify-cron-request";
+import { PARIS_CRON_SLOTS, parisCronGuardResponse } from "@/lib/cron/paris-cron-guard";
 import { runBorrowReturnReminders } from "@/lib/cron/run-borrow-return-reminders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
- * Rappels avant échéance emprunt (J-7 / J-3 / J-1). J-J : cron matin (`member-borrow-overdue-accrual`).
- * Planifié 19h30 Paris (`vercel.json` + pg_cron).
+ * 19:30 Europe/Paris — rappels avant échéance emprunt (J-7 / J-3 / J-1).
+ * Planifié toutes les 30 min UTC ; garde-fou heure Paris.
  */
 export async function GET(request: Request) {
   const denied = verifyCronRequest(request);
   if (denied) return denied;
+
+  const skipped = parisCronGuardResponse(PARIS_CRON_SLOTS.borrowReturnReminders);
+  if (skipped) return skipped;
 
   const admin = createSupabaseAdminClient();
 

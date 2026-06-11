@@ -2,10 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import {
-  confirmCartPaidFromStripeSession,
-  debitCartExchangeWalletFromStripeSession,
-} from "@/lib/stripe/cart-order-fulfillment";
+import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
@@ -84,7 +81,6 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
 
       const creditsPurchaseApplied = await applyWalletCreditFromCheckout(admin, session, userId);
       await applyCartOrderWalletFromCheckout(admin, session, userId);
-      await debitCartExchangeWalletFromStripeSession(admin, session, userId);
       await confirmCartPaidFromStripeSession(admin, session, userId);
 
       if (session.metadata?.checkout_kind === "cart_order") {

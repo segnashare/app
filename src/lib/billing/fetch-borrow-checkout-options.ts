@@ -69,6 +69,17 @@ export function computeMissingCreditsCashCents(
   return missing * rate;
 }
 
+/** Équivalent € location pour une pièce (crédits × tarif crédit manquant à la durée choisie). */
+export function computeItemRentalEuroCents(
+  pricePoints: number | null | undefined,
+  durationDays: number,
+  options: ReadonlyArray<BorrowCheckoutOption>,
+): number {
+  const points =
+    typeof pricePoints === "number" && !Number.isNaN(pricePoints) ? Math.max(0, Math.trunc(pricePoints)) : 0;
+  return computeMissingCreditsCashCents(points, durationDays, options);
+}
+
 export function formatEuroPerCredit(cents: number): string {
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",

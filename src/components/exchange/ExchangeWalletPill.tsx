@@ -10,7 +10,7 @@ import { useWalletPillBalanceAnimation } from "@/components/exchange/useWalletPi
 import { WalletPanel } from "@/components/exchange/WalletPanel";
 import { WalletPillAnimatedBalance } from "@/components/exchange/WalletPillAnimatedBalance";
 import { WalletPillFrameReveal } from "@/components/exchange/WalletPillFrameReveal";
-import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
+import { SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
 import {
   WALLET_PILL_EASE_IN_OUT,
   WALLET_PILL_GROW_SCALE,
@@ -124,21 +124,15 @@ export function ExchangeWalletPill({
             slideFromY={slideFromY}
           />
         )}
-        {cartExceedsWallet ? (
-          <img
-            src={SEGNA_BRAND_LOGO_SRC}
-            alt=""
-            aria-hidden
-            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left"
-          />
-        ) : (
-          <img
-            src={SEGNA_BRAND_LOGO_SRC}
-            alt=""
-            aria-hidden
-            className="h-4 w-auto max-w-[3.75rem] shrink-0 object-contain object-left invert"
-          />
-        )}
+        <img
+          src={SEGNA_CREDIT_ICON_SRC}
+          alt=""
+          aria-hidden
+          className={cn(
+            "h-4 w-4 shrink-0 object-contain",
+            !cartExceedsWallet && "invert",
+          )}
+        />
         <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.25} />
       </motion.button>
 

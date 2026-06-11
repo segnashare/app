@@ -3,7 +3,7 @@
 import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 
 export type PhotoModifySource = "profile" | "looks" | "item";
-export type PhotoModifyAspect = "square" | "portrait";
+export type PhotoModifyAspect = "square" | "portrait" | "landscape";
 
 export type PhotoModifyDraft = {
   id: string;

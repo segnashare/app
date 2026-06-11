@@ -40,6 +40,7 @@ import {
   isMemberReceiptValidated,
 } from "@/lib/cart/member-receipt-validation";
 import { resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import { isBorrowReturnAlertPhaseParis, isBorrowReturnOverdueParis } from "@/lib/cart/borrow-return-calendar";
 import { borrowOverdueLateDayIndex } from "@/lib/emprunt/borrow-overdue-penalty";
 import {
@@ -608,8 +609,7 @@ export default async function ExchangePage() {
     pricePoints: c.pricePoints,
   }));
 
-  const fmtOrderDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const fmtOrderDate = (iso: string) => formatDateParis(iso);
 
   function formatOrderNumberCompact(cartId: string): string {
     return cartId.replace(/-/g, "").slice(0, 8).toUpperCase();

@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import {
-  confirmCartPaidFromStripeSession,
-  debitCartExchangeWalletFromStripeSession,
-} from "@/lib/stripe/cart-order-fulfillment";
+import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -60,16 +57,6 @@ export async function GET(request: Request) {
 
     const devDetail = (msg: string) =>
       process.env.NODE_ENV === "development" ? `&detail=${encodeURIComponent(msg.slice(0, 400))}` : "";
-
-    try {
-      await debitCartExchangeWalletFromStripeSession(admin, session, user.id);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "debit_unknown";
-      console.error("[stripe/cart/sync] wallet_debit_cart_order_stripe failed", msg);
-      return NextResponse.redirect(
-        new URL(`/cart/payment?checkout=error&reason=cart_debit_failed${devDetail(msg)}`, url.origin),
-      );
-    }
 
     try {
       await persistStripeCustomerDefaultPaymentMethodFromCheckout(stripe, session);
