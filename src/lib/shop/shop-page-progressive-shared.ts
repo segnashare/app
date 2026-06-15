@@ -30,6 +30,8 @@ export type ShopPageCatalogPayload = ShopCatalogFilterProps & {
 
 export type ShopProgressiveChunk = {
   sectionKey: string;
+  /** Sections marquées prêtes (chargement batch). */
+  readySectionKeys?: string[];
   initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
   initialCmsShopFrames?: CmsFrameRow[];
   shopHomeCapsulesSectionDisplay?: CmsSectionPublishedDisplay;
@@ -56,7 +58,9 @@ export function mergeShopProgressivePayload(
   }
 
   const readyKeys = new Set(base.readyHubSectionKeys);
-  if (chunk.sectionKey !== "__remainder__") {
+  if (chunk.readySectionKeys?.length) {
+    for (const key of chunk.readySectionKeys) readyKeys.add(key);
+  } else if (chunk.sectionKey !== "__remainder__" && chunk.sectionKey !== "__batch__") {
     readyKeys.add(chunk.sectionKey);
   }
 

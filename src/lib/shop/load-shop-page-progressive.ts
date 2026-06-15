@@ -21,11 +21,7 @@ import {
   fetchBoutiqueHubSectionOrderCached,
   fetchShopHomeCapsulesDisplayCached,
   fetchShopHomeCapsulesFramesCached,
-  fetchShopHubCategoriesCached,
-  fetchShopHubDealsCached,
-  fetchShopHubDiscoverCached,
-  fetchShopHubFrenchCached,
-  fetchShopHubPreferredBrandsCached,
+  fetchShopHubSectionsBatchCached,
   loadShopBoutiqueFilterFacetResponses,
 } from "@/lib/shop/shop-boutique-data-cache";
 import {
@@ -89,23 +85,6 @@ function collectItemIdsFromHubBundles(
   return [...ids];
 }
 
-async function fetchRawHubBundle(slug: ShopHubSectionSlug): Promise<CmsCatalogSectionBundle> {
-  switch (slug) {
-    case "discover":
-      return fetchShopHubDiscoverCached();
-    case "categories":
-      return fetchShopHubCategoriesCached();
-    case "preferredBrands":
-      return fetchShopHubPreferredBrandsCached();
-    case "deals":
-      return fetchShopHubDealsCached();
-    case "french":
-      return fetchShopHubFrenchCached();
-    default:
-      return { frames: [], config: {} };
-  }
-}
-
 function filterHubBundle(bundle: CmsCatalogSectionBundle, ctx: ShopPageLoadContext): CmsCatalogSectionBundle {
   return filterShopCmsBundleForOnboardingOffer(bundle, ctx.onboardingProcess, ctx.includedCreditsClaimed);
 }
@@ -127,15 +106,14 @@ async function loadHubDataForSectionKeys(
     if (key === "shop_home_capsules") loadCapsules = true;
   }
 
-  const hubEntries = await Promise.all(
-    [...slugsToLoad].map(async (slug) => {
-      const bundle = filterHubBundle(await fetchRawHubBundle(slug), ctx);
-      return [slug, bundle] as const;
-    }),
-  );
-
-  const hubSections: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>> =
-    Object.fromEntries(hubEntries);
+  const hubSectionsRaw =
+    slugsToLoad.size > 0 ? await fetchShopHubSectionsBatchCached([...slugsToLoad]) : {};
+  const hubSections: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>> = {};
+  for (const [slug, bundle] of Object.entries(hubSectionsRaw) as Array<
+    [ShopHubSectionSlug, CmsCatalogSectionBundle]
+  >) {
+    hubSections[slug] = filterHubBundle(bundle, ctx);
+  }
 
   let cmsShopFrames: CmsFrameRow[] = [];
   let shopHomeCapsulesSectionDisplay: CmsSectionPublishedDisplay = {
@@ -371,14 +349,11 @@ export async function loadShopPageRemainder(
     .filter(([sectionKey]) => !loadedSectionKeys.has(sectionKey))
     .map(([, slug]) => slug);
 
-  const hubPromises = remainingHubSlugs.map(async (slug) => {
-    const bundle = filterHubBundle(await fetchRawHubBundle(slug), ctx);
-    return [slug, bundle] as const;
-  });
-
   const needsCapsules = !loadedSectionKeys.has("shop_home_capsules");
-  const [hubEntries, fullCatalogRes, capsulesPack] = await Promise.all([
-    Promise.all(hubPromises),
+  const [hubSectionsRaw, fullCatalogRes, capsulesPack] = await Promise.all([
+    remainingHubSlugs.length > 0
+      ? fetchShopHubSectionsBatchCached(remainingHubSlugs)
+      : Promise.resolve({} as Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>),
     catalogSb.rpc("get_shop_catalog_items", { p_limit: 120 }),
     needsCapsules
       ? loadHubDataForSectionKeys(["shop_home_capsules"], ctx)
@@ -389,9 +364,12 @@ export async function loadShopPageRemainder(
         }),
   ]);
 
-  const hubSections = Object.fromEntries(hubEntries) as Partial<
-    Record<ShopHubSectionSlug, CmsCatalogSectionBundle>
-  >;
+  const hubSections: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>> = {};
+  for (const [slug, bundle] of Object.entries(hubSectionsRaw) as Array<
+    [ShopHubSectionSlug, CmsCatalogSectionBundle]
+  >) {
+    hubSections[slug] = filterHubBundle(bundle, ctx);
+  }
 
   const fullCatalog = parseCatalogItems(fullCatalogRes.data);
   const newCatalogItems = fullCatalog.filter((item) => !existingItemIds.has(item.id));
@@ -420,6 +398,49 @@ export async function loadShopPageRemainder(
   }
 
   if (!loadedSectionKeys.has("shop_system_lenders")) {
+    const lenders = await loadFeaturedLendersBlock(ctx);
+    chunk.featuredLenders = lenders.featuredLenders;
+    chunk.featuredLenderSectionItemIds = lenders.featuredLenderSectionItemIds;
+  }
+
+  return chunk;
+}
+
+export async function loadShopPagePendingSectionsBatch(
+  ctx: ShopPageLoadContext,
+  sectionKeys: string[],
+  existingItemIds: Set<string>,
+  existingCovers: Record<string, string>,
+): Promise<ShopProgressiveChunk> {
+  if (sectionKeys.length === 0) {
+    return { sectionKey: "__batch__", readySectionKeys: [] };
+  }
+
+  const hubPack = await loadHubDataForSectionKeys(sectionKeys, ctx);
+  const chunk: ShopProgressiveChunk = {
+    sectionKey: "__batch__",
+    readySectionKeys: sectionKeys,
+    initialShopHubSections: hubPack.hubSections,
+  };
+
+  if (hubPack.cmsShopFrames.length > 0) {
+    chunk.initialCmsShopFrames = hubPack.cmsShopFrames;
+  }
+  if (sectionKeys.includes("shop_home_capsules")) {
+    chunk.shopHomeCapsulesSectionDisplay = hubPack.shopHomeCapsulesSectionDisplay;
+  }
+
+  const hubItemIds = collectItemIdsFromHubBundles(hubPack.hubSections, hubPack.cmsShopFrames);
+  const missingIds = hubItemIds.filter((id) => !existingItemIds.has(id));
+  if (missingIds.length > 0) {
+    chunk.items = await fetchShopCatalogItemsByIds(ctx.catalogDb, missingIds);
+    const coverPatch = await signCoversForNewItems(ctx.catalogDb, chunk.items, existingCovers);
+    if (Object.keys(coverPatch).length > 0) {
+      chunk.initialCoverUrlById = coverPatch;
+    }
+  }
+
+  if (sectionKeys.includes("shop_system_lenders")) {
     const lenders = await loadFeaturedLendersBlock(ctx);
     chunk.featuredLenders = lenders.featuredLenders;
     chunk.featuredLenderSectionItemIds = lenders.featuredLenderSectionItemIds;

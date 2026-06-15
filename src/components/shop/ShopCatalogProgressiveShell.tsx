@@ -32,16 +32,16 @@ export function ShopCatalogProgressiveShell({ critical }: ShopCatalogProgressive
     let cancelled = false;
     let current = critical;
 
-    async function loadRemainingSectionsInOrder() {
+    async function loadRemainingInBatch() {
       const pending = current.boutiqueHubSectionOrder.filter(
         (key) => !current.readyHubSectionKeys.includes(key),
       );
 
-      for (const sectionKey of pending) {
-        if (cancelled) return;
+      if (pending.length > 0) {
         try {
           const chunk = await fetchProgressiveChunk({
-            sectionKey,
+            step: "pending_batch",
+            sectionKeys: pending,
             existingItemIds: current.initialItems.map((item) => item.id),
             existingCovers: current.initialCoverUrlById,
             loadedSectionKeys: current.readyHubSectionKeys,
@@ -50,14 +50,12 @@ export function ShopCatalogProgressiveShell({ critical }: ShopCatalogProgressive
           current = mergeShopProgressivePayload(current, chunk);
           setPayload(current);
         } catch (err) {
-          console.error("[shop] progressive section failed:", sectionKey, err);
-          if (!current.readyHubSectionKeys.includes(sectionKey)) {
-            current = {
-              ...current,
-              readyHubSectionKeys: [...current.readyHubSectionKeys, sectionKey],
-            };
-            setPayload(current);
-          }
+          console.error("[shop] progressive pending batch failed:", err);
+          current = {
+            ...current,
+            readyHubSectionKeys: current.boutiqueHubSectionOrder,
+          };
+          setPayload(current);
         }
       }
 
@@ -81,7 +79,7 @@ export function ShopCatalogProgressiveShell({ critical }: ShopCatalogProgressive
       }
     }
 
-    void loadRemainingSectionsInOrder();
+    void loadRemainingInBatch();
 
     return () => {
       cancelled = true;

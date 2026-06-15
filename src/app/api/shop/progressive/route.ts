@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildShopPageLoadContext } from "@/lib/shop/build-shop-page-load-context";
 import {
+  loadShopPagePendingSectionsBatch,
   loadShopPageRemainder,
   loadShopPageSectionChunk,
   type ShopProgressiveChunk,
@@ -9,7 +10,8 @@ import {
 
 type ProgressiveRequestBody = {
   sectionKey?: string;
-  step?: "remainder";
+  sectionKeys?: string[];
+  step?: "remainder" | "pending_batch";
   existingItemIds?: string[];
   existingCovers?: Record<string, string>;
   loadedSectionKeys?: string[];
@@ -40,6 +42,11 @@ export async function POST(request: Request) {
 
   if (body.step === "remainder") {
     chunk = await loadShopPageRemainder(ctx, loadedSectionKeys, existingItemIds, existingCovers);
+  } else if (body.step === "pending_batch") {
+    const sectionKeys = (body.sectionKeys ?? []).filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    );
+    chunk = await loadShopPagePendingSectionsBatch(ctx, sectionKeys, existingItemIds, existingCovers);
   } else if (typeof body.sectionKey === "string" && body.sectionKey.trim()) {
     chunk = await loadShopPageSectionChunk(ctx, body.sectionKey.trim(), existingItemIds, existingCovers);
   } else {
