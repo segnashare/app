@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { Image as ImageIcon, Plus, Trash2 } from "lucide-react";
 
 import { CART_LINE_STATUS_CLASSNAMES, type CartLineStatus } from "@/lib/cart/cart-line-status";
+import {
+  ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
+  itemSquareListThumbCoverProps,
+} from "@/lib/items/item-photo-layout";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
@@ -17,6 +21,16 @@ function cartLineStatusLabelFr(status: CartLineStatus): string {
   if (status === "reserve") return "Réservé";
   if (status === "en_attente_wallet") return "Non réservé";
   return "À vérifier";
+}
+
+function cartLineDisplayTitle(itemName: string, brand: string | null): string {
+  const trimmed = itemName.trim();
+  if (!brand) return trimmed;
+  const suffix = `(${brand.trim()})`;
+  if (trimmed.endsWith(suffix)) {
+    return trimmed.slice(0, -suffix.length).trim();
+  }
+  return trimmed;
 }
 
 function parseCompetitionExpiryMs(raw: string): number | null {
@@ -137,13 +151,14 @@ export function CartPanierLineRows({
                   {line.photoUrl ? (
                     <RemoteCoverThumb
                       photoUrl={line.photoUrl}
-                      photoPosition={line.photoPosition}
-                      frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
+                      frameClassName={ITEM_LIST_SQUARE_THUMB_FRAME_CLASS}
+                      {...itemSquareListThumbCoverProps({ photoPosition: line.photoPosition })}
                     />
                   ) : (
                     <div
                       className={cn(
-                        "flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+                        "flex items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+                        ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
                       )}
                     >
                       <ImageIcon className="h-7 w-7" aria-hidden />
@@ -154,17 +169,14 @@ export function CartPanierLineRows({
                 <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
                   <div className="min-w-0 flex-1">
                     <p className={cn("font-semibold italic text-zinc-900 break-words", exchangeUiCalm ? "text-[16px] leading-[1.08]" : "text-[18px] leading-[1.15]")}>
-                      {line.itemName}
+                      {cartLineDisplayTitle(line.itemName, line.brand)}
                     </p>
                     {line.brand ? (
-                      <span className={cn("font-semibold not-italic text-zinc-900", exchangeUiCalm ? "text-[14px]" : "text-[16px]")}> ({line.brand})</span>
-                    ) : null}
-                    {line.description ? (
                       <p
-                        className={cn("mt-0.5 min-w-0 text-zinc-500 line-clamp-1", exchangeUiCalm ? "text-[12px] leading-[1.2]" : "text-[13px] leading-[1.3]")}
-                        title={line.description}
+                        className={cn("mt-0.5 min-w-0 italic text-zinc-500 line-clamp-1", exchangeUiCalm ? "text-[12px] leading-[1.2]" : "text-[13px] leading-[1.3]")}
+                        title={line.brand}
                       >
-                        {line.description}
+                        {line.brand}
                       </p>
                     ) : null}
                     <p className="mt-1 text-[15px] tracking-tight text-zinc-900">

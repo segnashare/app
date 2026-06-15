@@ -13,6 +13,13 @@ import {
 } from "@/lib/shipping/intake-carrier-tracking";
 import { buildSendcloudV3ParcelLabelUrl } from "@/lib/sendcloud/label-url";
 import { resolveMemberIntakeItemIds } from "@/lib/items/resolve-member-intake-item-ids";
+import {
+  ensureTransferForUser,
+  findActiveTransferIdForItem,
+  findMemberIntakeShipmentIdByItemId,
+  resolveSharedTransferIdForItems,
+  syncMemberIntakeShipmentTransferLink,
+} from "@/lib/items/member-transfer-items";
 import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
@@ -57,90 +64,11 @@ export const SC_EXCLUDED_RETURN_PARCEL_IDS = "sc_excluded_return_parcel_ids";
 /** Numéros XT annulés lors d’un « Nouveau bordereau » — exclus du sync automatique. */
 export const SC_EXCLUDED_RETURN_TRACKING_NUMBERS = "sc_excluded_return_tracking_numbers";
 
-/** Fusion intake membre : max 2 pièces par colis (slots DB item_intake_1_id … item_intake_2_id). */
-export const MEMBER_INTAKE_SHIPMENT_MAX_ITEMS = 2;
+/** Fusion intake membre : max 5 pièces par colis (via transfer_items). */
+export const MEMBER_INTAKE_SHIPMENT_MAX_ITEMS = 5;
 
-export const MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS = [
-  "item_intake_1_id",
-  "item_intake_2_id",
-] as const;
-
-/** Static `.select()` fragments — dynamic joins break Supabase generated row types. */
-const MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_SELECT = "item_intake_1_id, item_intake_2_id";
-const MEMBER_INTAKE_SHIPMENT_TRACKING_AND_SLOTS_SELECT =
-  "tracking_number, item_intake_1_id, item_intake_2_id";
-const MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT =
-  "id, tracking_number, item_intake_1_id, item_intake_2_id";
-const MEMBER_INTAKE_SHIPMENT_MERGE_KEEPER_SELECT =
-  "id, status, tracking_number, created_at, item_intake_1_id, item_intake_2_id";
-
-export type MemberIntakeShipmentItemIntakeColumn =
-  (typeof MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS)[number];
-
-export function buildMemberIntakeShipmentItemIntakePatch(
-  itemIds: string[],
-): Record<MemberIntakeShipmentItemIntakeColumn, string | null> {
-  const sorted = [...new Set(itemIds.map((x) => x.trim()).filter(Boolean))]
-    .sort()
-    .slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
-  return buildMemberIntakeShipmentItemIntakePatchOrdered(sorted);
-}
-
-/** Slots DB dans l’ordre fourni (sans re-tri alphabétique). */
-export function buildMemberIntakeShipmentItemIntakePatchOrdered(
-  orderedItemIds: string[],
-): Record<MemberIntakeShipmentItemIntakeColumn, string | null> {
-  const unique: string[] = [];
-  for (const raw of orderedItemIds) {
-    const id = raw.trim();
-    if (!id || unique.includes(id)) continue;
-    unique.push(id);
-    if (unique.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS) break;
-  }
-  return {
-    item_intake_1_id: unique[0] ?? null,
-    item_intake_2_id: unique[1] ?? null,
-  };
-}
-
-/**
- * Regroupement sur colis existant : conserve l’ordre des slots déjà occupés,
- * ajoute les nouvelles pièces triées alphabétiquement en fin de liste.
- */
-export function buildMemberIntakeShipmentItemIntakePatchForMerge(
-  existingSlotIds: string[],
-  targetItemIds: string[],
-): Record<MemberIntakeShipmentItemIntakeColumn, string | null> {
-  const targetSet = new Set(
-    [...new Set(targetItemIds.map((x) => x.trim()).filter(Boolean))].slice(
-      0,
-      MEMBER_INTAKE_SHIPMENT_MAX_ITEMS,
-    ),
-  );
-  const preserved: string[] = [];
-  for (const raw of existingSlotIds) {
-    const id = raw.trim();
-    if (!id || !targetSet.has(id) || preserved.includes(id)) continue;
-    preserved.push(id);
-  }
-  const appended = [...targetSet]
-    .filter((id) => !preserved.includes(id))
-    .sort((a, b) => a.localeCompare(b));
-  return buildMemberIntakeShipmentItemIntakePatchOrdered([...preserved, ...appended]);
-}
-
-export function readMemberIntakeIdsFromShipmentRow(row: Record<string, unknown>): string[] {
-  const ids: string[] = [];
-  for (const col of MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS) {
-    const v = typeof row[col] === "string" ? row[col].trim() : "";
-    if (v) ids.push(v);
-  }
-  return ids;
-}
-
-function memberIntakeShipmentItemIntakeOrFilter(itemId: string): string {
-  return MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_COLUMNS.map((col) => `${col}.eq.${itemId}`).join(",");
-}
+const MEMBER_INTAKE_SHIPMENT_MERGE_KEEPER_SELECT = "id, status, tracking_number, created_at";
+const MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SELECT = "id, tracking_number";
 
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
   return v != null && typeof v === "object" && !Array.isArray(v);
@@ -159,44 +87,21 @@ function primaryMemberIntakeItemId(itemIds: string[]): string | null {
   return sorted[0] ?? null;
 }
 
-async function syncMemberIntakeShipmentItemIntakeLink(
+export async function syncMemberIntakeShipmentItemIntakeLink(
   service: SupabaseClient,
   shipmentId: string,
   itemIds: string[],
-  options?: { mergeWithExistingSlots?: boolean },
+  options?: { mergeWithExistingSlots?: boolean; ownerUserId?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const sid = shipmentId.trim();
-  let patch: Record<MemberIntakeShipmentItemIntakeColumn, string | null>;
-
-  if (options?.mergeWithExistingSlots) {
-    const { data: row, error: readErr } = await service
-      .from("shipments")
-      .select(MEMBER_INTAKE_SHIPMENT_ITEM_INTAKE_SELECT)
-      .eq("id", sid)
-      .eq("context", "member_intake")
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (readErr) return { ok: false, error: readErr.message };
-    const existing = row ? readMemberIntakeIdsFromShipmentRow(row) : [];
-    patch = buildMemberIntakeShipmentItemIntakePatchForMerge(existing, itemIds);
-  } else {
-    patch = buildMemberIntakeShipmentItemIntakePatch(itemIds);
-  }
-
-  if (!patch.item_intake_1_id) {
-    return { ok: false, error: "Aucune pièce." };
-  }
-
   const released = await archiveConflictingActiveMemberIntakeShipments(service, itemIds, sid);
   if (!released.ok) return released;
 
-  const { error } = await service
-    .from("shipments")
-    .update({ ...patch, cart_id: null })
-    .eq("id", sid)
-    .eq("context", "member_intake")
-    .is("deleted_at", null);
-  if (error) return { ok: false, error: error.message };
+  const linked = await syncMemberIntakeShipmentTransferLink(service, sid, itemIds, {
+    mergeWithExisting: options?.mergeWithExistingSlots,
+    ownerUserId: options?.ownerUserId,
+  });
+  if (!linked.ok) return linked;
   return { ok: true };
 }
 
@@ -204,18 +109,7 @@ async function findMemberIntakeShipmentByItemIntakeId(
   service: SupabaseClient,
   itemIntakeId: string,
 ): Promise<string | null> {
-  const itemId = itemIntakeId.trim();
-  if (!itemId) return null;
-  const { data } = await service
-    .from("shipments")
-    .select("id")
-    .eq("context", "member_intake")
-    .or(memberIntakeShipmentItemIntakeOrFilter(itemId))
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data?.id ? String(data.id) : null;
+  return findMemberIntakeShipmentIdByItemId(service, itemIntakeId);
 }
 
 /** Shipment `member_intake` actif : metadata si encore valide, sinon recherche par slots item_intake. */
@@ -451,23 +345,18 @@ export async function loadMemberIntakeSendcloudCancelInputForShipment(
     return { orderNumbers: [], panelShipmentIds: [], trackingNumbers: [], parcelIds: [] };
   }
 
-  const { data: ship } = await service
-    .from("shipments")
-    .select(MEMBER_INTAKE_SHIPMENT_TRACKING_AND_SLOTS_SELECT)
-    .eq("id", sid)
-    .maybeSingle();
-
   const destMeta = await readMemberIntakeDestinationMetadata(service, sid);
   const defaultOrder = String(destMeta.sendcloud_order_number ?? "").trim();
 
-  const itemIdSet = new Set(await resolveMemberIntakeItemIds(service, sid));
-  if (ship) {
-    for (const id of readMemberIntakeIdsFromShipmentRow(ship)) {
-      itemIdSet.add(id);
-    }
-  }
+  const { data: ship } = await service
+    .from("shipments")
+    .select("tracking_number")
+    .eq("id", sid)
+    .maybeSingle();
+  const shipmentTrackingNumber =
+    typeof ship?.tracking_number === "string" ? ship.tracking_number.trim() : null;
 
-  const itemIds = [...itemIdSet];
+  const itemIds = await resolveMemberIntakeItemIds(service, sid);
   let merged: MemberIntakeSendcloudCancelInput;
 
   if (itemIds.length > 0) {
@@ -479,16 +368,14 @@ export async function loadMemberIntakeSendcloudCancelInputForShipment(
     merged = gatherMemberIntakeSendcloudCancelInput([], {
       defaultOrderNumber: defaultOrder,
       destinationMetadata: destMeta,
-      shipmentTrackingNumber:
-        typeof ship?.tracking_number === "string" ? ship.tracking_number.trim() : null,
+      shipmentTrackingNumber,
     });
   }
 
   const partial = gatherMemberIntakeSendcloudCancelInput([], {
     defaultOrderNumber: defaultOrder,
     destinationMetadata: destMeta,
-    shipmentTrackingNumber:
-      typeof ship?.tracking_number === "string" ? ship.tracking_number.trim() : null,
+    shipmentTrackingNumber,
   });
   merged = mergeMemberIntakeCancelInputs(merged, partial);
 
@@ -609,8 +496,7 @@ export async function archiveMemberIntakeShipment(
   const nowIso = new Date().toISOString();
   const patch = {
     deleted_at: nowIso,
-    item_intake_1_id: null,
-    item_intake_2_id: null,
+    transfer_id: null,
     updated_at: nowIso,
   };
 
@@ -636,7 +522,7 @@ export async function archiveMemberIntakeShipment(
 
   if (fallback.error) return { ok: false, error: fallback.error.message };
   if (!fallback.data?.id) {
-    return { ok: false, error: "Shipment introuvable ou déjà archivé." };
+    return { ok: true };
   }
 
   return { ok: true };
@@ -694,18 +580,9 @@ export async function collectMemberIntakeShipmentIdsForGroup(
     }
   }
 
-  const orFilter = sortedIds.map((id) => memberIntakeShipmentItemIntakeOrFilter(id)).join(",");
-  if (orFilter) {
-    const { data: byFk } = await service
-      .from("shipments")
-      .select("id")
-      .eq("context", "member_intake")
-      .is("deleted_at", null)
-      .or(orFilter);
-    for (const row of byFk ?? []) {
-      const sid = String((row as { id?: string }).id ?? "").trim();
-      if (sid) seen.add(sid);
-    }
+  for (const itemId of sortedIds) {
+    const sid = await findMemberIntakeShipmentIdByItemId(service, itemId);
+    if (sid) seen.add(sid);
   }
 
   const resolvedCandidates = [...seen];
@@ -1062,6 +939,8 @@ export async function ensureMemberIntakeShipmentForPortal(
     forceCreate?: boolean;
     /** IDs shipment à ne jamais réutiliser (ex. lot fusionné conservé sur item_intake_1). */
     excludeShipmentIds?: string[];
+    /** Enveloppe logistique déjà créée : ne pas réutiliser un shipment rattaché à un autre envoi. */
+    existingTransferId?: string;
   },
 ): Promise<{ ok: true; shipmentId: string; reused: boolean } | { ok: false; error: string }> {
   const sortedIds = [...new Set(params.itemIds.map((x) => x.trim()).filter(Boolean))].sort();
@@ -1079,24 +958,62 @@ export async function ensureMemberIntakeShipmentForPortal(
   };
 
   let shipmentId: string | null = null;
+  let reused = false;
   const primaryItemId = primaryMemberIntakeItemId(sortedIds);
   let idsToSync = sortedIds;
 
-  if (!params.forceCreate && sortedIds.length === 1) {
+  const boundTransferId = params.existingTransferId?.trim() ?? "";
+
+  if (!params.forceCreate && boundTransferId && !shipmentId) {
+    const { data: transferShipment } = await service
+      .from("shipments")
+      .select("id")
+      .eq("transfer_id", boundTransferId)
+      .eq("context", "member_intake")
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const accepted = acceptShipmentId(
+      transferShipment?.id ? String(transferShipment.id) : null,
+    );
+    if (accepted) {
+      shipmentId = accepted;
+      reused = true;
+    }
+  }
+
+  if (!params.forceCreate && !boundTransferId && sortedIds.length === 1) {
     try {
       const { fetchDefaultIntakeShippingGroupIds } = await import("./intake-cart-return-piggyback");
       const peerIds = await fetchDefaultIntakeShippingGroupIds(service, params.ownerUserId, {
         focusItemId: sortedIds[0]!,
       });
       if (peerIds.length >= 2) {
-        idsToSync = peerIds;
+        const focusTransferId = await findActiveTransferIdForItem(service, sortedIds[0]!);
+        let sameTransfer = true;
+        for (const peerId of peerIds) {
+          const peerTransferId = await findActiveTransferIdForItem(service, peerId);
+          if (focusTransferId) {
+            if (peerTransferId !== focusTransferId) {
+              sameTransfer = false;
+              break;
+            }
+          } else if (peerTransferId) {
+            sameTransfer = false;
+            break;
+          }
+        }
+        if (sameTransfer) {
+          idsToSync = peerIds;
+        }
       }
     } catch {
       /* import / peer lookup optional */
     }
   }
 
-  if (!params.forceCreate) {
+  if (!params.forceCreate && !boundTransferId) {
     const probeIds = idsToSync.length >= 2 ? idsToSync : sortedIds;
     const groupShipIds = await collectMemberIntakeShipmentIdsForGroup(service, probeIds);
     const keeper = await findMemberIntakeKeeperForGroup(service, groupShipIds, probeIds);
@@ -1111,6 +1028,7 @@ export async function ensureMemberIntakeShipmentForPortal(
         (mergedIds.length >= 2 || mergedIds.includes(sortedIds[0]!))
       ) {
         shipmentId = accepted;
+        reused = true;
         if (idsToSync.length >= 2) {
           idsToSync = mergedIds;
         }
@@ -1118,7 +1036,7 @@ export async function ensureMemberIntakeShipmentForPortal(
     }
   }
 
-  if (!params.forceCreate && !shipmentId) {
+  if (!params.forceCreate && !boundTransferId && !shipmentId) {
     if (primaryItemId) {
       shipmentId = acceptShipmentId(
         await findMemberIntakeShipmentByItemIntakeId(service, primaryItemId),
@@ -1151,7 +1069,9 @@ export async function ensureMemberIntakeShipmentForPortal(
     }
   }
 
-  let reused = Boolean(shipmentId);
+  if (!reused) {
+    reused = Boolean(shipmentId);
+  }
 
   if (!shipmentId) {
     const released = await archiveConflictingActiveMemberIntakeShipments(service, idsToSync);
@@ -1159,15 +1079,22 @@ export async function ensureMemberIntakeShipmentForPortal(
       return { ok: false, error: released.error };
     }
 
-    const patch = buildMemberIntakeShipmentItemIntakePatch(sortedIds);
-    if (!patch.item_intake_1_id) {
+    if (!sortedIds[0]) {
       return { ok: false, error: "Aucune pièce." };
+    }
+    let transferIdForInsert = boundTransferId || (await resolveSharedTransferIdForItems(service, sortedIds));
+    if (!transferIdForInsert) {
+      const createdTransfer = await ensureTransferForUser(service, params.ownerUserId, sortedIds);
+      if (!createdTransfer.ok) {
+        return { ok: false, error: createdTransfer.error };
+      }
+      transferIdForInsert = createdTransfer.transferId;
     }
     const { data: inserted, error: insErr } = await service
       .from("shipments")
       .insert({
         cart_id: null,
-        ...patch,
+        transfer_id: transferIdForInsert,
         context: "member_intake",
         status: "pending",
       })
@@ -1376,7 +1303,8 @@ export async function resetMemberIntakeShipmentForPortal(
         ];
       }
 
-      // Conserve sendcloud_order_number + sc_return_portal_base_url
+      delete prev[SC_RETURN_PORTAL_BASE_URL];
+      delete prev.sendcloud_panel_shipment_id;
       await service.from("shipment_destinations").update({ metadata: prev }).eq("id", dest.id);
     }
   }
@@ -1504,14 +1432,45 @@ export async function resolveMemberIntakeReturnTracking(
   return null;
 }
 
-/** Commande Sendcloud stable pour un lot de pièces intake (hash des ids triés). */
-export function buildStableMemberIntakeOrderNumber(sortedIds: string[]): string {
+export function parseMemberIntakePortalGeneration(metadata: Record<string, unknown>): number {
+  const raw = metadata.sendcloud_label_generation;
+  const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : 1;
+}
+
+/** Commande Sendcloud pour un lot intake (génération > 1 après « Nouveau bordereau »). */
+export function buildMemberIntakeOrderNumber(sortedIds: string[], generation = 1): string {
   const sorted = [...new Set(sortedIds.map((x) => x.trim()).filter(Boolean))].sort();
   const shipmentKey = createHash("sha256").update(sorted.join("|")).digest("hex").slice(0, 16);
   return buildSendcloudOrderNumber({
     cartId: sorted[0]!,
     shipmentId: shipmentKey,
-    generation: 1,
+    generation: Math.max(1, generation),
+  });
+}
+
+/** Commande Sendcloud stable pour un lot de pièces intake (hash des ids triés). */
+export function buildStableMemberIntakeOrderNumber(sortedIds: string[]): string {
+  return buildMemberIntakeOrderNumber(sortedIds, 1);
+}
+
+export async function updateMemberIntakeDestinationForPortal(
+  service: SupabaseClient,
+  shipmentId: string,
+  params: {
+    orderNumber: string;
+    itemIds: string[];
+    ownerUserId: string;
+    recipient: SendcloudOutboundRecipient;
+    generation: number;
+  },
+): Promise<void> {
+  await ensureMemberIntakeDestination(service, shipmentId, {
+    orderNumber: params.orderNumber,
+    itemIds: params.itemIds,
+    ownerUserId: params.ownerUserId,
+    recipient: params.recipient,
+    metaPatch: { sendcloud_label_generation: Math.max(1, params.generation) },
   });
 }
 
@@ -1673,23 +1632,23 @@ async function archiveConflictingActiveMemberIntakeShipments(
 
   const toArchive = new Set<string>();
   for (const itemId of uniqueItems) {
-    const { data, error } = await service
+    const sid = await findMemberIntakeShipmentIdByItemId(service, itemId);
+    if (!sid || (keep && sid === keep)) continue;
+
+    const { data: row, error } = await service
       .from("shipments")
       .select("id, status, tracking_number")
+      .eq("id", sid)
       .eq("context", "member_intake")
       .is("deleted_at", null)
-      .or(memberIntakeShipmentItemIntakeOrFilter(itemId));
+      .maybeSingle();
     if (error) return { ok: false, error: error.message };
+    if (!row?.id) continue;
 
-    for (const row of data ?? []) {
-      const r = row as unknown as Record<string, unknown>;
-      const sid = String(r.id ?? "").trim();
-      if (!sid || (keep && sid === keep)) continue;
-      const status = String(r.status ?? "pending");
-      const tn = typeof r.tracking_number === "string" ? r.tracking_number : null;
-      if (!isMemberIntakeShipmentAttachable(status, tn)) continue;
-      toArchive.add(sid);
-    }
+    const status = String(row.status ?? "pending");
+    const tn = typeof row.tracking_number === "string" ? row.tracking_number : null;
+    if (!isMemberIntakeShipmentAttachable(status, tn)) continue;
+    toArchive.add(sid);
   }
 
   for (const sid of toArchive) {
@@ -1734,7 +1693,7 @@ async function findMemberIntakeKeeperForGroup(
 
     const tn = typeof r.tracking_number === "string" ? r.tracking_number : null;
     const hasReturnTracking = isIntakeMemberReturnTrackingNumber(tn);
-    const itemIds = readMemberIntakeIdsFromShipmentRow(r);
+    const itemIds = await resolveMemberIntakeItemIds(service, String(r.id));
     if (itemIds.length === 0) continue;
 
     const hasPrimaryItem = Boolean(primaryItemId && itemIds.includes(primaryItemId));
@@ -2261,18 +2220,19 @@ function resolveSplitKeeperItemFromOrderCandidates(
   return null;
 }
 
-/** Pièce « propriétaire » du bordereau : commande Sendcloud, slot 1 du lot, puis repli. */
+/** Pièce « propriétaire » du bordereau : commande Sendcloud, première pièce du lot, puis repli. */
 function resolveSplitKeeperItemForShipment(
   sortedItemIds: string[],
   shipmentRow: Record<string, unknown>,
   options: {
     destinationOrderNumber?: string | null;
     intakeMetaByItemId?: Map<string, unknown>;
+    linkedItemIds?: string[];
   },
 ): string {
   const sortedSet = new Set(sortedItemIds.map((id) => id.trim()).filter(Boolean));
   const primaryId = primaryMemberIntakeItemId(sortedItemIds) ?? sortedItemIds[0] ?? "";
-  const linked = readMemberIntakeIdsFromShipmentRow(shipmentRow).filter((id) => sortedSet.has(id));
+  const linked = (options.linkedItemIds ?? []).filter((id) => sortedSet.has(id));
   const shipmentTn =
     typeof shipmentRow.tracking_number === "string" ? shipmentRow.tracking_number.trim() : "";
   const orderCandidates = collectSplitKeeperOrderCandidates(sortedItemIds, linked, options);
@@ -2298,9 +2258,6 @@ function resolveSplitKeeperItemForShipment(
   }
 
   if (linked.length === 1) return linked[0]!;
-
-  const item1 = String(shipmentRow.item_intake_1_id ?? "").trim();
-  if (item1 && sortedSet.has(item1)) return item1;
 
   return primaryId;
 }
@@ -2332,26 +2289,32 @@ async function resolveMemberIntakeSplitKeeper(
 
   const { data: shipRows } = await service
     .from("shipments")
-    .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT)
+    .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SELECT)
     .in("id", shipmentIds)
     .eq("context", "member_intake")
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
+
+  const itemIdsByShipment = new Map<string, string[]>();
+  for (const sid of shipmentIds) {
+    itemIdsByShipment.set(sid, await resolveMemberIntakeItemIds(service, sid));
+  }
 
   for (const row of shipRows ?? []) {
     const r = row as unknown as Record<string, unknown>;
     const tn = typeof r.tracking_number === "string" ? r.tracking_number : null;
     if (!isIntakeMemberReturnTrackingNumber(tn)) continue;
 
-    const linked = readMemberIntakeIdsFromShipmentRow(r).filter((id) => sortedSet.has(id));
+    const shipmentId = String(r.id);
+    const linked = (itemIdsByShipment.get(shipmentId) ?? []).filter((id) => sortedSet.has(id));
     if (linked.length === 0) continue;
 
-    const shipmentId = String(r.id);
     const destMeta = await readMemberIntakeDestinationMetadata(service, shipmentId);
     const destOrder = String(destMeta.sendcloud_order_number ?? "").trim() || null;
     const keeperItemId = resolveSplitKeeperItemForShipment(sortedItemIds, r, {
       destinationOrderNumber: destOrder,
       intakeMetaByItemId,
+      linkedItemIds: linked,
     });
     return { keptShipmentId: shipmentId, keeperItemId };
   }
@@ -2374,6 +2337,7 @@ async function resolveMemberIntakeSplitKeeper(
       ? resolveSplitKeeperItemForShipment(sortedItemIds, keptRow, {
           destinationOrderNumber: destOrder,
           intakeMetaByItemId,
+          linkedItemIds: itemIdsByShipment.get(sid) ?? [],
         })
       : itemId;
     return { keptShipmentId: sid, keeperItemId };
@@ -2384,6 +2348,7 @@ async function resolveMemberIntakeSplitKeeper(
     shipmentIds,
     sortedItemIds,
     shipRows ?? [],
+    itemIdsByShipment,
   );
 
   let keeperItemId = fallbackItemId;
@@ -2397,6 +2362,7 @@ async function resolveMemberIntakeSplitKeeper(
       keeperItemId = resolveSplitKeeperItemForShipment(sortedItemIds, keptRow, {
         destinationOrderNumber: destOrder,
         intakeMetaByItemId,
+        linkedItemIds: itemIdsByShipment.get(keptShipmentId) ?? [],
       });
     }
   }
@@ -2410,6 +2376,7 @@ async function findMergedMemberIntakeShipmentIdForSplit(
   shipmentIds: string[],
   sortedItemIds: string[],
   prefetchedRows?: unknown[],
+  prefetchedItemIdsByShipment?: Map<string, string[]>,
 ): Promise<string | null> {
   if (shipmentIds.length === 0) return null;
 
@@ -2421,30 +2388,38 @@ async function findMergedMemberIntakeShipmentIdForSplit(
     (
       await service
         .from("shipments")
-        .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SLOTS_SELECT)
+        .select(MEMBER_INTAKE_SHIPMENT_ID_TRACKING_SELECT)
         .in("id", shipmentIds)
         .eq("context", "member_intake")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false })
     ).data;
 
+  const itemIdsByShipment = prefetchedItemIdsByShipment ?? new Map<string, string[]>();
+  if (!prefetchedItemIdsByShipment) {
+    for (const sid of shipmentIds) {
+      itemIdsByShipment.set(sid, await resolveMemberIntakeItemIds(service, sid));
+    }
+  }
+
   for (const row of data ?? []) {
     const r = row as unknown as Record<string, unknown>;
     const tn = typeof r.tracking_number === "string" ? r.tracking_number : null;
     if (!isIntakeMemberReturnTrackingNumber(tn)) continue;
-    const linked = readMemberIntakeIdsFromShipmentRow(r).filter((id) => sortedSet.has(id));
+    const linked = (itemIdsByShipment.get(String(r.id)) ?? []).filter((id) => sortedSet.has(id));
     if (linked.length > 0) return String(r.id);
   }
 
-  let slotBest: { id: string; count: number } | null = null;
+  let groupBest: { id: string; count: number } | null = null;
   for (const row of data ?? []) {
-    const linked = readMemberIntakeIdsFromShipmentRow(row as unknown as Record<string, unknown>);
+    const sid = String((row as { id?: string }).id ?? "");
+    const linked = (itemIdsByShipment.get(sid) ?? []).filter((id) => sortedSet.has(id));
     if (linked.length < 2) continue;
-    if (!slotBest || linked.length > slotBest.count) {
-      slotBest = { id: String((row as { id: string }).id), count: linked.length };
+    if (!groupBest || linked.length > groupBest.count) {
+      groupBest = { id: sid, count: linked.length };
     }
   }
-  if (slotBest) return slotBest.id;
+  if (groupBest) return groupBest.id;
 
   let destBest: { id: string; count: number } | null = null;
   for (const sid of shipmentIds) {
@@ -2463,17 +2438,8 @@ async function findMergedMemberIntakeShipmentIdForSplit(
   if (destBest) return destBest.id;
 
   if (primaryItemId) {
-    const { data: byPrimary } = await service
-      .from("shipments")
-      .select("id")
-      .in("id", shipmentIds)
-      .eq("context", "member_intake")
-      .eq("item_intake_1_id", primaryItemId)
-      .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (byPrimary?.id) return String(byPrimary.id);
+    const sid = await findMemberIntakeShipmentIdByItemId(service, primaryItemId);
+    if (sid && shipmentIds.includes(sid)) return sid;
   }
 
   if (shipmentIds.length === 1) return shipmentIds[0]!;

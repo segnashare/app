@@ -20,7 +20,11 @@ import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import { fetchCartOutfitSuggestions } from "@/lib/shop/fetch-cart-outfit-suggestions";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
+import { collectCartPreloadUrls } from "@/lib/page-preload/collect-page-preload-urls";
+import { PageImageReadyShell } from "@/components/ui/PageImageReadyShell";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
@@ -148,9 +152,23 @@ export default async function CartPage() {
     }),
   );
 
+  const itemIdsForOutfit = [...new Set(cartLinesBase.map((l) => l.itemId))];
+  const cartOutfitSuggestionItems =
+    itemIdsForOutfit.length > 0
+      ? await perf.measure("cart.outfitSuggestions", () =>
+          fetchCartOutfitSuggestions(catalogSb, itemIdsForOutfit, {
+            excludeItemIds: itemIdsForOutfit,
+            limit: 10,
+          }),
+        )
+      : [];
+
   const cmsShopItemIds = collectCmsShopItemIdsFromSectionsByKey(cmsSectionsByKey);
   const cmsShopHubCatalogItemsBase = await perf.measure("cms.shopItems", () => fetchShopCatalogItemsByIds(supabase, cmsShopItemIds));
-  const cmsShopHubCatalogItems = mergeShopCatalogItemsDedupe(cmsShopHubCatalogItemsBase, cartShopSystemForYouItems);
+  const cmsShopHubCatalogItems = mergeShopCatalogItemsDedupe(
+    mergeShopCatalogItemsDedupe(cmsShopHubCatalogItemsBase, cartShopSystemForYouItems),
+    cartOutfitSuggestionItems,
+  );
 
   const itemIdsForComp = [...new Set(cartLinesBase.map((l) => l.itemId))];
   let cartLines = cartLinesBase;
@@ -166,6 +184,15 @@ export default async function CartPage() {
     ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
     : null;
 
+  const initialCoverUrlById = await perf.measure("storage.covers", () =>
+    resolveShopCatalogCoverUrlsServer(supabase as never, cmsShopHubCatalogItems),
+  );
+  const preloadImageUrls = collectCartPreloadUrls({
+    cartLines,
+    cmsSectionsByKey,
+    initialCoverUrlById,
+  });
+
   perf.log({
     cartLines: cartLines.length,
     cmsSections: cmsKeys.length,
@@ -173,28 +200,32 @@ export default async function CartPage() {
   });
 
   return (
-    <main className="flex w-full flex-col bg-zinc-100">
-      <CartScreen
-        userId={userId}
-        initialLines={cartLines}
-        activeCartId={activeCart.cartId}
-        cartStatus={activeCart.status}
-        membershipLabel={membershipLabel}
-        availablePoints={availablePoints}
-        balanceConsumptionPoints={isDemoMode ? demoWalletPoints.consumption : walletPoints.consumption}
-        balanceExchangePoints={isDemoMode ? demoWalletPoints.exchange : walletPoints.exchange}
-        hasReachedLendingCap={false}
-        panierSectionOrder={panierSectionOrder}
-        cmsSectionsByKey={cmsSectionsByKey}
-        cmsShopHubCatalogItems={cmsShopHubCatalogItems}
-        cartShopSystemForYouItems={cartShopSystemForYouItems}
-        showOfferOnboarding={showOfferInAppOnboarding}
-        welcomeGiftOfferEligible={welcomeGiftOfferEligible}
-        includedCreditsActivationContent={includedCreditsActivationContent}
-        profileComplete={paymentEligibility.profileComplete}
-        kycVerified={paymentEligibility.kycVerified}
-        borrowCheckoutOptions={borrowCheckoutOptions}
-      />
-    </main>
+    <PageImageReadyShell preloadUrls={preloadImageUrls} loadingLabel="Chargement du panier">
+      <main className="flex w-full flex-col bg-zinc-100">
+        <CartScreen
+          userId={userId}
+          initialLines={cartLines}
+          activeCartId={activeCart.cartId}
+          cartStatus={activeCart.status}
+          membershipLabel={membershipLabel}
+          availablePoints={availablePoints}
+          balanceConsumptionPoints={isDemoMode ? demoWalletPoints.consumption : walletPoints.consumption}
+          balanceExchangePoints={isDemoMode ? demoWalletPoints.exchange : walletPoints.exchange}
+          hasReachedLendingCap={false}
+          panierSectionOrder={panierSectionOrder}
+          cmsSectionsByKey={cmsSectionsByKey}
+          cmsShopHubCatalogItems={cmsShopHubCatalogItems}
+          initialCoverUrlById={initialCoverUrlById}
+          cartShopSystemForYouItems={cartShopSystemForYouItems}
+          cartOutfitSuggestionItems={cartOutfitSuggestionItems}
+          showOfferOnboarding={showOfferInAppOnboarding}
+          welcomeGiftOfferEligible={welcomeGiftOfferEligible}
+          includedCreditsActivationContent={includedCreditsActivationContent}
+          profileComplete={paymentEligibility.profileComplete}
+          kycVerified={paymentEligibility.kycVerified}
+          borrowCheckoutOptions={borrowCheckoutOptions}
+        />
+      </main>
+    </PageImageReadyShell>
   );
 }

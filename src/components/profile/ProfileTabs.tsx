@@ -19,6 +19,7 @@ import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { cn } from "@/lib/utils/cn";
 import { persistProfileCompletionScore } from "@/lib/profile/profile-completion-score";
+import type { ProfileHeaderData } from "@/lib/profile/fetch-profile-header-server";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 
@@ -36,6 +37,8 @@ type ProfileTabId = (typeof PROFILE_TABS)[number]["id"];
 type ProfileTabsProps = {
   initialTab?: string;
   initialDisplayName?: string;
+  /** En-tête profil déjà résolu côté serveur (avatar signé, score). */
+  initialHeaderData?: ProfileHeaderData;
   /** CMS — onglet Obtenir plus */
   initialPlusTabCmsFrames?: CmsFrameRow[];
   /** CMS — onglet Mon profil : frames `profile_plus_hero` (page Autre dans le BO), même format que « Obtenir plus ». */
@@ -44,18 +47,6 @@ type ProfileTabsProps = {
   initialReferralBannerFrames?: CmsFrameRow[];
   /** Code parrainage (table `referrals_codes`) — affiché sous les cartes « Obtenir plus ». */
   initialReferralCode?: string | null;
-};
-
-type ProfileHeaderData = {
-  displayName: string;
-  completionScore: number;
-  avatarUrl: string | null;
-  profilePhotoPath: string | null;
-  avatarTransform: {
-    offset: { x: number; y: number };
-    zoom: number;
-  };
-  kycStatus: "pending" | "rejected" | "verified" | "unknown";
 };
 
 type BadgeProgressItem = {
@@ -274,6 +265,7 @@ function writeProfileHeaderCache(userId: string, headerData: ProfileHeaderData) 
 export function ProfileTabs({
   initialTab,
   initialDisplayName,
+  initialHeaderData,
   initialPlusTabCmsFrames = [],
   initialMeTabProfileHeroFrames = [],
   initialReferralBannerFrames = [],
@@ -289,25 +281,28 @@ export function ProfileTabs({
   const processedModifyIdRef = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<ProfileTabId>(parseProfileTab(initialTab));
-  const [headerData, setHeaderData] = useState<ProfileHeaderData>({
-    ...DEFAULT_HEADER_DATA,
-    displayName: initialDisplayName || DEFAULT_HEADER_DATA.displayName,
-    completionScore: 0,
-  });
-  const [isLoadingHeader, setIsLoadingHeader] = useState(true);
+  const [headerData, setHeaderData] = useState<ProfileHeaderData>(
+    () => initialHeaderData ?? {
+      ...DEFAULT_HEADER_DATA,
+      displayName: initialDisplayName || DEFAULT_HEADER_DATA.displayName,
+      completionScore: 0,
+    },
+  );
+  const [isLoadingHeader, setIsLoadingHeader] = useState(() => !initialHeaderData);
   const [headerError, setHeaderError] = useState<string | null>(null);
-  const hasWarmHeaderDataRef = useRef(false);
+  const hasWarmHeaderDataRef = useRef(Boolean(initialHeaderData));
   const [gamificationData, setGamificationData] = useState<ProfileGamificationData>(DEFAULT_GAMIFICATION_DATA);
   const [isLoadingGamification, setIsLoadingGamification] = useState(true);
   const [onboardingProcess, setOnboardingProcess] = useState<string | null>(null);
   const shouldGuideProfileCompletion = onboardingProcess === "profile";
   useEffect(() => {
+    if (initialHeaderData) return;
     const cached = readWarmProfileHeaderCache();
     if (!cached) return;
     setHeaderData(cached);
     setIsLoadingHeader(false);
     hasWarmHeaderDataRef.current = true;
-  }, []);
+  }, [initialHeaderData]);
 
   const fetchHeaderData = useCallback(async (options?: { forceRefresh?: boolean }) => {
     if (options?.forceRefresh || !hasWarmHeaderDataRef.current) {
@@ -396,8 +391,9 @@ export function ProfileTabs({
   }, [initialDisplayName]);
 
   useEffect(() => {
+    if (initialHeaderData) return;
     void fetchHeaderData();
-  }, [fetchHeaderData]);
+  }, [fetchHeaderData, initialHeaderData]);
 
   useEffect(() => {
     let cancelled = false;

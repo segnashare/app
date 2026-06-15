@@ -3,6 +3,7 @@ import {
   CmsHorizontalScrollRow,
 } from "@/components/cms/CmsSectionBlocks";
 import { ExchangeLendsEmptyCmsBlock } from "@/components/exchange/ExchangeLendsEmptyCmsBlock";
+import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
 import { ExchangeLendItemRow } from "@/components/exchange/ExchangeLendItemRow";
 import { ExchangeProposePieceButton } from "@/components/exchange/ExchangeProposePieceButton";
 import { CardBase } from "@/components/layout/CardBase";
@@ -10,8 +11,6 @@ import { SectionBlock } from "@/components/layout/SectionBlock";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
-import { readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
-import { MEMBER_INTAKE_SHIPMENT_MAX_ITEMS } from "@/lib/items/member-intake-shipment";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
@@ -52,6 +51,7 @@ export type LendItem = {
     zoom?: number;
     aspect?: string;
   } | null;
+  photosLayout?: ItemPhotoLayout | null;
 };
 
 type ExchangeLendsSectionProps = {
@@ -63,6 +63,12 @@ type ExchangeLendsSectionProps = {
   validatedLendsCount: number;
   /** Pièces en expédition membre — si 2, proposition d’envoi groupé. */
   mergedShippingCandidateIds: string[];
+  /** Lot expédition par pièce (transfer), prioritaire sur `mergedShippingCandidateIds`. */
+  shippingGroupByItemId?: Record<string, string[]>;
+  /** Transfer par pièce en vérification Segna. */
+  verificationTransferIdByItemId?: Record<string, string>;
+  /** Transfer par pièce en récupération (outtake). */
+  outtakeTransferIdByItemId?: Record<string, string>;
   /** Bloc CMS `commerce_promo_ad` fusionné sous le titre (abonnés : image seule). */
   promoAdRows?: CmsFrameRow[];
   /** Rail CMS lorsque `lends` est vide (`exchange_lends_empty`), comme panier vide dans Panier actif. */
@@ -75,6 +81,9 @@ export function ExchangeLendsSection({
   lends,
   membershipLabel,
   mergedShippingCandidateIds,
+  shippingGroupByItemId = {},
+  verificationTransferIdByItemId = {},
+  outtakeTransferIdByItemId = {},
   promoAdRows = [],
   emptyLendsCms = null,
   emptyLendsCmsCatalogItems = [],
@@ -85,17 +94,17 @@ export function ExchangeLendsSection({
 
   const lendPriceCreditKind = walletCreditKindForMembership(membershipLabel);
 
-  const showMergePopup =
-    mergedShippingCandidateIds.length >= 2 &&
-    mergedShippingCandidateIds.length <= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
   const defaultShippingGroupIds =
     mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
-  const pendingShippingLends = lends.filter((l) => mergedShippingCandidateIds.includes(l.id));
-  const shipmentsSplit =
-    pendingShippingLends.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS &&
-    pendingShippingLends.every((l) => readShippingPreferSolo(l.intake?.metadata));
-  const blockEvaluationValidation = mergedShippingCandidateIds.length >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
 
+  function shippingGroupForLend(itemId: string): string[] | undefined {
+    const scoped = shippingGroupByItemId[itemId];
+    if (scoped && scoped.length > 0) return scoped;
+    if (defaultShippingGroupIds.length >= 2 && defaultShippingGroupIds.includes(itemId)) {
+      return defaultShippingGroupIds;
+    }
+    return undefined;
+  }
   const lendsSectionTitle = "Prêts";
 
   const lendsPreShipping: LendItem[] = [];
@@ -151,24 +160,16 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
+                  photosLayout={item.photosLayout}
                   creditKind={lendPriceCreditKind}
-                  defaultShippingGroupIds={defaultShippingGroupIds}
-                  blockEvaluationValidation={blockEvaluationValidation}
-                  pendingShippingItemIds={mergedShippingCandidateIds}
-                  shipmentsSplit={shipmentsSplit}
+                  defaultShippingGroupIds={shippingGroupForLend(item.id)}
+                  verificationTransferId={verificationTransferIdByItemId[item.id] ?? null}
+                  outtakeTransferId={outtakeTransferIdByItemId[item.id] ?? null}
                 />
               </div>
             ))}
             {lendsShippingOnly.map((item) => (
-              <div
-                key={item.id}
-                className={cn(
-                  "px-5 py-2",
-                  showMergePopup && mergedShippingCandidateIds.includes(item.id)
-                    ? "border-b-0 bg-sky-50/55 ring-1 ring-sky-400/80 ring-inset"
-                    : "",
-                )}
-              >
+              <div key={item.id} className="px-5 py-2">
                 <ExchangeLendItemRow
                   id={item.id}
                   name={item.name}
@@ -179,11 +180,11 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
+                  photosLayout={item.photosLayout}
                   creditKind={lendPriceCreditKind}
-                  defaultShippingGroupIds={defaultShippingGroupIds}
-                  blockEvaluationValidation={blockEvaluationValidation}
-                  pendingShippingItemIds={mergedShippingCandidateIds}
-                  shipmentsSplit={shipmentsSplit}
+                  defaultShippingGroupIds={shippingGroupForLend(item.id)}
+                  verificationTransferId={verificationTransferIdByItemId[item.id] ?? null}
+                  outtakeTransferId={outtakeTransferIdByItemId[item.id] ?? null}
                 />
               </div>
             ))}
@@ -199,10 +200,10 @@ export function ExchangeLendsSection({
                   intake={item.intake}
                   photoUrl={item.photoUrl}
                   photoPosition={item.photoPosition}
+                  photosLayout={item.photosLayout}
                   creditKind={lendPriceCreditKind}
-                  blockEvaluationValidation={blockEvaluationValidation}
-                  pendingShippingItemIds={mergedShippingCandidateIds}
-                  shipmentsSplit={shipmentsSplit}
+                  verificationTransferId={verificationTransferIdByItemId[item.id] ?? null}
+                  outtakeTransferId={outtakeTransferIdByItemId[item.id] ?? null}
                 />
               </div>
             ))}
@@ -210,11 +211,7 @@ export function ExchangeLendsSection({
         ) : null}
 
         <div className="flex justify-end rounded-xl py-0.5">
-          <ExchangeProposePieceButton
-            guideExchangeOnboarding={guideExchangeOnboarding}
-            pendingShippingItemIds={mergedShippingCandidateIds}
-            shipmentsSplit={shipmentsSplit}
-          />
+          <ExchangeProposePieceButton guideExchangeOnboarding={guideExchangeOnboarding} />
         </div>
       </CardBase>
     </SectionBlock>

@@ -89,7 +89,7 @@ function collectCreditedLendItemIds(rows: WalletTxRow[]): Set<string> {
   return ids;
 }
 
-/** Prêt validé par Segna, crédits versés après réception / contrôle entrepôt. */
+/** Prêt en file vérification Segna : crédits versés uniquement après passage BO → verified. */
 function isPendingLendPayout(
   listingStage: string,
   fulfillmentStage: string,
@@ -98,8 +98,7 @@ function isPendingLendPayout(
 ): boolean {
   if (creditedItemIds.has(itemId)) return false;
   if (listingStage !== "validated") return false;
-  if (fulfillmentStage === "verified" || fulfillmentStage === "refused") return false;
-  return true;
+  return fulfillmentStage === "in_verification";
 }
 
 export async function fetchWalletOverview(supabaseInput: unknown, userId: string): Promise<WalletOverview> {

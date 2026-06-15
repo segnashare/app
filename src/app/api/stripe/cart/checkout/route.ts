@@ -27,7 +27,6 @@ import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition
 import { buildCartOrderCheckoutMetadata } from "@/lib/stripe/cart-checkout-stripe-metadata";
 import {
   confirmCartPaidWalletOnly,
-  debitCartWalletOnly,
   finalizeCartOutboundSendcloudAfterConfirm,
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
@@ -539,7 +538,6 @@ export async function POST(request: Request) {
       }
 
       try {
-        await debitCartWalletOnly(admin as unknown as Parameters<typeof debitCartWalletOnly>[0], userId, activeCart.cartId, creditsKind);
         await confirmCartPaidWalletOnly(
           admin as unknown as Parameters<typeof confirmCartPaidWalletOnly>[0],
           userId,
@@ -548,7 +546,7 @@ export async function POST(request: Request) {
           relayMeta,
           deliveryLine1Meta,
           returnRelayFields,
-          usedIncludedOrder,
+          creditsKind,
         );
         const walletSendcloudOutbound = await resolveCartCheckoutSendcloudOutboundSelection({
           deliveryChannel,

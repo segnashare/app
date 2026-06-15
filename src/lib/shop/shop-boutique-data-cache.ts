@@ -1,22 +1,31 @@
 /**
  * Chargeurs boutique (filtres + CMS hub).
  *
- * Les filtres « main project » hors mode démo : un RPC SQL + optionnellement `unstable_cache`
- * via client service role (sans `cookies()`), car Next interdit `cookies()` dans le callback
- * de `unstable_cache`. Les lectures CMS hub restent sur `createSupabaseServerClient()` (URLs
- * signées dépendantes du contexte — pas de cache long ici).
+ * Filtres : RPC SQL + `unstable_cache` via client service role.
+ * CMS hub : RPC en cache (sans URLs) + signature batch via client admin.
  */
 import { unstable_cache } from "next/cache";
 
 import { fetchBoutiqueHubSectionOrder } from "@/lib/cms/fetch-boutique-hub-section-order";
-import { fetchCmsCatalogSectionResolved } from "@/lib/cms/fetch-cms-catalog-section";
-import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
-import { fetchCmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
-import { SHOP_HUB_SECTION_KEYS } from "@/lib/cms/shop-hub-sections";
+import {
+  fetchCmsCatalogSectionRaw,
+  type CmsCatalogSectionBundle,
+} from "@/lib/cms/fetch-cms-catalog-section";
+import { fetchCmsSectionFramesRaw } from "@/lib/cms/fetch-cms-section-frames";
+import {
+  fetchCmsSectionPublishedConfigRaw,
+  parseCmsSectionPublishedDisplay,
+} from "@/lib/cms/fetch-cms-section-published-config";
+import { CMS_SIGNED_URL_TTL_SECONDS, cmsStorageSignClient } from "@/lib/cms/cms-sign-client";
+import { collectCmsStoragePaths } from "@/lib/cms/cms-storage-paths";
+import { applySignedUrlsToCmsPayload, resolveCmsFrameRowsStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
+import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import { SHOP_HUB_SECTION_KEYS, type ShopHubSectionSlug } from "@/lib/cms/shop-hub-sections";
 import { enrichShopFilterSizesWithCode } from "@/lib/shop/enrich-shop-filter-sizes";
 import { tryCreateSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 import type { Database } from "@/lib/supabase/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -167,39 +176,92 @@ export async function fetchShopFilterMaterialsCached(isDemoMode: boolean) {
   return db.from("item_materiaux").select("id,label").order("label", { ascending: true });
 }
 
+let shopHubSignClientPromise: Promise<StorageSignClient> | null = null;
+
+async function shopHubStorageSignClient(): Promise<StorageSignClient> {
+  if (!shopHubSignClientPromise) {
+    shopHubSignClientPromise = createSupabaseServerClient().then((client) =>
+      cmsStorageSignClient(client as unknown as StorageSignClient),
+    );
+  }
+  return shopHubSignClientPromise;
+}
+
+/** Signe les visuels de plusieurs lots de frames CMS en un seul appel Storage. */
+export async function resolveShopHubCmsFrameRowsBatch(frameGroups: CmsFrameRow[][]): Promise<CmsFrameRow[][]> {
+  const allRows = frameGroups.flat();
+  if (allRows.length === 0) return frameGroups.map(() => []);
+  const signClient = await shopHubStorageSignClient();
+  const paths = [...collectCmsStoragePaths(allRows.map((row) => row.payload))];
+  const signedByPath = await createSignedUrlsForStoragePaths(signClient, paths, CMS_SIGNED_URL_TTL_SECONDS);
+  return frameGroups.map((rows) =>
+    rows.map((row) => ({
+      ...row,
+      payload: applySignedUrlsToCmsPayload(row.payload, signedByPath),
+    })),
+  );
+}
+
+async function resolveShopHubCatalogSectionsBatch(
+  slugs: ShopHubSectionSlug[],
+): Promise<Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>> {
+  if (slugs.length === 0) return {};
+  const sessionClient = await createSupabaseServerClient();
+  const raws = await Promise.all(
+    slugs.map(async (slug) => ({
+      slug,
+      raw: await fetchCmsCatalogSectionRaw(sessionClient as unknown as StorageSignClient, SHOP_HUB_SECTION_KEYS[slug]),
+    })),
+  );
+  const resolvedFrames = await resolveShopHubCmsFrameRowsBatch(raws.map(({ raw }) => raw.frames));
+  const out: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>> = {};
+  raws.forEach(({ slug, raw }, index) => {
+    out[slug] = { config: raw.config, frames: resolvedFrames[index] ?? [] };
+  });
+  return out;
+}
+
 export async function fetchShopHubDiscoverCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.discover);
+  const sections = await resolveShopHubCatalogSectionsBatch(["discover"]);
+  return sections.discover ?? { config: {}, frames: [] };
 }
 
 export async function fetchShopHubCategoriesCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.categories);
+  const sections = await resolveShopHubCatalogSectionsBatch(["categories"]);
+  return sections.categories ?? { config: {}, frames: [] };
 }
 
 export async function fetchShopHubPreferredBrandsCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.preferredBrands);
+  const sections = await resolveShopHubCatalogSectionsBatch(["preferredBrands"]);
+  return sections.preferredBrands ?? { config: {}, frames: [] };
 }
 
 export async function fetchShopHubDealsCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.deals);
+  const sections = await resolveShopHubCatalogSectionsBatch(["deals"]);
+  return sections.deals ?? { config: {}, frames: [] };
 }
 
 export async function fetchShopHubFrenchCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsCatalogSectionResolved(supabase, SHOP_HUB_SECTION_KEYS.french);
+  const sections = await resolveShopHubCatalogSectionsBatch(["french"]);
+  return sections.french ?? { config: {}, frames: [] };
+}
+
+/** Charge plusieurs sections hub en parallèle avec signature batch des visuels CMS. */
+export async function fetchShopHubSectionsBatchCached(slugs: ShopHubSectionSlug[]) {
+  return resolveShopHubCatalogSectionsBatch(slugs);
 }
 
 export async function fetchShopHomeCapsulesFramesCached() {
-  const supabase = await createSupabaseServerClient();
-  return fetchCmsSectionFramesResolved(supabase, "shop_home_capsules");
+  const signClient = await shopHubStorageSignClient();
+  const sessionClient = await createSupabaseServerClient();
+  const rows = await fetchCmsSectionFramesRaw(sessionClient as unknown as StorageSignClient, "shop_home_capsules");
+  return resolveCmsFrameRowsStorageUrls(rows, signClient);
 }
 
 export async function fetchShopHomeCapsulesDisplayCached() {
   const supabase = await createSupabaseServerClient();
-  return fetchCmsSectionPublishedDisplay(supabase, "shop_home_capsules");
+  const raw = await fetchCmsSectionPublishedConfigRaw(supabase, "shop_home_capsules");
+  return parseCmsSectionPublishedDisplay(raw);
 }
 
 export async function fetchBoutiqueHubSectionOrderCached() {

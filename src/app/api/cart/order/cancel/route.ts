@@ -67,24 +67,6 @@ export async function POST(request: Request) {
       ? (invoiceRaw as Record<string, unknown>)
       : null;
 
-  const cents = Math.trunc(Number(invoice?.amount_total_cents ?? 0));
-  if (cents > 0) {
-    const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
-    if (!secretKey) {
-      console.error("[api/cart/order/cancel] STRIPE_SECRET_KEY missing");
-      return NextResponse.json({ error: "Configuration serveur incomplète." }, { status: 500 });
-    }
-    const stripe = new Stripe(secretKey);
-    const refundRes = await refundCartOrderStripePaymentIfNeeded({
-      stripe,
-      cartId,
-      invoice,
-    });
-    if (!refundRes.ok) {
-      return NextResponse.json({ error: refundRes.error }, { status: 502 });
-    }
-  }
-
   const { data, error } = await supabase.rpc("member_cancel_cart_order_pending_preparation", {
     p_cart_id: cartId,
   });
@@ -147,6 +129,24 @@ export async function POST(request: Request) {
     }
     console.error("[api/cart/order/cancel]", msg);
     return NextResponse.json({ error: "Annulation impossible pour le moment. Réessaie ou contacte le support." }, { status: 500 });
+  }
+
+  const cents = Math.trunc(Number(invoice?.amount_total_cents ?? 0));
+  if (cents > 0) {
+    const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
+    if (!secretKey) {
+      console.error("[api/cart/order/cancel] STRIPE_SECRET_KEY missing");
+      return NextResponse.json({ error: "Configuration serveur incomplète." }, { status: 500 });
+    }
+    const stripe = new Stripe(secretKey);
+    const refundRes = await refundCartOrderStripePaymentIfNeeded({
+      stripe,
+      cartId,
+      invoice,
+    });
+    if (!refundRes.ok) {
+      return NextResponse.json({ error: refundRes.error }, { status: 502 });
+    }
   }
 
   const admin = createSupabaseAdminClient();

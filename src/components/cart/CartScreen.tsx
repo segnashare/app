@@ -29,6 +29,7 @@ import {
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
+import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
 import { CartShopSystemForYouSection } from "@/components/cart/CartShopSystemForYouSection";
 import {
   CMS_SHOP_HUB_FRAME_WIDE_OUTER_CLASS,
@@ -40,6 +41,7 @@ import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-clai
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
 import { sortCartLinesByPriceAsc } from "@/lib/cart/sort-cart-lines-by-price";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -78,8 +80,12 @@ type CartScreenProps = {
   cmsSectionsByKey?: Record<string, { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay }>;
   /** Pièces catalogue pour rendu riche des frames `shop_item_ref` (même carte que la boutique). */
   cmsShopHubCatalogItems?: ShopCatalogItem[];
+  /** Couvertures déjà signées côté serveur (évite les vignettes grises au chargement). */
+  initialCoverUrlById?: Record<string, string>;
   /** Échantillon catalogue pour le bloc AUTO « Susceptibles de vous plaire » sur le panier (`shop_system_for_you`). */
   cartShopSystemForYouItems?: ShopCatalogItem[];
+  /** Suggestions contextuelles tenue (`cart_system_outfit_suggestions`). */
+  cartOutfitSuggestionItems?: ShopCatalogItem[];
   /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
   showOfferOnboarding?: boolean;
   /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
@@ -138,10 +144,12 @@ export function CartScreen({
   balanceConsumptionPoints,
   balanceExchangePoints,
   hasReachedLendingCap,
-  panierSectionOrder = ["cart_system_items", "cart_offers", "cart_system_exchange"],
+  panierSectionOrder = ["cart_system_items", "cart_system_outfit_suggestions", "cart_offers", "cart_system_exchange"],
   cmsSectionsByKey = {},
   cmsShopHubCatalogItems = [],
+  initialCoverUrlById = {},
   cartShopSystemForYouItems = [],
+  cartOutfitSuggestionItems = [],
   showOfferOnboarding = false,
   welcomeGiftOfferEligible = false,
   includedCreditsActivationContent = null,
@@ -177,6 +185,37 @@ export function CartScreen({
         .join(","),
     [lines],
   );
+
+  useEffect(() => {
+    setLines(sortCartLinesByPriceAsc(initialLines));
+  }, [initialLines]);
+
+  const refreshCartLinesFromServer = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const nextLines = await fetchActiveCartLinesForUser(supabase, user.id);
+    const itemIds = [...new Set(nextLines.map((line) => line.itemId))];
+    if (itemIds.length === 0) {
+      setLines([]);
+      return;
+    }
+
+    const { data, error } = await supabase.rpc("get_cart_items_competition_state", { p_item_ids: itemIds });
+    if (error) {
+      setLines(sortCartLinesByPriceAsc(nextLines));
+      return;
+    }
+    setLines(sortCartLinesByPriceAsc(mergeCompetitionIntoCartLines(nextLines, data)));
+  }, [supabase]);
+
+  useEffect(() => {
+    const onCartChanged = () => void refreshCartLinesFromServer();
+    window.addEventListener("segna:cart-changed", onCartChanged as EventListener);
+    return () => window.removeEventListener("segna:cart-changed", onCartChanged as EventListener);
+  }, [refreshCartLinesFromServer]);
 
   useEffect(() => {
     if (!competitionItemIdsKey) return;
@@ -317,7 +356,7 @@ export function CartScreen({
         if (isNewReservation) {
           setCartReservationTimerStart();
         }
-        router.push("/cart/payment");
+        router.push("/cart/upsell");
         router.refresh();
       } else {
         setReserveError("Réponse inattendue du serveur — réessaie ou recharge la page.");
@@ -413,7 +452,11 @@ export function CartScreen({
 
       <div className="flex flex-col pt-0">
         {/* Entre sections : gutter zinc 4.5px. En bas : réserve dock en blanc (pas de bande zinc comme avec padding-bottom transparent). */}
-        <CartCmsShopHubProvider catalogItems={cmsShopHubCatalogItems} onCartMutation={() => router.refresh()}>
+        <CartCmsShopHubProvider
+          catalogItems={cmsShopHubCatalogItems}
+          initialCoverUrlById={initialCoverUrlById}
+          onCartMutation={() => router.refresh()}
+        >
           <div className="flex flex-col space-y-[4.5px]">
           {panierSectionOrder.map((slotKey) => {
             if (slotKey === "cart_system_items") {
@@ -448,6 +491,18 @@ export function CartScreen({
                     onRemoveLine={(id) => void removeLine(id)}
                   />
                 </section>
+              );
+            }
+
+            if (slotKey === "cart_system_outfit_suggestions") {
+              if (orderedLines.length === 0) return null;
+              const cartItemIds = [...new Set(orderedLines.map((line) => line.itemId))];
+              return (
+                <CartOutfitSuggestionsSection
+                  key={slotKey}
+                  cartItemIds={cartItemIds}
+                  initialItems={cartOutfitSuggestionItems}
+                />
               );
             }
 
@@ -607,7 +662,7 @@ export function CartScreen({
                   type="button"
                   onClick={() => {
                     if (!openPaymentGateOrProceed()) return;
-                    router.push("/cart/payment");
+                    router.push("/cart/upsell");
                   }}
                   className={cn(
                     "flex h-12 w-full items-center justify-center rounded-2xl text-[15px] font-bold text-white shadow-sm transition",

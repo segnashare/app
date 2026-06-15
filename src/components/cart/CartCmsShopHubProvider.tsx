@@ -31,12 +31,18 @@ const CART_CMS_ITEM_SEARCH_STATE = {
 
 type CartCmsShopHubProviderProps = {
   catalogItems: ShopCatalogItem[];
+  initialCoverUrlById?: Record<string, string>;
   /** Après ajout / retrait panier depuis une carte CMS : re-sync serveur (ex. `router.refresh`). */
   onCartMutation?: () => void;
   children: ReactNode;
 };
 
-export function CartCmsShopHubProvider({ catalogItems, onCartMutation, children }: CartCmsShopHubProviderProps) {
+export function CartCmsShopHubProvider({
+  catalogItems,
+  initialCoverUrlById = {},
+  onCartMutation,
+  children,
+}: CartCmsShopHubProviderProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { itemIds: localCartItemIds, refresh: refreshCartItemIds } = useActiveCartItemIds();
@@ -47,8 +53,8 @@ export function CartCmsShopHubProvider({ catalogItems, onCartMutation, children 
     return m;
   }, [catalogItems]);
 
-  const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>({});
-  const coverResolvedRef = useRef<Set<string>>(new Set());
+  const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(initialCoverUrlById);
+  const coverResolvedRef = useRef<Set<string>>(new Set(Object.keys(initialCoverUrlById)));
 
   const [likedSet, setLikedSet] = useState<Set<string>>(() => new Set());
   const [likeBusyIds, setLikeBusyIds] = useState<Set<string>>(() => new Set());

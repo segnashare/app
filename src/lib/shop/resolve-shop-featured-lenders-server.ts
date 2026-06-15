@@ -98,7 +98,7 @@ async function filterExcludedUserIds(
         in: (col: string, vals: string[]) => Promise<{ data: unknown; error: { message?: string } | null }>;
       };
     })
-      .select("id, status, email, deleted_at")
+      .select("id, status, email, deleted_at, phantom_mode")
       .in("id", userIds),
     (db.from("user_roles") as {
       select: (c: string) => {
@@ -121,12 +121,14 @@ async function filterExcludedUserIds(
       status?: string;
       email?: string | null;
       deleted_at?: string | null;
+      phantom_mode?: boolean | null;
     }>) {
       const id = typeof row.id === "string" ? row.id : "";
       if (!id) continue;
       if (row.deleted_at != null) excluded.add(id);
       if (isSegnaCorporateInventoryUserId(id)) excluded.add(id);
       if (row.status === "corporate_inventory") excluded.add(id);
+      if (row.phantom_mode === true) excluded.add(id);
       const email = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
       if (email.endsWith("@segnashare.com")) excluded.add(id);
     }

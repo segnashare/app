@@ -1262,7 +1262,7 @@ export function CartPaymentScreen({
   }, [hideReservationTimer]);
 
   const onBack = useCallback(() => {
-    exitCartFlow(router);
+    router.push("/cart");
   }, [router]);
 
   /** Moins d’une minute restante : chiffres rouges (y compris 0:00). */

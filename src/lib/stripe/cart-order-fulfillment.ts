@@ -17,6 +17,14 @@ function isCartOrderCheckoutKind(kind: string | undefined | null): boolean {
   return kind === "cart_order" || kind === "cart_order_wallet_setup";
 }
 
+export function cartOrderWalletDebitIdempotencyKey(cartId: string): string {
+  return `cart_order_debit:cart:${cartId.trim()}`;
+}
+
+export function isCartOrderStripeCheckoutPaid(session: Stripe.Checkout.Session): boolean {
+  return session.payment_status === "paid" || session.payment_status === "no_payment_required";
+}
+
 type AdminClient = {
   rpc: (
     fn: string,
@@ -60,12 +68,13 @@ export async function debitCartExchangeWalletFromStripeSession(
     p_user_id: userId,
     p_cart_id: cartId,
     p_checkout_session_id: session.id,
-    p_idempotency_key: `stripe:cart_order_debit:${session.id}`,
+    p_idempotency_key: cartOrderWalletDebitIdempotencyKey(cartId),
     p_metadata: {
       exchange_credits_kind: creditsKind,
       stripe_wallet_comp_points: stripeCompPoints,
       stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
+      stripe_checkout_session_id: session.id,
     },
   });
 
@@ -76,40 +85,54 @@ export async function debitCartExchangeWalletFromStripeSession(
   return { ok: true };
 }
 
-/**
- * Panier entièrement couvert par le wallet + frais nuls (aucune session Stripe).
- * Débit idempotent par `cart_id` (ne pas réutiliser la clé Stripe).
- */
-export async function debitCartWalletOnly(
-  admin: AdminClient,
-  userId: string,
-  cartId: string,
-  creditsKind: string | null,
-): Promise<void> {
-  const { error } = await admin.rpc("wallet_debit_cart_order_stripe", {
-    p_user_id: userId,
-    p_cart_id: cartId,
-    p_checkout_session_id: "",
-    p_idempotency_key: `wallet_only:cart_order_debit:${cartId}`,
-    p_metadata: {
-      exchange_credits_kind: creditsKind,
-      checkout_mode: "wallet_only",
-    },
-  });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-/**
- * Confirmation panier sans Stripe (même RPC que post-Checkout, métadonnées traçables).
- */
 export type ConfirmCartReturnRelayFields = {
   returnRelayPointId: string;
   returnRelayLabel: string;
   returnRelaySearchPostalCode: string;
 };
+
+type FinalizeCartOrderCheckoutParams = {
+  userId: string;
+  cartId: string;
+  checkoutSessionId: string;
+  walletIdempotencyKey: string;
+  walletMetadata?: Record<string, unknown>;
+  deliveryChannel: "relay" | "home";
+  relayPointId: string;
+  deliveryLine1: string;
+  returnRelay?: ConfirmCartReturnRelayFields;
+};
+
+/** Débit wallet + confirmation panier dans une seule transaction Postgres. */
+export async function finalizeCartOrderCheckout(
+  admin: AdminClient,
+  params: FinalizeCartOrderCheckoutParams,
+): Promise<{ alreadyConfirmed?: boolean }> {
+  const { data, error } = await admin.rpc("finalize_cart_order_checkout", {
+    p_cart_id: params.cartId,
+    p_user_id: params.userId,
+    p_checkout_session_id: params.checkoutSessionId,
+    p_wallet_idempotency_key: params.walletIdempotencyKey,
+    p_wallet_metadata: params.walletMetadata ?? {},
+    p_delivery_channel: params.deliveryChannel,
+    p_relay_point_id: params.relayPointId.trim() ? params.relayPointId.trim() : null,
+    p_delivery_line1: params.deliveryLine1.trim() ? params.deliveryLine1.trim() : null,
+    p_return_relay_point_id: params.returnRelay?.returnRelayPointId?.trim() || null,
+    p_return_relay_label: params.returnRelay?.returnRelayLabel?.trim() || null,
+    p_return_relay_search_postal_code: params.returnRelay?.returnRelaySearchPostalCode?.trim() || null,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const alreadyConfirmed =
+    data != null &&
+    typeof data === "object" &&
+    (data as Record<string, unknown>).already_confirmed === true;
+
+  return { alreadyConfirmed };
+}
 
 function sendcloudOutboundFromStripeMetadata(
   meta: Stripe.Metadata | null | undefined,
@@ -204,25 +227,22 @@ export async function confirmCartPaidWalletOnly(
   relayPointId: string,
   deliveryLine1: string,
   returnRelay?: ConfirmCartReturnRelayFields,
-  usedIncludedOrder = false,
+  creditsKind?: string | null,
 ): Promise<void> {
-  const { error } = await admin.rpc("confirm_cart_paid_from_stripe", {
-    p_cart_id: cartId,
-    p_user_id: userId,
-    p_checkout_session_id: CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID,
-    p_delivery_channel: deliveryChannel,
-    p_relay_point_id: relayPointId.trim() ? relayPointId.trim() : null,
-    p_delivery_line1: deliveryLine1.trim() ? deliveryLine1.trim() : null,
-    p_return_relay_point_id: returnRelay?.returnRelayPointId?.trim() || null,
-    p_return_relay_label: returnRelay?.returnRelayLabel?.trim() || null,
-    p_return_relay_search_postal_code: returnRelay?.returnRelaySearchPostalCode?.trim() || null,
-    p_used_included_order: usedIncludedOrder,
+  await finalizeCartOrderCheckout(admin, {
+    userId,
+    cartId,
+    checkoutSessionId: CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID,
+    walletIdempotencyKey: cartOrderWalletDebitIdempotencyKey(cartId),
+    walletMetadata: {
+      exchange_credits_kind: creditsKind ?? null,
+      checkout_mode: "wallet_only",
+    },
+    deliveryChannel,
+    relayPointId,
+    deliveryLine1,
+    returnRelay,
   });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
 }
 
 /**
@@ -238,6 +258,10 @@ export async function confirmCartPaidFromStripeSession(
     return { ok: true, skipped: true };
   }
 
+  if (!isCartOrderStripeCheckoutPaid(session)) {
+    return { ok: true, skipped: true };
+  }
+
   const cartId = session.metadata?.cart_id?.trim();
   if (!cartId) {
     throw new Error("cart_order: metadata cart_id manquant");
@@ -249,31 +273,34 @@ export async function confirmCartPaidFromStripeSession(
   const returnRelayPointId = (session.metadata?.return_relay_code ?? "").trim();
   const returnRelayLabel = (session.metadata?.return_relay_label ?? "").trim();
   const returnRelaySearchPostalCode = (session.metadata?.return_relay_search_postal_code ?? "").trim();
-  const usedIncludedOrder =
-    session.metadata?.used_included_order === "true" ||
-    session.metadata?.shipping_round_trip_waived === "true";
+  const creditsKind = session.metadata?.exchange_credits_kind ?? null;
+  const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
+  const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
 
-  const { data: confirmData, error } = await admin.rpc("confirm_cart_paid_from_stripe", {
-    p_cart_id: cartId,
-    p_user_id: userId,
-    p_checkout_session_id: session.id,
-    p_delivery_channel: deliveryChannel,
-    p_relay_point_id: relayPointId || null,
-    p_delivery_line1: deliveryLine1 || null,
-    p_return_relay_point_id: returnRelayPointId || null,
-    p_return_relay_label: returnRelayLabel || null,
-    p_return_relay_search_postal_code: returnRelaySearchPostalCode || null,
-    p_used_included_order: usedIncludedOrder,
+  const { alreadyConfirmed } = await finalizeCartOrderCheckout(admin, {
+    userId,
+    cartId,
+    checkoutSessionId: session.id,
+    walletIdempotencyKey: cartOrderWalletDebitIdempotencyKey(cartId),
+    walletMetadata: {
+      exchange_credits_kind: creditsKind,
+      stripe_wallet_comp_points: stripeCompPoints,
+      stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
+      stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
+      stripe_checkout_session_id: session.id,
+    },
+    deliveryChannel,
+    relayPointId,
+    deliveryLine1,
+    returnRelay:
+      returnRelayPointId || returnRelayLabel || returnRelaySearchPostalCode
+        ? {
+            returnRelayPointId,
+            returnRelayLabel,
+            returnRelaySearchPostalCode,
+          }
+        : undefined,
   });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const alreadyConfirmed =
-    confirmData != null &&
-    typeof confirmData === "object" &&
-    (confirmData as Record<string, unknown>).already_confirmed === true;
 
   try {
     await upsertCartOrderStripeInvoiceFromSession(admin, session, userId);

@@ -6,6 +6,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { backgroundStyleCmsPhotoEditorMatch } from "@/lib/cms/cms-editor-photo-style";
+import {
+  ITEM_SQUARE_THUMB_COVER_STYLE,
+  itemPhotoLayoutMismatchesImageRatio,
+  type ItemPhotoLayout,
+} from "@/lib/items/item-photo-layout";
 import { cn } from "@/lib/utils/cn";
 
 /** Aligné sur `CMS_PHOTO_CROP_MIN_ZOOM` / `CMS_PHOTO_CROP_MAX_ZOOM` (backoffice). */
@@ -48,6 +53,12 @@ type RemoteCoverThumbProps = {
    * pour coller au positionnement BO (évite `cover` + `scale`, qui décalait le cadrage).
    */
   photoCoverFill?: boolean;
+  /**
+   * Layout catalogue de la pièce : si incompatible avec l’orientation réelle de l’image,
+   * bascule en cover carré centré (pas de bandes grises).
+   */
+  photosLayout?: ItemPhotoLayout;
+  onImageDimensions?: (size: { w: number; h: number }) => void;
   /** Si le parent affiche son propre squelette plein cadre (ex. carte split pièce). */
   suppressLoadSkeleton?: boolean;
 };
@@ -75,6 +86,8 @@ function RemoteCoverThumbImpl({
   photoPosition,
   coverStyle,
   photoCoverFill,
+  photosLayout,
+  onImageDimensions,
   suppressLoadSkeleton = false,
   onLoadStateChange,
 }: RemoteCoverThumbProps) {
@@ -89,8 +102,14 @@ function RemoteCoverThumbImpl({
   const onLoadStateChangeRef = useRef(onLoadStateChange);
 
   const pos = photoPosition ?? null;
-  const useCoverFill = Boolean(photoCoverFill && !coverStyle);
-  const bgExtras = coverStyle ?? exchangeCoverStyle(pos);
+  const imageRatio = naturalSize && naturalSize.h > 0 ? naturalSize.w / naturalSize.h : null;
+  const layoutMismatch = Boolean(
+    photosLayout && imageRatio != null && itemPhotoLayoutMismatchesImageRatio(photosLayout, imageRatio),
+  );
+  const squareCoverFallback = layoutMismatch ? ITEM_SQUARE_THUMB_COVER_STYLE : undefined;
+  const resolvedCoverStyle = coverStyle ?? squareCoverFallback;
+  const useCoverFill = Boolean(photoCoverFill && !resolvedCoverStyle && !layoutMismatch);
+  const bgExtras = resolvedCoverStyle ?? exchangeCoverStyle(pos);
   const displayedPhotoUrl = loadedPhotoUrl ?? photoUrl;
   const shouldPaintPhoto = ready || canPaintBeforeDecode;
 
@@ -137,6 +156,11 @@ function RemoteCoverThumbImpl({
       cancelled = true;
     };
   }, [canPaintBeforeDecode, photoUrl]);
+
+  useEffect(() => {
+    if (!naturalSize || naturalSize.w <= 0 || naturalSize.h <= 0) return;
+    onImageDimensions?.({ w: naturalSize.w, h: naturalSize.h });
+  }, [naturalSize, onImageDimensions]);
 
   useLayoutEffect(() => {
     if (!useCoverFill || !ready) return;
@@ -189,10 +213,22 @@ function RemoteCoverThumbImpl({
         })
       : null;
 
+  const flatCoverLayerStyle =
+    resolvedCoverStyle && ready && !useCoverFill
+      ? {
+          ...resolvedCoverStyle,
+          backgroundImage: `url(${displayedPhotoUrl})`,
+        }
+      : null;
+
   return (
     <div
       ref={frameRef}
-      className={cn("relative overflow-hidden", photoCoverFill ? "bg-zinc-950" : "bg-zinc-200", frameClassName)}
+      className={cn(
+        "relative overflow-hidden",
+        useCoverFill ? "bg-zinc-950" : "bg-zinc-200",
+        frameClassName,
+      )}
     >
       {!suppressLoadSkeleton && !failed && !shouldPaintPhoto ? (
         <SegnaSkeletonBlock
@@ -209,6 +245,11 @@ function RemoteCoverThumbImpl({
           <div
             className={cn("relative z-[1] h-full w-full bg-no-repeat", className)}
             style={fillLayerStyle}
+          />
+        ) : flatCoverLayerStyle ? (
+          <div
+            className={cn("relative z-[1] h-full w-full bg-no-repeat", className)}
+            style={flatCoverLayerStyle}
           />
         ) : (
           <div

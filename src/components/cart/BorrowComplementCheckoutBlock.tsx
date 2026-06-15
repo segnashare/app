@@ -1,8 +1,9 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 
-import { SegnaExchangeCreditPhrase } from "@/components/ui/SegnaPointsUnitDisplay";
+import { SegnaExchangeCreditPhrase, SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import {
   centsPerMissingCreditForDuration,
   computeBorrowDailyPriceDisplayDiscountPercent,
@@ -36,8 +37,39 @@ function compactDurationLabel(durationDays: number): string {
   return `${durationDays}j`;
 }
 
-function formatPoints(n: number): string {
-  return Math.max(0, Math.trunc(n)).toLocaleString("fr-FR");
+function CalcPointsValue({
+  points,
+  prefix,
+  emphasis = false,
+}: {
+  points: number;
+  prefix?: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      {prefix ? (
+        <span
+          className={cn(
+            "tabular-nums",
+            emphasis ? "text-[15px] font-bold text-zinc-950" : "text-[14px] font-medium text-zinc-800",
+          )}
+          aria-hidden
+        >
+          {prefix}
+        </span>
+      ) : null}
+      <SegnaPointsUnitDisplay
+        points={points}
+        creditKind="consumption"
+        unitDisplay="icon"
+        className="gap-x-1"
+        numberClassName={cn(
+          emphasis ? "text-[15px] font-bold text-zinc-950" : "text-[14px] font-medium text-zinc-800",
+        )}
+      />
+    </span>
+  );
 }
 
 function CalcRow({
@@ -46,20 +78,13 @@ function CalcRow({
   emphasis = false,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   emphasis?: boolean;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4 leading-snug">
       <span className={cn("text-[14px]", emphasis ? "font-semibold text-zinc-900" : "text-zinc-500")}>{label}</span>
-      <span
-        className={cn(
-          "shrink-0 tabular-nums",
-          emphasis ? "text-[15px] font-bold text-zinc-950" : "text-[14px] font-medium text-zinc-800",
-        )}
-      >
-        {value}
-      </span>
+      <span className="shrink-0">{value}</span>
     </div>
   );
 }
@@ -144,11 +169,11 @@ export function BorrowComplementCheckoutBlock({
       </div>
 
       <div className="space-y-2.5 border-t border-zinc-200 pt-5">
-        <CalcRow label="Panier" value={`${formatPoints(cartTotalPoints)} crédits`} />
-        <CalcRow label="Tes crédits" value={`− ${formatPoints(availablePoints)} crédits`} />
+        <CalcRow label="Panier" value={<CalcPointsValue points={cartTotalPoints} />} />
+        <CalcRow label="Tes crédits" value={<CalcPointsValue points={availablePoints} prefix="−" />} />
         <CalcRow
           label="Crédits à compléter"
-          value={`${formatPoints(missingPoints)} crédits`}
+          value={<CalcPointsValue points={missingPoints} emphasis />}
           emphasis
         />
       </div>

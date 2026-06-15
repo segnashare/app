@@ -1,4 +1,5 @@
 import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
+import { fetchCmsSectionPublishedConfigRawCached } from "@/lib/cms/cms-data-cache";
 
 export type CmsSectionPublishedDisplay = {
   /** Si true : pas de titre de section dans l’app (uniquement les frames). */
@@ -24,6 +25,13 @@ export async function fetchCmsSectionPublishedConfigRaw(
   supabase: { rpc: (name: string, args?: Record<string, unknown>) => PromiseLike<unknown> },
   sectionKey: string,
 ): Promise<unknown> {
+  try {
+    const cached = await fetchCmsSectionPublishedConfigRawCached(sectionKey);
+    if (cached != null) return cached;
+  } catch {
+    /* repli RPC session ci-dessous */
+  }
+
   try {
     const { data, error } = (await supabase.rpc("get_cms_section_published_config", {
       p_section_key: sectionKey,

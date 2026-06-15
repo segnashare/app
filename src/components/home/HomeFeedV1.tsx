@@ -11,6 +11,7 @@ import { useProfileViewData } from "@/components/profile/useProfileViewData";
 import type { ProfileViewData } from "@/components/profile/ProfileView";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
+import { parseItemPhotosLayout } from "@/lib/items/item-photo-layout";
 
 type FeedItemCard = {
   kind: "item";
@@ -553,6 +554,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               title={currentCard.title}
               description={currentCard.description}
               slots={itemSlotsById[currentCard.id] ?? [null, null, null, null, null, null]}
+              photosLayout={parseItemPhotosLayout(currentCard.rawPhotos)}
               infoCard={buildItemInfoCard(currentCard)}
               ownerUserId={currentCard.ownerUserId}
               onLikeFrame={likedItemIds.has(currentCard.id) ? undefined : handleLikeFromFrame}

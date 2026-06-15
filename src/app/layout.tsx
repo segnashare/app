@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PostHogProvider } from "@/components/analytics/PostHogProvider";
 import { AuthSessionLogger } from "@/components/dev/AuthSessionLogger";
 import { WebVitalsReporter } from "@/components/dev/WebVitalsReporter";
 import "./globals.css";
@@ -21,9 +22,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        {process.env.SEGNA_AUTH_SESSION_LOGGER === "1" ? <AuthSessionLogger /> : null}
-        {process.env.NEXT_PUBLIC_SEGNA_WEB_VITALS === "1" ? <WebVitalsReporter /> : null}
-        {children}
+        <PostHogProvider>
+          {process.env.SEGNA_AUTH_SESSION_LOGGER === "1" ? <AuthSessionLogger /> : null}
+          {process.env.NEXT_PUBLIC_SEGNA_WEB_VITALS === "1" ? <WebVitalsReporter /> : null}
+          {children}
+        </PostHogProvider>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Heart, Plus } from "lucide-react";
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
@@ -10,16 +10,20 @@ import type { ItemInfoCardData } from "./ItemInfoCard";
 import { ItemWornPhotosSection } from "./ItemWornPhotosSection";
 import type { ItemFeedbackDisplayRow, ItemWornPhotoDisplayRow } from "@/lib/feedback/item-feedback-types";
 import { ItemMemberSection } from "./ItemMemberSection";
+import { ItemOutfitSection } from "./ItemOutfitSection";
 import { ItemSegnaPropertyCmsSection } from "./ItemSegnaPropertyCmsSection";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
 import { useSegnaStockPropertyCmsRows } from "@/hooks/useSegnaStockPropertyCmsRows";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
+import type { ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
+import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
+import { itemPhotoDisplayAspectClass } from "@/lib/items/item-photo-layout";
 
-const ITEM_PHOTO_FRAME_CLASS = "aspect-[3/4]";
 /** photo1 : principale ; photo2–photo6 : autres vues produit (`items.photos`). */
 const CATALOG_EXTRA_PHOTO_SLOT_INDICES = [1, 2, 3, 4, 5] as const;
 
@@ -70,6 +74,8 @@ type ItemViewViewProps = {
   title: string;
   description: string;
   slots: Array<ItemViewSlot | null>;
+  /** Orientation des photos catalogue (portrait 3:4 ou paysage 4:3). */
+  photosLayout?: ItemPhotoLayout;
   infoCard: ItemInfoCardData;
   ownerUserId?: string | null;
   onLikeFrame?: () => void;
@@ -85,15 +91,31 @@ type ItemViewViewProps = {
   segnaStockPropertyCmsFrames?: CmsFrameRow[];
   itemFeedbacks?: ItemFeedbackDisplayRow[];
   wornPhotos?: ItemWornPhotoDisplayRow[];
+  /** Tenue CMS + pièces complémentaires résolues (fiche catalogue). */
+  outfitLook?: ItemOutfitLookPayload | null;
+  outfitCompanionItems?: ShopCatalogItem[];
+  outfitCompanionCoverUrlById?: Record<string, string>;
 };
 
-function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
+function ItemViewCoverPhoto({
+  slot,
+  photosLayout,
+  onImageRatio,
+}: {
+  slot: ItemViewSlot;
+  photosLayout: ItemPhotoLayout;
+  onImageRatio?: (ratio: number) => void;
+}) {
   return (
     <RemoteCoverThumb
       photoUrl={slot.dataUrl}
-      frameClassName={cn("h-full w-full", className)}
+      frameClassName={cn("h-full w-full")}
       photoPosition={{ offset: slot.offset, zoom: slot.zoom }}
       photoCoverFill
+      photosLayout={photosLayout}
+      onImageDimensions={(size) => {
+        if (size.h > 0) onImageRatio?.(size.w / size.h);
+      }}
     />
   );
 }
@@ -101,6 +123,7 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
 function ItemViewPhotoFrame({
   slot,
   frameKey,
+  photosLayout,
   showPlaceholder,
   hideFrameLikeButtons,
   frameActionVariant,
@@ -113,6 +136,7 @@ function ItemViewPhotoFrame({
 }: {
   slot: ItemViewSlot | null;
   frameKey: string;
+  photosLayout: ItemPhotoLayout;
   showPlaceholder?: boolean;
   hideFrameLikeButtons: boolean;
   frameActionVariant: "heart" | "plus";
@@ -123,13 +147,20 @@ function ItemViewPhotoFrame({
   onLikeFrame?: () => void;
   onToggleFrameLike: (frameId: string) => void;
 }) {
+  const [imageRatio, setImageRatio] = useState<number | null>(null);
+  const photoFrameClass = itemPhotoDisplayAspectClass(photosLayout, imageRatio);
+
+  useEffect(() => {
+    setImageRatio(null);
+  }, [slot?.dataUrl]);
+
   if (!slot && !showPlaceholder) return null;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
-      <div className={cn("relative w-full", ITEM_PHOTO_FRAME_CLASS)}>
+      <div className={cn("relative w-full", photoFrameClass)}>
         {slot ? (
-          <ItemViewCoverPhoto slot={slot} />
+          <ItemViewCoverPhoto slot={slot} photosLayout={photosLayout} onImageRatio={setImageRatio} />
         ) : (
           <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
         )}
@@ -159,6 +190,7 @@ function ItemViewPhotoFrame({
 export function ItemViewView({
   description,
   slots,
+  photosLayout = "portrait",
   infoCard,
   ownerUserId,
   onLikeFrame,
@@ -170,6 +202,9 @@ export function ItemViewView({
   segnaStockPropertyCmsFrames,
   itemFeedbacks = [],
   wornPhotos = [],
+  outfitLook = null,
+  outfitCompanionItems = [],
+  outfitCompanionCoverUrlById = {},
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
@@ -189,6 +224,7 @@ export function ItemViewView({
   }
 
   const photoFrameProps = {
+    photosLayout,
     hideFrameLikeButtons,
     frameActionVariant,
     frameActionActive,
@@ -235,6 +271,14 @@ export function ItemViewView({
 
         {/* 4. Description */}
         <ItemDescriptionCard description={description} />
+
+        {outfitLook && outfitCompanionItems.length > 0 ? (
+          <ItemOutfitSection
+            outfit={outfitLook}
+            companionItems={outfitCompanionItems}
+            initialCoverUrlById={outfitCompanionCoverUrlById}
+          />
+        ) : null}
 
         {/* 5. Autres photos produit (photo2–photo6) */}
         {catalogExtraPhotos.map(({ slotIndex, slot }) => (

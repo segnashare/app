@@ -285,16 +285,16 @@ body:has(.segna-lock-document-scroll) {
   background: linear-gradient(
     92deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.06) 22%,
-    rgba(255, 255, 255, 0.22) 38%,
-    rgba(255, 255, 255, 0.36) 50%,
-    rgba(255, 255, 255, 0.22) 62%,
-    rgba(255, 255, 255, 0.06) 78%,
+    rgba(255, 255, 255, 0.1) 22%,
+    rgba(255, 255, 255, 0.3) 38%,
+    rgba(255, 255, 255, 0.48) 50%,
+    rgba(255, 255, 255, 0.3) 62%,
+    rgba(255, 255, 255, 0.1) 78%,
     transparent 100%
   );
-  filter: blur(18px);
+  filter: blur(14px);
   will-change: transform;
-  opacity: 0.92;
+  opacity: 1;
   animation: shop-catalog-image-shimmer var(--shop-shimmer-duration, 2.85s) linear infinite;
 }
 

@@ -3,6 +3,7 @@ import {
   type MemberCartOrderLine,
 } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isHttpUrl, resolveItemPhotoData } from "@/lib/cart/fetch-active-cart-lines";
+import { formatDateTimeParis, parseSegnaInstant, SEGNA_TIMEZONE } from "@/lib/datetime/segna-datetime";
 import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 import {
   WALLET_ADMIN_ADJUSTMENT_SUBTITLE,
@@ -83,14 +84,15 @@ function formatOrderNumberCompact(cartId: string): string {
 }
 
 function formatOccurredAt(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("fr-FR", {
+  const d = parseSegnaInstant(iso);
+  if (!d) return "";
+  return d.toLocaleString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: SEGNA_TIMEZONE,
   });
 }
 
@@ -102,7 +104,7 @@ function statusLineForSource(source: string, cartStatus?: string | null): string
     return "État : emprunt en cours";
   }
   if (s === "return_verification_ok") return "État : retour validé";
-  if (s === "lend_intake_verified") return "État : prêt validé";
+  if (s === "lend_intake_verified") return "État : réception Segna validée";
   if (s === "modif_admin") return "État : ajustement admin Segna";
   if (s.includes("cancel") || s.includes("refund")) return "État : crédits rendus";
   if (s === "subscription_monthly_consumption_grant") return "État : crédits mensuels";

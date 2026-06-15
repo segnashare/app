@@ -22,7 +22,7 @@ function clampZoom(value: number) {
 
 type PhotoModifyEditorProps = {
   dataUrl: string;
-  aspect: "square" | "portrait";
+  aspect: "square" | "portrait" | "landscape";
   offset: Offset;
   zoom: number;
   onOffsetChange: (next: Offset) => void;
@@ -191,7 +191,9 @@ function PhotoModifyEditorImpl({ dataUrl, aspect, offset, zoom, onOffsetChange, 
     <div className="bg-white">
       <div
         ref={stageRef}
-        className={`relative w-full overflow-hidden ${bitmapReady ? "bg-black" : "bg-zinc-200"} ${aspect === "portrait" ? "aspect-[3/4]" : "aspect-square"}`}
+        className={`relative w-full overflow-hidden ${bitmapReady ? "bg-black" : "bg-zinc-200"} ${
+          aspect === "portrait" ? "aspect-[3/4]" : aspect === "landscape" ? "aspect-[4/3]" : "aspect-square"
+        }`}
         style={
           bitmapReady
             ? {

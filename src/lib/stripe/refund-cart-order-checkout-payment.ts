@@ -9,7 +9,7 @@ export type CartOrderInvoiceForRefund = {
 
 /**
  * Rembourse le paiement Checkout lié au panier (complément € échange), idempotent par `cartId`.
- * À appeler avant `member_cancel_cart_order_pending_preparation` (qui recrédite les points).
+ * À appeler après `member_cancel_cart_order_pending_preparation` / `backoffice_cancel_cart_order_pending_preparation`.
  */
 export async function refundCartOrderStripePaymentIfNeeded(opts: {
   stripe: Stripe;

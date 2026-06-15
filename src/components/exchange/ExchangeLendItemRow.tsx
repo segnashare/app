@@ -1,14 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { CircleDollarSign, Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-react";
+import { CircleDollarSign, ClipboardCheck, Image as ImageIcon, Package, Pencil, Repeat2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
+import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metadata";
 import { prefetchLendItemDetailIfNeeded } from "@/lib/items/lend-items-detail-cache";
-import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
+import {
+  ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
+  itemSquareListThumbCoverProps,
+} from "@/lib/items/item-photo-layout";
 import { cn } from "@/lib/utils/cn";
 import {
   SEGNA_DIALOG_CARD_CLASS,
@@ -38,14 +43,15 @@ type ExchangeLendItemRowProps = {
     zoom?: number;
     aspect?: string;
   } | null;
+  photosLayout?: ItemPhotoLayout | null;
   /** Unité affichée avec le prix (alignée sur le wallet). */
   creditKind: WalletCreditKind;
   /** Lot expédition groupé par défaut (≥ 2 pièces prêtes). */
   defaultShippingGroupIds?: string[];
-  /** 2 pièces déjà en attente d’expédition : bloque la validation d’évaluation. */
-  blockEvaluationValidation?: boolean;
-  pendingShippingItemIds?: string[];
-  shipmentsSplit?: boolean;
+  /** Transfer lié (page vérification Segna). */
+  verificationTransferId?: string | null;
+  /** Transfer outtake (page expédition retour). */
+  outtakeTransferId?: string | null;
 };
 
 /** Prix connu côté membre après proposition (hors phase « en évaluation » seule). */
@@ -211,13 +217,25 @@ function splitNameAndBrand(name: string): { title: string; brand: string | null 
 
 function isDraftLike(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
   const normalized = status.trim().toLowerCase();
+  if (normalized !== "draft" && normalized !== "brouillon") return false;
+
   const listingStage = intake?.listing_stage?.trim().toLowerCase() ?? "";
-  if (listingStage && listingStage !== "draft") return false;
-  if (normalized === "draft" || normalized === "brouillon") {
-    if (intake?.listing_stage === "validated" && intake.fulfillment_stage === "verified") return false;
+  const fulfillmentStage = intake?.fulfillment_stage?.trim().toLowerCase() ?? "";
+
+  if (listingStage === "validated") {
+    if (fulfillmentStage === "verified") return false;
+    if (
+      fulfillmentStage === "ready" ||
+      fulfillmentStage === "shipping" ||
+      fulfillmentStage === "in_verification"
+    ) {
+      return false;
+    }
     return true;
   }
-  return false;
+
+  if (listingStage && listingStage !== "draft") return false;
+  return true;
 }
 
 function canEditEvaluationDraft(status: string, intake?: { listing_stage: string; fulfillment_stage: string | null } | null): boolean {
@@ -231,6 +249,12 @@ function isFulfillmentShipping(intake?: { listing_stage: string; fulfillment_sta
   if (ls !== "validated") return false;
   const fs = intake?.fulfillment_stage?.toLowerCase() ?? "";
   return fs === "ready" || fs === "shipping";
+}
+
+function isFulfillmentInVerification(intake?: { listing_stage: string; fulfillment_stage: string | null } | null) {
+  const ls = intake?.listing_stage?.toLowerCase() ?? "";
+  if (ls !== "validated") return false;
+  return intake?.fulfillment_stage?.toLowerCase() === "in_verification";
 }
 
 function isValidationPendingPriceConfirm(
@@ -249,22 +273,26 @@ export function ExchangeLendItemRow({
   intake,
   photoUrl,
   photoPosition,
+  photosLayout = null,
   creditKind,
   defaultShippingGroupIds,
-  blockEvaluationValidation = false,
-  pendingShippingItemIds = [],
-  shipmentsSplit = false,
+  verificationTransferId = null,
+  outtakeTransferId = null,
 }: ExchangeLendItemRowProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const { title, brand: brandFromName } = splitNameAndBrand(name);
   const brand = brandProp ?? brandFromName;
   const evaluationRefused = isEvaluationRefused(itemStatus, intake);
+  const squareThumbImageProps = itemSquareListThumbCoverProps({ photosLayout, photoPosition });
   const showEditDelete = isDraftLike(itemStatus, intake);
   const showEvaluationEdit = canEditEvaluationDraft(itemStatus, intake);
   const showDraftQuickActions = showEditDelete || showEvaluationEdit;
   const shippingQuickAction = isFulfillmentShipping(intake);
+  const verificationQuickAction = isFulfillmentInVerification(intake);
   const priceConfirmQuickAction = isValidationPendingPriceConfirm(intake);
+  const isRetiredRecovery = itemStatus.trim().toLowerCase() === "retired";
+  const outtakeQuickAction = isRetiredRecovery;
   const showPriceRow =
     !evaluationRefused &&
     currentValue != null &&
@@ -276,8 +304,6 @@ export function ExchangeLendItemRow({
   const [isDeleted, setIsDeleted] = useState(false);
   const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [evaluationGateOpen, setEvaluationGateOpen] = useState(false);
-
   const handleDelete = async () => {
     if (isDeleting) return;
     setIsDeleting(true);
@@ -369,9 +395,19 @@ export function ExchangeLendItemRow({
 
       <div className={cn("pointer-events-none relative flex items-center", !evaluationRefused && "z-10")}>
         {photoUrl ? (
-          <RemoteCoverThumb photoUrl={photoUrl} photoPosition={photoPosition} frameClassName="aspect-square w-[100px] shrink-0 rounded-md" />
+          <RemoteCoverThumb
+            photoUrl={photoUrl}
+            frameClassName={ITEM_LIST_SQUARE_THUMB_FRAME_CLASS}
+            photosLayout={photosLayout ?? undefined}
+            {...squareThumbImageProps}
+          />
         ) : (
-          <div className="flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400">
+          <div
+            className={cn(
+              "flex items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+              ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
+            )}
+          >
             <ImageIcon className="h-7 w-7" aria-hidden />
           </div>
         )}
@@ -425,25 +461,22 @@ export function ExchangeLendItemRow({
           >
             <Package className="h-5 w-5" aria-hidden />
           </Link>
+        ) : verificationQuickAction ? (
+          <Link
+            href={`/verification/item/${encodeURIComponent(id)}`}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+            aria-label="Voir la vérification Segna"
+          >
+            <ClipboardCheck className="h-5 w-5" aria-hidden />
+          </Link>
         ) : priceConfirmQuickAction ? (
-          blockEvaluationValidation ? (
-            <button
-              type="button"
-              onClick={() => setEvaluationGateOpen(true)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
-              aria-label="Voir l'analyse de prix à confirmer"
-            >
-              <CircleDollarSign className="h-5 w-5" aria-hidden />
-            </button>
-          ) : (
-            <Link
-              href={`/items/${encodeURIComponent(id)}/evaluation`}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
-              aria-label="Voir l'analyse de prix à confirmer"
-            >
-              <CircleDollarSign className="h-5 w-5" aria-hidden />
-            </Link>
-          )
+          <Link
+            href={`/items/${encodeURIComponent(id)}/evaluation`}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+            aria-label="Voir l'analyse de prix à confirmer"
+          >
+            <CircleDollarSign className="h-5 w-5" aria-hidden />
+          </Link>
         ) : showDraftQuickActions ? (
           <>
             <button
@@ -463,6 +496,14 @@ export function ExchangeLendItemRow({
               <Pencil className="h-5 w-5" />
             </Link>
           </>
+        ) : outtakeQuickAction ? (
+          <Link
+            href={buildOuttakeShippingPageHref(outtakeTransferId)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 text-zinc-700"
+            aria-label="Page retour — bordereau et suivi"
+          >
+            <Package className="h-5 w-5" aria-hidden />
+          </Link>
         ) : (
           <button
             type="button"
@@ -490,7 +531,7 @@ export function ExchangeLendItemRow({
               Récupérer cette pièce ?
             </h2>
             <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
+              Tu vas démarrer une demande de retour. Tu pourras ensuite préparer l&apos;expédition depuis la page retour Segna.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
@@ -500,16 +541,20 @@ export function ExchangeLendItemRow({
               >
                 Non
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setReturnConfirmOpen(false);
-                  router.push(`/items/${encodeURIComponent(id)}/retour`);
-                }}
-                className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
+              <form
+                action="/api/items/outtake/request"
+                method="post"
+                className="contents"
+                onSubmit={() => setReturnConfirmOpen(false)}
               >
-                Oui, récupérer
-              </button>
+                <input type="hidden" name="item_id" value={id} />
+                <button
+                  type="submit"
+                  className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
+                >
+                  Oui, récupérer
+                </button>
+              </form>
             </div>
           </div>
         </div>
@@ -553,13 +598,6 @@ export function ExchangeLendItemRow({
           </div>
         </div>
       ) : null}
-      <IntakePendingShippingGateModal
-        open={evaluationGateOpen}
-        onClose={() => setEvaluationGateOpen(false)}
-        purpose="validate_evaluation"
-        pendingItemIds={pendingShippingItemIds}
-        shipmentsSplit={shipmentsSplit}
-      />
     </article>
   );
 }

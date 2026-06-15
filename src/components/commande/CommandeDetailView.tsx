@@ -24,6 +24,7 @@ import {
   memberReceiptAnchorFromOrderShipment,
   memberReceiptAutoConfirmEligibleAtMs,
 } from "@/lib/cart/member-receipt-validation";
+import { formatDateTimeParis, formatLongDateParis } from "@/lib/datetime/segna-datetime";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
 import {
@@ -60,13 +61,7 @@ function formatLivraisonPrevuePlus2Jours(anchorIso: string): string {
   const t = Date.parse(anchorIso);
   if (Number.isNaN(t)) return "";
   const ms = t + 2 * 24 * 60 * 60 * 1000;
-  return new Date(ms).toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Europe/Paris",
-  });
+  return formatLongDateParis(ms);
 }
 
 /** Sous-titre sous le statut : date prévue = passage ready + 2 jours (référence Europe/Paris pour l’affichage). */
@@ -135,10 +130,7 @@ export function CommandeDetailView({
   detail: MemberCartOrderDetail;
   membershipLabel: MembershipLabel;
 }) {
-  const headerDate = new Date(detail.createdAtIso).toLocaleString("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  const headerDate = formatDateTimeParis(detail.createdAtIso);
   const creditKind = detail.walletCreditKind;
   const previsionLine = livraisonPrevueLine(detail);
   const isUberOutbound =

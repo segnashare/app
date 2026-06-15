@@ -3,6 +3,10 @@
 import { Image as ImageIcon, Check } from "lucide-react";
 
 import type { MemberCartOrderLine } from "@/lib/cart/fetch-member-cart-order-detail";
+import {
+  ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
+  itemSquareListThumbCoverProps,
+} from "@/lib/items/item-photo-layout";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -65,11 +69,13 @@ export function CartDisputeItemPicker({ lines, selectedItemIds, onChange }: Prop
               {line.photoUrl ? (
                 <RemoteCoverThumb
                   photoUrl={line.photoUrl}
-                  photoPosition={line.photoPosition}
-                  frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
+                  frameClassName={ITEM_LIST_SQUARE_THUMB_FRAME_CLASS}
+                  {...itemSquareListThumbCoverProps({ photoPosition: line.photoPosition })}
                 />
               ) : (
-                <div className="flex aspect-square w-[100px] shrink-0 items-center justify-center rounded-md bg-zinc-200 text-zinc-400">
+                <div
+                  className={`flex items-center justify-center rounded-md bg-zinc-200 text-zinc-400 ${ITEM_LIST_SQUARE_THUMB_FRAME_CLASS}`}
+                >
                   <ImageIcon className="h-7 w-7" aria-hidden />
                 </div>
               )}

@@ -2,9 +2,25 @@
 export const INTAKE_FULFILLMENT_READY = "ready";
 export const INTAKE_FULFILLMENT_SHIPPING = "shipping";
 export const INTAKE_FULFILLMENT_IN_VERIFICATION = "in_verification";
+export const INTAKE_FULFILLMENT_VERIFIED = "verified";
 
 /** Statuts retour emprunt : colis déposé / pris en charge (membre → Segna). */
 export const CART_RETURN_INTAKE_DEPOSITED_STATUSES = new Set(["dropped_out", "dropped_in"]);
+
+/** Colis member_intake : le membre voit « en route vers Segna » dès le dépôt relais. */
+export const MEMBER_INTAKE_IN_TRANSIT_TO_SEGNA_SHIPMENT_STATUSES = new Set([
+  "dropped_out",
+  "dropped_in",
+  "in_transit_out",
+]);
+
+export function memberIntakeShipmentIndicatesMemberInTransit(
+  shipmentStatus: string | null | undefined,
+): boolean {
+  return MEMBER_INTAKE_IN_TRANSIT_TO_SEGNA_SHIPMENT_STATUSES.has(
+    String(shipmentStatus ?? "").trim().toLowerCase(),
+  );
+}
 
 export function normalizeIntakeFulfillmentStage(fs: string | null | undefined): string {
   return String(fs ?? "").trim().toLowerCase();

@@ -9,7 +9,6 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 const EMPTY_GATE: PendingMemberIntakeShippingGateSnapshot = {
   pendingItemIds: [],
   shipmentsSplit: false,
-  blocked: false,
 };
 
 export function usePendingMemberIntakeShippingGate(enabled = true) {

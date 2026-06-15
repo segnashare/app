@@ -1,7 +1,9 @@
 import type { CmsFramePayload, CmsFrameRow, CmsFrameType, CmsPlanCode } from "@/lib/cms/cms-types";
 import { isSupabaseTransportFailure, warnCmsSupabaseUnreachable } from "@/lib/cms/cms-supabase-transport";
-import { resolveCmsPayloadStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
-import { createSignedUrlsForStoragePaths, type StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
+import { fetchCmsSectionFramesRawCached } from "@/lib/cms/cms-data-cache";
+import { CMS_SIGNED_URL_TTL_SECONDS, cmsStorageSignClient } from "@/lib/cms/cms-sign-client";
+import { resolveCmsFrameRowsStorageUrls } from "@/lib/cms/resolve-cms-payload-urls";
+import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type RpcFrame = {
   id?: unknown;
@@ -63,20 +65,32 @@ function parseRows(data: unknown): CmsFrameRow[] {
   return out;
 }
 
-function collectStoragePaths(value: unknown, out = new Set<string>()) {
-  if (value == null) return out;
-  if (Array.isArray(value)) {
-    value.forEach((entry) => collectStoragePaths(entry, out));
-    return out;
-  }
-  if (typeof value !== "object") return out;
+async function fetchCmsSectionFramesRawDirect(
+  supabase: StorageSignClient,
+  sectionKey: string,
+): Promise<CmsFrameRow[]> {
+  const rpc = supabase as unknown as {
+    rpc: (
+      name: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+  const { data, error } = await rpc.rpc("get_cms_section_frames", { p_section_key: sectionKey });
+  if (error) throw new Error(error.message ?? "get_cms_section_frames failed");
+  return parseRows(data);
+}
 
-  const record = value as Record<string, unknown>;
-  if (typeof record.storage_path === "string" && record.storage_path.trim()) {
-    out.add(record.storage_path.trim());
+export async function fetchCmsSectionFramesRaw(
+  supabase: StorageSignClient,
+  sectionKey: string,
+): Promise<CmsFrameRow[]> {
+  try {
+    const cached = await fetchCmsSectionFramesRawCached(sectionKey);
+    if (cached != null) return parseRows(cached);
+  } catch {
+    /* repli session ci-dessous */
   }
-  Object.values(record).forEach((entry) => collectStoragePaths(entry, out));
-  return out;
+  return fetchCmsSectionFramesRawDirect(supabase, sectionKey);
 }
 
 /**
@@ -85,52 +99,28 @@ function collectStoragePaths(value: unknown, out = new Set<string>()) {
 export async function fetchCmsSectionFramesResolved(
   supabase: StorageSignClient,
   sectionKey: string,
-  signTtlSeconds = 3600,
+  signTtlSeconds = CMS_SIGNED_URL_TTL_SECONDS,
 ): Promise<CmsFrameRow[]> {
-  const rpc = supabase as unknown as {
-    rpc: (
-      name: string,
-      args?: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
-  };
-
   try {
-    const { data, error } = await rpc.rpc("get_cms_section_frames", { p_section_key: sectionKey });
-    if (error) {
-      const msg = error.message ?? "";
-      const rpcMissing =
-        msg.includes("Could not find the function") ||
-        msg.includes("schema cache") ||
-        /PGRST202|42883/i.test(msg);
-      if (rpcMissing) {
-        if (process.env.NODE_ENV === "development") {
-          console.info(
-            `[CMS] RPC get_cms_section_frames absente — appliquer la migration segna-app/supabase/migrations/20260502140000_cms_app_sections_frames.sql (section: ${sectionKey}).`,
-          );
-        }
-      } else if (isSupabaseTransportFailure(msg)) {
-        warnCmsSupabaseUnreachable(`get_cms_section_frames "${sectionKey}"`, msg);
-      } else {
-        console.error("get_cms_section_frames", sectionKey, msg);
-      }
-      return [];
-    }
-
-    const rows = parseRows(data);
-    const pathsToSign = [...collectStoragePaths(rows.map((row) => row.payload))];
-    const signedByPath = await createSignedUrlsForStoragePaths(supabase, pathsToSign, signTtlSeconds);
-    const sign = async (path: string) => signedByPath.get(path) ?? null;
-
-    const resolved = await Promise.all(
-      rows.map(async (row) => ({
-        ...row,
-        payload: await resolveCmsPayloadStorageUrls(row.payload, sign),
-      })),
-    );
-    return resolved;
+    const rows = await fetchCmsSectionFramesRaw(supabase, sectionKey);
+    return resolveCmsFrameRowsStorageUrls(rows, cmsStorageSignClient(supabase), signTtlSeconds);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    warnCmsSupabaseUnreachable(`get_cms_section_frames "${sectionKey}"`, msg);
+    const rpcMissing =
+      msg.includes("Could not find the function") ||
+      msg.includes("schema cache") ||
+      /PGRST202|42883/i.test(msg);
+    if (rpcMissing) {
+      if (process.env.NODE_ENV === "development") {
+        console.info(
+          `[CMS] RPC get_cms_section_frames absente — appliquer la migration segna-app/supabase/migrations/20260502140000_cms_app_sections_frames.sql (section: ${sectionKey}).`,
+        );
+      }
+    } else if (isSupabaseTransportFailure(msg)) {
+      warnCmsSupabaseUnreachable(`get_cms_section_frames "${sectionKey}"`, msg);
+    } else {
+      console.error("get_cms_section_frames", sectionKey, msg);
+    }
     return [];
   }
 }

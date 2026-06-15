@@ -4,8 +4,8 @@ import { Package, Repeat2, Star, Tag } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
-import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 
 const COLOR_LABEL_TO_HEX: Record<string, string> = {
@@ -80,10 +80,13 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     content: (
       <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
         {data.pricePoints != null ? (
-          <>
-            {data.pricePoints}
-            <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-5 w-auto max-w-[4.25rem] shrink-0 object-contain" aria-hidden />
-          </>
+          <SegnaPointsUnitDisplay
+            points={data.pricePoints}
+            creditKind="consumption"
+            unitDisplay="icon"
+            className="gap-x-1.5"
+            numberClassName={cn(montserrat.className, "font-bold text-zinc-900")}
+          />
         ) : (
           "En cours d’évaluation"
         )}

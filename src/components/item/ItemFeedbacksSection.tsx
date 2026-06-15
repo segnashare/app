@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import type { ItemFeedbackDisplayRow } from "@/lib/feedback/item-feedback-types";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -10,9 +11,8 @@ const montserrat = segnaMontserrat;
 
 function formatFeedbackDate(iso: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  const formatted = formatDateParis(iso, { day: "numeric", month: "long", year: "numeric" });
+  return formatted === "—" ? "" : formatted;
 }
 
 type ItemFeedbacksSectionProps = {

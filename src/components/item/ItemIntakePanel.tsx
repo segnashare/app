@@ -16,12 +16,22 @@ import {
 import {
   INTAKE_FULFILLMENT_SHIPPING,
   intakeShowsPrepareShipmentCard,
+  memberIntakeShipmentIndicatesMemberInTransit,
 } from "@/lib/items/intake-fulfillment-stages";
-import { buildShippingPageHref } from "@/lib/items/intake-shipping-metadata";
+import {
+  buildShippingPageHref,
+  readMemberIntakeShipmentIdFromMetadata,
+  resolveShippingItemIdsForLink,
+} from "@/lib/items/intake-shipping-metadata";
+import { resolveActiveMemberIntakeShipmentIdForItems } from "@/lib/items/member-intake-shipment";
+import {
+  memberIntakeInTransitShippingBody,
+  memberIntakeShippingCtaLabel,
+  memberIntakeShippingGroupTitles,
+  type MemberIntakeShippingGroupItem,
+} from "@/lib/items/member-intake-shipping-copy";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
-import { usePendingMemberIntakeShippingGate } from "@/lib/items/use-pending-member-intake-shipping-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import {
   SEGNA_DIALOG_CARD_CLASS,
   SegnaDialogDismissButton,
@@ -128,6 +138,8 @@ export type ItemIntakePanelProps = {
   onStackDismiss?: () => void;
   /** Lot expédition par défaut (toutes les pièces prêtes du membre). */
   defaultShippingGroupIds?: string[];
+  /** Titres des pièces du lot (optionnel — sinon chargés côté client). */
+  shippingGroupItems?: MemberIntakeShippingGroupItem[];
 };
 
 export function ItemIntakePanel({
@@ -144,26 +156,19 @@ export function ItemIntakePanel({
   onExchangeStackAdvance,
   onStackDismiss,
   defaultShippingGroupIds,
+  shippingGroupItems,
 }: ItemIntakePanelProps) {
   const router = useRouter();
+  const [resolvedGroupItems, setResolvedGroupItems] = useState<MemberIntakeShippingGroupItem[]>(
+    shippingGroupItems ?? [],
+  );
   const [userMinimized, setUserMinimized] = useState(false);
   const [refuseConfirmOpen, setRefuseConfirmOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [isDeletingRefusedItem, setIsDeletingRefusedItem] = useState(false);
-  const [shippingGateOpen, setShippingGateOpen] = useState(false);
-  const needsShippingGate = listingStage === "validation_pending";
-  const {
-    blocked: shippingGateBlocked,
-    loading: shippingGateLoading,
-    pendingItemIds: pendingShippingItemIds,
-    shipmentsSplit,
-  } = usePendingMemberIntakeShippingGate(needsShippingGate);
-
-  const hideValidationPendingForShippingGate =
-    listingStage === "validation_pending" && (shippingGateLoading || shippingGateBlocked);
-
+  const [memberIntakeShipmentStatus, setMemberIntakeShipmentStatus] = useState<string | null>(null);
   const refusalText =
     readIntakeMetaString(intakeMetadata, INTAKE_META_REFUSAL_MESSAGE) ??
     "Ta pièce ne correspond pas aux critères d’entrée au catalogue Segna pour le moment. Tu peux proposer une autre pièce quand tu veux.";
@@ -177,15 +182,99 @@ export function ItemIntakePanel({
   /** Bordereau / mutualisation : validated + `ready` (ou legacy `fulfillment_stage` null avant backfill). */
   const showFulfillment = intakeShowsPrepareShipmentCard(listingStage, fulfillmentStage);
   const fulfillmentIsShipping =
-    String(fulfillmentStage ?? "").trim().toLowerCase() === INTAKE_FULFILLMENT_SHIPPING;
+    String(fulfillmentStage ?? "").trim().toLowerCase() === INTAKE_FULFILLMENT_SHIPPING ||
+    memberIntakeShipmentIndicatesMemberInTransit(memberIntakeShipmentStatus);
 
-  const shipItemLabel = useMemo(() => {
-    const t = itemTitle?.trim();
-    if (fulfillmentIsShipping) {
-      return t ? `Suivre ${t}` : "Suivre mon colis";
+  const shippingGroupIds = useMemo(
+    () => resolveShippingItemIdsForLink(itemId, intakeMetadata, defaultShippingGroupIds),
+    [itemId, intakeMetadata, defaultShippingGroupIds],
+  );
+
+  useEffect(() => {
+    if (!showFulfillment) {
+      setMemberIntakeShipmentStatus(null);
+      return;
     }
-    return t ? `Expédie ${t}` : "Expédie ma pièce";
-  }, [itemTitle, fulfillmentIsShipping]);
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
+      const supabase = createSupabaseBrowserClient() as any;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      const metadataShipId = readMemberIntakeShipmentIdFromMetadata(intakeMetadata);
+      const activeShipId = await resolveActiveMemberIntakeShipmentIdForItems(
+        supabase,
+        shippingGroupIds.length > 0 ? shippingGroupIds : [itemId],
+        metadataShipId,
+      );
+      if (!activeShipId || cancelled) {
+        setMemberIntakeShipmentStatus(null);
+        return;
+      }
+      const { data: shipRow } = await supabase
+        .from("shipments")
+        .select("status")
+        .eq("id", activeShipId)
+        .eq("context", "member_intake")
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (cancelled) return;
+      setMemberIntakeShipmentStatus(
+        typeof shipRow?.status === "string" ? shipRow.status.trim().toLowerCase() : null,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showFulfillment, itemId, intakeMetadata, shippingGroupIds]);
+
+  useEffect(() => {
+    if (shippingGroupItems?.length) {
+      setResolvedGroupItems(shippingGroupItems);
+      return;
+    }
+    const ids = [...new Set(shippingGroupIds.map((id) => id.trim()).filter(Boolean))];
+    if (ids.length <= 1) {
+      setResolvedGroupItems([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
+      const supabase = createSupabaseBrowserClient() as any;
+      const { data } = await supabase.from("items").select("id, title").in("id", ids).is("deleted_at", null);
+      if (cancelled) return;
+      setResolvedGroupItems(
+        (data ?? []).map((row: { id?: string; title?: string | null }) => ({
+          id: String(row.id ?? ""),
+          title: typeof row.title === "string" ? row.title : null,
+        })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shippingGroupIds, shippingGroupItems]);
+
+  const shippingGroupTitles = useMemo(
+    () =>
+      memberIntakeShippingGroupTitles(
+        itemId,
+        itemTitle,
+        shippingGroupIds,
+        resolvedGroupItems.length > 0 ? resolvedGroupItems : shippingGroupItems,
+      ),
+    [itemId, itemTitle, shippingGroupIds, resolvedGroupItems, shippingGroupItems],
+  );
+
+  const shipItemLabel = useMemo(
+    () =>
+      memberIntakeShippingCtaLabel(fulfillmentIsShipping ? "track" : "ship", shippingGroupTitles),
+    [fulfillmentIsShipping, shippingGroupTitles],
+  );
 
   const canMinimize =
     listingStage === "evaluation" || listingStage === "evaluated" || showFulfillment;
@@ -194,7 +283,7 @@ export function ItemIntakePanel({
     showFulfillment ||
     isLogisticsRefused ||
     listingStage === "evaluation" ||
-    (listingStage === "validation_pending" && !hideValidationPendingForShippingGate) ||
+    listingStage === "validation_pending" ||
     listingStage === "evaluated" ||
     listingStage === "refused";
 
@@ -246,10 +335,6 @@ export function ItemIntakePanel({
   }, [itemId, router]);
 
   const handleAcceptOffer = useCallback(async () => {
-    if (shippingGateBlocked) {
-      setShippingGateOpen(true);
-      return;
-    }
     setActionError(null);
     setIsAccepting(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
@@ -262,7 +347,7 @@ export function ItemIntakePanel({
     }
     onPipelineUpdated();
     router.push(`/items/${itemId}`);
-  }, [itemId, onPipelineUpdated, router, shippingGateBlocked]);
+  }, [itemId, onPipelineUpdated, router]);
 
   const handleDeleteRefusedItem = useCallback(async () => {
     if (isDeletingRefusedItem) return;
@@ -419,13 +504,6 @@ export function ItemIntakePanel({
             </div>
           </div>
         </div>
-        <IntakePendingShippingGateModal
-          open={shippingGateOpen}
-          onClose={() => setShippingGateOpen(false)}
-          purpose="validate_evaluation"
-          pendingItemIds={pendingShippingItemIds}
-          shipmentsSplit={shipmentsSplit}
-        />
         {refuseConfirmOpen ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" role="presentation">
             <div
@@ -613,7 +691,7 @@ export function ItemIntakePanel({
   if (showFulfillment) {
     const shippingTitle = fulfillmentIsShipping ? "Expédition en cours" : "Préparer ton envoi";
     const shippingBody = fulfillmentIsShipping
-      ? "Ton colis est en route vers Segna. Retrouve le suivi sur la page dédiée."
+      ? memberIntakeInTransitShippingBody(shippingGroupTitles)
       : "Retrouve le bordereau et le suivi sur la page dédiée.";
 
     return (
@@ -636,7 +714,7 @@ export function ItemIntakePanel({
           )}
           <p className={cn(segnaDialogBodyClass(), "w-full max-w-none")}>{shippingBody}</p>
           <Link
-            href={buildShippingPageHref(itemId, intakeMetadata, defaultShippingGroupIds)}
+            href={buildShippingPageHref(itemId, intakeMetadata, shippingGroupIds)}
             className="flex h-11 w-full min-w-0 items-center justify-center rounded-full bg-zinc-900 px-4 text-[14px] font-semibold text-white"
           >
             {shipItemLabel}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { assignOuttakeItemAfterRequest } from "@/lib/items/member-outtake-groups";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -85,11 +86,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: outErr.message }, { status: 500 });
   }
 
+  let transferId: string | null = null;
+  if (ready) {
+    const assigned = await assignOuttakeItemAfterRequest(admin, user.id, itemId);
+    if (!assigned.ok) {
+      return NextResponse.json({ ok: false as const, error: assigned.error }, { status: 500 });
+    }
+    transferId = assigned.transferId;
+  }
+
+  const shippingHref = transferId
+    ? `/items/outtake-shipping?envoi=${encodeURIComponent(transferId)}`
+    : "/items/outtake-shipping";
+
   const payload = {
     ok: true as const,
     item_id: itemId,
     ready_for_shipping: ready,
-    next: ready ? `/items/${encodeURIComponent(itemId)}/retour/expedition` : null,
+    transfer_id: transferId,
+    next: ready ? shippingHref : null,
   };
   if (ct.includes("application/json")) return NextResponse.json(payload);
   return NextResponse.redirect(

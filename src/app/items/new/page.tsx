@@ -43,6 +43,17 @@ import {
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { normalizeItemSizeDisplay } from "@/lib/items/formatItemSizeLabel";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
+import {
+  clearItemPhotosLayoutDraft,
+  itemPhotoEditorGridClass,
+  itemPhotoLayoutToModifyAspect,
+  itemPhotoSlotAspectClass,
+  itemPhotoStageRatio,
+  parseItemPhotosLayout,
+  readItemPhotosLayoutDraft,
+  writeItemPhotosLayoutDraft,
+} from "@/lib/items/item-photo-layout";
 import {
   clearFromItemSession,
   consumeNewItemScrollRestore,
@@ -217,11 +228,8 @@ const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
   acceptable: "Acceptable",
   degrade: "Dégradé",
 };
-const ITEM_STAGE_RATIO = 3 / 4;
 const MIN_ITEM_PHOTOS = 3;
 const MAX_ITEM_PHOTOS = 6;
-/** Cadre éditeur / payload : aligné sur l’affichage portrait des photos de pièce. */
-const ITEM_PHOTO_MODIFY_ASPECT = "portrait" as const;
 
 const getImageRatio = (dataUrl: string) =>
   new Promise<number>((resolve) => {
@@ -257,7 +265,7 @@ function normalizeStringValue(value: string | null | undefined): string | null {
 }
 
 function normalizePhotosForComparison(photosRaw: unknown): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
+  const payload: Record<string, unknown> = { layout: parseItemPhotosLayout(photosRaw) };
   const entries = getPhotoEntriesFromJson(photosRaw).slice(0, 6);
   for (let index = 0; index < entries.length; index += 1) {
     const row = entries[index];
@@ -269,13 +277,14 @@ function normalizePhotosForComparison(photosRaw: unknown): Record<string, unknow
     const offsetX = typeof offsetRaw?.x === "number" ? offsetRaw.x : 0;
     const offsetY = typeof offsetRaw?.y === "number" ? offsetRaw.y : 0;
     const zoom = typeof position?.zoom === "number" ? position.zoom : 1;
+    const aspect = position?.aspect === "landscape" ? "landscape" : "portrait";
     payload[`photo${index + 1}`] = {
       url: storagePath,
       storage_path: storagePath,
       position: {
         offset: { x: offsetX, y: offsetY },
         zoom,
-        aspect: ITEM_PHOTO_MODIFY_ASPECT,
+        aspect,
       },
     };
   }
@@ -309,6 +318,7 @@ export default function NewItemPage() {
   const handledPhotoModifyIdsRef = useRef<Set<string>>(new Set());
   const slotsPersistQuotaWarnedRef = useRef(false);
   const [slots, setSlots] = useState<Array<ItemPhotoSlot | null>>([null, null, null, null, null, null]);
+  const [photosLayout, setPhotosLayout] = useState<ItemPhotoLayout>(() => readItemPhotosLayoutDraft() ?? "portrait");
   const [mode, setMode] = useState<"edit" | "view">("edit");
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -441,7 +451,9 @@ export default function NewItemPage() {
       if (!requestedItemId && forceFreshDraft) {
         sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
         sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
+        clearItemPhotosLayoutDraft();
         clearItemInfoDraft();
+        setPhotosLayout("portrait");
         setSlots([null, null, null, null, null, null]);
         try {
           if (searchParamsRef.current.get("proposal") === "1") {
@@ -711,6 +723,10 @@ export default function NewItemPage() {
 
         router.replace(`/items/new?itemId=${requestedItemId}`);
 
+        const loadedPhotosLayout = parseItemPhotosLayout(itemData.photos);
+        setPhotosLayout(loadedPhotosLayout);
+        writeItemPhotosLayoutDraft(loadedPhotosLayout);
+
         // Lors de l'édition d'un item existant, toujours charger les photos depuis la DB
         // (les slots locaux ne sont pas fiables car non associés à l'itemId)
         const photoEntries = getPhotoEntriesFromJson(itemData.photos).slice(0, 6);
@@ -871,6 +887,9 @@ export default function NewItemPage() {
           setInfoDraft(getItemInfoDraft());
         }
         if (existingItemData?.photos) {
+          const draftLayout = parseItemPhotosLayout(existingItemData.photos);
+          setPhotosLayout(draftLayout);
+          writeItemPhotosLayoutDraft(draftLayout);
           const photoEntries = getPhotoEntriesFromJson(existingItemData.photos).slice(0, 6);
           const nextSlots: Array<ItemPhotoSlot | null> = [null, null, null, null, null, null];
           for (let index = 0; index < photoEntries.length; index += 1) {
@@ -914,9 +933,11 @@ export default function NewItemPage() {
 
       sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
       sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+      clearItemPhotosLayoutDraft();
       clearItemInfoDraft();
       sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
       setSlots([null, null, null, null, null, null]);
+      setPhotosLayout("portrait");
       setItemTitle("");
       setDescription("");
       setInfoDraft({});
@@ -1090,7 +1111,7 @@ export default function NewItemPage() {
         mimeType: file.type || "image/jpeg",
         itemId: draftItemId ?? undefined,
         slot: slotIndex,
-        aspect: ITEM_PHOTO_MODIFY_ASPECT,
+        aspect: itemPhotoLayoutToModifyAspect(photosLayout),
         offset: { x: 0, y: 0 },
         zoom: 1,
         status: "pending",
@@ -1189,6 +1210,7 @@ export default function NewItemPage() {
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemPhotosLayoutDraft();
     clearItemInfoDraft();
     try {
       sessionStorage.setItem("segna:item-detail:back-href", "/exchange");
@@ -1391,6 +1413,7 @@ export default function NewItemPage() {
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemPhotosLayoutDraft();
     clearItemInfoDraft();
     setPhotoEditVersion(0);
     router.push("/exchange");
@@ -1471,6 +1494,7 @@ export default function NewItemPage() {
     } catch {
       // ignore
     }
+    clearItemPhotosLayoutDraft();
     clearItemInfoDraft();
     setShowCancelModal(false);
     router.push("/exchange");
@@ -1518,9 +1542,20 @@ export default function NewItemPage() {
     sessionStorage.removeItem(ACTIVE_DRAFT_ID_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_SLOTS_DRAFT_STORAGE_KEY);
     sessionStorage.removeItem(ITEM_TEXT_DRAFT_STORAGE_KEY);
+    clearItemPhotosLayoutDraft();
     clearItemInfoDraft();
     setShowCancelModal(false);
     router.push("/exchange");
+  };
+
+  const onPhotosLayoutChange = (next: ItemPhotoLayout) => {
+    if (next === photosLayout) return;
+    setPhotosLayout(next);
+    writeItemPhotosLayoutDraft(next);
+    setSlots((prev) =>
+      prev.map((slot) => (slot ? { ...slot, offset: { x: 0, y: 0 }, zoom: 1 } : slot)),
+    );
+    setPhotoEditVersion((v) => v + 1);
   };
 
   const moveSlot = (fromIndex: number, toIndex: number) => {
@@ -1535,8 +1570,12 @@ export default function NewItemPage() {
     setPhotoEditVersion((v) => v + 1);
   };
 
-  const buildPhotosPayload = (slotsWithPaths: Array<ItemPhotoSlot | null>): Record<string, unknown> => {
-    const photosPayload: Record<string, unknown> = {};
+  const buildPhotosPayload = (
+    slotsWithPaths: Array<ItemPhotoSlot | null>,
+    layout: ItemPhotoLayout,
+  ): Record<string, unknown> => {
+    const photosPayload: Record<string, unknown> = { layout };
+    const aspect = itemPhotoLayoutToModifyAspect(layout);
     for (let index = 0; index < slotsWithPaths.length; index += 1) {
       const slot = slotsWithPaths[index];
       if (!slot?.storagePath) continue;
@@ -1546,7 +1585,7 @@ export default function NewItemPage() {
         position: {
           offset: slot.offset,
           zoom: slot.zoom,
-          aspect: ITEM_PHOTO_MODIFY_ASPECT,
+          aspect,
         },
       };
     }
@@ -1575,7 +1614,7 @@ export default function NewItemPage() {
       if (error) throw new Error(error.message);
       updatedSlots[index] = { ...slot, storagePath: path };
     }
-    return { photosPayload: buildPhotosPayload(updatedSlots), updatedSlots };
+    return { photosPayload: buildPhotosPayload(updatedSlots, photosLayout), updatedSlots };
   };
 
   const clearSlot = (index: number) => {
@@ -1718,6 +1757,7 @@ export default function NewItemPage() {
             title={itemTitle}
             description={description}
             slots={slots}
+            photosLayout={photosLayout}
             ownerUserId={currentUserId}
             infoCard={{
               pricePoints: itemPricePoints,
@@ -1750,7 +1790,27 @@ export default function NewItemPage() {
           </section>
 
           <section className="space-y-4">
-            <p className={cn(montserrat.className, "text-[clamp(14px,2.8vw,20px)] font-semibold leading-none text-zinc-400")}>Photos</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className={cn(montserrat.className, "text-[clamp(14px,2.8vw,20px)] font-semibold leading-none text-zinc-400")}>
+                Photos
+              </p>
+              <div className="flex gap-2">
+                {(["portrait", "landscape"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => onPhotosLayoutChange(option)}
+                    className={cn(
+                      montserrat.className,
+                      "rounded-full px-4 py-2 text-[13px] font-semibold transition",
+                      photosLayout === option ? "bg-zinc-950 text-white" : "bg-zinc-100 text-zinc-700",
+                    )}
+                  >
+                    {option === "portrait" ? "Portrait" : "Paysage"}
+                  </button>
+                ))}
+              </div>
+            </div>
             {photoErrorMessage ? (
               <p
                 role="alert"
@@ -1760,7 +1820,7 @@ export default function NewItemPage() {
               </p>
             ) : null}
             <input ref={fileInputRef} type="file" accept="image/*" onChange={onPickFile} className="hidden" />
-            <div className="grid grid-cols-3 gap-2">
+            <div className={itemPhotoEditorGridClass(photosLayout)}>
               {slots.map((slot, index) => (
                 <button
                   key={`item-photo-slot-${index}`}
@@ -1830,7 +1890,7 @@ export default function NewItemPage() {
                           mimeType: slot.mimeType,
                           itemId: draftItemId ?? undefined,
                           slot: index,
-                          aspect: ITEM_PHOTO_MODIFY_ASPECT,
+                          aspect: itemPhotoLayoutToModifyAspect(photosLayout),
                           offset: { x: slot.offset.x, y: slot.offset.y },
                           zoom: slot.zoom,
                           status: "pending",
@@ -1848,7 +1908,8 @@ export default function NewItemPage() {
                     openPickerForSlot(index);
                   }}
                   className={cn(
-                    "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
+                    "group relative overflow-visible rounded-2xl border-2 border-dashed transition",
+                    itemPhotoSlotAspectClass(photosLayout),
                     index < effectiveMinPhotos ? "border-zinc-300 bg-zinc-50" : "border-zinc-300 bg-white",
                     dragOverIndex === index ? "border-zinc-900 bg-zinc-100" : "",
                     slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
@@ -1862,7 +1923,7 @@ export default function NewItemPage() {
                           photoUrl={slot.dataUrl}
                           frameClassName="h-full w-full"
                           coverStyle={{
-                            backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / ITEM_STAGE_RATIO)) * slot.zoom}%`,
+                            backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / itemPhotoStageRatio(photosLayout))) * slot.zoom}%`,
                             backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
                             backgroundRepeat: "no-repeat",
                           }}

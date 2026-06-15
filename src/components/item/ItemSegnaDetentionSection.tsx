@@ -1,8 +1,8 @@
 "use client";
 
 import { BadgeCheck, Package } from "lucide-react";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
-import { SEGNA_BRAND_LOGO_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
@@ -28,8 +28,6 @@ function hasMeaningfulSizeLabel(raw: string): boolean {
 
 export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }: ItemSegnaDetentionSectionProps) {
   const hasSize = hasMeaningfulSizeLabel(sizeLabel);
-  const priceText = pricePoints != null ? String(pricePoints) : "—";
-
   return (
     <div
       className={cn(
@@ -49,10 +47,17 @@ export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }:
           {" "}
           •{" "}
         </span>
-        <span className="inline-flex items-center gap-1 font-semibold text-zinc-700">
-          {priceText}
-          <img src={SEGNA_BRAND_LOGO_SRC} alt="" className="h-4 w-auto max-w-[3.5rem] shrink-0 object-contain" aria-hidden />
-        </span>
+        {pricePoints != null ? (
+          <SegnaPointsUnitDisplay
+            points={pricePoints}
+            creditKind="consumption"
+            unitDisplay="icon"
+            className="gap-x-1 font-semibold text-zinc-700"
+            numberClassName="font-semibold text-zinc-700"
+          />
+        ) : (
+          <span className="font-semibold text-zinc-700">—</span>
+        )}
         <>
           <span aria-hidden className="text-zinc-400">
             {" "}

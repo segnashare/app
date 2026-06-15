@@ -16,6 +16,10 @@ import {
 } from "@/lib/items/member-intake-shipment";
 import { patchItemIntakeSendcloudMetadata } from "@/lib/items/item-intake-sendcloud-patch";
 import {
+  findActiveTransferIdForItem,
+  loadActiveTransferItemIds,
+} from "@/lib/items/member-transfer-items";
+import {
   readShippingPreferSolo,
   resolveShippingItemIdsForLink,
   SC_SHIPPING_PREFER_SOLO,
@@ -195,15 +199,94 @@ function intakeRowEligibleForDefaultShippingGroup(intake: {
   metadata?: unknown;
 }): boolean {
   const ls = String(intake.listing_stage ?? "").toLowerCase();
-  const fs = String(intake.fulfillment_stage ?? "").toLowerCase();
-  if (ls !== "validated" || !intakeEligibleForPiggybackLink(fs)) return false;
+  const fs = normalizeIntakeFulfillmentStage(intake.fulfillment_stage);
+  if (ls !== "validated") return false;
+  if (isIntakeCartReturnPiggybackActive(intake.metadata)) return false;
+  // Préparation bordereau uniquement — pas les pièces déjà déposées (shipping).
+  return !fs || fs === INTAKE_FULFILLMENT_READY;
+}
+
+async function eligibleDefaultShippingIdsFromTransfer(
+  service: SupabaseClient,
+  orderedItemIds: string[],
+): Promise<string[]> {
+  if (orderedItemIds.length === 0) return [];
+
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("item_id, listing_stage, fulfillment_stage, metadata")
+    .in("item_id", orderedItemIds);
+
+  const intakeById = new Map(
+    (intakeRows ?? []).map((row) => [String((row as { item_id?: string }).item_id ?? ""), row]),
+  );
+
+  const eligible: string[] = [];
+  for (const id of orderedItemIds) {
+    const intake = intakeById.get(id);
+    if (!intake) continue;
+    if (
+      !intakeRowEligibleForDefaultShippingGroup(
+        intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown },
+      )
+    ) {
+      continue;
+    }
+    if (readShippingPreferSolo((intake as { metadata?: unknown }).metadata)) continue;
+    eligible.push(id);
+  }
+
+  return eligible.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
+}
+
+function intakeRowEligibleForExpeditionShippingGroup(intake: {
+  listing_stage?: string;
+  fulfillment_stage?: string | null;
+  metadata?: unknown;
+}): boolean {
+  const ls = String(intake.listing_stage ?? "").toLowerCase();
+  const fs = normalizeIntakeFulfillmentStage(intake.fulfillment_stage);
+  if (ls !== "validated" || fs !== INTAKE_FULFILLMENT_SHIPPING) return false;
   if (isIntakeCartReturnPiggybackActive(intake.metadata)) return false;
   return true;
 }
 
+async function eligibleExpeditionShippingIdsFromTransfer(
+  service: SupabaseClient,
+  orderedItemIds: string[],
+): Promise<string[]> {
+  if (orderedItemIds.length === 0) return [];
+
+  const { data: intakeRows } = await service
+    .from("item_intake")
+    .select("item_id, listing_stage, fulfillment_stage, metadata")
+    .in("item_id", orderedItemIds);
+
+  const intakeById = new Map(
+    (intakeRows ?? []).map((row) => [String((row as { item_id?: string }).item_id ?? ""), row]),
+  );
+
+  const eligible: string[] = [];
+  for (const id of orderedItemIds) {
+    const intake = intakeById.get(id);
+    if (!intake) continue;
+    if (
+      !intakeRowEligibleForExpeditionShippingGroup(
+        intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown },
+      )
+    ) {
+      continue;
+    }
+    if (readShippingPreferSolo((intake as { metadata?: unknown }).metadata)) continue;
+    eligible.push(id);
+  }
+
+  return eligible.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
+}
+
 /**
- * Lot par défaut pour `/items/shipping` : toutes les pièces validées en phase expédition
- * (hors piggyback retour échange), sauf celles marquées « envoi séparé ».
+ * Lot par défaut pour `/items/shipping` : pièces du même transfer que la pièce focus
+ * (hors piggyback retour échange et envois séparés), pas toutes les pièces du membre.
  */
 export async function fetchDefaultIntakeShippingGroupIds(
   service: SupabaseClient,
@@ -211,61 +294,64 @@ export async function fetchDefaultIntakeShippingGroupIds(
   options?: { focusItemId?: string | null },
 ): Promise<string[]> {
   const focus = options?.focusItemId?.trim() ?? "";
-  const { data: rows, error } = await service
+  if (!focus || !SHIPPING_ITEM_ID_UUID_RE.test(focus)) return [];
+
+  const { data: focusItem } = await service
     .from("items")
-    .select("id, item_intake(listing_stage, fulfillment_stage, metadata)")
+    .select("id")
+    .eq("id", focus)
     .eq("owner_user_id", userId)
     .is("deleted_at", null)
-    .limit(100);
+    .maybeSingle();
+  if (!focusItem?.id) return [focus];
 
-  if (error || !rows?.length) {
-    return focus && SHIPPING_ITEM_ID_UUID_RE.test(focus) ? [focus] : [];
-  }
+  const { data: focusIntake } = await service
+    .from("item_intake")
+    .select("listing_stage, fulfillment_stage, metadata")
+    .eq("item_id", focus)
+    .maybeSingle();
 
-  let focusPreferSolo = false;
-  const ids: string[] = [];
-  for (const row of rows) {
-    const id = String((row as { id?: string }).id ?? "");
-    if (!id) continue;
-    const emb = (row as { item_intake?: unknown }).item_intake;
-    const intake = Array.isArray(emb) ? emb[0] : emb;
-    if (!intake || typeof intake !== "object") continue;
-    const meta = (intake as { metadata?: unknown }).metadata;
-    if (id === focus && readShippingPreferSolo(meta)) {
-      focusPreferSolo = true;
-    }
-    if (!intakeRowEligibleForDefaultShippingGroup(intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown })) {
-      continue;
-    }
-    if (readShippingPreferSolo(meta)) continue;
-    ids.push(id);
-  }
-
-  if (focus && focusPreferSolo && SHIPPING_ITEM_ID_UUID_RE.test(focus)) {
+  const focusMeta = focusIntake?.metadata;
+  if (readShippingPreferSolo(focusMeta)) {
     return [focus];
   }
 
-  const unique = [...new Set(ids)].sort((a, b) => a.localeCompare(b)).slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
-  if (focus && SHIPPING_ITEM_ID_UUID_RE.test(focus) && !unique.includes(focus)) {
-    const focusRow = rows.find((r) => String((r as { id?: string }).id) === focus);
-    const emb = focusRow ? (focusRow as { item_intake?: unknown }).item_intake : null;
-    const intake = Array.isArray(emb) ? emb[0] : emb;
-    if (
-      intake &&
-      typeof intake === "object" &&
-      intakeRowEligibleForDefaultShippingGroup(intake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown })
-    ) {
-      unique.push(focus);
-      unique.sort((a, b) => a.localeCompare(b));
+  const transferId = await findActiveTransferIdForItem(service, focus);
+  if (transferId) {
+    const transferItemIds = await loadActiveTransferItemIds(service, transferId);
+    const eligible = await eligibleDefaultShippingIdsFromTransfer(service, transferItemIds);
+    if (eligible.length > 0) {
+      return eligible;
+    }
+    const expeditionPeers = await eligibleExpeditionShippingIdsFromTransfer(service, transferItemIds);
+    if (expeditionPeers.length > 0) {
+      return expeditionPeers;
     }
   }
-  return unique.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
+
+  if (
+    focusIntake &&
+    intakeRowEligibleForExpeditionShippingGroup(
+      focusIntake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown },
+    )
+  ) {
+    return [focus];
+  }
+
+  if (
+    focusIntake &&
+    intakeRowEligibleForDefaultShippingGroup(
+      focusIntake as { listing_stage?: string; fulfillment_stage?: string | null; metadata?: unknown },
+    )
+  ) {
+    return [focus];
+  }
+
+  return [focus];
 }
 
-export function buildIntakeShippingPageHrefFromIds(itemIds: string[]): string {
-  const sorted = [...new Set(itemIds.map((s) => s.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  if (sorted.length === 0) return "/items/shipping";
-  return `/items/shipping?ids=${sorted.map(encodeURIComponent).join(",")}`;
+export function buildIntakeShippingPageHrefFromIds(_itemIds: string[]): string {
+  return "/items/shipping";
 }
 
 /** Pièces cibles pour « Regrouper dans un seul envoi » (inclut les solos post-split). */

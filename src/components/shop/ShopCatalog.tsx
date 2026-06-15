@@ -46,6 +46,7 @@ import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { ShopHubSectionSkeleton } from "@/components/shop/ShopCatalogLoadingFallback";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
@@ -203,6 +204,8 @@ type ShopCatalogProps = {
   initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
   /** Ordre vertical des blocs hub (RPC `get_cms_boutique_section_order`). */
   boutiqueHubSectionOrder?: string[];
+  /** Sections hub déjà chargées (les autres affichent un squelette). */
+  readyHubSectionKeys?: string[];
   /** Onboarding panier : attire l'oeil vers les + d'ajout au panier. */
   guideCartOnboarding?: boolean;
   /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
@@ -311,14 +314,6 @@ function isDefaultCatalogView(filters: ShopFilters, search: string, heartsOnly: 
   return search.trim() === "" && !heartsOnly && !disponiblesOnly && !hasFilter && sortMode === "recent";
 }
 
-function pieceCardConditionLabel(item: ShopCatalogItem): string {
-  const raw = item.condition_label?.trim();
-  if (raw) return raw;
-  const id = item.condition_score?.trim();
-  if (id) return CONDITION_OPTIONS.find((o) => o.id === id)?.label ?? id;
-  return "—";
-}
-
 function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
   const t = sizeLabel?.trim();
   return t ? `Taille ${t}` : "Taille unique";
@@ -385,6 +380,10 @@ type ShopPieceSquareCatalogCardProps = {
   hideMetaUntilReady: boolean;
   /** Frames CMS (`shop_item_ref`) : pas de contour sur la carte. */
   hideFrameBorder?: boolean;
+  /** Masque le bouton cœur (ex. rail « Complétez votre tenue » panier). */
+  hideLikeAction?: boolean;
+  /** Cartes ~30 % plus petites (largeur + méta + actions). */
+  compactCard?: boolean;
 };
 
 function ShopPieceSquareCatalogCard({
@@ -400,6 +399,8 @@ function ShopPieceSquareCatalogCard({
   onToggleCart,
   hideMetaUntilReady,
   hideFrameBorder = false,
+  hideLikeAction = false,
+  compactCard = false,
 }: ShopPieceSquareCatalogCardProps) {
   const cmsHideChrome = useCmsFrameHideChrome();
   const noFrameChrome = hideFrameBorder || cmsHideChrome;
@@ -413,11 +414,13 @@ function ShopPieceSquareCatalogCard({
 
   const brandName = (item.brand_label ?? "").trim();
   const sizeLine = pieceCardSizeLine(item.size_label);
-  const condBit = pieceCardConditionLabel(item);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
 
   const actionBtnClass =
     "bg-white/95 text-zinc-900 shadow-sm ring-1 ring-black/10 backdrop-blur-[2px]";
+  const cartToggleBtnClass = inCart
+    ? "bg-zinc-950 text-white shadow-sm ring-1 ring-black/20"
+    : actionBtnClass;
 
   return (
     <div className="w-full">
@@ -444,23 +447,31 @@ function ShopPieceSquareCatalogCard({
         ) : (
           <div className="h-full w-full bg-zinc-200" aria-hidden />
         )}
-        <div className="absolute bottom-2 right-2 z-10 flex gap-1.5">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void onToggleLike(item.id);
-            }}
-            disabled={likeBusyIds.has(item.id)}
-            className={cn(
-              "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-              actionBtnClass,
-            )}
-            title="Ajouter aux favoris"
-          >
-            <Heart className={cn("h-4 w-4", liked && "fill-current")} aria-hidden />
-          </button>
+        <div
+          className={cn(
+            "absolute right-2 z-10 flex gap-1.5",
+            compactCard ? "bottom-1.5" : "bottom-2",
+          )}
+        >
+          {hideLikeAction ? null : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void onToggleLike(item.id);
+              }}
+              disabled={likeBusyIds.has(item.id)}
+              className={cn(
+                "inline-flex shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+                compactCard ? "h-7 w-7" : "h-9 w-9",
+                actionBtnClass,
+              )}
+              title="Ajouter aux favoris"
+            >
+              <Heart className={cn(compactCard ? "h-3.5 w-3.5" : "h-4 w-4", liked && "fill-current")} aria-hidden />
+            </button>
+          )}
           {canAddToCart ? (
             <button
               type="button"
@@ -471,12 +482,20 @@ function ShopPieceSquareCatalogCard({
               }}
               disabled={cartBusyIds.has(item.id)}
               className={cn(
-                "segna-guidance-shimmer-target inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-                actionBtnClass,
+                "segna-guidance-shimmer-target inline-flex shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
+                compactCard ? "h-7 w-7" : "h-9 w-9",
+                cartToggleBtnClass,
               )}
               title="Ajouter au panier"
             >
-              <Plus className={cn("h-4 w-4 transition-transform duration-200", inCart && "rotate-45")} aria-hidden />
+              <Plus
+                className={cn(
+                  compactCard ? "h-3.5 w-3.5" : "h-4 w-4",
+                  "transition-transform duration-200",
+                  inCart && "rotate-45",
+                )}
+                aria-hidden
+              />
             </button>
           ) : null}
         </div>
@@ -522,10 +541,6 @@ function ShopPieceSquareCatalogCard({
             |
           </span>
           <span className="max-w-[40%] truncate">{sizeLine}</span>
-          <span className="text-zinc-400" aria-hidden>
-            |
-          </span>
-          <span className="min-w-0 max-w-full truncate">{condBit}</span>
         </p>
       </div>
     </div>
@@ -591,7 +606,7 @@ function ShopPieceSplitCard({
   const useLightText = spotlight.textColor === "white";
 
   const brandName = (item.brand_label ?? "").trim();
-  const condBit = pieceCardConditionLabel(item);
+  const sizeLine = pieceCardSizeLine(item.size_label);
 
   const textMain = useLightText ? "text-white" : "text-zinc-900";
   const textSub = useLightText ? "text-white/90" : "text-zinc-700";
@@ -635,7 +650,7 @@ function ShopPieceSplitCard({
         <span className={cn("shrink-0", sepClass)} aria-hidden>
           |
         </span>
-        <span className="min-w-0 shrink truncate">{condBit}</span>
+        <span className="min-w-0 shrink truncate">{sizeLine}</span>
       </p>
     </div>
   );
@@ -833,6 +848,7 @@ export function ShopCatalog({
   shopHomeCapsulesSectionDisplay = { hide_section_title: false, title: null },
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
+  readyHubSectionKeys,
   guideCartOnboarding = false,
   welcomeGiftOfferEligible = false,
   includedCreditsActivationContent = null,
@@ -869,6 +885,25 @@ export function ShopCatalog({
   const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(() => ({ ...initialCoverUrlByIdProp }));
   const coverUrlByIdRef = useRef<Record<string, string>>({});
   coverUrlByIdRef.current = coverUrlById;
+
+  useEffect(() => {
+    setCoverUrlById((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [id, url] of Object.entries(initialCoverUrlByIdProp)) {
+        if (url && next[id] !== url) {
+          next[id] = url;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [initialCoverUrlByIdProp]);
+
+  const readyHubSectionKeySet = useMemo(() => {
+    if (!readyHubSectionKeys || readyHubSectionKeys.length === 0) return null;
+    return new Set(readyHubSectionKeys);
+  }, [readyHubSectionKeys]);
   const filtersRef = useRef(filters);
   const sortModeRef = useRef(sortMode);
   filtersRef.current = filters;
@@ -2682,8 +2717,11 @@ export function ShopCatalog({
           {showHub ? (
             <div className="divide-y-[1px] divide-zinc-200">
               {boutiqueHubSectionOrder.map((sectionKey, index) => {
-                const inner = renderBoutiqueHubSection(sectionKey);
-                if (inner === null) return null;
+                const sectionReady = !readyHubSectionKeySet || readyHubSectionKeySet.has(sectionKey);
+                const inner = sectionReady
+                  ? renderBoutiqueHubSection(sectionKey)
+                  : <ShopHubSectionSkeleton sectionKey={sectionKey} />;
+                if (inner === null && sectionReady) return null;
                 const padGridDisponibles = sectionKey === "shop_system_available";
                 return (
                   <div
@@ -3135,6 +3173,8 @@ function ItemRailTwoUpCard({
   searchState,
   itemFromQuery = "shop",
   skipCatalogNavigationPersist = false,
+  hideLikeAction = false,
+  compactCard = false,
 }: {
   item: ShopCatalogItem;
   cover: string | undefined;
@@ -3154,6 +3194,8 @@ function ItemRailTwoUpCard({
   };
   itemFromQuery?: string;
   skipCatalogNavigationPersist?: boolean;
+  hideLikeAction?: boolean;
+  compactCard?: boolean;
 }) {
   const inCart = cartItemIds.has(item.id);
   const liked = likedSet.has(item.id);
@@ -3162,7 +3204,10 @@ function ItemRailTwoUpCard({
   return (
     <Link
       href={`/items/${item.id}?from=${encodeURIComponent(itemFromQuery)}`}
-      className="w-[48%] min-w-[170px] shrink-0"
+      className={cn(
+        "shrink-0",
+        compactCard ? "w-[34%] min-w-[119px]" : "w-[48%] min-w-[170px]",
+      )}
       onClick={() => {
         if (skipCatalogNavigationPersist) return;
         persistShopCatalogStateForItemNavigation({
@@ -3186,6 +3231,8 @@ function ItemRailTwoUpCard({
         onToggleLike={onToggleLike}
         onToggleCart={onToggleCart}
         hideMetaUntilReady
+        hideLikeAction={hideLikeAction}
+        compactCard={compactCard}
       />
     </Link>
   );
@@ -3207,10 +3254,14 @@ export function ItemRailTwoUp({
   searchState,
   itemFromQuery = "shop",
   skipCatalogNavigationPersist = false,
+  hideSectionHeader = false,
+  hideLikeAction = false,
+  compactCard = false,
+  sectionInsetScroll = false,
 }: {
   title: string;
   items: ShopCatalogItem[];
-  sectionHref: string;
+  sectionHref?: string;
   coverUrlById: Record<string, string>;
   shimmerDurationSec: number;
   cartItemIds: Set<string>;
@@ -3228,15 +3279,30 @@ export function ItemRailTwoUp({
   };
   itemFromQuery?: string;
   skipCatalogNavigationPersist?: boolean;
+  hideSectionHeader?: boolean;
+  hideLikeAction?: boolean;
+  compactCard?: boolean;
+  sectionInsetScroll?: boolean;
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
 
   return (
     <section className="space-y-3">
-      <SectionHeader title={title} sectionHref={sectionHref} />
-      <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="w-3 shrink-0" aria-hidden />
+      {hideSectionHeader ? null : sectionInsetScroll ? (
+        <div className="px-5">
+          <SectionHeader title={title} sectionHref={sectionHref} titleInset={false} />
+        </div>
+      ) : (
+        <SectionHeader title={title} sectionHref={sectionHref} />
+      )}
+      <div
+        className={cn(
+          "flex w-full min-w-0 flex-nowrap gap-3 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          sectionInsetScroll && "pl-5",
+        )}
+      >
+        {!sectionInsetScroll ? <div className="w-3 shrink-0" aria-hidden /> : null}
         {railItems.map((item, index) => (
           <ItemRailTwoUpCard
             key={`${title}-${item.id}-${index}`}
@@ -3252,9 +3318,11 @@ export function ItemRailTwoUp({
             searchState={searchState}
             itemFromQuery={itemFromQuery}
             skipCatalogNavigationPersist={skipCatalogNavigationPersist}
+            hideLikeAction={hideLikeAction}
+            compactCard={compactCard}
           />
         ))}
-        <div className="w-3 shrink-0" aria-hidden />
+        {!sectionInsetScroll ? <div className="w-3 shrink-0" aria-hidden /> : null}
       </div>
     </section>
   );

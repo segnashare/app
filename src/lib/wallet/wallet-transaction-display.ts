@@ -1,3 +1,5 @@
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
+import { parisCalendarDateString } from "@/lib/emprunt/borrow-overdue-penalty";
 import { sortWalletTransactionsNewestFirst } from "@/lib/wallet/wallet-transaction-sort";
 
 export type WalletRecentTransaction = {
@@ -157,13 +159,13 @@ export function walletTransactionDisplayLabel(
   const source = readMetaString(metadata, "source")?.toLowerCase() ?? "";
 
   if (source === "lend_intake_verified") {
-    return { label: "Crédits prêt", subtitle: "Pièce validée", isAdminAdjustment: false };
+    return { label: "Crédits prêt", subtitle: "Réception Segna validée", isAdminAdjustment: false };
   }
   if (source === "return_verification_ok") {
     return { label: "Retour validé", subtitle: "Crédits rendus", isAdminAdjustment: false };
   }
   if (source === "cart_order_stripe") {
-    return { label: "Emprunt", subtitle: "Réservation panier", isAdminAdjustment: false };
+    return { label: "Emprunt", subtitle: "Paiement panier", isAdminAdjustment: false };
   }
   if (source === "credits_purchase") {
     return { label: "Complément panier", subtitle: null, isAdminAdjustment: false };
@@ -193,18 +195,21 @@ export function walletTransactionDisplayLabel(
 export function formatWalletTransactionWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTx = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayDiff = Math.round((startOfToday.getTime() - startOfTx.getTime()) / 86_400_000);
-  if (dayDiff === 0) {
-    return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const todayKey = parisCalendarDateString();
+  const txKey = parisCalendarDateString(date.getTime());
+  if (txKey === todayKey) {
+    return date.toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/Paris",
+    });
   }
+  const dayDiff = Math.round((Date.parse(todayKey) - Date.parse(txKey)) / 86_400_000);
   if (dayDiff === 1) return "Hier";
-  if (dayDiff < 7) {
-    return date.toLocaleDateString("fr-FR", { weekday: "long" });
+  if (dayDiff > 1 && dayDiff < 7) {
+    return formatDateParis(date, { weekday: "long" });
   }
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return formatDateParis(date, { day: "numeric", month: "short" });
 }
 
 export function formatWalletTransactionListDetailLine(

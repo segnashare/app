@@ -1,12 +1,7 @@
 import { getMemberOutboundShipmentPhaseCopy } from "@/lib/cart/member-outbound-shipment-copy";
+import { formatDateTimeParis } from "@/lib/datetime/segna-datetime";
 
 export type OrderTimelineEntry = { timeLabel: string; label: string };
-
-function formatDateTimeFr(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
-}
 
 function historyLabel(toStatus: string, reason: string | null): string | null {
   switch (toStatus) {
@@ -86,7 +81,7 @@ export function buildMemberOrderTimeline(
   }
 
   return dedup.map((e) => ({
-    timeLabel: formatDateTimeFr(new Date(e.t).toISOString()),
+    timeLabel: formatDateTimeParis(new Date(e.t).toISOString()),
     label: e.label,
   }));
 }

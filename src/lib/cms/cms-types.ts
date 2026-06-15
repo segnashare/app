@@ -35,6 +35,8 @@ export type CmsCatalogSectionConfig = {
   show_more_arrow?: boolean;
   /** Chemin interne (ex. /shop/discover) ou URL absolue */
   more_href?: string;
+  /** Filtre catalogue commun aux grandes cartes de la section (marque, matériau, …). */
+  catalog_filter_kind?: string;
   /** Si non vide : seuls ces plans voient la section (sinon tous). Renseigné côté serveur / BO. */
   visible_plan_codes?: CmsPlanCode[];
 };
