@@ -1,5 +1,5 @@
-import { ExchangeLoadingFallback } from "@/components/exchange/ExchangeLoadingFallback";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
 
 export default function ExchangeLoading() {
-  return <ExchangeLoadingFallback />;
+  return <AppPageLoading label="Chargement de l'échange" />;
 }

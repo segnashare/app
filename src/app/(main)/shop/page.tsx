@@ -1,15 +1,21 @@
 import { Suspense } from "react";
 
 import { MainContent } from "@/components/layout/MainContent";
-import { ShopCatalogProgressiveShell } from "@/components/shop/ShopCatalogProgressiveShell";
-import { ShopCatalogLoadingFallback } from "@/components/shop/ShopCatalogLoadingFallback";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
+import { ShopCatalogReadyShell } from "@/components/shop/ShopCatalogReadyShell";
 import { buildShopPageLoadContext } from "@/lib/shop/build-shop-page-load-context";
-import { loadShopPageCritical } from "@/lib/shop/load-shop-page-progressive";
+import { loadShopPageFull } from "@/lib/shop/load-shop-page-progressive";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 
 export default function ShopPage() {
   return (
-    <Suspense fallback={<ShopCatalogLoadingFallback />}>
+    <Suspense
+      fallback={
+        <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
+          <AppPageLoading label="Chargement de la boutique" />
+        </MainContent>
+      }
+    >
       <ShopPageAsync />
     </Suspense>
   );
@@ -22,16 +28,16 @@ async function ShopPageAsync() {
     return null;
   }
 
-  const critical = await perf.measure("shop.critical", () => loadShopPageCritical(ctx));
+  const payload = await perf.measure("shop.full", () => loadShopPageFull(ctx));
   perf.log({
-    initialItems: critical.initialItems.length,
-    readySections: critical.readyHubSectionKeys.length,
-    signedCovers: Object.keys(critical.initialCoverUrlById).length,
+    initialItems: payload.initialItems.length,
+    readySections: payload.readyHubSectionKeys.length,
+    signedCovers: Object.keys(payload.initialCoverUrlById).length,
   });
 
   return (
     <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
-      <ShopCatalogProgressiveShell critical={critical} />
+      <ShopCatalogReadyShell payload={payload} />
     </MainContent>
   );
 }

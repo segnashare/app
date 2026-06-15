@@ -203,7 +203,12 @@ export async function fetchActiveCartSummaryForUser(
 export async function fetchActiveCartLinesForUser(
   supabase: CartFetchSupabase,
   userId: string,
+  options?: { activeCartId?: string | null },
 ): Promise<CartLineRowData[]> {
+  const knownCartId = options?.activeCartId?.trim() || null;
+  if (knownCartId) {
+    return fetchCartLinesForActiveCart(supabase, knownCartId);
+  }
   const activeCart = await fetchActiveCartRowForUser(supabase, userId);
   if (!activeCart) return [];
   return fetchCartLinesForActiveCart(supabase, activeCart.id);

@@ -51,6 +51,14 @@ async function fetchBoutiqueHubSectionOrderRawUncached(): Promise<unknown> {
   return data;
 }
 
+async function fetchEchangeSectionOrderRawUncached(): Promise<unknown> {
+  const client = adminRpcClient();
+  if (!client) return null;
+  const { data, error } = await client.rpc("get_cms_echange_section_order");
+  if (error) throw new Error(error.message ?? "get_cms_echange_section_order failed");
+  return data;
+}
+
 const CMS_CACHE_REVALIDATE_SECONDS = 120;
 
 function cachedCmsFetch<T>(key: string, tag: string, loader: () => Promise<T>): Promise<T> {
@@ -87,4 +95,8 @@ export function fetchCmsSectionPublishedConfigRawCached(sectionKey: string): Pro
 
 export function fetchBoutiqueHubSectionOrderRawCached(): Promise<unknown> {
   return cachedCmsFetch("cms-boutique-order-v1", "cms-boutique-order", fetchBoutiqueHubSectionOrderRawUncached);
+}
+
+export function fetchEchangeSectionOrderRawCached(): Promise<unknown> {
+  return cachedCmsFetch("cms-echange-order-v1", "cms-echange-order", fetchEchangeSectionOrderRawUncached);
 }

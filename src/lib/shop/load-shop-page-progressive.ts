@@ -36,11 +36,14 @@ import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-ur
 /** Sections rendues immédiatement côté serveur (haut de page). */
 export const SHOP_PAGE_INITIAL_SECTION_COUNT = 3;
 
-/** Catalogue initial (repli rails + filtres) — le reste arrive en différé. */
+/** Catalogue initial (repli API progressive). */
 export const SHOP_INITIAL_CATALOG_LIMIT = 40;
 
-/** Plafond URLs signées sur le chemin critique (évite de bloquer le TTFB). */
+/** Plafond URLs signées sur le chemin critique (API progressive). */
 export const SHOP_CRITICAL_COVER_ITEM_CAP = 48;
+
+/** Catalogue complet chargé avant affichage de la page. */
+export const SHOP_FULL_CATALOG_LIMIT = 120;
 
 const HUB_SECTION_KEY_TO_SLUG: Partial<Record<string, ShopHubSectionSlug>> = {
   shop_section_discover: "discover",
@@ -276,6 +279,68 @@ export async function loadShopPageCritical(ctx: ShopPageLoadContext): Promise<Sh
     boutiqueHubSectionOrder,
     guideCartOnboarding: ctx.guideCartOnboarding,
     readyHubSectionKeys: [...criticalSectionKeys],
+    categories: mapCategoryFilterRows(catResFinal.data),
+    sizes: mapSizeFilterRows(sizeResFinal.data),
+    brands: mapFilterRows(brandResFinal.data),
+    colors: mapFilterRows(colResFinal.data),
+    materials: mapFilterRows(matResFinal.data),
+  };
+}
+
+/** Charge la boutique complète côté serveur (sections CMS + couvertures) avant affichage. */
+export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPageCatalogPayload> {
+  const catalogSb = ctx.catalogDb as unknown as {
+    rpc: (
+      name: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+
+  const boutiqueHubSectionOrder = await fetchBoutiqueHubSectionOrderCached();
+
+  const [facetPack, favRes, mostLikedRes, fullCatalogRes, hubPack, lendersBlock] = await Promise.all([
+    loadShopBoutiqueFilterFacetResponses(ctx.isDemoMode, ctx.supabase),
+    ctx.supabase
+      .from("item_favorites")
+      .select("item_id")
+      .eq("user_id", ctx.userId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
+    catalogSb.rpc("get_shop_most_liked_items", { p_limit: 10 }),
+    catalogSb.rpc("get_shop_catalog_items", { p_limit: SHOP_FULL_CATALOG_LIMIT }),
+    loadHubDataForSectionKeys(boutiqueHubSectionOrder, ctx),
+    loadFeaturedLendersBlock(ctx),
+  ]);
+
+  const { catResFinal, sizeResFinal, brandResFinal, colResFinal, matResFinal } = facetPack;
+  const initialMostLikedItems = parseCatalogItems(mostLikedRes.data);
+  const catalogItems = parseCatalogItems(fullCatalogRes.data);
+
+  const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
+  const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
+
+  const hubItemIds = collectItemIdsFromHubBundles(hubPack.hubSections, hubPack.cmsShopFrames);
+  const initialItems = await mergeCatalogWithRefs(ctx.catalogDb, catalogItems, [
+    ...hubItemIds,
+    ...initialLikedItemIds,
+    ...lendersBlock.featuredLenderSectionItemIds,
+  ]);
+
+  const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(ctx.catalogDb, initialItems);
+
+  return {
+    initialItems,
+    initialLikedItemIds,
+    initialMostLikedItems,
+    initialCoverUrlById,
+    featuredLenders: lendersBlock.featuredLenders,
+    featuredLenderSectionItemIds: lendersBlock.featuredLenderSectionItemIds,
+    initialCmsShopFrames: hubPack.cmsShopFrames,
+    shopHomeCapsulesSectionDisplay: hubPack.shopHomeCapsulesSectionDisplay,
+    initialShopHubSections: hubPack.hubSections,
+    boutiqueHubSectionOrder,
+    guideCartOnboarding: ctx.guideCartOnboarding,
+    readyHubSectionKeys: [...boutiqueHubSectionOrder],
     categories: mapCategoryFilterRows(catResFinal.data),
     sizes: mapSizeFilterRows(sizeResFinal.data),
     brands: mapFilterRows(brandResFinal.data),

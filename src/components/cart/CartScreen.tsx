@@ -76,6 +76,8 @@ type CartScreenProps = {
   cmsSectionsByKey?: Record<string, { frames: CmsFrameRow[]; display: CmsSectionPublishedDisplay }>;
   /** Pièces catalogue pour rendu riche des frames `shop_item_ref` (même carte que la boutique). */
   cmsShopHubCatalogItems?: ShopCatalogItem[];
+  /** Couvertures déjà signées côté serveur (évite les vignettes grises au chargement). */
+  initialCoverUrlById?: Record<string, string>;
   /** Échantillon catalogue pour le bloc AUTO « Susceptibles de vous plaire » sur le panier (`shop_system_for_you`). */
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Suggestions contextuelles tenue (`cart_system_outfit_suggestions`). */
@@ -140,6 +142,7 @@ export function CartScreen({
   panierSectionOrder = ["cart_system_items", "cart_system_outfit_suggestions", "cart_offers", "cart_system_exchange"],
   cmsSectionsByKey = {},
   cmsShopHubCatalogItems = [],
+  initialCoverUrlById = {},
   cartShopSystemForYouItems = [],
   cartOutfitSuggestionItems = [],
   showOfferOnboarding = false,
@@ -440,7 +443,11 @@ export function CartScreen({
 
       <div className="flex flex-col pt-0">
         {/* Entre sections : gutter zinc 4.5px. En bas : réserve dock en blanc (pas de bande zinc comme avec padding-bottom transparent). */}
-        <CartCmsShopHubProvider catalogItems={cmsShopHubCatalogItems} onCartMutation={() => router.refresh()}>
+        <CartCmsShopHubProvider
+          catalogItems={cmsShopHubCatalogItems}
+          initialCoverUrlById={initialCoverUrlById}
+          onCartMutation={() => router.refresh()}
+        >
           <div className="flex flex-col space-y-[4.5px]">
           {panierSectionOrder.map((slotKey) => {
             if (slotKey === "cart_system_items") {

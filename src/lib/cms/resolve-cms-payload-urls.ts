@@ -41,14 +41,27 @@ export async function resolveCmsFrameRowsStorageUrls(
   signClient?: StorageSignClient,
   signTtlSeconds = CMS_SIGNED_URL_TTL_SECONDS,
 ): Promise<CmsFrameRow[]> {
-  if (rows.length === 0) return [];
+  const [resolved] = await resolveCmsFrameRowGroupsStorageUrlsBatch([rows], signClient, signTtlSeconds);
+  return resolved ?? [];
+}
+
+/** Signe les visuels de plusieurs lots de frames CMS en un seul appel Storage. */
+export async function resolveCmsFrameRowGroupsStorageUrlsBatch(
+  frameGroups: CmsFrameRow[][],
+  signClient?: StorageSignClient,
+  signTtlSeconds = CMS_SIGNED_URL_TTL_SECONDS,
+): Promise<CmsFrameRow[][]> {
+  const allRows = frameGroups.flat();
+  if (allRows.length === 0) return frameGroups.map(() => []);
   const client = cmsStorageSignClient(signClient);
-  const paths = [...collectCmsStoragePaths(rows.map((row) => row.payload))];
+  const paths = [...collectCmsStoragePaths(allRows.map((row) => row.payload))];
   const signedByPath = await createSignedUrlsForStoragePaths(client, paths, signTtlSeconds);
-  return rows.map((row) => ({
-    ...row,
-    payload: applySignedUrlsToCmsPayload(row.payload, signedByPath),
-  }));
+  return frameGroups.map((rows) =>
+    rows.map((row) => ({
+      ...row,
+      payload: applySignedUrlsToCmsPayload(row.payload, signedByPath),
+    })),
+  );
 }
 
 /**
