@@ -5,6 +5,7 @@ import { MessageCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { shouldShowMemberFeedbackFab, shouldShowTabBar } from "@/components/layout/navigation";
+import { usePageChromeHidden } from "@/components/layout/PageChromeLoadingContext";
 import {
   FLOATING_BOTTOM_ABOVE_TAB_BAR,
   FLOATING_BOTTOM_WITHOUT_TAB_BAR,
@@ -18,6 +19,7 @@ const BOTTOM_WITHOUT_TAB_BAR = FLOATING_BOTTOM_WITHOUT_TAB_BAR;
 
 export function MemberFeedbackFab() {
   const pathname = usePathname();
+  const chromeHidden = usePageChromeHidden();
   const enabled = useMemo(() => isMemberFeedbackFabEnabled(), []);
   const canRender = useMemo(
     () => enabled && shouldShowMemberFeedbackFab(pathname),
@@ -37,7 +39,7 @@ export function MemberFeedbackFab() {
     return () => window.removeEventListener("segna:tabbar-visibility", onVisibility);
   }, [pathname]);
 
-  if (!canRender) return null;
+  if (chromeHidden || !canRender) return null;
 
   return (
     <div

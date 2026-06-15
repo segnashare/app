@@ -7,6 +7,7 @@ import { ShoppingCart } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { shouldShowFloatingCartButton } from "@/components/layout/navigation";
+import { usePageChromeHidden } from "@/components/layout/PageChromeLoadingContext";
 import {
   FLOATING_BOTTOM_ABOVE_TAB_BAR,
   FLOATING_BOTTOM_WITHOUT_TAB_BAR,
@@ -65,6 +66,7 @@ function FloatingViewCartPill({ pathname, count, guideCartOnboarding }: { pathna
 
 export function FloatingViewCartButton() {
   const pathname = usePathname();
+  const chromeHidden = usePageChromeHidden();
   const canRender = useMemo(() => shouldShowFloatingCartButton(pathname), [pathname]);
   const { count } = useActiveCartItemCount();
   const [guideCartOnboarding, setGuideCartOnboarding] = useState(false);
@@ -89,7 +91,7 @@ export function FloatingViewCartButton() {
     };
   }, []);
 
-  if (!canRender || count <= 0) return null;
+  if (chromeHidden || !canRender || count <= 0) return null;
   if (pathname === "/cart") return null;
 
   return <FloatingViewCartPill key={pathname} pathname={pathname} count={count} guideCartOnboarding={guideCartOnboarding} />;
