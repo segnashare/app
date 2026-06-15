@@ -86,10 +86,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: outErr.message }, { status: 500 });
   }
 
-  if (outErr) {
-    return NextResponse.json({ ok: false as const, error: outErr.message }, { status: 500 });
-  }
-
   let transferId: string | null = null;
   if (ready) {
     const assigned = await assignOuttakeItemAfterRequest(admin, user.id, itemId);

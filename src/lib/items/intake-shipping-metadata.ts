@@ -325,7 +325,8 @@ function defaultGroupIdsForDedupeCandidate(
   }
   const byItem = options.defaultGroupIdsByItemId;
   if (byItem) {
-    const perItem = byItem instanceof Map ? byItem.get(itemId) : byItem[itemId];
+    const perItem =
+      byItem instanceof Map ? byItem.get(itemId) : (byItem as Record<string, readonly string[]>)[itemId];
     if (perItem && perItem.length > 0) return [...perItem];
   }
   return options.defaultGroupIds ?? null;

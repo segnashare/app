@@ -18,6 +18,7 @@ export const SHOP_HUB_DEFAULT_CONFIG: Record<ShopHubSectionSlug, Required<CmsCat
     hide_section_title: false,
     show_more_arrow: true,
     more_href: "/shop/discover",
+    catalog_filter_kind: "",
     visible_plan_codes: [],
   },
   categories: {
@@ -25,6 +26,7 @@ export const SHOP_HUB_DEFAULT_CONFIG: Record<ShopHubSectionSlug, Required<CmsCat
     hide_section_title: false,
     show_more_arrow: false,
     more_href: "",
+    catalog_filter_kind: "",
     visible_plan_codes: [],
   },
   preferredBrands: {
@@ -32,6 +34,7 @@ export const SHOP_HUB_DEFAULT_CONFIG: Record<ShopHubSectionSlug, Required<CmsCat
     hide_section_title: false,
     show_more_arrow: true,
     more_href: "/shop/preferred-brands",
+    catalog_filter_kind: "",
     visible_plan_codes: [],
   },
   deals: {
@@ -39,6 +42,7 @@ export const SHOP_HUB_DEFAULT_CONFIG: Record<ShopHubSectionSlug, Required<CmsCat
     hide_section_title: false,
     show_more_arrow: true,
     more_href: "/shop/deals",
+    catalog_filter_kind: "",
     visible_plan_codes: [],
   },
   french: {
@@ -46,6 +50,7 @@ export const SHOP_HUB_DEFAULT_CONFIG: Record<ShopHubSectionSlug, Required<CmsCat
     hide_section_title: false,
     show_more_arrow: true,
     more_href: "/shop/french",
+    catalog_filter_kind: "",
     visible_plan_codes: [],
   },
 };
@@ -63,6 +68,8 @@ export function mergeShopHubSectionDisplay(
     hide_section_title: c.hide_section_title === true,
     more_href: typeof c.more_href === "string" ? c.more_href : d.more_href,
     show_more_arrow: typeof c.show_more_arrow === "boolean" ? c.show_more_arrow : d.show_more_arrow,
+    catalog_filter_kind:
+      typeof c.catalog_filter_kind === "string" ? c.catalog_filter_kind : d.catalog_filter_kind,
     visible_plan_codes: vpc ?? [],
   };
 }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { resolveItemPhotoData } from "@/lib/cart/fetch-active-cart-lines";
 import { resolveItemListBrandLabel } from "@/lib/items/format-item-custom-brand-label";
 import {
   INTAKE_FULFILLMENT_IN_VERIFICATION,
