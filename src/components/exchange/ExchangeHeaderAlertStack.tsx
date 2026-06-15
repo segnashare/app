@@ -86,6 +86,7 @@ function StackCardSilhouette({ heightPx }: { heightPx: number }) {
 export function ExchangeHeaderAlertStack({
   intakeItems,
   defaultShippingGroupIds = [],
+  shippingGroupItems = [],
   outboundSummary,
   showProfileOnboarding = false,
   showKycOnboarding = false,
@@ -96,6 +97,8 @@ export function ExchangeHeaderAlertStack({
   intakeItems: ExchangeIntakeBannerItem[];
   /** Pièces prêtes à expédier : lien bordereau groupé par défaut. */
   defaultShippingGroupIds?: string[];
+  /** Titres des pièces du lot expédition (pour libellés groupés). */
+  shippingGroupItems?: Array<{ id: string; title: string | null }>;
   outboundSummary: OutboundShipmentSummary | null;
   /** Onboarding in-app : carte profil placée dans la pile haute Échange. */
   showProfileOnboarding?: boolean;
@@ -373,7 +376,10 @@ export function ExchangeHeaderAlertStack({
                       intakeUpdatedAt={item.updatedAt}
                       offerPricePoints={item.pricePoints}
                       placement="item"
-                      defaultShippingGroupIds={defaultShippingGroupIds}
+                      defaultShippingGroupIds={
+                        item.defaultShippingGroupIds ?? defaultShippingGroupIds
+                      }
+                      shippingGroupItems={item.shippingGroupItems ?? shippingGroupItems}
                       onPipelineUpdated={() => router.refresh()}
                       onExchangeStackAdvance={stackAdvance}
                       onStackDismiss={onStackDismiss}

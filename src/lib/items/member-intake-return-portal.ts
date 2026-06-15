@@ -6,9 +6,13 @@ import {
   clearItemIntakeShippingLabelMetadata,
   patchItemIntakeSendcloudMetadata,
 } from "@/lib/items/item-intake-sendcloud-patch";
+import { findActiveTransferIdForItem } from "@/lib/items/member-transfer-items";
 import {
   archiveMemberIntakeShipment,
+  buildMemberIntakeOrderNumber,
   buildStableMemberIntakeOrderNumber,
+  parseMemberIntakePortalGeneration,
+  updateMemberIntakeDestinationForPortal,
   cancelMemberIntakeSendcloudArtifacts,
   consolidateMemberIntakeShippingGroup,
   ensureMemberIntakeShipmentForPortal,
@@ -356,18 +360,10 @@ async function bootstrapMemberIntakeSoloReturnPortal(
     return { ok: false, error: "Sendcloud non configuré." };
   }
 
-  const { data: shipRow } = await service
-    .from("shipments")
-    .select("item_intake_1_id, item_intake_2_id")
-    .eq("id", params.shipmentId.trim())
-    .eq("context", "member_intake")
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!shipRow?.item_intake_1_id || String(shipRow.item_intake_1_id) !== params.itemId.trim()) {
+  const { resolveMemberIntakeItemIds } = await import("@/lib/items/resolve-member-intake-item-ids");
+  const linkedIds = await resolveMemberIntakeItemIds(service, params.shipmentId.trim());
+  if (linkedIds.length !== 1 || linkedIds[0] !== params.itemId.trim()) {
     return { ok: false, error: "Expédition intake solo introuvable pour cette pièce." };
-  }
-  if (shipRow.item_intake_2_id) {
-    return { ok: false, error: "Impossible de créer un portail solo sur un lot encore fusionné." };
   }
 
   const senderAddressId = await resolveSendcloudSenderAddressId(env);
@@ -585,25 +581,53 @@ export async function runMemberIntakeReturnPortalStart(
     return { ok: false, error: recipient.error, status: 400 };
   }
 
-  const orderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
+  const stableOrderNumber = buildStableMemberIntakeOrderNumber(sortedIds);
+
+  const transferIds = new Set<string>();
+  for (const itemId of sortedIds) {
+    const transferId = await findActiveTransferIdForItem(service, itemId);
+    if (transferId) transferIds.add(transferId);
+  }
+  if (transferIds.size > 1) {
+    return {
+      ok: false,
+      error:
+        "Ces pièces sont sur plusieurs envois. Regroupe-les sur la page expédition avant de préparer le bordereau.",
+      status: 400,
+    };
+  }
+  const existingTransferId = transferIds.size === 1 ? [...transferIds][0] : undefined;
 
   const ensuredShipment = await ensureMemberIntakeShipmentForPortal(service, {
     ownerUserId: params.userId,
     itemIds: sortedIds,
-    orderNumber,
+    orderNumber: stableOrderNumber,
     recipient,
+    existingTransferId,
   });
   if (!ensuredShipment.ok) {
     return { ok: false, error: ensuredShipment.error, status: 500 };
   }
 
   const destMeta = await readMemberIntakeDestinationMetadata(service, ensuredShipment.shipmentId);
+  const portalGeneration = parseMemberIntakePortalGeneration(destMeta);
+  const orderNumber = buildMemberIntakeOrderNumber(sortedIds, portalGeneration);
+  if (orderNumber !== stableOrderNumber || params.force) {
+    await updateMemberIntakeDestinationForPortal(service, ensuredShipment.shipmentId, {
+      orderNumber,
+      itemIds: sortedIds,
+      ownerUserId: params.userId,
+      recipient,
+      generation: portalGeneration,
+    });
+  }
+
   const portalBaseRaw = destMeta[SC_RETURN_PORTAL_BASE_URL];
   const portalBaseUrl =
     typeof portalBaseRaw === "string" && portalBaseRaw.trim().startsWith("http")
       ? portalBaseRaw.trim()
       : "";
-  const bootstrapped = portalBaseUrl.length > 0;
+  const bootstrapped = !params.force && portalBaseUrl.length > 0;
 
   const { data: shipTrackingRow } = await service
     .from("shipments")
@@ -645,6 +669,12 @@ export async function runMemberIntakeReturnPortalStart(
       itemIds: sortedIds,
       defaultOrderNumber: orderNumber,
     });
+    for (let g = 1; g < portalGeneration; g++) {
+      const legacyOrder = buildMemberIntakeOrderNumber(sortedIds, g);
+      if (!cancelInput.orderNumbers.includes(legacyOrder)) {
+        cancelInput.orderNumbers.push(legacyOrder);
+      }
+    }
     for (const id of collectPanelShipmentIdsFromRows(typed)) {
       if (!cancelInput.panelShipmentIds.includes(id)) {
         cancelInput.panelShipmentIds.push(id);
@@ -1242,6 +1272,29 @@ export async function runMemberIntakeReturnPortalReset(
     orderNumbers: [...orderNumbers],
     sendcloudEnv: env,
   });
+
+  if (memberIntakeShipmentId) {
+    const resetDestMeta = await readMemberIntakeDestinationMetadata(service, memberIntakeShipmentId);
+    const nextGeneration = parseMemberIntakePortalGeneration(resetDestMeta) + 1;
+    const nextOrderNumber = buildMemberIntakeOrderNumber(sortedIds, nextGeneration);
+    const { data: member } = await service
+      .from("users")
+      .select("first_name,last_name,email,phone,adress")
+      .eq("id", params.userId)
+      .maybeSingle();
+    if (member) {
+      const recipient = memberAsRecipient(member as Parameters<typeof memberAsRecipient>[0]);
+      if (!("error" in recipient)) {
+        await updateMemberIntakeDestinationForPortal(service, memberIntakeShipmentId, {
+          orderNumber: nextOrderNumber,
+          itemIds: sortedIds,
+          ownerUserId: params.userId,
+          recipient,
+          generation: nextGeneration,
+        });
+      }
+    }
+  }
 
   for (const r of typed) {
     await clearItemIntakeShippingLabelMetadata(service, String(r.id));

@@ -213,6 +213,11 @@ export function CartUpsellScreen({
     return base.slice(0, 10);
   }, [allowInCartItems, items]);
 
+  const hasAddedFromSuggestions = useMemo(
+    () => visibleItems.some((item) => cartItemIds.has(item.id)),
+    [cartItemIds, visibleItems],
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -286,7 +291,7 @@ export function CartUpsellScreen({
             onClick={() => router.push(skipHref)}
             className="flex h-12 w-full items-center justify-center rounded-full bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition active:bg-zinc-800"
           >
-            Non merci
+            {hasAddedFromSuggestions ? "Continuer" : "Non merci"}
           </button>
         </div>
       </div>

@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { SC_MEMBER_INTAKE_SHIPMENT_ID } from "@/lib/items/member-intake-shipment";
 import { readMemberIntakeShipmentIdFromMetadata } from "@/lib/items/intake-shipping-metadata";
+
+const SC_MEMBER_INTAKE_SHIPMENT_ID = "sc_member_intake_shipment_id";
 
 const DEST_INTAKE_ITEM_IDS = "sc_intake_item_ids";
 
@@ -10,13 +11,42 @@ function parseDestinationItemIds(raw: unknown): string[] {
   return [...new Set(raw.split(",").map((x) => x.trim()).filter(Boolean))];
 }
 
-/** Pièces liées à une expédition `member_intake` (metadata intake + destination). */
+/** Pièces liées à une expédition `member_intake` (transfer_items + repli metadata). */
 export async function resolveMemberIntakeItemIds(
   service: SupabaseClient,
   shipmentId: string,
 ): Promise<string[]> {
   const sid = shipmentId.trim();
   if (!sid) return [];
+
+  const { data: ship } = await service
+    .from("shipments")
+    .select("transfer_id")
+    .eq("id", sid)
+    .maybeSingle();
+
+  if (ship?.transfer_id) {
+    const transferId = String(ship.transfer_id);
+    const { data: activeLinks } = await service
+      .from("transfer_items")
+      .select("item_id")
+      .eq("transfer_id", transferId)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+    let fromTransfer = (activeLinks ?? []).map((l) => String(l.item_id)).filter(Boolean);
+
+    if (fromTransfer.length === 0) {
+      const { data: archivedLinks } = await service
+        .from("transfer_items")
+        .select("item_id")
+        .eq("transfer_id", transferId)
+        .not("deleted_at", "is", null)
+        .order("sort_order", { ascending: true });
+      fromTransfer = (archivedLinks ?? []).map((l) => String(l.item_id)).filter(Boolean);
+    }
+
+    if (fromTransfer.length > 0) return fromTransfer;
+  }
 
   const seen = new Set<string>();
 

@@ -6,4 +6,7 @@ export type ExchangeIntakeBannerItem = {
   metadata: unknown;
   updatedAt: string | null;
   pricePoints: number | null;
+  /** Lot expédition du transfer de cette pièce (pas le lot global membre). */
+  defaultShippingGroupIds?: string[];
+  shippingGroupItems?: Array<{ id: string; title: string | null }>;
 };

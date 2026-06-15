@@ -7,6 +7,8 @@ import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frame
 import { fetchItemDetailPayloadForUser, type FetchItemDetailResult } from "@/lib/items/fetch-item-detail-core";
 import { fetchItemOutfitLook, type ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
 import { fetchDefaultIntakeShippingGroupIds } from "@/lib/items/intake-cart-return-piggyback";
+import { buildOuttakeTransferIdByItemId } from "@/lib/items/member-outtake-groups";
+import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metadata";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -24,6 +26,7 @@ export default async function ItemDetailsPage({ params }: PageProps) {
   let initialSegnaStockPropertyCmsFrames: Awaited<ReturnType<typeof fetchCmsSectionFramesResolved>> | undefined;
   let initialDetailResult: FetchItemDetailResult | undefined;
   let defaultShippingGroupIds: string[] = [];
+  let outtakeTransferId: string | null = null;
   let initialOutfitLook: ItemOutfitLookPayload | null = null;
   let initialOutfitCompanionItems: ShopCatalogItem[] = [];
   let initialOutfitCompanionCoverUrlById: Record<string, string> = {};
@@ -46,9 +49,14 @@ export default async function ItemDetailsPage({ params }: PageProps) {
     try {
       const admin = createSupabaseAdminClient();
       const group = await fetchDefaultIntakeShippingGroupIds(admin, user.id, { focusItemId: id });
-      if (group.length >= 2) defaultShippingGroupIds = group;
+      if (group.length > 0) defaultShippingGroupIds = group;
+      if (detailRes?.ok && detailRes.payload.status?.trim().toLowerCase() === "retired") {
+        const map = await buildOuttakeTransferIdByItemId(admin, user.id, [id]);
+        outtakeTransferId = map[id] ?? null;
+      }
     } catch {
       defaultShippingGroupIds = [];
+      outtakeTransferId = null;
     }
   }
 
@@ -60,6 +68,7 @@ export default async function ItemDetailsPage({ params }: PageProps) {
         initialDetailResult={initialDetailResult}
         initialSegnaStockPropertyCmsFrames={initialSegnaStockPropertyCmsFrames}
         defaultShippingGroupIds={defaultShippingGroupIds}
+        outtakeTransferId={outtakeTransferId}
         initialOutfitLook={initialOutfitLook}
         initialOutfitCompanionItems={initialOutfitCompanionItems}
         initialOutfitCompanionCoverUrlById={initialOutfitCompanionCoverUrlById}

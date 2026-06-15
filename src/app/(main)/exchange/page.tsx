@@ -1,6 +1,7 @@
 import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
 import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
 import { ExchangePiggybackDepositConfirmModal } from "@/components/exchange/ExchangePiggybackDepositConfirmModal";
+import { MemberIntakeTransferDepositConfirmModal } from "@/components/shipping/MemberIntakeTransferDepositConfirmModal";
 import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/cms/welcome-gift-offer-visibility";
 import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
+import { parseItemPhotosLayout, type ItemPhotoLayout } from "@/lib/items/item-photo-layout";
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchMemberBorrowReturnJjAlerts } from "@/lib/cart/fetch-member-borrow-return-jj-alerts";
@@ -81,9 +83,12 @@ import {
   lendPipelineRank,
   needsItemIntakeUi,
 } from "@/lib/items/item-intake-ui";
-import { fetchMemberPiggybackDepositConfirmQueue } from "@/lib/items/intake-cart-return-piggyback";
+import { fetchMemberPiggybackDepositConfirmQueue, fetchDefaultIntakeShippingGroupIds } from "@/lib/items/intake-cart-return-piggyback";
+import { fetchMemberIntakeTransferDepositConfirmQueue } from "@/lib/items/member-intake-transfer-deposit-confirm";
+import { intakeShowsPrepareShipmentCard } from "@/lib/items/intake-fulfillment-stages";
 import { dedupeIntakeBannerCandidatesForMergedShipping, readShippingPreferSolo } from "@/lib/items/intake-shipping-metadata";
-import { blocksIntakeUntilPendingShipmentsSent } from "@/lib/items/member-intake-shipping-pipeline-gate";
+import { buildVerificationTransferIdByItemId } from "@/lib/items/member-intake-verification";
+import { buildOuttakeTransferIdByItemId } from "@/lib/items/member-outtake-groups";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -274,7 +279,7 @@ export default async function ExchangePage() {
       .is("deleted_at", null)
       .in("status", ["draft", "draft_deleted", "available", "in_cart", "reserved", "refused", "retired"])
       .order("updated_at", { ascending: false })
-      .limit(8),
+      .limit(50),
     ),
     perf.measure("orders.ongoing", () =>
     supabase
@@ -394,6 +399,7 @@ export default async function ExchangePage() {
       zoom?: number;
       aspect?: string;
     } | null;
+    photosLayout: ItemPhotoLayout;
   }> = (
     lendsRes.data ?? []
   ).map(
@@ -451,6 +457,7 @@ export default async function ExchangePage() {
       intake,
       photoPath: photoData.path,
       photoPosition: photoData.position,
+      photosLayout: parseItemPhotosLayout(item.photos ?? null),
     };
   },
   );
@@ -492,6 +499,7 @@ export default async function ExchangePage() {
     intake: item.intake,
     photoUrl: item.photoPath ? (signedPhotoByPath.get(item.photoPath) ?? null) : null,
     photoPosition: item.photoPosition,
+    photosLayout: item.photosLayout,
   }));
 
   const validatedLendsCount = lends.filter((l) => {
@@ -511,6 +519,32 @@ export default async function ExchangePage() {
       return !readShippingPreferSolo(l.intake?.metadata);
     })
     .map((l) => l.id);
+
+  const verificationTransferIdByItemId = await perf.measure("lends.verificationTransfers", async () => {
+    try {
+      return buildVerificationTransferIdByItemId(
+        createSupabaseAdminClient(),
+        userId,
+        lends
+          .filter((l) => l.intake?.fulfillment_stage?.toLowerCase() === "in_verification")
+          .map((l) => l.id),
+      );
+    } catch {
+      return {};
+    }
+  });
+
+  const outtakeTransferIdByItemId = await perf.measure("lends.outtakeTransfers", async () => {
+    try {
+      return buildOuttakeTransferIdByItemId(
+        createSupabaseAdminClient(),
+        userId,
+        lends.filter((l) => l.itemStatus.toLowerCase() === "retired").map((l) => l.id),
+      );
+    } catch {
+      return {};
+    }
+  });
 
   type IntakeBannerSourceRow = {
     item_id: string;
@@ -591,23 +625,50 @@ export default async function ExchangePage() {
     return 0;
   });
 
-  const defaultShippingGroupIds =
-    mergedShippingCandidateIds.length >= 2 ? mergedShippingCandidateIds : [];
-  const blockEvaluationValidation = blocksIntakeUntilPendingShipmentsSent(mergedShippingCandidateIds.length);
-  const intakeBannerForStack = dedupeIntakeBannerCandidatesForMergedShipping(
-    intakeBannerCandidates,
-    defaultShippingGroupIds,
-  ).filter((c) => !(blockEvaluationValidation && c.listingStage === "validation_pending"));
+  const lendTitleById = new Map(lends.map((l) => [l.id, l.name]));
 
-  const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerForStack.map((c) => ({
-    id: c.id,
-    title: c.title,
-    listingStage: c.listingStage,
-    fulfillmentStage: c.fulfillmentStage,
-    metadata: c.metadata,
-    updatedAt: c.updatedAt,
-    pricePoints: c.pricePoints,
-  }));
+  const shippingGroupByItemId = new Map<string, string[]>();
+  try {
+    const admin = createSupabaseAdminClient();
+    const prepareFocusIds = [
+      ...new Set(
+        intakeBannerCandidates
+          .filter((c) => intakeShowsPrepareShipmentCard(c.listingStage, c.fulfillmentStage))
+          .map((c) => c.id),
+      ),
+    ];
+    for (const focusId of prepareFocusIds) {
+      const group = await fetchDefaultIntakeShippingGroupIds(admin, userId, { focusItemId: focusId });
+      if (group.length === 0) continue;
+      for (const id of group) {
+        if (!shippingGroupByItemId.has(id)) shippingGroupByItemId.set(id, group);
+      }
+    }
+  } catch {
+    /* ignore — fallback solo par pièce */
+  }
+
+  const intakeBannerForStack = dedupeIntakeBannerCandidatesForMergedShipping(intakeBannerCandidates, {
+    defaultGroupIdsByItemId: shippingGroupByItemId,
+  });
+
+  const exchangeIntakeBannerItems: ExchangeIntakeBannerItem[] = intakeBannerForStack.map((c) => {
+    const groupIds = shippingGroupByItemId.get(c.id) ?? [c.id];
+    return {
+      id: c.id,
+      title: c.title,
+      listingStage: c.listingStage,
+      fulfillmentStage: c.fulfillmentStage,
+      metadata: c.metadata,
+      updatedAt: c.updatedAt,
+      pricePoints: c.pricePoints,
+      defaultShippingGroupIds: groupIds,
+      shippingGroupItems: groupIds.map((id) => ({
+        id,
+        title: lendTitleById.get(id) ?? null,
+      })),
+    };
+  });
 
   const fmtOrderDate = (iso: string) => formatDateParis(iso);
 
@@ -990,13 +1051,22 @@ export default async function ExchangePage() {
       console.error("[exchange] borrow overdue sync", e);
     }
   });
-  const [borrowReturnOverdueAlerts, borrowReturnJjAlerts, piggybackDepositQueue] = await Promise.all([
+  const [borrowReturnOverdueAlerts, borrowReturnJjAlerts, piggybackDepositQueue, transferDepositQueue] =
+    await Promise.all([
     perf.measure("borrowReturnOverdueAlerts", () => fetchMemberBorrowReturnOverdueAlerts(supabase, userId)),
     perf.measure("borrowReturnJjAlerts", () => fetchMemberBorrowReturnJjAlerts(supabase, userId)),
     perf.measure("piggyback.depositQueue", async () => {
       try {
         const admin = createSupabaseAdminClient();
         return fetchMemberPiggybackDepositConfirmQueue(admin, userId);
+      } catch {
+        return [];
+      }
+    }),
+    perf.measure("transfer.depositQueue", async () => {
+      try {
+        const admin = createSupabaseAdminClient();
+        return fetchMemberIntakeTransferDepositConfirmQueue(admin, userId);
       } catch {
         return [];
       }
@@ -1025,6 +1095,9 @@ export default async function ExchangePage() {
     <ExchangeWalletAnnouncementProvider>
       <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
       <ExchangeWalletTransactionAnnounceLayer userId={userId} />
+      {transferDepositQueue.length > 0 ? (
+        <MemberIntakeTransferDepositConfirmModal initialQueue={transferDepositQueue} />
+      ) : null}
       {piggybackDepositQueue.length > 0 ? (
         <ExchangePiggybackDepositConfirmModal initialQueue={piggybackDepositQueue} />
       ) : null}
@@ -1051,7 +1124,6 @@ export default async function ExchangePage() {
         ) : null}
         <ExchangeHeaderAlertStack
           intakeItems={exchangeIntakeBannerItems}
-          defaultShippingGroupIds={defaultShippingGroupIds}
           outboundSummary={showOutboundCallout && outboundShipmentSummary ? outboundShipmentSummary : null}
           showProfileOnboarding={showProfileInAppOnboarding}
           showKycOnboarding={showKycInAppOnboarding}
@@ -1097,6 +1169,9 @@ export default async function ExchangePage() {
                     includedLendsLimit={includedLendsLimit}
                     validatedLendsCount={validatedLendsCount}
                     mergedShippingCandidateIds={mergedShippingCandidateIds}
+                    shippingGroupByItemId={Object.fromEntries(shippingGroupByItemId)}
+                    verificationTransferIdByItemId={verificationTransferIdByItemId}
+                    outtakeTransferIdByItemId={outtakeTransferIdByItemId}
                     promoAdRows={
                       memberSubscriber ? (cmsSectionsByKey.commerce_promo_ad?.frames ?? []) : []
                     }

@@ -20,7 +20,7 @@ function internalBackofficeCartCancelSecrets(): string[] {
 
 /**
  * Annulation depuis le back-office : panier confirmé, expédition aller **pending** (« En préparation »).
- * Remboursement carte (Stripe) puis RPC `backoffice_cancel_cart_order_pending_preparation`, puis e-mail + SMS membre.
+ * Annulation DB puis remboursement carte (Stripe), RPC `backoffice_cancel_cart_order_pending_preparation`, puis e-mail + SMS membre.
  *
  * Auth : `Authorization: Bearer` = `SEGNA_INTERNAL_BACKOFFICE_CART_CANCEL_SECRET` si défini, sinon les mêmes secrets que
  * `shipment-lifecycle-notify` / lancement Uber.
@@ -132,24 +132,6 @@ export async function POST(request: Request) {
 
   const invoice = invRow as Record<string, unknown> | null;
 
-  const cents = Math.trunc(Number(invoice?.amount_total_cents ?? 0));
-  if (cents > 0) {
-    const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
-    if (!secretKey) {
-      console.error("[internal/backoffice-cancel-cart-order-pending] STRIPE_SECRET_KEY missing");
-      return NextResponse.json({ ok: false as const, error: "stripe_not_configured" }, { status: 500 });
-    }
-    const stripe = new Stripe(secretKey);
-    const refundRes = await refundCartOrderStripePaymentIfNeeded({
-      stripe,
-      cartId,
-      invoice,
-    });
-    if (!refundRes.ok) {
-      return NextResponse.json({ ok: false as const, error: refundRes.error }, { status: 502 });
-    }
-  }
-
   const { data: rpcData, error: rpcErr } = await admin.rpc("backoffice_cancel_cart_order_pending_preparation", {
     p_cart_id: cartId,
     p_actor_user_id: actorUserId,
@@ -168,6 +150,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false as const, error: "rpc_forbidden" }, { status: 403 });
     }
     return NextResponse.json({ ok: false as const, error: "cancel_failed", detail: msg.slice(0, 200) }, { status: 500 });
+  }
+
+  const cents = Math.trunc(Number(invoice?.amount_total_cents ?? 0));
+  if (cents > 0) {
+    const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
+    if (!secretKey) {
+      console.error("[internal/backoffice-cancel-cart-order-pending] STRIPE_SECRET_KEY missing");
+      return NextResponse.json({ ok: false as const, error: "stripe_not_configured" }, { status: 500 });
+    }
+    const stripe = new Stripe(secretKey);
+    const refundRes = await refundCartOrderStripePaymentIfNeeded({
+      stripe,
+      cartId,
+      invoice,
+    });
+    if (!refundRes.ok) {
+      return NextResponse.json({ ok: false as const, error: refundRes.error }, { status: 502 });
+    }
   }
 
   try {

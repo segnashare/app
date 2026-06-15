@@ -346,7 +346,7 @@ export function CartScreen({
         if (isNewReservation) {
           setCartReservationTimerStart();
         }
-        router.push("/cart/outfit");
+        router.push("/cart/upsell");
         router.refresh();
       } else {
         setReserveError("Réponse inattendue du serveur — réessaie ou recharge la page.");
@@ -646,7 +646,7 @@ export function CartScreen({
                   type="button"
                   onClick={() => {
                     if (!openPaymentGateOrProceed()) return;
-                    router.push("/cart/outfit");
+                    router.push("/cart/upsell");
                   }}
                   className={cn(
                     "flex h-12 w-full items-center justify-center rounded-2xl text-[15px] font-bold text-white shadow-sm transition",

@@ -11,6 +11,7 @@ const playfairDisplay = segnaPlayfairDisplay;
 import { ItemIntakePanel } from "./ItemIntakePanel";
 import { needsItemIntakeUi } from "@/lib/items/item-intake-ui";
 import { LogisticsRefusalEntryModal } from "./LogisticsRefusalEntryModal";
+import { ItemRecoveryStatusModal } from "./ItemRecoveryStatusModal";
 import { ItemViewView } from "./ItemViewView";
 import { SEGNA_DIALOG_CARD_CLASS, segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
@@ -18,6 +19,7 @@ import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { FetchItemDetailResult, ItemDetailPayload } from "@/lib/items/fetch-item-detail-core";
 import type { ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
+import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metadata";
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
@@ -128,6 +130,8 @@ type ItemDetailViewProps = {
   initialDetailResult?: FetchItemDetailResult;
   /** Lot expédition groupé par défaut (pièces prêtes du membre). */
   defaultShippingGroupIds?: string[];
+  /** Transfer outtake actif (récupération membre). */
+  outtakeTransferId?: string | null;
   initialOutfitLook?: ItemOutfitLookPayload | null;
   initialOutfitCompanionItems?: ShopCatalogItem[];
   initialOutfitCompanionCoverUrlById?: Record<string, string>;
@@ -138,6 +142,7 @@ export function ItemDetailView({
   initialAuthUserId = null,
   initialDetailResult,
   defaultShippingGroupIds = [],
+  outtakeTransferId = null,
   initialOutfitLook = null,
   initialOutfitCompanionItems = [],
   initialOutfitCompanionCoverUrlById = {},
@@ -387,7 +392,7 @@ export function ItemDetailView({
   const showLogisticsRefusalModal = Boolean(
     data?.intake?.listing_stage === "validated" && data?.intake?.fulfillment_stage === "refused",
   );
-  const showRecoveryStatusModal = data?.status?.trim().toLowerCase() === "retired" && isOwner;
+  const showRecoveryEntry = data?.status?.trim().toLowerCase() === "retired" && isOwner;
   const recoveryStage = (data?.outtake?.stage ?? "none").trim().toLowerCase();
   const recoveryLabel =
     recoveryStage === "in_transit"
@@ -399,26 +404,21 @@ export function ItemDetailView({
           : recoveryStage === "settled"
             ? "Retour finalisé"
             : "Récupération initiée";
-  const recoveryHref =
-    recoveryStage === "in_transit"
-      ? `/items/${encodeURIComponent(itemId ?? "")}/retour/expedition`
-      : `/items/${encodeURIComponent(itemId ?? "")}/retour`;
+  const recoveryHref = buildOuttakeShippingPageHref(outtakeTransferId);
+  const canCancelReturn = recoveryStage === "return_open";
   const canMemberConfirmRecovery = recoveryStage === "member_verification_pending";
   const canMemberReportIssue = recoveryStage === "member_verification_pending" || recoveryStage === "member_issue_reported";
 
   useEffect(() => {
-    setRecoveryStatusOpen(showRecoveryStatusModal);
-  }, [showRecoveryStatusModal, itemId]);
+    setRecoveryStatusOpen(showRecoveryEntry);
+  }, [showRecoveryEntry, itemId]);
 
   const headerRef = useRef<HTMLElement | null>(null);
   const intakeStripRef = useRef<HTMLDivElement | null>(null);
-  const recoveryStripRef = useRef<HTMLDivElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(92);
   const [measuredIntakeStripHeight, setMeasuredIntakeStripHeight] = useState(0);
-  const [measuredRecoveryStripHeight, setMeasuredRecoveryStripHeight] = useState(0);
   const intakeStripHeight = showIntakeStrip ? measuredIntakeStripHeight : 0;
-  const recoveryStripHeight = showRecoveryStatusModal && recoveryStatusOpen ? measuredRecoveryStripHeight : 0;
-  const fixedStripHeight = intakeStripHeight + recoveryStripHeight;
+  const fixedStripHeight = intakeStripHeight;
 
   useLayoutEffect(() => {
     const el = headerRef.current;
@@ -440,17 +440,6 @@ export function ItemDetailView({
     ro.observe(el);
     return () => ro.disconnect();
   }, [showIntakeStrip, data?.intake?.listing_stage, data?.intake?.fulfillment_stage]);
-
-  useLayoutEffect(() => {
-    if (!(showRecoveryStatusModal && recoveryStatusOpen)) return;
-    const el = recoveryStripRef.current;
-    if (!el) return;
-    const measure = () => setMeasuredRecoveryStripHeight(el.getBoundingClientRect().height);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [showRecoveryStatusModal, recoveryStatusOpen, recoveryLabel]);
 
   const handleConfirmDelete = async () => {
     if (!itemId || isDeleting) return;
@@ -767,79 +756,25 @@ export function ItemDetailView({
         </div>
       ) : null}
 
-      {itemId && showRecoveryStatusModal && recoveryStatusOpen ? (
-        <div ref={recoveryStripRef} className="fixed left-0 right-0 z-[49] bg-transparent px-4 pt-3 sm:px-5" style={{ top: headerHeight + intakeStripHeight }}>
-          <div className="mx-auto w-full max-w-[460px]">
-            <div className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-[0_4px_20px_-6px_rgba(0,0,0,0.12)] ring-1 ring-amber-900/[0.06]">
-              <div className="px-4 py-3">
-                <p className={cn(montserrat.className, "text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-800/90")}>
-                  Processus de récupération
-                </p>
-                <p className="mt-1 text-sm font-semibold text-zinc-900">Ta pièce est en récupération</p>
-                <p className="mt-1 text-sm text-zinc-600">
-                  État actuel: <span className="font-semibold text-zinc-900">{recoveryLabel}</span>.
-                </p>
-                {canMemberConfirmRecovery ? (
-                  <p className="mt-2 text-[12px] text-zinc-700">
-                    Vérifie le contenu reçu puis confirme que la récupération est conforme.
-                  </p>
-                ) : (
-                  <div className="mt-3 flex items-center gap-2">
-                    <Link
-                      href={recoveryHref}
-                      className="inline-flex h-9 items-center justify-center rounded-lg bg-[#5E3023] px-3 text-xs font-semibold text-white"
-                    >
-                      Voir le suivi
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setRecoveryStatusOpen(false)}
-                      className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 px-3 text-xs font-semibold text-zinc-900"
-                    >
-                      Fermer
-                    </button>
-                  </div>
-                )}
-                {canMemberConfirmRecovery ? (
-                  <p className="mt-2 text-[12px] text-zinc-700">As-tu bien récupéré ta pièce ?</p>
-                ) : null}
-                {canMemberConfirmRecovery || canMemberReportIssue ? (
-                  <div className="mt-2 flex items-center gap-2">
-                    {canMemberConfirmRecovery ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRecoveryError(null);
-                          setRecoveryConfirmOpen(true);
-                        }}
-                        disabled={recoverySubmitting}
-                        className="inline-flex h-8 items-center justify-center rounded-lg bg-[#5E3023] px-2.5 text-[11px] font-semibold text-white disabled:opacity-60"
-                      >
-                        Valider la récupération
-                      </button>
-                    ) : null}
-                    {canMemberReportIssue ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleMemberRecoveryHelp()}
-                        disabled={recoverySubmitting}
-                        className="inline-flex h-8 items-center justify-center rounded-lg border border-zinc-200 px-2.5 text-[11px] font-medium text-zinc-600 disabled:opacity-60"
-                      >
-                        Aide litige
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-                {recoveryStage === "member_issue_reported" ? (
-                  <p className="mt-2 text-[11px] text-rose-700">
-                    Litige signalé. L’équipe Segna va revenir vers toi rapidement.
-                  </p>
-                ) : null}
-                {recoveryError ? <p className="mt-2 text-[11px] text-rose-700">{recoveryError}</p> : null}
-              </div>
-            </div>
-          </div>
-        </div>
+      {itemId && showRecoveryEntry ? (
+        <ItemRecoveryStatusModal
+          open={recoveryStatusOpen}
+          itemId={itemId}
+          recoveryLabel={recoveryLabel}
+          recoveryHref={recoveryHref}
+          recoveryStage={recoveryStage}
+          canCancelReturn={canCancelReturn}
+          canMemberConfirmRecovery={canMemberConfirmRecovery}
+          canMemberReportIssue={canMemberReportIssue}
+          recoveryError={recoveryError}
+          recoverySubmitting={recoverySubmitting}
+          onDismiss={() => setRecoveryStatusOpen(false)}
+          onConfirmClick={() => {
+            setRecoveryError(null);
+            setRecoveryConfirmOpen(true);
+          }}
+          onHelpClick={() => void handleMemberRecoveryHelp()}
+        />
       ) : null}
 
       <div
@@ -900,27 +835,33 @@ export function ItemDetailView({
       ) : null}
 
       {itemId && recoveryConfirmOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/20 p-4">
-          <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[320px]")} role="dialog" aria-modal="true" aria-labelledby="confirm-recovery-title">
-            <h2 id="confirm-recovery-title" className={segnaDialogTitleClass("text-[20px] sm:text-[21px]")}>
-              Vous confirmez avoir récupéré votre pièce ?
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]">
+          <div className={cn(SEGNA_DIALOG_CARD_CLASS, "max-w-[400px]")} role="dialog" aria-modal="true" aria-labelledby="confirm-recovery-title">
+            <h2 id="confirm-recovery-title" className={segnaDialogTitleClass()}>
+              Tu confirmes avoir récupéré ta pièce ?
             </h2>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setRecoveryConfirmOpen(false)}
-                disabled={recoverySubmitting}
-                className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-200 px-3 text-xs font-medium text-zinc-700 disabled:opacity-60"
-              >
-                Annuler
-              </button>
+            <div className="mt-5 grid gap-2">
               <button
                 type="button"
                 onClick={() => void handleMemberRecoveryConfirm()}
                 disabled={recoverySubmitting}
-                className="inline-flex h-8 items-center justify-center rounded-md bg-[#5E3023] px-3 text-xs font-semibold text-white disabled:opacity-60"
+                className={cn(
+                  montserrat.className,
+                  "flex h-11 items-center justify-center rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60",
+                )}
               >
                 {recoverySubmitting ? "Confirmation…" : "Confirmer"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecoveryConfirmOpen(false)}
+                disabled={recoverySubmitting}
+                className={cn(
+                  montserrat.className,
+                  "h-11 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-800 disabled:opacity-60",
+                )}
+              >
+                Annuler
               </button>
             </div>
           </div>

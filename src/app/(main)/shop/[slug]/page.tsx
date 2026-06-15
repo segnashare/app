@@ -5,12 +5,13 @@ import { ShopCatalog, type ShopCatalogItem } from "@/components/shop/ShopCatalog
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveShopPageSlug } from "@/lib/shop/resolve-shop-page-slug";
 import {
   loadShopBoutiqueFilterFacetResponses,
 } from "@/lib/shop/shop-boutique-data-cache";
 import { mapCategoryFilterRows, mapFilterRows, mapSizeFilterRows } from "@/lib/shop/shop-filter-options";
 import {
-  isShopSectionSlug,
+  loadShopMaterialSectionItems,
   loadShopSectionItems,
   SHOP_SECTION_TITLES,
   type ShopSectionSlug,
@@ -24,10 +25,6 @@ type PageProps = {
 
 export default async function ShopSectionPage({ params }: PageProps) {
   const { slug: raw } = await params;
-  if (!isShopSectionSlug(raw)) {
-    notFound();
-  }
-  const slug = raw as ShopSectionSlug;
 
   const supabase = await createSupabaseServerClient();
   const anySb = supabase as unknown as {
@@ -68,6 +65,12 @@ export default async function ShopSectionPage({ params }: PageProps) {
   const { catResFinal: catRes, sizeResFinal: sizeRes, brandResFinal: brandRes, colResFinal: colRes, matResFinal: matRes } =
     facetPack;
 
+  const materials = mapFilterRows(matRes.data);
+  const pageSlug = resolveShopPageSlug(raw, materials);
+  if (!pageSlug) {
+    notFound();
+  }
+
   const profileId = (profileRes.data as { id?: string } | null)?.id ?? null;
   let preferredBrandIds: string[] = [];
   if (profileId) {
@@ -103,7 +106,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
 
   const categoryRows = mapCategoryFilterRows(catRes.data);
   let sectionCatalogClient: unknown = supabase;
-  if (slug === "collection-segna") {
+  if (pageSlug.kind === "section" && pageSlug.slug === "collection-segna") {
     try {
       sectionCatalogClient = createSupabaseAdminClient();
     } catch {
@@ -111,12 +114,18 @@ export default async function ShopSectionPage({ params }: PageProps) {
     }
   }
 
-  const initialItems: ShopCatalogItem[] = await loadShopSectionItems(sectionCatalogClient, slug, {
-    userId: user.id,
-    featuredLenderItemIds,
-    preferredBrandIds,
-    categoryRows,
-  });
+  const sectionPageTitle =
+    pageSlug.kind === "material" ? pageSlug.title : SHOP_SECTION_TITLES[pageSlug.slug as ShopSectionSlug];
+
+  const initialItems: ShopCatalogItem[] =
+    pageSlug.kind === "material"
+      ? await loadShopMaterialSectionItems(sectionCatalogClient, pageSlug.materialIds)
+      : await loadShopSectionItems(sectionCatalogClient, pageSlug.slug, {
+          userId: user.id,
+          featuredLenderItemIds,
+          preferredBrandIds,
+          categoryRows,
+        });
 
   const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(
     sectionCatalogClient as unknown as StorageSignClient,
@@ -130,7 +139,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
     <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
       <ShopCatalog
         mode="section"
-        sectionPageTitle={SHOP_SECTION_TITLES[slug]}
+        sectionPageTitle={sectionPageTitle}
         initialItems={initialItems}
         initialCoverUrlById={initialCoverUrlById}
         initialLikedItemIds={initialLikedItemIds}
@@ -138,7 +147,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
         sizes={mapSizeFilterRows(sizeRes.data)}
         brands={mapFilterRows(brandRes.data)}
         colors={mapFilterRows(colRes.data)}
-        materials={mapFilterRows(matRes.data)}
+        materials={materials}
         featuredLenders={[]}
         featuredLenderSectionItemIds={[]}
         guideCartOnboarding={userState.onboarding_process === "panier"}

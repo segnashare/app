@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { Image as ImageIcon, Plus, Trash2 } from "lucide-react";
 
 import { CART_LINE_STATUS_CLASSNAMES, type CartLineStatus } from "@/lib/cart/cart-line-status";
+import {
+  ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
+  itemSquareListThumbCoverProps,
+} from "@/lib/items/item-photo-layout";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
@@ -147,13 +151,14 @@ export function CartPanierLineRows({
                   {line.photoUrl ? (
                     <RemoteCoverThumb
                       photoUrl={line.photoUrl}
-                      photoPosition={line.photoPosition}
-                      frameClassName="aspect-square w-[100px] shrink-0 rounded-md"
+                      frameClassName={ITEM_LIST_SQUARE_THUMB_FRAME_CLASS}
+                      {...itemSquareListThumbCoverProps({ photoPosition: line.photoPosition })}
                     />
                   ) : (
                     <div
                       className={cn(
-                        "flex aspect-square w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+                        "flex items-center justify-center overflow-hidden rounded-md bg-zinc-200 text-zinc-400",
+                        ITEM_LIST_SQUARE_THUMB_FRAME_CLASS,
                       )}
                     >
                       <ImageIcon className="h-7 w-7" aria-hidden />

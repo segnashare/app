@@ -1,10 +1,5 @@
 import { redirect } from "next/navigation";
 
-import {
-  buildIntakeShippingPageHrefFromIds,
-  fetchDefaultIntakeShippingGroupIds,
-} from "@/lib/items/intake-cart-return-piggyback";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Props = {
@@ -39,15 +34,5 @@ export default async function ItemFulfillmentPage({ params }: Props) {
     redirect("/exchange");
   }
 
-  let admin;
-  try {
-    admin = createSupabaseAdminClient();
-  } catch {
-    redirect(`/items/shipping?ids=${encodeURIComponent(id)}`);
-  }
-
-  const groupIds = await fetchDefaultIntakeShippingGroupIds(admin, user.id, { focusItemId: id });
-  redirect(
-    groupIds.length >= 2 ? buildIntakeShippingPageHrefFromIds(groupIds) : `/items/shipping?ids=${encodeURIComponent(id)}`,
-  );
+  redirect("/items/shipping");
 }

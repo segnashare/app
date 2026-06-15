@@ -1,5 +1,5 @@
-import { AppLoadingScreen } from "@/components/ui/AppLoadingScreen";
+import { MainRouteLoadingFallback } from "@/components/layout/MainRouteLoadingFallback";
 
 export default function MainLoading() {
-  return <AppLoadingScreen />;
+  return <MainRouteLoadingFallback />;
 }

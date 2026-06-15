@@ -25,9 +25,7 @@ import {
   type IntakeEvaluationExampleItem,
 } from "@/lib/items/intake-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
-import { usePendingMemberIntakeShippingGate } from "@/lib/items/use-pending-member-intake-shipping-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { IntakePendingShippingGateModal } from "@/components/items/IntakePendingShippingGateModal";
 import { cn } from "@/lib/utils/cn";
 
 type IntakeSnap = {
@@ -134,15 +132,6 @@ export default function ItemEvaluationAnalysisPage() {
   const [isRefusing, setIsRefusing] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [valorisationExplainOpen, setValorisationExplainOpen] = useState(false);
-  const [shippingGateOpen, setShippingGateOpen] = useState(false);
-
-  const lsForGate = intake?.listing_stage?.toLowerCase() ?? "";
-  const {
-    blocked: shippingGateBlocked,
-    pendingItemIds: pendingShippingItemIds,
-    shipmentsSplit,
-  } = usePendingMemberIntakeShippingGate(lsForGate === "validation_pending");
-
   const headerRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(80);
 
@@ -225,10 +214,6 @@ export default function ItemEvaluationAnalysisPage() {
 
   const handleAcceptOffer = useCallback(async () => {
     if (!itemId) return;
-    if (shippingGateBlocked) {
-      setShippingGateOpen(true);
-      return;
-    }
     setActionError(null);
     setIsAccepting(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
@@ -241,7 +226,7 @@ export default function ItemEvaluationAnalysisPage() {
     }
     await fetchData();
     router.push(`/items/${itemId}`);
-  }, [itemId, router, fetchData, shippingGateBlocked]);
+  }, [itemId, router, fetchData]);
 
   const handleRefuseOffer = useCallback(async () => {
     if (!itemId) return;
@@ -668,14 +653,6 @@ export default function ItemEvaluationAnalysisPage() {
           </div>
         </footer>
       ) : null}
-
-      <IntakePendingShippingGateModal
-        open={shippingGateOpen}
-        onClose={() => setShippingGateOpen(false)}
-        purpose="validate_evaluation"
-        pendingItemIds={pendingShippingItemIds}
-        shipmentsSplit={shipmentsSplit}
-      />
 
       {valorisationExplainOpen ? (
         <div

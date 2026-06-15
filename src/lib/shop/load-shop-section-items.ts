@@ -298,6 +298,31 @@ export async function loadShopSectionItems(
   }
 }
 
+/** Pièces catalogue filtrées par matériau(x) (`/shop/jean`, `/shop/laine`, …). */
+export async function loadShopMaterialSectionItems(
+  supabase: unknown,
+  materialIds: string[],
+): Promise<ShopCatalogItem[]> {
+  const catalog = await loadShopCatalogFilterItems(supabase);
+  const allow = new Set(materialIds.map((id) => id.trim()).filter(Boolean));
+  if (allow.size === 0) return [];
+  return catalog.filter((item) => item.item_materiaux_id != null && allow.has(item.item_materiaux_id));
+}
+
+/** Catalogue boutique (base pour pages filtre `/shop/f/...`). */
+export async function loadShopCatalogFilterItems(supabase: unknown): Promise<ShopCatalogItem[]> {
+  const anySb = supabase as {
+    rpc: (
+      name: string,
+      args?: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+
+  const res = await anySb.rpc("get_shop_catalog_items", { p_limit: SHOP_SECTION_ITEMS_LIMIT });
+  if (res.error) return [];
+  return parseCatalogPayload(res.data);
+}
+
 export function isShopSectionSlug(s: string): s is ShopSectionSlug {
   return (SHOP_SECTION_SLUGS as readonly string[]).includes(s);
 }

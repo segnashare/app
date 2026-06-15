@@ -111,7 +111,7 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
               Récupérer cette pièce ?
             </h2>
             <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              Tu vas démarrer une demande de retour. Tu pourras ensuite confirmer l&apos;expédition depuis la page retour.
+              Tu vas démarrer une demande de retour. Tu pourras ensuite préparer l&apos;expédition depuis la page retour Segna.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
@@ -121,16 +121,20 @@ export function ExchangeLendQuickActions({ id, showEditDelete }: ExchangeLendQui
               >
                 Non
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setReturnConfirmOpen(false);
-                  router.push(`/items/${encodeURIComponent(id)}/retour`);
-                }}
-                className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
+              <form
+                action="/api/items/outtake/request"
+                method="post"
+                className="contents"
+                onSubmit={() => setReturnConfirmOpen(false)}
               >
-                Oui, récupérer
-              </button>
+                <input type="hidden" name="item_id" value={id} />
+                <button
+                  type="submit"
+                  className="h-10 rounded-lg bg-zinc-900 text-sm font-semibold text-white"
+                >
+                  Oui, récupérer
+                </button>
+              </form>
             </div>
           </div>
         </div>

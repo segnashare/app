@@ -17,10 +17,6 @@ export function itemIntakeEligibleForPendingShippingGate(
   return ls === "validated" && (fs === "ready" || fs === "shipping" || fs === "");
 }
 
-export function blocksIntakeUntilPendingShipmentsSent(pendingShippingCount: number): boolean {
-  return pendingShippingCount >= MEMBER_INTAKE_SHIPMENT_MAX_ITEMS;
-}
-
 export function pendingShipmentsAreSplit(
   rows: Array<{ intake?: IntakeRowForShippingPipelineGate | null }>,
 ): boolean {
@@ -31,7 +27,6 @@ export function pendingShipmentsAreSplit(
 export type PendingMemberIntakeShippingGateSnapshot = {
   pendingItemIds: string[];
   shipmentsSplit: boolean;
-  blocked: boolean;
 };
 
 function normalizeItemIntakeEmbed(raw: unknown): IntakeRowForShippingPipelineGate | null {
@@ -57,7 +52,7 @@ export async function fetchPendingMemberIntakeShippingGate(
     .limit(100);
 
   if (error || !rows?.length) {
-    return { pendingItemIds: [], shipmentsSplit: false, blocked: false };
+    return { pendingItemIds: [], shipmentsSplit: false };
   }
 
   const pendingRows: Array<{ id: string; intake: IntakeRowForShippingPipelineGate | null }> = [];
@@ -74,19 +69,5 @@ export async function fetchPendingMemberIntakeShippingGate(
   return {
     pendingItemIds,
     shipmentsSplit,
-    blocked: blocksIntakeUntilPendingShipmentsSent(pendingItemIds.length),
   };
 }
-
-export const INTAKE_PENDING_SHIPPING_GATE_MESSAGES = {
-  propose_piece: {
-    title: "Envoie d'abord tes pièces",
-    body: "Tu as déjà 2 pièces à expédier vers Segna. Envoie-les avant de proposer une nouvelle pièce.",
-  },
-  validate_evaluation: {
-    title: "Envoie d'abord tes pièces",
-    body: "Tu as déjà 2 pièces à expédier vers Segna. Envoie-les avant de valider une nouvelle entrée au catalogue.",
-  },
-} as const;
-
-export type IntakePendingShippingGatePurpose = keyof typeof INTAKE_PENDING_SHIPPING_GATE_MESSAGES;

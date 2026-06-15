@@ -18,6 +18,7 @@ export function TabBarItem({ tab, isActive, badge }: TabBarItemProps) {
   return (
     <Link
       href={tab.href}
+      prefetch
       aria-label={tab.label}
       aria-current={isActive ? "page" : undefined}
       className={cn(

@@ -252,6 +252,14 @@ export function resolveShippingItemIdsForLink(
     return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : [];
   }
 
+  const defaultGroup = (defaultGroupIds ?? [])
+    .map((x) => x.trim())
+    .filter((x) => SHIPPING_ITEM_ID_UUID_RE.test(x));
+  const uniqueDefault = [...new Set(defaultGroup)].sort((a, b) => a.localeCompare(b));
+  if (uniqueDefault.length > 0 && uniqueDefault.includes(id)) {
+    return uniqueDefault.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
+  }
+
   const mergeRaw = [
     ...parseScMergeItemIdsFromIntakeMetadata(metadata),
     ...parseMrMergeItemIdsFromIntakeMetadata(metadata),
@@ -261,14 +269,6 @@ export function resolveShippingItemIdsForLink(
     const set = new Set(validMerge);
     if (SHIPPING_ITEM_ID_UUID_RE.test(id)) set.add(id);
     return [...set].sort().slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
-  }
-
-  const defaultGroup = (defaultGroupIds ?? [])
-    .map((x) => x.trim())
-    .filter((x) => SHIPPING_ITEM_ID_UUID_RE.test(x));
-  const uniqueDefault = [...new Set(defaultGroup)].sort((a, b) => a.localeCompare(b));
-  if (uniqueDefault.length >= 2 && uniqueDefault.includes(id)) {
-    return uniqueDefault.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
   }
 
   return SHIPPING_ITEM_ID_UUID_RE.test(id) ? [id] : validMerge.slice(0, MEMBER_INTAKE_SHIPMENT_MAX_ITEMS);
@@ -286,11 +286,11 @@ export function buildShippingIdsSearchParamsValue(
 }
 
 export function buildShippingPageHref(
-  itemId: string,
-  metadata: unknown,
-  defaultGroupIds?: string[] | null,
+  _itemId: string,
+  _metadata: unknown,
+  _defaultGroupIds?: string[] | null,
 ): string {
-  return `/items/shipping?ids=${buildShippingIdsSearchParamsValue(itemId, metadata, defaultGroupIds)}`;
+  return "/items/shipping";
 }
 
 /** Lot fusionné déclaré (`sc_merge` / `mr_merge` ≥ 2 pièces). */
@@ -309,13 +309,35 @@ export type IntakeBannerShippingDedupeCandidate = {
   metadata: unknown;
 };
 
+export type IntakeBannerShippingDedupeOptions = {
+  /** @deprecated Préférer `defaultGroupIdsByItemId` (un lot global mélange les transfers). */
+  defaultGroupIds?: string[] | null;
+  /** Lot expédition par pièce (clé = item_id, valeur = ids du même transfer). */
+  defaultGroupIdsByItemId?: ReadonlyMap<string, string[]> | Record<string, readonly string[]>;
+};
+
+function defaultGroupIdsForDedupeCandidate(
+  itemId: string,
+  options?: IntakeBannerShippingDedupeOptions | string[] | null,
+): string[] | null | undefined {
+  if (Array.isArray(options) || options == null) {
+    return options ?? null;
+  }
+  const byItem = options.defaultGroupIdsByItemId;
+  if (byItem) {
+    const perItem = byItem instanceof Map ? byItem.get(itemId) : byItem[itemId];
+    if (perItem && perItem.length > 0) return [...perItem];
+  }
+  return options.defaultGroupIds ?? null;
+}
+
 /**
- * Une seule carte « Préparer ton envoi » par lot fusionné (pile Échange / popups).
+ * Une carte « Préparer ton envoi » par lot fusionné **dans le même transfer** (pile Échange / popups).
  * Les autres pièces du lot restent visibles si elles ont un autre statut intake.
  */
 export function dedupeIntakeBannerCandidatesForMergedShipping<T extends IntakeBannerShippingDedupeCandidate>(
   candidates: T[],
-  defaultGroupIds?: string[] | null,
+  options?: IntakeBannerShippingDedupeOptions | string[] | null,
 ): T[] {
   const prepareShipmentIds = new Set(
     candidates
@@ -329,7 +351,11 @@ export function dedupeIntakeBannerCandidatesForMergedShipping<T extends IntakeBa
 
   for (const c of candidates) {
     if (!prepareShipmentIds.has(c.id)) continue;
-    const group = resolveShippingItemIdsForLink(c.id, c.metadata, defaultGroupIds);
+    const group = resolveShippingItemIdsForLink(
+      c.id,
+      c.metadata,
+      defaultGroupIdsForDedupeCandidate(c.id, options),
+    );
     if (group.length < 2) continue;
 
     const key = group.join(",");

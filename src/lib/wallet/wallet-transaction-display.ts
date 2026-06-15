@@ -157,7 +157,7 @@ export function walletTransactionDisplayLabel(
   const source = readMetaString(metadata, "source")?.toLowerCase() ?? "";
 
   if (source === "lend_intake_verified") {
-    return { label: "Crédits prêt", subtitle: "Pièce validée", isAdminAdjustment: false };
+    return { label: "Crédits prêt", subtitle: "Réception Segna validée", isAdminAdjustment: false };
   }
   if (source === "return_verification_ok") {
     return { label: "Retour validé", subtitle: "Crédits rendus", isAdminAdjustment: false };

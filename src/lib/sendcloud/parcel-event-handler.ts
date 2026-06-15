@@ -52,6 +52,9 @@ const OUTBOUND_FORWARD: ShipmentStatusTarget[] = [
   "delivered",
 ];
 
+/** Aller panier domicile : pas d’étape `dropped_out` (réservée au relais). */
+const OUTBOUND_HOME_FORWARD: ShipmentStatusTarget[] = ["dropped_in", "in_transit_in", "delivered"];
+
 const RETURN_FORWARD: ShipmentStatusTarget[] = [
   "dropped_out",
   "dropped_in",
@@ -82,10 +85,57 @@ export function cartOutboundAllowsSendcloudWebhookSync(status: string): boolean 
   return true;
 }
 
+export type MapSendcloudParcelOptions = {
+  /** Aller panier livré à domicile (pas de point relais). */
+  cartOutboundHome?: boolean;
+};
+
+function cartOutboundSendcloudIndicatesTransit(msg: string, statusId: number): boolean {
+  return (
+    msg.includes("transit") ||
+    msg.includes("en route") ||
+    msg.includes("expédié") ||
+    msg.includes("expedie") ||
+    msg.includes("shipped") ||
+    msg.includes("picked up") ||
+    msg.includes("accepted by carrier") ||
+    msg === "accepted" ||
+    msg.includes("sorting") ||
+    msg.includes("sorted") ||
+    msg.includes("announced") ||
+    msg.includes("collected") ||
+    msg.includes("processing") ||
+    msg.includes("prise en charge") ||
+    msg.includes("logistique") ||
+    statusId === 3 ||
+    statusId === 4 ||
+    statusId === 5 ||
+    statusId === 12 ||
+    statusId === 13
+  );
+}
+
+function cartOutboundSendcloudIndicatesRelayPickupReady(msg: string, statusId: number): boolean {
+  if (cartOutboundSendcloudIndicatesTransit(msg, statusId)) return false;
+  return (
+    msg.includes("awaiting pickup") ||
+    msg.includes("ready for pickup") ||
+    msg.includes("available for pickup") ||
+    msg.includes("ready to pick up") ||
+    msg.includes("ready for collection") ||
+    msg.includes("parcel is ready for collection") ||
+    (msg.includes("prêt") && msg.includes("retrait")) ||
+    (msg.includes("pret") && msg.includes("retrait")) ||
+    statusId === 91 ||
+    statusId === 745
+  );
+}
+
 export function mapSendcloudParcelToShipmentTarget(
   context: string,
   statusMessage: string,
   statusId: number,
+  options?: MapSendcloudParcelOptions,
 ): ShipmentStatusTarget | null {
   const msg = statusMessage.toLowerCase();
   const ctx = context.trim().toLowerCase();
@@ -93,6 +143,7 @@ export function mapSendcloudParcelToShipmentTarget(
   if (statusId === 2000 || msg.includes("cancel")) return "failed";
 
   if (ctx === "cart_outbound") {
+    const home = options?.cartOutboundHome === true;
     if (
       (msg.includes("delivered") && !msg.includes("sorting") && !msg.includes("centre")) ||
       statusId === 11 ||
@@ -101,33 +152,11 @@ export function mapSendcloudParcelToShipmentTarget(
     ) {
       return "delivered";
     }
-    if (
-      msg.includes("awaiting pickup") ||
-      msg.includes("ready for pickup") ||
-      msg.includes("available for pickup") ||
-      msg.includes("ready to pick up") ||
-      msg.includes("parcel is ready for collection") ||
-      statusId === 91 ||
-      statusId === 745
-    ) {
+    if (!home && cartOutboundSendcloudIndicatesRelayPickupReady(msg, statusId)) {
       return "dropped_out";
     }
-    if (
-      msg.includes("transit") ||
-      msg.includes("en route") ||
-      msg.includes("picked up") ||
-      msg.includes("accepted by carrier") ||
-      msg === "accepted" ||
-      msg.includes("sorting") ||
-      msg.includes("sorted") ||
-      msg.includes("announced") ||
-      msg.includes("collected") ||
-      statusId === 3 ||
-      statusId === 5 ||
-      statusId === 12 ||
-      statusId === 13
-    ) {
-      return "dropped_in";
+    if (cartOutboundSendcloudIndicatesTransit(msg, statusId)) {
+      return home ? "in_transit_in" : "dropped_in";
     }
     return null;
   }
@@ -244,13 +273,16 @@ function buildForwardChain(
   context: string,
   current: string,
   target: ShipmentStatusTarget,
+  options?: MapSendcloudParcelOptions,
 ): ShipmentStatusTarget[] {
   const chain =
     context === "member_intake"
       ? MEMBER_INTAKE_RETURN_FORWARD
       : context === "cart_return"
         ? RETURN_FORWARD
-        : OUTBOUND_FORWARD;
+        : options?.cartOutboundHome
+          ? OUTBOUND_HOME_FORWARD
+          : OUTBOUND_FORWARD;
   const curRank = rankForward(chain, current);
   const targetRank = chain.indexOf(target);
   if (targetRank < 0) return [];
@@ -338,6 +370,27 @@ export async function findShipmentBySendcloudOrderNumber(
     tracking_number: string | null;
     member_tracking_url: string | null;
   };
+}
+
+async function loadCartOutboundHomeDelivery(
+  admin: SupabaseClient,
+  shipmentId: string,
+): Promise<boolean> {
+  const { data } = await admin
+    .from("shipment_destinations")
+    .select("destination_type, provider_point_id, line1")
+    .eq("shipment_id", shipmentId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return false;
+  const row = data as { destination_type?: string; provider_point_id?: string | null; line1?: string | null };
+  const destinationType = norm(row.destination_type);
+  if (destinationType === "home") return true;
+  if (destinationType === "pickup_point") return false;
+  const relayId = String(row.provider_point_id ?? "").trim();
+  if (relayId) return false;
+  return String(row.line1 ?? "").trim().length > 0;
 }
 
 export async function processSendcloudParcelEvent(
@@ -436,7 +489,12 @@ export async function processSendcloudParcelEvent(
 
   const eventSource = options?.source?.trim() || "sendcloud_webhook";
 
-  const target = mapSendcloudParcelToShipmentTarget(ship.context, statusMessage, statusId);
+  const mapOptions: MapSendcloudParcelOptions = {};
+  if (norm(ship.context) === "cart_outbound") {
+    mapOptions.cartOutboundHome = await loadCartOutboundHomeDelivery(admin, ship.id);
+  }
+
+  const target = mapSendcloudParcelToShipmentTarget(ship.context, statusMessage, statusId, mapOptions);
   if (!target) {
     if (trackingNumber || trackingUrl) {
       await admin
@@ -463,7 +521,7 @@ export async function processSendcloudParcelEvent(
 
   const transitions: string[] = [];
   let current = norm(ship.status);
-  const chain = buildForwardChain(ship.context, current, target);
+  const chain = buildForwardChain(ship.context, current, target, mapOptions);
 
   if (chain.length === 0) {
     if (trackingNumber || trackingUrl) {

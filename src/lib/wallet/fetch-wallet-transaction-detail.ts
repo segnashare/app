@@ -104,7 +104,7 @@ function statusLineForSource(source: string, cartStatus?: string | null): string
     return "État : emprunt en cours";
   }
   if (s === "return_verification_ok") return "État : retour validé";
-  if (s === "lend_intake_verified") return "État : prêt validé";
+  if (s === "lend_intake_verified") return "État : réception Segna validée";
   if (s === "modif_admin") return "État : ajustement admin Segna";
   if (s.includes("cancel") || s.includes("refund")) return "État : crédits rendus";
   if (s === "subscription_monthly_consumption_grant") return "État : crédits mensuels";

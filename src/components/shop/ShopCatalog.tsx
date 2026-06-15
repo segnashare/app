@@ -44,6 +44,7 @@ import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { ShopHubSectionSkeleton } from "@/components/shop/ShopCatalogLoadingFallback";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
@@ -195,6 +196,8 @@ type ShopCatalogProps = {
   initialShopHubSections?: Partial<Record<ShopHubSectionSlug, CmsCatalogSectionBundle>>;
   /** Ordre vertical des blocs hub (RPC `get_cms_boutique_section_order`). */
   boutiqueHubSectionOrder?: string[];
+  /** Sections hub déjà chargées (les autres affichent un squelette). */
+  readyHubSectionKeys?: string[];
   /** Onboarding panier : attire l'oeil vers les + d'ajout au panier. */
   guideCartOnboarding?: boolean;
   /** Couvertures déjà résolues côté serveur (id → URL signée). */
@@ -833,6 +836,7 @@ export function ShopCatalog({
   shopHomeCapsulesSectionDisplay = { hide_section_title: false, title: null },
   initialShopHubSections = {},
   boutiqueHubSectionOrder: boutiqueHubSectionOrderProp,
+  readyHubSectionKeys,
   guideCartOnboarding = false,
   initialCoverUrlById: initialCoverUrlByIdProp = {},
 }: ShopCatalogProps) {
@@ -866,6 +870,25 @@ export function ShopCatalog({
   const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(() => ({ ...initialCoverUrlByIdProp }));
   const coverUrlByIdRef = useRef<Record<string, string>>({});
   coverUrlByIdRef.current = coverUrlById;
+
+  useEffect(() => {
+    setCoverUrlById((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [id, url] of Object.entries(initialCoverUrlByIdProp)) {
+        if (url && next[id] !== url) {
+          next[id] = url;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [initialCoverUrlByIdProp]);
+
+  const readyHubSectionKeySet = useMemo(() => {
+    if (!readyHubSectionKeys || readyHubSectionKeys.length === 0) return null;
+    return new Set(readyHubSectionKeys);
+  }, [readyHubSectionKeys]);
   const filtersRef = useRef(filters);
   const sortModeRef = useRef(sortMode);
   filtersRef.current = filters;
@@ -2664,8 +2687,11 @@ export function ShopCatalog({
           {showHub ? (
             <div className="divide-y-[1px] divide-zinc-200">
               {boutiqueHubSectionOrder.map((sectionKey, index) => {
-                const inner = renderBoutiqueHubSection(sectionKey);
-                if (inner === null) return null;
+                const sectionReady = !readyHubSectionKeySet || readyHubSectionKeySet.has(sectionKey);
+                const inner = sectionReady
+                  ? renderBoutiqueHubSection(sectionKey)
+                  : <ShopHubSectionSkeleton sectionKey={sectionKey} />;
+                if (inner === null && sectionReady) return null;
                 const padGridDisponibles = sectionKey === "shop_system_available";
                 return (
                   <div

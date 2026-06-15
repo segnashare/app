@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { CartUpsellScreen } from "@/components/cart/CartUpsellScreen";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
+import { fetchCartOutfitSuggestions } from "@/lib/shop/fetch-cart-outfit-suggestions";
 import { fetchCartUpsellSuggestions } from "@/lib/shop/fetch-cart-upsell-suggestions";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
@@ -40,13 +41,23 @@ export default async function CartUpsellPage() {
     redirect("/cart/payment");
   }
 
-  const [upsellItems, borrowCheckoutOptions] = await Promise.all([
-    fetchCartUpsellSuggestions(catalogSb, cartItemIds, {
+  const [outfitRailItems, borrowCheckoutOptions] = await Promise.all([
+    fetchCartOutfitSuggestions(catalogSb, cartItemIds, {
       excludeItemIds: cartItemIds,
       limit: 10,
     }),
     fetchBorrowCheckoutOptions(supabase as never),
   ]);
+
+  const excludeFromUpsell = [
+    ...cartItemIds,
+    ...outfitRailItems.map((item) => item.id),
+  ];
+
+  const upsellItems = await fetchCartUpsellSuggestions(catalogSb, cartItemIds, {
+    excludeItemIds: excludeFromUpsell,
+    limit: 10,
+  });
 
   if (upsellItems.length === 0) {
     redirect("/cart/payment");

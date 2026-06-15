@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Heart, Plus } from "lucide-react";
 
 import { ItemDescriptionCard } from "./ItemDescriptionCard";
@@ -22,7 +22,7 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { cn } from "@/lib/utils/cn";
 import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
-import { itemPhotoSlotAspectClass } from "@/lib/items/item-photo-layout";
+import { itemPhotoDisplayAspectClass } from "@/lib/items/item-photo-layout";
 
 /** photo1 : principale ; photo2–photo6 : autres vues produit (`items.photos`). */
 const CATALOG_EXTRA_PHOTO_SLOT_INDICES = [1, 2, 3, 4, 5] as const;
@@ -97,13 +97,25 @@ type ItemViewViewProps = {
   outfitCompanionCoverUrlById?: Record<string, string>;
 };
 
-function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className?: string }) {
+function ItemViewCoverPhoto({
+  slot,
+  photosLayout,
+  onImageRatio,
+}: {
+  slot: ItemViewSlot;
+  photosLayout: ItemPhotoLayout;
+  onImageRatio?: (ratio: number) => void;
+}) {
   return (
     <RemoteCoverThumb
       photoUrl={slot.dataUrl}
-      frameClassName={cn("h-full w-full", className)}
+      frameClassName={cn("h-full w-full")}
       photoPosition={{ offset: slot.offset, zoom: slot.zoom }}
       photoCoverFill
+      photosLayout={photosLayout}
+      onImageDimensions={(size) => {
+        if (size.h > 0) onImageRatio?.(size.w / size.h);
+      }}
     />
   );
 }
@@ -111,7 +123,7 @@ function ItemViewCoverPhoto({ slot, className }: { slot: ItemViewSlot; className
 function ItemViewPhotoFrame({
   slot,
   frameKey,
-  photoFrameClass,
+  photosLayout,
   showPlaceholder,
   hideFrameLikeButtons,
   frameActionVariant,
@@ -124,7 +136,7 @@ function ItemViewPhotoFrame({
 }: {
   slot: ItemViewSlot | null;
   frameKey: string;
-  photoFrameClass: string;
+  photosLayout: ItemPhotoLayout;
   showPlaceholder?: boolean;
   hideFrameLikeButtons: boolean;
   frameActionVariant: "heart" | "plus";
@@ -135,13 +147,20 @@ function ItemViewPhotoFrame({
   onLikeFrame?: () => void;
   onToggleFrameLike: (frameId: string) => void;
 }) {
+  const [imageRatio, setImageRatio] = useState<number | null>(null);
+  const photoFrameClass = itemPhotoDisplayAspectClass(photosLayout, imageRatio);
+
+  useEffect(() => {
+    setImageRatio(null);
+  }, [slot?.dataUrl]);
+
   if (!slot && !showPlaceholder) return null;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-zinc-200 shadow-sm">
       <div className={cn("relative w-full", photoFrameClass)}>
         {slot ? (
-          <ItemViewCoverPhoto slot={slot} />
+          <ItemViewCoverPhoto slot={slot} photosLayout={photosLayout} onImageRatio={setImageRatio} />
         ) : (
           <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-2xl" />
         )}
@@ -189,7 +208,6 @@ export function ItemViewView({
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
-  const photoFrameClass = itemPhotoSlotAspectClass(photosLayout);
   const isSegnaStockOwner = isSegnaCorporateInventoryUserId(ownerUserId);
   const fetchSegnaCmsClient = isSegnaStockOwner && segnaStockPropertyCmsFrames === undefined;
   const { rows: clientSegnaCmsRows, loading: segnaCmsLoading } = useSegnaStockPropertyCmsRows(fetchSegnaCmsClient);
@@ -206,7 +224,7 @@ export function ItemViewView({
   }
 
   const photoFrameProps = {
-    photoFrameClass,
+    photosLayout,
     hideFrameLikeButtons,
     frameActionVariant,
     frameActionActive,

@@ -2,7 +2,10 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { resolveOuttakeTransferIdForItem } from "@/lib/items/member-outtake-groups";
 import { parseItemOuttakeSnapshot } from "@/lib/items/outtake-metadata";
+import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metadata";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PageProps = {
@@ -32,9 +35,19 @@ export default async function ItemRetourPage({ params }: PageProps) {
   const status = String(row.status ?? "");
   const readyForReturn = status === "available";
   const outtake = parseItemOuttakeSnapshot(row.item_outtake as unknown);
-  if (outtake && !outtake.deletedAt && outtake.stage === "in_transit") {
-    redirect(`/items/${encodeURIComponent(itemId)}/retour/expedition`);
+  const outtakeStage = outtake && !outtake.deletedAt ? outtake.stage : "none";
+
+  if (outtakeStage === "return_open" || outtakeStage === "in_transit") {
+    let transferId: string | null = null;
+    try {
+      const admin = createSupabaseAdminClient();
+      transferId = await resolveOuttakeTransferIdForItem(admin, itemId);
+    } catch {
+      transferId = null;
+    }
+    redirect(buildOuttakeShippingPageHref(transferId));
   }
+
   const alreadyRequested = Boolean(outtake && outtake.stage !== "none" && !outtake.deletedAt);
   const cancellableStages = new Set(["return_open"]);
   const canCancelReturn = Boolean(outtake && !outtake.deletedAt && cancellableStages.has(outtake.stage));
@@ -66,13 +79,7 @@ export default async function ItemRetourPage({ params }: PageProps) {
 
         {alreadyRequested ? (
           <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-            <p className="text-sm text-emerald-900">Demande de retour déjà enregistrée.</p>
-            <Link
-              href={`/items/${itemId}/retour/expedition`}
-              className="inline-flex h-10 items-center justify-center rounded-xl bg-[#5E3023] px-4 text-sm font-semibold text-white"
-            >
-              Continuer vers l’expédition retour
-            </Link>
+            <p className="text-sm text-emerald-900">Demande de retour enregistrée. Tu seras redirigée vers l&apos;expédition dès que la pièce sera prête.</p>
             {canCancelReturn ? (
               <form action="/api/items/outtake/cancel" method="post" className="pt-1">
                 <input type="hidden" name="item_id" value={itemId} />
@@ -96,7 +103,7 @@ export default async function ItemRetourPage({ params }: PageProps) {
               Valider la demande de retour
             </button>
             <p className="text-xs text-zinc-500">
-              Après validation, tu arrives sur la page d’expédition pour choisir le point relais et confirmer ton envoi.
+              Après validation, tu arrives sur la page d&apos;expédition retour pour choisir le point relais et générer ton bordereau.
             </p>
           </form>
         )}

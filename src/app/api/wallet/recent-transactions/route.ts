@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { pickLatestWalletTransactionAnnouncement } from "@/lib/wallet/wallet-transaction-announcement";
+import { filterWalletTransactionsForAnnouncement } from "@/lib/wallet/filter-wallet-announcement-transactions";
 import {
   attachWalletTransactionBalances,
   isHiddenWalletTransactionRow,
@@ -75,9 +76,13 @@ export async function GET() {
     });
 
     const mergedTransactions = mergeCartBorrowWalletDisplayRows(baseTransactions);
+    const announcementCandidates = await filterWalletTransactionsForAnnouncement(
+      supabase,
+      mergedTransactions,
+    );
 
     const transactions = attachWalletTransactionBalances(mergedTransactions, currentBalancePoints);
-    const latestAnnouncement = pickLatestWalletTransactionAnnouncement(mergedTransactions);
+    const latestAnnouncement = pickLatestWalletTransactionAnnouncement(announcementCandidates);
 
     return NextResponse.json({ transactions, latestAnnouncement });
   } catch (error) {

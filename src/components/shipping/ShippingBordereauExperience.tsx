@@ -27,7 +27,15 @@ import {
   readMemberIntakeShipmentIdFromMetadata,
   readShippingPreferSolo,
 } from "@/lib/items/intake-shipping-metadata";
+import {
+  INTAKE_FULFILLMENT_SHIPPING,
+  memberIntakeShipmentIndicatesMemberInTransit,
+} from "@/lib/items/intake-fulfillment-stages";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  memberIntakeExpeditionStatusLine,
+  memberIntakeShippingCtaLabel,
+} from "@/lib/items/member-intake-shipping-copy";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -60,6 +68,16 @@ export type ShippingBordereauExperienceProps = {
   backLabel?: string;
   /** Une ou plusieurs pièces (même étiquette Sendcloud si fusion BO). */
   itemIds: string[];
+  /** Mode embarqué dans la page multi-envois (sans header ni section groupement). */
+  hideHeader?: boolean;
+  /** Dans une carte envoi : pas de titre « Prépare ton envoi », padding réduit. */
+  embeddedInEnvoi?: boolean;
+  /** Shipment du transfer (multi-envois) — prioritaire sur metadata pièce. */
+  preferredShipmentId?: string | null;
+  /** Statut du shipment du transfer (multi-envois). */
+  preferredShipmentStatus?: string | null;
+  /** Masque les liens d’aide (portail / étiquette) — gérés au niveau page. */
+  hideHelpLinks?: boolean;
 };
 
 const portalSessionKey = (ids: string[]) => `segna-intake-return-portal:${[...ids].sort().join(",")}`;
@@ -93,6 +111,11 @@ export function ShippingBordereauExperience({
   backHref,
   backLabel = "Retour",
   itemIds,
+  hideHeader = false,
+  embeddedInEnvoi = false,
+  preferredShipmentId = null,
+  preferredShipmentStatus = null,
+  hideHelpLinks = false,
 }: ShippingBordereauExperienceProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -130,6 +153,8 @@ export function ShippingBordereauExperience({
     trackingHref: string | null;
   } | null>(null);
   const [memberIntakeShipmentActive, setMemberIntakeShipmentActive] = useState(false);
+  const [memberIntakeShipmentStatus, setMemberIntakeShipmentStatus] = useState<string | null>(null);
+  const [transferOrderNumber, setTransferOrderNumber] = useState<string | null>(null);
   const [newBordereauShimmer, setNewBordereauShimmer] = useState(false);
   const [ungroupPhase, setUngroupPhase] = useState<"idle" | "saving">("idle");
   const [groupPhase, setGroupPhase] = useState<"idle" | "saving">("idle");
@@ -180,6 +205,9 @@ export function ShippingBordereauExperience({
     return true;
   }, [shippingOptions?.default_shipping_group_ids, shippingOptions?.other_intake_shipping_peers, itemIds]);
 
+  const groupShipmentId = preferredShipmentId?.trim() || null;
+  const groupShipmentStatus = preferredShipmentStatus?.trim().toLowerCase() || null;
+
   const itemIdsKey = itemIds.join(",");
   useEffect(() => {
     generationAbortRef.current?.abort();
@@ -196,8 +224,10 @@ export function ShippingBordereauExperience({
     setPiggybackError(null);
     setMemberIntakeDbTracking(null);
     setMemberIntakeShipmentActive(false);
+    setMemberIntakeShipmentStatus(null);
+    setTransferOrderNumber(null);
     setNewBordereauShimmer(false);
-  }, [itemIdsKey]);
+  }, [itemIdsKey, groupShipmentId, groupShipmentStatus]);
 
   const headerRef = useRef<HTMLElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(80);
@@ -280,21 +310,41 @@ export function ShippingBordereauExperience({
       }
     }
 
-    const activeShipId = await resolveActiveMemberIntakeShipmentIdForItems(
-      supabase,
-      itemIds,
-      memberShipId ?? null,
-    );
+    const activeShipId = groupShipmentId
+      ? groupShipmentId
+      : await resolveActiveMemberIntakeShipmentIdForItems(
+          supabase,
+          itemIds,
+          memberShipId ?? null,
+        );
     setMemberIntakeShipmentActive(Boolean(activeShipId));
 
     if (activeShipId) {
       const { data: shipRow } = await supabase
         .from("shipments")
-        .select("tracking_number, member_tracking_url")
+        .select("tracking_number, member_tracking_url, status")
         .eq("id", activeShipId)
         .eq("context", "member_intake")
         .is("deleted_at", null)
         .maybeSingle();
+      const { data: destRow } = await supabase
+        .from("shipment_destinations")
+        .select("metadata")
+        .eq("shipment_id", activeShipId)
+        .maybeSingle();
+      const destMeta =
+        destRow?.metadata && typeof destRow.metadata === "object"
+          ? (destRow.metadata as Record<string, unknown>)
+          : null;
+      const destOrder =
+        typeof destMeta?.sendcloud_order_number === "string"
+          ? destMeta.sendcloud_order_number.trim()
+          : "";
+      setTransferOrderNumber(groupShipmentId && destOrder ? destOrder : null);
+      const resolvedStatus =
+        groupShipmentStatus ??
+        (typeof shipRow?.status === "string" ? shipRow.status.trim().toLowerCase() : null);
+      setMemberIntakeShipmentStatus(resolvedStatus);
       setMemberIntakeDbTracking(
         resolveIntakeTrackingHref(
           typeof shipRow?.tracking_number === "string" ? shipRow.tracking_number : null,
@@ -302,11 +352,13 @@ export function ShippingBordereauExperience({
         ),
       );
     } else {
+      setTransferOrderNumber(null);
+      setMemberIntakeShipmentStatus(null);
       setMemberIntakeDbTracking(null);
     }
 
     if (!silent) setIsLoading(false);
-  }, [itemIds]);
+  }, [groupShipmentId, groupShipmentStatus, itemIds]);
 
   const fetchShippingOptions = useCallback(async () => {
     if (itemIds.length === 0) {
@@ -427,7 +479,7 @@ export function ShippingBordereauExperience({
       generationAbortRef.current?.abort();
       const ac = new AbortController();
       generationAbortRef.current = ac;
-      await runPortalStart(ac.signal, false);
+      await runPortalStart(ac.signal, true);
     } catch {
       setAutoPhase("failed");
       setAutoError("Nouveau bordereau impossible pour le moment.");
@@ -525,12 +577,18 @@ export function ShippingBordereauExperience({
 
   const expeditionMode = useMemo(() => {
     if (rows.length === 0 || rows.length !== itemIds.length) return false;
-    return rows.every(
-      (r) =>
-        r.intake?.listing_stage === "validated" &&
-        String(r.intake?.fulfillment_stage ?? "").trim().toLowerCase() === "shipping",
+    const shipmentInTransit = memberIntakeShipmentIndicatesMemberInTransit(
+      groupShipmentStatus ?? memberIntakeShipmentStatus,
     );
-  }, [rows, itemIds.length]);
+    if (groupShipmentId) {
+      return shipmentInTransit;
+    }
+    return rows.every((r) => {
+      if (r.intake?.listing_stage !== "validated") return false;
+      const fs = String(r.intake?.fulfillment_stage ?? "").trim().toLowerCase();
+      return fs === INTAKE_FULFILLMENT_SHIPPING || (shipmentInTransit && (fs === "ready" || !fs));
+    });
+  }, [rows, itemIds.length, groupShipmentId, groupShipmentStatus, memberIntakeShipmentStatus]);
 
   const intakeLabelTracking = useMemo(() => {
     const meta = parseIntakeShippingLabelFromMetadata(rows[0]?.intake?.metadata ?? null);
@@ -541,6 +599,9 @@ export function ShippingBordereauExperience({
     if (memberIntakeDbTracking?.trackingNumber || memberIntakeDbTracking?.trackingHref) {
       return memberIntakeDbTracking;
     }
+    if (groupShipmentId) {
+      return { trackingNumber: null, trackingHref: null };
+    }
     if (memberIntakeShipmentActive) {
       const soloSplitAwaitingLabel = rows.some((r) => readShippingPreferSolo(r.intake?.metadata ?? null));
       if (!soloSplitAwaitingLabel && isIntakeMemberReturnTrackingNumber(intakeLabelTracking.trackingNumber)) {
@@ -549,7 +610,7 @@ export function ShippingBordereauExperience({
       return { trackingNumber: null, trackingHref: null };
     }
     return intakeLabelTracking;
-  }, [memberIntakeDbTracking, intakeLabelTracking, memberIntakeShipmentActive, rows]);
+  }, [memberIntakeDbTracking, intakeLabelTracking, memberIntakeShipmentActive, rows, groupShipmentId]);
 
   const returnCreated = useMemo(
     () => isIntakeMemberReturnTrackingNumber(prepareTracking.trackingNumber),
@@ -560,8 +621,17 @@ export function ShippingBordereauExperience({
     if (returnShipmentTracking?.trackingNumber || returnShipmentTracking?.trackingHref) {
       return returnShipmentTracking;
     }
-    return intakeLabelTracking;
-  }, [returnShipmentTracking, intakeLabelTracking]);
+    if (memberIntakeDbTracking?.trackingNumber || memberIntakeDbTracking?.trackingHref) {
+      return memberIntakeDbTracking;
+    }
+    if (groupShipmentId) {
+      return { trackingNumber: null, trackingHref: null };
+    }
+    if (isIntakeMemberReturnTrackingNumber(intakeLabelTracking.trackingNumber)) {
+      return intakeLabelTracking;
+    }
+    return { trackingNumber: null, trackingHref: null };
+  }, [returnShipmentTracking, memberIntakeDbTracking, groupShipmentId, intakeLabelTracking]);
 
   useEffect(() => {
     if (!expeditionMode || !piggybackActive) {
@@ -748,10 +818,11 @@ export function ShippingBordereauExperience({
     return rows[0]?.title ?? "Envoi";
   }, [expeditionMode, headerTitleProp, rows]);
 
-  const { portalUrl, labelUrl, portalExpired, orderNumber, postalCode, intake } = useMemo(
+  const { portalUrl, labelUrl, portalExpired, orderNumber: portalOrderNumber, postalCode, intake } = useMemo(
     () => pickPortalFromRows(rows),
     [rows],
   );
+  const orderNumber = groupShipmentId && transferOrderNumber ? transferOrderNumber : portalOrderNumber;
   const inVerification = intake?.fulfillment_stage === "in_verification";
 
   const awaitingReturnTracking = useMemo(() => {
@@ -810,11 +881,11 @@ export function ShippingBordereauExperience({
   const showPortalExpired = portalExpired && !labelHref && !returnCreated;
 
   const pageSubtitle = useMemo(() => {
+    const expeditionTitles = rows.map((r) => r.title.trim()).filter(Boolean);
     if (isLoading) return "Chargement…";
     if (expeditionMode) {
-      return piggybackActive
-        ? "Ta pièce voyage avec ton retour d’échange."
-        : "Ton colis est en route vers Segna.";
+      if (piggybackActive) return "Ta pièce voyage avec ton retour d’échange.";
+      return memberIntakeExpeditionStatusLine(expeditionTitles);
     }
     if (piggybackActive) {
       return "Tu envoies ta pièce avec le retour d’un échange en cours.";
@@ -828,8 +899,8 @@ export function ShippingBordereauExperience({
     if (labelHref) return "Ton étiquette retour est prête.";
     if (showPortalExpired) return "Ton accès au portail a expiré.";
     if (showPortalCta) return "Imprime ton bordereau d’envoi sur le portail Sendcloud.";
-    if (portalHref) return "Chrono 2Shop Retour — crée ton étiquette.";
-    if (inVerification) return "Colis reçu — vérification en cours.";
+    if (portalHref) return "Chrono 2Shop Retour. Crée ton étiquette.";
+    if (inVerification) return "Colis reçu. Vérification en cours.";
     if (autoPhase === "trying") return "Préparation de ton envoi…";
     if (autoPhase === "failed") return "Une action est nécessaire.";
     if (autoPhase === "skipped") return "Ouvre le portail pour créer ton étiquette retour.";
@@ -878,7 +949,8 @@ export function ShippingBordereauExperience({
   };
 
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col bg-white">
+    <div className={cn("flex w-full flex-col bg-white", hideHeader ? "" : "min-h-[100dvh]")}>
+      {!hideHeader ? (
       <header
         ref={headerRef}
         className="fixed left-1/2 top-0 z-[60] w-full max-w-[430px] -translate-x-1/2 border-b border-zinc-200 bg-white"
@@ -901,17 +973,20 @@ export function ShippingBordereauExperience({
           </p>
         </div>
       </header>
+      ) : null}
 
+      {!hideHeader ? (
       <div
         className="mx-auto w-full max-w-[430px] shrink-0 bg-white"
         style={{ height: headerHeight }}
         aria-hidden
       />
+      ) : null}
 
       <div
         className="mx-auto flex w-full max-w-[430px] flex-1 flex-col bg-white"
       >
-        {plural && rows.length > 0 ? (
+        {!hideHeader && plural && rows.length > 0 ? (
           <section className="bg-white px-5 pb-6 pt-8">
             <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
               Dans cet envoi
@@ -937,21 +1012,32 @@ export function ShippingBordereauExperience({
         <section
           className={cn(
             "flex min-h-0 flex-1 flex-col bg-white",
-            expeditionMode ? "pb-8" : "px-5 pb-8 pt-8",
+            expeditionMode
+              ? embeddedInEnvoi
+                ? "pb-2"
+                : "pb-8"
+              : embeddedInEnvoi
+                ? "pb-2 pt-4"
+                : "px-5 pb-8 pt-8",
           )}
         >
           {expeditionMode ? (
             <IntakeShippingExpeditionSection
+              compact={embeddedInEnvoi}
               statusLine={
                 piggybackActive
                   ? "Ta pièce voyage avec ton retour d’échange jusqu’à Segna."
-                  : "En route vers Segna."
+                  : memberIntakeExpeditionStatusLine(rows.map((r) => r.title))
               }
               detailLine={
                 piggybackActive && shippingOptions?.piggyback
                   ? `Envoi mutualisé avec l’échange ${shippingOptions.piggyback.order_number_compact}.`
                   : null
               }
+              trackingCtaLabel={memberIntakeShippingCtaLabel(
+                "track",
+                rows.map((r) => r.title),
+              )}
               trackingNumber={expeditionTracking.trackingNumber}
               trackingHref={expeditionTracking.trackingHref}
               piggybackOrderCompact={shippingOptions?.piggyback?.order_number_compact ?? null}
@@ -959,12 +1045,16 @@ export function ShippingBordereauExperience({
             />
           ) : (
             <>
-          <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
-            Prépare ton envoi
-          </h2>
-          <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
-            {prepareHint}
-          </p>
+          {!embeddedInEnvoi ? (
+            <>
+              <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
+                Prépare ton envoi
+              </h2>
+              <p className={cn(montserrat.className, "mt-2 text-[14px] font-medium leading-snug text-zinc-600")}>
+                {prepareHint}
+              </p>
+            </>
+          ) : null}
 
           {piggybackActive && shippingOptions?.piggyback ? (
             <div className={cn(montserrat.className, "mt-6 space-y-4")}>
@@ -1027,7 +1117,10 @@ export function ShippingBordereauExperience({
                     "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900",
                   )}
                 >
-                  Suivre mon colis
+                  {memberIntakeShippingCtaLabel(
+                    "track",
+                    rows.map((r) => r.title),
+                  )}
                   <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
                 </a>
               ) : null}
@@ -1054,7 +1147,7 @@ export function ShippingBordereauExperience({
               {orderNumber ? (
                 <p className="text-center text-[13px] font-medium text-zinc-600">
                   N° commande : <span className="font-mono font-semibold text-zinc-900">{orderNumber}</span>
-                  {postalCode ? ` · CP ${postalCode}` : ""}
+                  {postalCode ? `, CP ${postalCode}` : ""}
                 </p>
               ) : null}
               <IntakeNewBordereauButton
@@ -1062,28 +1155,34 @@ export function ShippingBordereauExperience({
                 shimmer={newBordereauShimmer}
                 disabled={autoPhase === "trying"}
               />
-              <button
-                type="button"
-                onClick={() =>
-                  void requestHelp(
-                    "Problème avec l’étiquette retour (téléchargement, relais, ou besoin d’aide côté Segna).",
-                  )
-                }
-                disabled={helpPhase === "sending" || helpPhase === "sent"}
-                className="flex w-full items-center justify-center gap-2 text-center text-[14px] font-semibold text-zinc-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
-              >
-                <LifeBuoy className="h-4 w-4 shrink-0" aria-hidden />
-                {helpPhase === "sending"
-                  ? "Envoi…"
-                  : helpPhase === "sent"
-                    ? "Demande envoyée"
-                    : "Problème avec l’étiquette ? Contacter Segna"}
-              </button>
-              {helpPhase === "error" ? (
-                <p className="text-center text-[13px] font-medium text-rose-600">Réessaie plus tard ou écris-nous.</p>
-              ) : null}
-              {helpPhase === "sent" ? (
-                <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
+              {!hideHelpLinks ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void requestHelp(
+                        "Problème avec l’étiquette retour (téléchargement, relais, ou besoin d’aide côté Segna).",
+                      )
+                    }
+                    disabled={helpPhase === "sending" || helpPhase === "sent"}
+                    className="flex w-full items-center justify-center gap-2 text-center text-[14px] font-semibold text-zinc-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+                  >
+                    <LifeBuoy className="h-4 w-4 shrink-0" aria-hidden />
+                    {helpPhase === "sending"
+                      ? "Envoi…"
+                      : helpPhase === "sent"
+                        ? "Demande envoyée"
+                        : "Problème avec l’étiquette ? Contacter Segna"}
+                  </button>
+                  {helpPhase === "error" ? (
+                    <p className="text-center text-[13px] font-medium text-rose-600">
+                      Réessaie plus tard ou écris-nous.
+                    </p>
+                  ) : null}
+                  {helpPhase === "sent" ? (
+                    <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
+                  ) : null}
+                </>
               ) : null}
             </div>
           ) : !piggybackActive && showPortalExpired ? (
@@ -1121,31 +1220,42 @@ export function ShippingBordereauExperience({
               {orderNumber ? (
                 <p className="text-center text-[13px] font-medium text-zinc-600">
                   N° commande : <span className="font-mono font-semibold text-zinc-900">{orderNumber}</span>
-                  {postalCode ? ` · CP ${postalCode}` : ""}
+                  {postalCode ? `, CP ${postalCode}` : ""}
                 </p>
               ) : null}
-              <button
-                type="button"
-                onClick={() =>
-                  void requestHelp(
-                    "Problème avec le portail d’envoi (lien inaccessible, erreur à l’ouverture, ou besoin d’aide côté Segna).",
-                  )
-                }
-                disabled={helpPhase === "sending" || helpPhase === "sent"}
-                className="flex w-full items-center justify-center gap-2 text-center text-[14px] font-semibold text-zinc-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
-              >
-                <LifeBuoy className="h-4 w-4 shrink-0" aria-hidden />
-                {helpPhase === "sending"
-                  ? "Envoi…"
-                  : helpPhase === "sent"
-                    ? "Demande envoyée"
-                    : "Problème avec le portail ? Contacter Segna"}
-              </button>
-              {helpPhase === "error" ? (
-                <p className="text-center text-[13px] font-medium text-rose-600">Réessaie plus tard ou écris-nous.</p>
-              ) : null}
-              {helpPhase === "sent" ? (
-                <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
+              <IntakeNewBordereauButton
+                onClick={handleNewBordereau}
+                shimmer={newBordereauShimmer}
+                disabled={autoPhase === "trying"}
+              />
+              {!hideHelpLinks ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void requestHelp(
+                        "Problème avec le portail d’envoi (lien inaccessible, erreur à l’ouverture, ou besoin d’aide côté Segna).",
+                      )
+                    }
+                    disabled={helpPhase === "sending" || helpPhase === "sent"}
+                    className="flex w-full items-center justify-center gap-2 text-center text-[14px] font-semibold text-zinc-900 underline underline-offset-2 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+                  >
+                    <LifeBuoy className="h-4 w-4 shrink-0" aria-hidden />
+                    {helpPhase === "sending"
+                      ? "Envoi…"
+                      : helpPhase === "sent"
+                        ? "Demande envoyée"
+                        : "Problème avec le portail ? Contacter Segna"}
+                  </button>
+                  {helpPhase === "error" ? (
+                    <p className="text-center text-[13px] font-medium text-rose-600">
+                      Réessaie plus tard ou écris-nous.
+                    </p>
+                  ) : null}
+                  {helpPhase === "sent" ? (
+                    <p className="text-center text-[13px] font-medium text-zinc-500">L’équipe traite ta demande.</p>
+                  ) : null}
+                </>
               ) : null}
             </div>
           ) : !piggybackActive && autoPhase === "trying" ? (
@@ -1242,7 +1352,7 @@ export function ShippingBordereauExperience({
           )}
         </section>
 
-        {!piggybackActive && !expeditionMode ? (
+        {!hideHeader && !piggybackActive && !expeditionMode ? (
         <section className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-8">
           <h2 className={cn(playfair.className, SEGNA_SECTION_TITLE_CLASSNAME, "text-[20px]")}>
             {groupingSectionCopy.sectionTitle}
