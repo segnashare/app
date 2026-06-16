@@ -276,6 +276,7 @@ export async function confirmCartPaidFromStripeSession(
   const creditsKind = session.metadata?.exchange_credits_kind ?? null;
   const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
   const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
+  const usedIncludedOrder = session.metadata?.used_included_order === "true";
 
   const { alreadyConfirmed } = await finalizeCartOrderCheckout(admin, {
     userId,
@@ -288,6 +289,7 @@ export async function confirmCartPaidFromStripeSession(
       stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
       stripe_checkout_session_id: session.id,
+      used_included_order: usedIncludedOrder,
     },
     deliveryChannel,
     relayPointId,

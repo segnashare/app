@@ -5,7 +5,15 @@ import { Home } from "lucide-react";
 
 import { cn } from "@/lib/utils/cn";
 
-const CHRONOPOST_ICON_SRC = "/ressources/carriers/chronopost.svg";
+const CHRONOPOST_ICON_SRC = "/ressources/carriers/chronopost-icon.png";
+
+function isChronopostPlan(plan: CheckoutHomeMethodOption): boolean {
+  return (
+    plan.methodKey === "chronopost" ||
+    plan.carrierCode.trim().toLowerCase() === "chronopost" ||
+    plan.carrierName.trim().toLowerCase().includes("chronopost")
+  );
+}
 
 type Props = {
   plan: CheckoutHomeMethodOption;
@@ -13,11 +21,7 @@ type Props = {
 };
 
 export function CheckoutHomePlanCarrierIcon({ plan, className }: Props) {
-  /** Logo Sendcloud = picto + wordmark : illisible en 20px — icône locale pour Chronopost. */
-  const logoSrc =
-    plan.methodKey === "chronopost"
-      ? CHRONOPOST_ICON_SRC
-      : plan.carrierLogoUrl?.trim() || null;
+  const logoSrc = isChronopostPlan(plan) ? CHRONOPOST_ICON_SRC : plan.carrierLogoUrl?.trim() || null;
 
   if (logoSrc) {
     return (

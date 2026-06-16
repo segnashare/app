@@ -91,14 +91,44 @@ function cartBorrowDisplayGroupKey(row: {
   if (source !== "cart_order_stripe") return null;
 
   const cartId = readMetaString(row.metadata, "cart_id");
-  if (cartId) return `cart:${cartId}`;
+  if (cartId) return `borrow:cart:${cartId}`;
 
   const key = (row.idempotency_key ?? "").trim();
   if (!key) return null;
-  return `key:${key.replace(/:(exchange|consumption)$/, "")}`;
+  return `borrow:key:${key.replace(/:(exchange|consumption)$/, "")}`;
 }
 
-/** Regroupe les débits emprunt mixtes (bonus + échange) en une seule ligne affichée. */
+function cartCancelRefundDisplayGroupKey(row: {
+  direction: string;
+  metadata?: Record<string, unknown> | null;
+  idempotency_key?: string | null;
+}): string | null {
+  if (row.direction !== "credit") return null;
+
+  const source = readMetaString(row.metadata, "source")?.toLowerCase() ?? "";
+  const key = (row.idempotency_key ?? "").trim().toLowerCase();
+  const isCancelRefund =
+    source === "cart_order_cancel" || key.includes("cart_order_cancel_refund");
+  if (!isCancelRefund) return null;
+
+  const cartId = readMetaString(row.metadata, "cart_id");
+  if (cartId) return `cancel:cart:${cartId}`;
+
+  const fromKey = key.match(/^cart_order_cancel_refund_(?:ex|co):(.+)$/);
+  if (fromKey?.[1]) return `cancel:cart:${fromKey[1]}`;
+
+  return null;
+}
+
+function cartWalletDisplayGroupKey(row: {
+  direction: string;
+  metadata?: Record<string, unknown> | null;
+  idempotency_key?: string | null;
+}): string | null {
+  return cartBorrowDisplayGroupKey(row) ?? cartCancelRefundDisplayGroupKey(row);
+}
+
+/** Regroupe débits emprunt et crédits annulation mixtes (bonus + échange) en une ligne affichée. */
 export function mergeCartBorrowWalletDisplayRows<
   T extends Pick<WalletRecentTransaction, "id" | "createdAt" | "direction" | "amountPoints"> & {
     idempotency_key?: string | null;
@@ -110,7 +140,7 @@ export function mergeCartBorrowWalletDisplayRows<
   const passthrough: T[] = [];
 
   for (const row of rows) {
-    const groupKey = cartBorrowDisplayGroupKey(row);
+    const groupKey = cartWalletDisplayGroupKey(row);
     if (!groupKey) {
       passthrough.push(row);
       continue;
