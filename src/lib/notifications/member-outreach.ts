@@ -11,6 +11,7 @@ import { shouldSendMemberCronSms } from "@/lib/notifications/member-sms-daily-ca
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
+import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
 
 export type MemberOutreachChannels = "email" | "email+phone";
 
@@ -100,7 +101,15 @@ export async function sendMemberOutreachNotification(
       if (phoneE164 && smsText) {
         try {
           const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsText.slice(0, 320) });
-          if (sent) delivery = "email+phone";
+          if (sent) {
+            delivery = "email+phone";
+            trackNotificationSentServer({
+              userId: input.userId,
+              kind: input.kind,
+              idempotencyKey: input.idempotencyKey,
+              metadata: input.metadata,
+            });
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error("[notifications] member-outreach sms failed", msg);
@@ -172,6 +181,12 @@ export async function sendMemberSmsOnlyNotification(
       await releaseNotificationSend(admin, input.idempotencyKey);
       return;
     }
+    trackNotificationSentServer({
+      userId: input.userId,
+      kind: input.kind,
+      idempotencyKey: input.idempotencyKey,
+      metadata: input.metadata,
+    });
     await setNotificationDeliveryChannels(admin, input.idempotencyKey, "phone");
   } catch (e) {
     await releaseNotificationSend(admin, input.idempotencyKey);

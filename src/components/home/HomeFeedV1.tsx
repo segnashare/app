@@ -10,6 +10,7 @@ import { ProfileView } from "@/components/profile/ProfileView";
 import { useProfileViewData } from "@/components/profile/useProfileViewData";
 import type { ProfileViewData } from "@/components/profile/ProfileView";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSignedUrlForStoragePath } from "@/lib/supabase/storage-resolve-signed-url";
 import { parseItemPhotosLayout } from "@/lib/items/item-photo-layout";
 
@@ -426,6 +427,14 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
       owner_user_id: user.id,
       status: "in_cart",
     });
+    if (!error) {
+      trackClientEvent("cart_item_added", {
+        item_id: itemId,
+        cart_id: cartId,
+        source: "feed",
+        trigger: "add_to_cart",
+      });
+    }
     return !error;
   }
 

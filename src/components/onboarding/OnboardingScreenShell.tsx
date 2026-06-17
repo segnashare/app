@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
+import { OnboardingSignupStepTracker } from "@/components/analytics/OnboardingSignupStepTracker";
 import { NextArrow } from "@/components/ui/NextArrow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -153,6 +154,7 @@ export function OnboardingScreenShell({
       )}
     >
       {showStepTracker && currentStep ? <OnboardingStepTracker currentStep={currentStep} /> : null}
+      {currentStep ? <OnboardingSignupStepTracker step={currentStep} /> : null}
 
       {centeredAuthLayout ? (
         <>

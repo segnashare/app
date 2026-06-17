@@ -43,7 +43,11 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       ui_host: "https://eu.posthog.com",
       capture_pageview: false,
       capture_pageleave: true,
-      disable_session_recording: true,
+      disable_session_recording: false,
+      session_recording: {
+        maskAllInputs: true,
+        maskTextSelector: "[data-ph-mask]",
+      },
       disable_surveys: true,
       debug: process.env.NODE_ENV === "development",
     });

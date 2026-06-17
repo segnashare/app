@@ -25,6 +25,7 @@ import {
   type IntakeEvaluationExampleItem,
 } from "@/lib/items/intake-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -224,6 +225,10 @@ export default function ItemEvaluationAnalysisPage() {
       setActionError(intakeRes.message);
       return;
     }
+    trackClientEvent("item_price_confirmed", {
+      item_id: itemId,
+      surface: "evaluation_page",
+    });
     await fetchData();
     router.push(`/items/${itemId}`);
   }, [itemId, router, fetchData]);

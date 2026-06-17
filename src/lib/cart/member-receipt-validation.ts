@@ -142,3 +142,11 @@ export async function ensureMemberReceiptAutoConfirmed(
   if (error) return null;
   return confirmedAtIso;
 }
+
+/** PostHog : à appeler côté serveur si `ensureMemberReceiptAutoConfirmed` vient de persister. */
+export function shouldTrackAutoOrderReceived(
+  previousConfirmedAt: string | null | undefined,
+  newConfirmedAt: string | null,
+): boolean {
+  return Boolean(newConfirmedAt?.trim() && !previousConfirmedAt?.trim());
+}

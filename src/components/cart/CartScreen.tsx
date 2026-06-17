@@ -27,6 +27,7 @@ import {
   writeCheckoutBorrowDurationDays,
 } from "@/lib/cart/checkout-borrow-duration-storage";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
 import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
@@ -354,6 +355,11 @@ export function CartScreen({
         }
         const isNewReservation = !payload.already_reserved && !payload.idempotent;
         if (isNewReservation) {
+          trackClientEvent("cart_checkout_started", {
+            cart_id: activeCartId,
+            item_count: lines.length,
+            already_reserved: false,
+          });
           setCartReservationTimerStart();
         }
         router.push("/cart/upsell");

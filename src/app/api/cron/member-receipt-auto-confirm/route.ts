@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { verifyCronRequest } from "@/lib/cron/verify-cron-request";
 import { runMemberReceiptAutoConfirm } from "@/lib/cron/run-member-receipt-auto-confirm";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
 
   try {
     const result = await runMemberReceiptAutoConfirm(admin);
+    await flushServerAnalytics();
     return NextResponse.json({ ok: true as const, ...result });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

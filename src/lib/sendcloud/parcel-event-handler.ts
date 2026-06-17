@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { trackServerEvent } from "@/lib/analytics/track-server";
 import {
   findShipmentBySendcloudParcelIdExtended,
   resolveShipmentForSendcloudWebhook,
@@ -587,6 +589,29 @@ export async function processSendcloudParcelEvent(
         updated_at: nowIso,
       })
       .eq("id", ship.id);
+  }
+
+  if (norm(ship.context) === "cart_return" && transitions.includes("dropped_in")) {
+    const { data: shipRow } = await admin.from("shipments").select("cart_id").eq("id", ship.id).maybeSingle();
+    const cartId = typeof (shipRow as { cart_id?: unknown } | null)?.cart_id === "string"
+      ? (shipRow as { cart_id: string }).cart_id
+      : null;
+    if (cartId) {
+      const { data: cartRow } = await admin.from("carts").select("user_id").eq("id", cartId).maybeSingle();
+      const userId = typeof (cartRow as { user_id?: unknown } | null)?.user_id === "string"
+        ? (cartRow as { user_id: string }).user_id
+        : null;
+      if (userId) {
+        trackServerEvent(
+          ANALYTICS_EVENTS.orderReturned,
+          {
+            distinctId: userId,
+            insertId: `order_returned:${cartId}:dropped_in`,
+          },
+          { cart_id: cartId, phase: "return_received_segna" },
+        );
+      }
+    }
   }
 
   return {

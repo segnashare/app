@@ -11,6 +11,8 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
+import { trackClientEvent } from "@/lib/analytics/track-client";
+import { trackOnboardingInAppStepClient } from "@/lib/analytics/track-onboarding-in-app-step-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   isIntroSnoozedForAuthSession,
@@ -44,7 +46,14 @@ export function InAppOnboardingIntroModal({
   useLayoutEffect(() => {
     if (referralInvite !== "pending") return;
     void fetch("/api/referral/try-qualify-pending", { method: "POST", credentials: "same-origin" })
-      .then((res) => (res.ok ? router.refresh() : null))
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json().catch(() => null)) as { qualified?: boolean } | null;
+        if (json?.qualified) {
+          trackClientEvent("referral_qualified", { trigger: "in_app_intro" });
+        }
+        router.refresh();
+      })
       .catch(() => {});
   }, [referralInvite, router]);
 
@@ -87,6 +96,11 @@ export function InAppOnboardingIntroModal({
       setError(upErr.message);
       return;
     }
+    trackOnboardingInAppStepClient({
+      fromStep: "intro",
+      toStep: "profile",
+      trigger: "intro_modal_cta",
+    });
     setOpen(false);
     router.refresh();
   };

@@ -8,6 +8,7 @@ const playfairDisplay = segnaPlayfairDisplay;
 
 import { AppViewport } from "@/components/layout/AppViewport";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 
@@ -33,6 +34,8 @@ export default function OnboardingEndPage() {
       setErrorMessage(error.message);
       return;
     }
+
+    trackClientEvent("onboarding_completed", { path: "/onboarding/end" });
 
     void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 

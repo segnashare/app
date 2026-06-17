@@ -5,6 +5,7 @@ import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { IncludedCreditsSummaryText } from "@/components/onboarding/IncludedCreditsSummaryText";
 import {
   dispatchOnboardingOfferClaimed,
@@ -95,6 +96,14 @@ export function PackageSegnaXLandingClient({
     if (isCheckoutLoading) return;
     setIsCheckoutLoading(true);
     try {
+      if (selectedCheckout) {
+        trackClientEvent("subscription_checkout_started", {
+          plan_code: selectedCheckout,
+          ...(offerTiers[selectedOfferIndex]?.trialPeriodDays != null
+            ? { trial_period_days: offerTiers[selectedOfferIndex]!.trialPeriodDays }
+            : {}),
+        });
+      }
       const response = await fetch("/api/stripe/subscription/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

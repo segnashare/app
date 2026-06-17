@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { trackServerEvent } from "@/lib/analytics/track-server";
 import { itemEvaluatedEmail, itemReceivedBySegnaEmail, itemValidatedBySegnaEmail } from "@/lib/notifications/lifecycle-item-email";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification, sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
@@ -162,6 +164,18 @@ export async function dispatchMemberLifecycleItemEvent(
   }
 
   if (input.event === "item_intake_verified") {
+    trackServerEvent(
+      ANALYTICS_EVENTS.itemAvailable,
+      {
+        distinctId: row.userId,
+        insertId: `item_available:${input.itemId}`,
+      },
+      {
+        item_id: input.itemId,
+        owner_user_id: row.userId,
+        source: "backoffice",
+      },
+    );
     await notifyItemIntakeVerifiedSms(admin, { itemId: input.itemId, source: "member_lifecycle_api" });
   }
 }

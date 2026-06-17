@@ -43,6 +43,8 @@ import {
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { normalizeItemSizeDisplay } from "@/lib/items/formatItemSizeLabel";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { trackClientEvent } from "@/lib/analytics/track-client";
+import { trackOnboardingInAppStepClient } from "@/lib/analytics/track-onboarding-in-app-step-client";
 import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
 import {
   clearItemPhotosLayoutDraft,
@@ -217,7 +219,13 @@ async function advanceExchangeOnboardingToReward(
     .eq("onboarding_process", "exchange");
   if (error) {
     console.warn("[onboarding] exchange -> reward failed", error.message);
+    return;
   }
+  trackOnboardingInAppStepClient({
+    fromStep: "exchange",
+    toStep: "reward",
+    trigger: "item_submitted",
+  });
 }
 
 const CONDITION_SCORE_TO_LABEL: Record<string, string> = {
@@ -331,6 +339,7 @@ export default function NewItemPage() {
   const [infoDraft, setInfoDraft] = useState<ItemInfoDraft>({});
   const [draftItemId, setDraftItemId] = useState<string | null>(null);
   const [isInitializingDraft, setIsInitializingDraft] = useState(true);
+  const itemDraftTrackedRef = useRef(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isDeletingDraft, setIsDeletingDraft] = useState(false);
   const [isKeepingDraft, setIsKeepingDraft] = useState(false);
@@ -945,6 +954,10 @@ export default function NewItemPage() {
       const nextDraftId = crypto.randomUUID();
       sessionStorage.setItem(ACTIVE_DRAFT_ID_STORAGE_KEY, nextDraftId);
       setDraftItemId(nextDraftId);
+      if (!itemDraftTrackedRef.current) {
+        itemDraftTrackedRef.current = true;
+        trackClientEvent("item_draft_started", { item_id: nextDraftId, is_new_draft: true });
+      }
       setIsInitializingDraft(false);
     };
 
@@ -955,6 +968,12 @@ export default function NewItemPage() {
     // Ne pas dependre de `searchParams` (objet instable) : router.replace / auth / tout param hors itemId provoquait
     // un re-run, setIsInitializingDraft(true) puis false = clignotement AppLoadingScreen.
   }, [forceFreshDraft, requestedItemId, supabase]);
+
+  useEffect(() => {
+    if (!draftItemId || isInitializingDraft || itemDraftTrackedRef.current) return;
+    itemDraftTrackedRef.current = true;
+    trackClientEvent("item_draft_started", { item_id: draftItemId, is_new_draft: false });
+  }, [draftItemId, isInitializingDraft]);
 
   useEffect(() => {
     setInfoDraft(getItemInfoDraft());
@@ -1201,6 +1220,12 @@ export default function NewItemPage() {
       setErrorMessage(intakeErr.message);
       return;
     }
+    const photoCount = Object.keys(photosPayload).filter((k) => k.startsWith("photo_")).length;
+    trackClientEvent("item_submitted", {
+      item_id: draftItemId,
+      photo_count: photoCount,
+      onboarding_exchange_step: true,
+    });
     await advanceExchangeOnboardingToReward(supabase, user.id);
     try {
       sessionStorage.removeItem(PRE_SUBSCRIBE_PROPOSAL_SESSION_KEY);

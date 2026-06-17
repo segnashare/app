@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
+import { trackOnboardingInAppStepServer } from "@/lib/analytics/track-onboarding-in-app-step-server";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -88,6 +90,12 @@ export async function POST() {
       if (onboardingUpdateError) {
         return NextResponse.json({ message: onboardingUpdateError.message }, { status: 500 });
       }
+      trackOnboardingInAppStepServer(user.id, {
+        fromStep: "kyc",
+        toStep: "panier",
+        trigger: "kyc_verified",
+      });
+      await flushServerAnalytics();
     }
 
     return NextResponse.json({

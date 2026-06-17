@@ -4,6 +4,7 @@ import { ExternalLink, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils/cn";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 
 const btnPrimary = cn(
@@ -88,6 +89,10 @@ export function RetourReturnPortalButton({
         return null;
       }
       setPortalUrl(data.return_portal_url);
+      trackClientEvent("order_returned", {
+        cart_id: cartId,
+        phase: "return_initiated",
+      });
       return data.return_portal_url;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur réseau");

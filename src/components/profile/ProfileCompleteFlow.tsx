@@ -7,8 +7,9 @@ import { ProfileCompleteHeader, type ProfileCompleteMode } from "@/components/pr
 import { ProfileCompleteModifyCore } from "@/components/profile/ProfileCompleteModifyCore";
 import { ProfileCompleteVisualizationCore } from "@/components/profile/ProfileCompleteVisualizationCore";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { trackOnboardingInAppStepClient } from "@/lib/analytics/track-onboarding-in-app-step-client";
 import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 import { cn } from "@/lib/utils/cn";
 
@@ -199,6 +200,12 @@ export function ProfileCompleteFlow({
         setTransitionError(error.message);
         return;
       }
+      const nextStep = KYC_INCLUDED_IN_ONBOARDING ? "kyc" : "panier";
+      trackOnboardingInAppStepClient({
+        fromStep: "profile",
+        toStep: nextStep,
+        trigger: "profile_complete",
+      });
       router.push(onboardingProfileNextHref);
       return;
     }

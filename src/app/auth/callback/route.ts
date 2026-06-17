@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { REFERRAL_COOKIE_NAME } from "@/lib/referral/referralInviteConstants";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -108,6 +110,23 @@ export async function GET(request: NextRequest) {
   if (bootstrapResult.error) {
     await supabase.auth.signOut();
     return redirectWithOAuthError(request, intent, "bootstrap_failed");
+  }
+
+  const createdAtMs = user.created_at ? Date.parse(user.created_at) : Number.NaN;
+  const isNewAccount =
+    intent === "signup" && Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 5 * 60 * 1000;
+  if (isNewAccount) {
+    const provider = user.app_metadata?.provider;
+    trackServerEvent(
+      ANALYTICS_EVENTS.userSignedUp,
+      { distinctId: user.id, insertId: `user_signed_up:${user.id}` },
+      {
+        method: "oauth",
+        referral_code_present: Boolean(referralFromCookie),
+        provider: typeof provider === "string" ? provider : undefined,
+      },
+    );
+    await flushServerAnalytics();
   }
 
   const url = request.nextUrl.clone();

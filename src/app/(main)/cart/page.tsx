@@ -15,6 +15,8 @@ import {
   filterCartOfferFramesForWelcomeGiftEligibility,
 } from "@/lib/cms/welcome-gift-offer-visibility";
 import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
+import { trackOnboardingInAppStepServer } from "@/lib/analytics/track-onboarding-in-app-step-server";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
 import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -102,6 +104,12 @@ export default async function CartPage() {
         .eq("id", userId)
         .eq("onboarding_process", "panier"),
     );
+    trackOnboardingInAppStepServer(userId, {
+      fromStep: "panier",
+      toStep: "offer",
+      trigger: "cart_first_visit",
+    });
+    await flushServerAnalytics();
   }
   const demoAdmin = isDemoMode ? createSupabaseDemoAdminClient() : null;
   const catalogSb = (demoAdmin ?? supabase) as unknown as CatalogRpcClient;

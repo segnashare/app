@@ -1,3 +1,8 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
+
+import { ExchangeCheckoutSuccessTracker } from "@/components/analytics/ExchangeCheckoutSuccessTracker";
 import type { ExchangeIntakeBannerItem } from "@/components/exchange/exchange-intake-banner-types";
 import { ExchangeHeaderAlertStack } from "@/components/exchange/ExchangeHeaderAlertStack";
 import { ExchangePiggybackDepositConfirmModal } from "@/components/exchange/ExchangePiggybackDepositConfirmModal";
@@ -1148,6 +1153,9 @@ export default async function ExchangePage() {
   return (
     <PageImageReadyShell preloadUrls={preloadImageUrls} loadingLabel="Chargement de l'échange">
     <ExchangeWalletAnnouncementProvider>
+      <Suspense fallback={null}>
+        <ExchangeCheckoutSuccessTracker />
+      </Suspense>
       <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
       <ExchangeWalletTransactionAnnounceLayer userId={userId} />
       {transferDepositQueue.length > 0 ? (

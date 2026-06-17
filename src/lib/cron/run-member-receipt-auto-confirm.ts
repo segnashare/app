@@ -5,6 +5,7 @@ import {
   isMemberReceiptAutoConfirmDue,
   memberReceiptAnchorFromOutboundShipment,
 } from "@/lib/cart/member-receipt-validation";
+import { trackOrderReceivedServer } from "@/lib/analytics/track-order-received-server";
 import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 
 const MAX_CARTS = 400;
@@ -104,6 +105,7 @@ export async function runMemberReceiptAutoConfirm(
     });
 
     if (persisted) {
+      trackOrderReceivedServer(cart.user_id, cart.id, { confirm_source: "auto" });
       confirmed++;
     } else {
       errors++;

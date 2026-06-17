@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/SegnaAppDialog";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import {
   dispatchOnboardingOfferClaimed,
   useOnboardingOfferActive,
@@ -63,6 +64,11 @@ export function OnboardingIncludedCreditsProvider({
       if (!response.ok) {
         throw new Error(payload?.message ?? "Impossible d’activer tes crédits inclus.");
       }
+      trackClientEvent("included_credits_activated", {
+        credits_granted: payload?.creditsAdded,
+        source: "onboarding_included_credits_provider",
+        already_claimed: false,
+      });
       setOpen(false);
       dispatchOnboardingOfferClaimed({ creditsAdded: payload?.creditsAdded });
       router.refresh();

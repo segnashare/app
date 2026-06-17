@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OtpInput } from "@/components/auth/OtpInput";
 import type { SignUpVerifyFooterState } from "@/components/auth/SignUpVerifyCore";
 import { otpPhoneSchema } from "@/features/auth/lib/schemas";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -226,7 +227,12 @@ export function OnboardingPhoneVerifyCore({
           args?: Record<string, unknown>,
         ) => Promise<{ data?: unknown; error?: { message?: string } | null }>)(fn, args);
 
-      await rpcUntyped("qualify_pending_referral", { p_request_id: crypto.randomUUID() });
+      const qualifyResult = await rpcUntyped("qualify_pending_referral", { p_request_id: crypto.randomUUID() });
+      const qualifyPayload = qualifyResult?.data as { qualified?: boolean } | null;
+      if (qualifyPayload?.qualified) {
+        trackClientEvent("referral_qualified", { trigger: "phone_verified" });
+      }
+      trackClientEvent("phone_verified", { surface: "onboarding_signup" });
       void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 
       router.push("/onboarding/name");

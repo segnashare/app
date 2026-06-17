@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const CART_ID_RE =
@@ -77,6 +79,16 @@ export async function POST(request: Request) {
   if (upErr) {
     return NextResponse.json({ error: "Enregistrement impossible. Réessaie." }, { status: 500 });
   }
+
+  trackServerEvent(
+    ANALYTICS_EVENTS.orderReceived,
+    {
+      distinctId: userId,
+      insertId: `order_received:${cartId}`,
+    },
+    { cart_id: cartId, manual_confirm: true },
+  );
+  await flushServerAnalytics();
 
   return NextResponse.json({ ok: true, alreadyConfirmed: false });
 }

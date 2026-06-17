@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { dispatchMemberLifecycleItemEvent, memberLifecycleItemEventCodes } from "@/lib/notifications/lifecycle-item-notify";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
 
   const admin = createSupabaseAdminClient();
   await dispatchMemberLifecycleItemEvent(admin, { itemId, event: event as (typeof memberLifecycleItemEventCodes)[number] });
+  await flushServerAnalytics();
 
   return NextResponse.json({ ok: true as const, item_id: itemId, event });
 }

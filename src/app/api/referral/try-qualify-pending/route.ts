@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { dispatchReferrerBonusSmsForReferredUser } from "@/lib/referral/referrer-bonus-notify";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -31,6 +33,20 @@ export async function POST() {
   const qualified = payload?.qualified === true;
 
   if (qualified) {
+    trackServerEvent(
+      ANALYTICS_EVENTS.referralQualified,
+      {
+        distinctId: user.id,
+        insertId: `referral_qualified:${user.id}:${String(payload?.referral_id ?? "unknown")}`,
+      },
+      {
+        referral_id: typeof payload?.referral_id === "string" ? payload.referral_id : undefined,
+        referrer_user_id:
+          typeof payload?.referrer_user_id === "string" ? payload.referrer_user_id : undefined,
+        referred_user_id: user.id,
+        trigger: "try_qualify_pending_api",
+      },
+    );
     try {
       const admin = createSupabaseAdminClient();
       await dispatchReferrerBonusSmsForReferredUser(admin, user.id);
@@ -39,6 +55,8 @@ export async function POST() {
       console.error("[referral/try-qualify-pending] notify", msg);
     }
   }
+
+  await flushServerAnalytics();
 
   return NextResponse.json({ ok: true, ...(payload ?? {}) });
 }

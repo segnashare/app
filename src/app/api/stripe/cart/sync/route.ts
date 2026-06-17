@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
+import { exchangeOrderSuccessUrl, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -81,9 +83,18 @@ export async function GET(request: Request) {
       } catch (e) {
         console.error("[stripe/cart/sync] notifyCartOrderPaidAfterConfirmation", e);
       }
+      trackOrderConfirmedServer(user.id, {
+        cart_id: cartIdForNotify,
+        checkout_mode: "stripe",
+        used_included_order: session.metadata?.used_included_order === "true",
+      });
+      await flushServerAnalytics();
     }
 
-    return NextResponse.redirect(new URL("/exchange?cart=success", url.origin));
+    const successPath = cartIdForNotify
+      ? exchangeOrderSuccessUrl(url.origin, cartIdForNotify, "stripe")
+      : "/exchange?cart=success";
+    return NextResponse.redirect(new URL(successPath, url.origin));
   } catch {
     return NextResponse.redirect(new URL("/cart/payment?checkout=error&reason=sync_failed", url.origin));
   }

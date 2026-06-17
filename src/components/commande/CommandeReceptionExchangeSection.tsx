@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { formatMemberReceiptAutoConfirmRemainingFr } from "@/lib/cart/member-receipt-validation";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -81,6 +82,7 @@ export function CommandeReceptionExchangeSection({
         setError(data?.error ?? "Validation impossible. Réessaie.");
         return;
       }
+      trackClientEvent("order_received", { cart_id: cartId, manual_confirm: true });
       router.push(`/exchange/emprunt/${cartId}`);
       router.refresh();
     } catch {

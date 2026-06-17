@@ -13,6 +13,7 @@ import { StarRatingInput } from "@/components/feedback/StarRatingInput";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import type { CartReturnFeedbackLineState } from "@/lib/feedback/item-feedback-types";
 import { RETURN_FEEDBACK_CREDIT_PER_ELEMENT } from "@/lib/feedback/grant-return-feedback-credits";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 import { SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -152,6 +153,10 @@ export function CartReturnItemFeedbackClient({
         setError(data.error ?? `Erreur ${res.status}`);
         return;
       }
+      trackClientEvent("order_returned", {
+        cart_id: cartId,
+        phase: "return_feedback_submitted",
+      });
       const credits = Math.max(0, Math.floor(Number(data.credits_granted ?? 0)));
       const query = credits > 0 ? `?avis=ok&credits=${credits}` : "?avis=ok";
       router.replace(`/exchange/retour/${cartId}${query}`);

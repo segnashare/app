@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -161,6 +162,16 @@ export async function POST(request: Request) {
     if (!session.url) {
       return NextResponse.json({ message: "Stripe n'a pas renvoyé d'URL de paiement." }, { status: 500 });
     }
+
+    trackServerEvent(
+      "subscription_checkout_started",
+      { distinctId: user.id },
+      {
+        plan_code: planCode,
+        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+      },
+    );
+    await flushServerAnalytics();
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

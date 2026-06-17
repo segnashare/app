@@ -25,6 +25,7 @@
     "cron:dev:referral-sms": "node scripts/dev-invoke-cron.mjs referral-referrer-sms",
     "cron:dev:all": "node scripts/dev-invoke-cron.mjs all",
     "cron:preview:all": "node scripts/dev-invoke-cron.mjs all --preview",
+    "analytics:seed-notification-sent": "node scripts/dev-seed-notification-sent.mjs",
     "dev:accrue-borrow-overdue": "node scripts/dev-accrue-borrow-overdue.mjs",
     "backfill:stripe-payment-methods": "node scripts/backfill-stripe-customer-payment-methods.mjs"
   },
@@ -42,6 +43,7 @@
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "posthog-js": "^1.386.3",
+    "posthog-node": "^5.38.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.71.2",

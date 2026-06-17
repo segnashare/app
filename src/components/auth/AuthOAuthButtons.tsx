@@ -4,6 +4,7 @@ import type { Provider } from "@supabase/supabase-js";
 import { useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -79,6 +80,10 @@ export function AuthOAuthButtons({ intent, errorCode, className }: AuthOAuthButt
 
     setLocalErrorMessage(null);
     setPendingProvider(provider);
+
+    if (intent === "signup") {
+      trackClientEvent("auth_sign_up_started", { method: "oauth", provider });
+    }
 
     const redirectTo = new URL("/auth/callback", window.location.origin);
     redirectTo.searchParams.set("intent", intent);

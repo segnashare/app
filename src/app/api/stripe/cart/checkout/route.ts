@@ -30,6 +30,8 @@ import {
   finalizeCartOutboundSendcloudAfterConfirm,
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { exchangeOrderSuccessUrl, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -580,7 +582,16 @@ export async function POST(request: Request) {
         console.error("[stripe/cart/checkout] notifyCartOrderPaidAfterConfirmation", e);
       }
 
-      return NextResponse.json({ url: `${config.returnUrlBase}/exchange?cart=success` });
+      trackOrderConfirmedServer(userId, {
+        cart_id: activeCart.cartId,
+        checkout_mode: "wallet_only",
+        used_included_order: checkoutMetadata.used_included_order === "true",
+      });
+      await flushServerAnalytics();
+
+      return NextResponse.json({
+        url: `${config.returnUrlBase}${exchangeOrderSuccessUrl("", activeCart.cartId, "wallet_only")}`,
+      });
     }
 
     if (totalCents < 50) {

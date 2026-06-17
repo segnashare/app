@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 
 import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = segnaMontserrat;
@@ -30,6 +31,7 @@ export default function PackagePageLegacy() {
     if (isCheckoutLoading) return;
     setIsCheckoutLoading(true);
     try {
+      trackClientEvent("subscription_checkout_started", { plan_code: "segna_plus" });
       const response = await fetch("/api/stripe/subscription/checkout", {
         method: "POST",
         headers: {

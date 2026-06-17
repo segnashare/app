@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -57,6 +58,22 @@ export async function GET(request: Request) {
     }
 
     await upsertSubscriptionAndEntitlements(admin, user.id, stripeCustomerId, subscription);
+
+    const planFromMeta =
+      (typeof subscription.metadata?.plan_code === "string" && subscription.metadata.plan_code) ||
+      (typeof session.metadata?.plan_code === "string" && session.metadata.plan_code) ||
+      null;
+    const resolvedPlan = isPlanCode(planFromMeta) ? planFromMeta : isPlanCode(fallbackPlan) ? fallbackPlan : "segna_plus";
+    trackServerEvent(
+      "subscription_confirmed",
+      { distinctId: user.id, insertId: `subscription_confirmed:${sessionId}` },
+      {
+        plan_code: resolvedPlan,
+        checkout_mode: "sync",
+        stripe_session_id: sessionId,
+      },
+    );
+    await flushServerAnalytics();
 
     const plan = isPlanCode(fallbackPlan) ? fallbackPlan : "segna_plus";
     return NextResponse.redirect(new URL(`/exchange?subscription=success&plan=${plan}`, url.origin));

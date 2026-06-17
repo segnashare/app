@@ -12,6 +12,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 import { persistReferralCodeFromSearchParam } from "@/lib/referral/referralInviteStorage";
+import { trackPageOnce } from "@/lib/analytics/track-page-once";
 
 const montserrat = segnaMontserrat;
 
@@ -31,6 +32,10 @@ function SignUpEmailPageContent() {
   useEffect(() => {
     persistReferralCodeFromSearchParam(searchParams.get("ref"));
   }, [searchParams]);
+
+  useEffect(() => {
+    trackPageOnce("auth-sign-up-started", "auth_sign_up_started", { method: "email" });
+  }, []);
 
   const handleAuthErrorStateChange = useCallback((state: SignUpEmailAuthErrorState) => {
     setAuthErrors(state);

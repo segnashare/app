@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 
@@ -94,6 +95,11 @@ export function useToggleCartItem() {
               status: "in_cart",
             });
           }
+          trackClientEvent("cart_item_added", {
+            item_id: itemId,
+            cart_id: cartId,
+            source: "toggle_hook",
+          });
         }
 
         window.dispatchEvent(new CustomEvent("segna:cart-changed"));

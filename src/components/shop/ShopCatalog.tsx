@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSignedUrlForStoragePath, createSignedUrlsForStoragePaths, normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import {
@@ -1327,6 +1328,11 @@ export function ShopCatalog({
             status: "in_cart",
           });
         }
+        trackClientEvent("cart_item_added", {
+          item_id: itemId,
+          cart_id: cartId,
+          source: "shop_catalog",
+        });
       }
 
       window.dispatchEvent(new CustomEvent("segna:cart-changed"));

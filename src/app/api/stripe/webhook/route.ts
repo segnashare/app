@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
+import { trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
@@ -81,7 +83,7 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
 
       const creditsPurchaseApplied = await applyWalletCreditFromCheckout(admin, session, userId);
       await applyCartOrderWalletFromCheckout(admin, session, userId);
-      await confirmCartPaidFromStripeSession(admin, session, userId);
+      const confirmResult = await confirmCartPaidFromStripeSession(admin, session, userId);
 
       if (session.metadata?.checkout_kind === "cart_order" || session.metadata?.checkout_kind === "cart_order_wallet_setup") {
         const cartId = session.metadata?.cart_id?.trim();
@@ -90,6 +92,13 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
             await notifyCartOrderPaidAfterConfirmation(admin, { userId, cartId });
           } catch (e) {
             console.error("[stripe/webhook] notifyCartOrderPaidAfterConfirmation", e);
+          }
+          if (!confirmResult.alreadyConfirmed) {
+            trackOrderConfirmedServer(userId, {
+              cart_id: cartId,
+              checkout_mode: "webhook",
+              used_included_order: session.metadata?.used_included_order === "true",
+            });
           }
         }
       }
@@ -113,6 +122,19 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       if (typeof session.subscription === "string") {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);
         await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+        const planCode =
+          (typeof session.metadata?.plan_code === "string" && session.metadata.plan_code) ||
+          (typeof subscription.metadata?.plan_code === "string" && subscription.metadata.plan_code) ||
+          "segna_x";
+        trackServerEvent(
+          "subscription_confirmed",
+          { distinctId: userId, insertId: `subscription_confirmed:${session.id}` },
+          {
+            plan_code: planCode,
+            checkout_mode: "webhook",
+            stripe_session_id: session.id,
+          },
+        );
         try {
           await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
         } catch (e) {
@@ -210,9 +232,11 @@ export async function POST(request: Request) {
           processed_at: new Date().toISOString(),
         })
         .eq("provider_event_id", event.id);
+      await flushServerAnalytics();
       return NextResponse.json({ message }, { status: 500 });
     }
 
+    await flushServerAnalytics();
     return NextResponse.json({ received: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to process Stripe webhook.";

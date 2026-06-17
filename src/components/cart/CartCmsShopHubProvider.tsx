@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient, isSupabaseAuthLockAbortError } from "@/lib/supabase/client";
 import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
@@ -298,6 +299,11 @@ export function CartCmsShopHubProvider({
               status: "in_cart",
             });
           }
+          trackClientEvent("cart_item_added", {
+            item_id: itemId,
+            cart_id: cartId,
+            source: "cart_upsell_hub",
+          });
         }
 
         window.dispatchEvent(new CustomEvent("segna:cart-changed"));

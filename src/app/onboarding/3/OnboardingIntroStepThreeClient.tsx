@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { OnboardingIntroCmsStepShell } from "@/components/onboarding/OnboardingIntroCmsStepShell";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 
@@ -63,6 +64,8 @@ export function OnboardingIntroStepThreeClient({ initialCmsFrames }: OnboardingI
       setErrorMessage(error.message);
       return;
     }
+
+    trackClientEvent("onboarding_completed", { path: "/onboarding/3" });
 
     void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 

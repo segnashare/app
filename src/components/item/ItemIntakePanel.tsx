@@ -31,6 +31,7 @@ import {
   type MemberIntakeShippingGroupItem,
 } from "@/lib/items/member-intake-shipping-copy";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   SEGNA_DIALOG_CARD_CLASS,
@@ -345,6 +346,10 @@ export function ItemIntakePanel({
       setActionError(intakeRes.message);
       return;
     }
+    trackClientEvent("item_price_confirmed", {
+      item_id: itemId,
+      surface: "item_detail_panel",
+    });
     onPipelineUpdated();
     router.push(`/items/${itemId}`);
   }, [itemId, onPipelineUpdated, router]);

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { MainContent } from "@/components/layout/MainContent";
+import { ShopViewTracker } from "@/components/analytics/ShopViewTracker";
 import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import { ShopCatalogReadyShell } from "@/components/shop/ShopCatalogReadyShell";
 import { buildShopPageLoadContext } from "@/lib/shop/build-shop-page-load-context";
@@ -37,6 +38,7 @@ async function ShopPageAsync() {
 
   return (
     <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
+      <ShopViewTracker />
       <ShopCatalogReadyShell payload={payload} />
     </MainContent>
   );

@@ -12,6 +12,7 @@ const playfairDisplay = segnaPlayfairDisplay;
 
 import { Input } from "@/components/ui/Input";
 import { signUpPasswordSchema } from "@/features/auth/lib/schemas";
+import { trackClientSignupOnce } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { clearReferralInviteClient, readReferralCodeForBootstrap } from "@/lib/referral/referralInviteStorage";
 import { cn } from "@/lib/utils/cn";
@@ -118,6 +119,11 @@ export function SignUpPasswordCore({
         setErrorMessage(bootstrapResult.error.message ?? "Impossible d'initialiser ton compte.");
         return;
       }
+
+      trackClientSignupOnce({
+        method: "email",
+        referral_code_present: Boolean(referralCode),
+      });
 
       clearReferralInviteClient();
 

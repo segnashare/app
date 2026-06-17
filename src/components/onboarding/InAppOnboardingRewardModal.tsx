@@ -11,6 +11,8 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import { cn } from "@/lib/utils/cn";
+import { trackClientEvent } from "@/lib/analytics/track-client";
+import { trackOnboardingInAppStepClient } from "@/lib/analytics/track-onboarding-in-app-step-client";
 
 export function InAppOnboardingRewardModal() {
   const router = useRouter();
@@ -31,6 +33,11 @@ export function InAppOnboardingRewardModal() {
         setError(typeof json.error === "string" && json.error.trim() ? json.error : "Impossible de finaliser pour l’instant.");
         return;
       }
+      trackOnboardingInAppStepClient({
+        fromStep: "reward",
+        toStep: "finished",
+        trigger: "reward_modal_cta",
+      });
       setOpen(false);
       router.push("/exchange");
       router.refresh();

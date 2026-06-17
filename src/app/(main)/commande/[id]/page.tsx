@@ -6,7 +6,9 @@ import {
   ensureMemberReceiptAutoConfirmed,
   isMemberReceiptValidated,
   memberReceiptAnchorFromOrderShipment,
+  shouldTrackAutoOrderReceived,
 } from "@/lib/cart/member-receipt-validation";
+import { trackOrderReceivedServer } from "@/lib/analytics/track-order-received-server";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -52,6 +54,9 @@ export default async function CommandeDetailPage({ params }: PageProps) {
       memberReceiptConfirmedAt: detail.memberReceiptConfirmedAt,
       shipment: receiptAnchor,
     });
+    if (shouldTrackAutoOrderReceived(detail.memberReceiptConfirmedAt, confirmedAt)) {
+      trackOrderReceivedServer(userId, cartId, { confirm_source: "auto" });
+    }
     if (
       isMemberReceiptValidated(
         confirmedAt ?? detail.memberReceiptConfirmedAt,

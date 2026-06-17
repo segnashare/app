@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { NotificationKind } from "@/lib/notifications/kinds";
+import { trackOnboardingInAppStepServer } from "@/lib/analytics/track-onboarding-in-app-step-server";
+import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { buildOnboardingRewardCompletionSms } from "@/lib/notifications/onboarding-reward-sms";
 import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -56,6 +58,13 @@ export async function POST() {
     }
     return NextResponse.json({ error: "Étape onboarding inattendue" }, { status: 409 });
   }
+
+  trackOnboardingInAppStepServer(user.id, {
+    fromStep: "reward",
+    toStep: "finished",
+    trigger: "finish_reward_api",
+  });
+  await flushServerAnalytics();
 
   try {
     const admin = createSupabaseAdminClient();
