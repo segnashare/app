@@ -26,20 +26,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false as const, error: "Service indisponible" }, { status: 503 });
   }
 
-  if (!skipAuto) {
-    const ensured = await ensureAutoIntakeGroupsForUser(admin, user.id);
-    if (ensured.ok) {
-      return NextResponse.json({ ok: true as const, groups: ensured.groups });
-    }
-
-    const groups = await fetchIntakeGroupsForShipping(admin, user.id);
-    if (groups.length > 0) {
-      return NextResponse.json({ ok: true as const, groups });
-    }
-
-    return NextResponse.json({ ok: false as const, error: ensured.error }, { status: 400 });
+  const groups = await fetchIntakeGroupsForShipping(admin, user.id);
+  if (groups.length > 0 || skipAuto) {
+    return NextResponse.json({ ok: true as const, groups });
   }
 
-  const groups = await fetchIntakeGroupsForShipping(admin, user.id);
-  return NextResponse.json({ ok: true as const, groups });
+  const ensured = await ensureAutoIntakeGroupsForUser(admin, user.id);
+  if (ensured.ok) {
+    return NextResponse.json({ ok: true as const, groups: ensured.groups });
+  }
+
+  const afterEnsure = await fetchIntakeGroupsForShipping(admin, user.id);
+  if (afterEnsure.length > 0) {
+    return NextResponse.json({ ok: true as const, groups: afterEnsure });
+  }
+
+  return NextResponse.json({ ok: false as const, error: ensured.error }, { status: 400 });
 }

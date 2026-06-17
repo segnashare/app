@@ -2,10 +2,12 @@
 
 import { ChevronLeft } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IntakeShippingBoard } from "@/components/shipping/IntakeShippingBoard";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import type { IntakeGroupSnapshot } from "@/lib/items/member-intake-groups.shared";
+import { fetchShippingPageGroups } from "@/lib/items/shipping-page-fetch.shared";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -23,32 +25,31 @@ export function OuttakeShippingPageContent() {
   const [gate, setGate] = useState<GateState>("checking");
   const [groups, setGroups] = useState<IntakeGroupSnapshot[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadGenerationRef = useRef(0);
 
-  const loadShipping = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await fetch("/api/outtakes/shipping", { headers: { Accept: "application/json" } });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        groups?: IntakeGroupSnapshot[];
-        error?: string;
-      };
-      if (!data.ok || !data.groups) {
-        setGate("reject");
-        setLoadError(data.error ?? null);
-        return;
-      }
-      if (data.groups.length === 0) {
-        setGate("reject");
-        return;
-      }
-      setGroups(data.groups);
+  const applyLoadResult = useCallback((result: Awaited<ReturnType<typeof fetchShippingPageGroups>>) => {
+    if (result.status === "ok") {
+      setGroups(result.groups);
       setGate("ok");
-    } catch {
-      setGate("reject");
-      setLoadError("Impossible de charger tes retours.");
+      return;
     }
+    setGate("reject");
+    setLoadError(result.error);
   }, []);
+
+  const loadShipping = useCallback(
+    async (options?: { force?: boolean }) => {
+      const generation = ++loadGenerationRef.current;
+      setLoadError(null);
+      if (options?.force) {
+        setGate("checking");
+      }
+      const result = await fetchShippingPageGroups("outtake", options);
+      if (generation !== loadGenerationRef.current) return;
+      applyLoadResult(result);
+    },
+    [applyLoadResult],
+  );
 
   useEffect(() => {
     void loadShipping();
@@ -93,7 +94,7 @@ export function OuttakeShippingPageContent() {
   }
 
   if (gate !== "ok") {
-    return <div className="min-h-[100dvh] bg-white" aria-busy="true" />;
+    return <AppPageLoading label="Chargement de ton retour" />;
   }
 
   return (

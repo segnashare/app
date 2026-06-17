@@ -647,21 +647,6 @@ export async function ensureAutoIntakeGroupsForUser(
     }
   }
 
-  const { data: allTransfers } = await service
-    .from("transfers")
-    .select("id")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .is("completed_at", null);
-
-  for (const transfer of allTransfers ?? []) {
-    const transferId = String(transfer.id);
-    const items = await loadIntakeGroupItems(service, transferId);
-    if (items.length === 0) continue;
-    const reconciled = await reconcileTransferGroupShipment(service, userId, transferId);
-    if (!reconciled.ok) return { ok: false, error: reconciled.error };
-  }
-
   const groups = await fetchIntakeGroupsForShipping(service, userId);
   return { ok: true, groups };
 }

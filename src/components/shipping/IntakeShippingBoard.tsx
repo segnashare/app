@@ -27,6 +27,7 @@ import {
   INTAKE_GROUP_MAX_ITEMS,
   type IntakeGroupSnapshot,
 } from "@/lib/items/member-intake-groups.shared";
+import { fetchShippingPageGroups } from "@/lib/items/shipping-page-fetch.shared";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -86,17 +87,8 @@ function applyOptimisticMove(
 }
 
 async function fetchShippingGroups(mode: "intake" | "outtake"): Promise<IntakeGroupSnapshot[] | null> {
-  try {
-    const url = mode === "outtake" ? "/api/outtakes/shipping" : "/api/intakes/shipping";
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    const data = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      groups?: IntakeGroupSnapshot[];
-    };
-    return data.ok && data.groups ? data.groups : null;
-  } catch {
-    return null;
-  }
+  const result = await fetchShippingPageGroups(mode, { force: true });
+  return result.status === "ok" ? result.groups : null;
 }
 
 /** Résout la zone de dépôt : id envoi, id pièce (→ envoi parent), ou « nouvel envoi ». */

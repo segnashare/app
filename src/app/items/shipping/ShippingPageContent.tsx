@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IntakeShippingBoard } from "@/components/shipping/IntakeShippingBoard";
 import { MemberIntakeTransferDepositConfirmModal } from "@/components/shipping/MemberIntakeTransferDepositConfirmModal";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import type { IntakeGroupSnapshot } from "@/lib/items/member-intake-groups.shared";
+import { fetchShippingPageGroups } from "@/lib/items/shipping-page-fetch.shared";
 import { SEGNA_SECTION_TITLE_CLASSNAME, segnaPlayfairDisplay } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -26,32 +28,31 @@ export function ShippingPageContent() {
   const [groups, setGroups] = useState<IntakeGroupSnapshot[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const legacyRedirectDone = useRef(false);
+  const loadGenerationRef = useRef(0);
 
-  const loadShipping = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await fetch("/api/intakes/shipping", { headers: { Accept: "application/json" } });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        groups?: IntakeGroupSnapshot[];
-        error?: string;
-      };
-      if (!data.ok || !data.groups) {
-        setGate("reject");
-        setLoadError(data.error ?? null);
-        return;
-      }
-      if (data.groups.length === 0) {
-        setGate("reject");
-        return;
-      }
-      setGroups(data.groups);
+  const applyLoadResult = useCallback((result: Awaited<ReturnType<typeof fetchShippingPageGroups>>) => {
+    if (result.status === "ok") {
+      setGroups(result.groups);
       setGate("ok");
-    } catch {
-      setGate("reject");
-      setLoadError("Impossible de charger tes envois.");
+      return;
     }
+    setGate("reject");
+    setLoadError(result.error);
   }, []);
+
+  const loadShipping = useCallback(
+    async (options?: { force?: boolean }) => {
+      const generation = ++loadGenerationRef.current;
+      setLoadError(null);
+      if (options?.force) {
+        setGate("checking");
+      }
+      const result = await fetchShippingPageGroups("intake", options);
+      if (generation !== loadGenerationRef.current) return;
+      applyLoadResult(result);
+    },
+    [applyLoadResult],
+  );
 
   useEffect(() => {
     void loadShipping();
@@ -104,8 +105,7 @@ export function ShippingPageContent() {
         <button
           type="button"
           onClick={() => {
-            setGate("checking");
-            void loadShipping();
+            void loadShipping({ force: true });
           }}
           className={cn(
             montserrat.className,
@@ -119,7 +119,7 @@ export function ShippingPageContent() {
   }
 
   if (gate !== "ok") {
-    return <div className="min-h-[100dvh] bg-white" aria-busy="true" />;
+    return <AppPageLoading label="Chargement de ton envoi" />;
   }
 
   return (
