@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
+import { DesktopMobileOnlyGate } from "@/components/layout/DesktopMobileOnlyGate";
 import { MainTabRoutePrefetch } from "@/components/layout/MainTabRoutePrefetch";
 import { MemberFeedbackFab } from "@/components/feedback/MemberFeedbackFab";
 import { MemberFeedbackModal } from "@/components/feedback/MemberFeedbackModal";
@@ -12,6 +13,7 @@ import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardi
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
 import { ReferrerBonusModal, type ReferrerBonusModalPayload } from "@/components/referral/ReferrerBonusModal";
 import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
+import { isDesktopMobileGateEnabled } from "@/lib/config/desktop-mobile-gate-enabled";
 import { cn } from "@/lib/utils/cn";
 
 type InAppOnboardingIntroGate = {
@@ -35,9 +37,12 @@ export function MainShell({
   inAppOnboardingRewardUserId = null,
   referrerBonusModal = null,
 }: MainShellProps) {
+  const desktopMobileGate = isDesktopMobileGateEnabled();
+
   return (
     <PageChromeLoadingProvider>
     <div className="min-h-[100dvh] bg-zinc-100 text-zinc-900">
+      {desktopMobileGate ? <DesktopMobileOnlyGate /> : null}
       <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] overflow-x-hidden bg-white md:my-6 md:min-h-[calc(100dvh-48px)] md:rounded-[32px] md:border md:border-zinc-200 md:shadow-[0_24px_60px_rgba(0,0,0,0.12)]">
         <PreCartExitPathTracker />
         <MainTabRoutePrefetch />
