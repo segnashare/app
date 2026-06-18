@@ -43,6 +43,7 @@ import {
 import { formatItemCustomBrandLabel, ITEM_BRAND_AUTRE_SLUG } from "@/lib/items/format-item-custom-brand-label";
 import { normalizeItemSizeDisplay } from "@/lib/items/formatItemSizeLabel";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { acknowledgeIntakeStageForSession } from "@/lib/items/intake-session-ack";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { trackOnboardingInAppStepClient } from "@/lib/analytics/track-onboarding-in-app-step-client";
 import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
@@ -1219,6 +1220,9 @@ export default function NewItemPage() {
     if (!intakeErr.ok) {
       setErrorMessage(intakeErr.message);
       return;
+    }
+    if (intakeListingStage === "evaluated") {
+      acknowledgeIntakeStageForSession(draftItemId, "evaluated", null);
     }
     const photoCount = Object.keys(photosPayload).filter((k) => k.startsWith("photo_")).length;
     trackClientEvent("item_submitted", {

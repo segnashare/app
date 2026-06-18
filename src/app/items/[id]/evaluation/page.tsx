@@ -25,6 +25,7 @@ import {
   type IntakeEvaluationExampleItem,
 } from "@/lib/items/intake-metadata";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { acknowledgeIntakeStageForSession } from "@/lib/items/intake-session-ack";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
@@ -229,9 +230,12 @@ export default function ItemEvaluationAnalysisPage() {
       item_id: itemId,
       surface: "evaluation_page",
     });
+    if (intake?.listing_stage) {
+      acknowledgeIntakeStageForSession(itemId, intake.listing_stage, intake.fulfillment_stage);
+    }
     await fetchData();
     router.push(`/items/${itemId}`);
-  }, [itemId, router, fetchData]);
+  }, [itemId, intake?.fulfillment_stage, intake?.listing_stage, router, fetchData]);
 
   const handleRefuseOffer = useCallback(async () => {
     if (!itemId) return;
@@ -276,8 +280,11 @@ export default function ItemEvaluationAnalysisPage() {
     } catch {
       // no-op
     }
+    if (intake?.listing_stage) {
+      acknowledgeIntakeStageForSession(itemId, intake.listing_stage, intake.fulfillment_stage);
+    }
     router.push("/exchange");
-  }, [itemId, router]);
+  }, [intake?.fulfillment_stage, intake?.listing_stage, itemId, router]);
 
   if (!itemId) {
     return (

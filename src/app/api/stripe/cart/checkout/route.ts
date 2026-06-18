@@ -30,7 +30,7 @@ import {
   finalizeCartOutboundSendcloudAfterConfirm,
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
-import { exchangeOrderSuccessUrl, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import { exchangeOrderSuccessUrl, orderCheckoutEconomicsDirect, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
@@ -477,6 +477,7 @@ export async function POST(request: Request) {
         deliveryLine1Meta,
         returnRelayFields,
         missingExchangeMods,
+        cartTotalMods,
         borrowDurationDays,
         centsPerMissingCredit,
         exchangeCreditsKind: creditsKind,
@@ -586,11 +587,18 @@ export async function POST(request: Request) {
         cart_id: activeCart.cartId,
         checkout_mode: "wallet_only",
         used_included_order: checkoutMetadata.used_included_order === "true",
+        item_count: itemCount,
+        ...orderCheckoutEconomicsDirect({
+          cartTotalMods,
+          cashPaidCents: 0,
+          missingExchangeMods,
+          borrowDurationDays,
+        }),
       });
       await flushServerAnalytics();
 
       return NextResponse.json({
-        url: `${config.returnUrlBase}${exchangeOrderSuccessUrl("", activeCart.cartId, "wallet_only")}`,
+        url: `${config.returnUrlBase}${exchangeOrderSuccessUrl("", activeCart.cartId, "wallet_only", itemCount)}`,
       });
     }
 
@@ -708,6 +716,7 @@ export async function POST(request: Request) {
         deliveryLine1Meta,
         returnRelayFields,
         missingExchangeMods,
+        cartTotalMods,
         borrowDurationDays,
         centsPerMissingCredit,
         exchangeCreditsKind: stripeWalletTopupKind,

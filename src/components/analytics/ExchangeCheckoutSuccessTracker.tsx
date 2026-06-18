@@ -21,12 +21,16 @@ export function ExchangeCheckoutSuccessTracker(): null {
 
     const cartId = searchParams.get("cart_id")?.trim() ?? "";
     const checkoutMode = searchParams.get("checkout_mode")?.trim() || "stripe";
+    const itemCountRaw = searchParams.get("item_count")?.trim();
+    const itemCountParsed = itemCountRaw ? Number.parseInt(itemCountRaw, 10) : NaN;
+    const itemCount = Number.isFinite(itemCountParsed) && itemCountParsed > 0 ? itemCountParsed : undefined;
 
     trackClientEvent(
       "order_confirmed",
       {
         cart_id: cartId || "unknown",
         checkout_mode: checkoutMode as "stripe" | "wallet_setup" | "wallet_only",
+        ...(itemCount != null ? { item_count: itemCount } : {}),
       },
       cartId ? { insertId: `order_confirmed:${cartId}` } : undefined,
     );

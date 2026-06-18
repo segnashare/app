@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
-import { exchangeOrderSuccessUrl, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import {
+  exchangeOrderSuccessUrl,
+  parseOrderCheckoutEconomicsFromStripeSession,
+  parseOrderConfirmedItemCount,
+  trackOrderConfirmedServer,
+} from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
@@ -87,12 +92,19 @@ export async function GET(request: Request) {
         cart_id: cartIdForNotify,
         checkout_mode: "stripe",
         used_included_order: session.metadata?.used_included_order === "true",
+        item_count: parseOrderConfirmedItemCount(session.metadata ?? undefined),
+        ...parseOrderCheckoutEconomicsFromStripeSession(session),
       });
       await flushServerAnalytics();
     }
 
     const successPath = cartIdForNotify
-      ? exchangeOrderSuccessUrl(url.origin, cartIdForNotify, "stripe")
+      ? exchangeOrderSuccessUrl(
+          url.origin,
+          cartIdForNotify,
+          "stripe",
+          parseOrderConfirmedItemCount(session.metadata ?? undefined),
+        )
       : "/exchange?cart=success";
     return NextResponse.redirect(new URL(successPath, url.origin));
   } catch {

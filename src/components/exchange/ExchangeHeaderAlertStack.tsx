@@ -18,13 +18,12 @@ import {
 } from "./ExchangeOutboundShipmentCallout";
 import { ExchangeUberRelayFallbackBanner } from "./ExchangeUberRelayFallbackBanner";
 import {
+  acknowledgeIntakeStageForSession,
   getIntakeSessionAckServerStoreSnapshot,
   getIntakeSessionAckStoreSnapshot,
   intakeSessionAckKey,
   parseIntakeSessionAckStoreSnapshot,
-  readIntakeSessionAckSet,
   subscribeIntakeSessionAck,
-  writeIntakeSessionAckSet,
 } from "@/lib/items/intake-session-ack";
 import {
   getExchangeOnboardingSheetDismissSnapshot,
@@ -180,9 +179,7 @@ export function ExchangeHeaderAlertStack({
 
   const persistIntakeAck = useCallback(
     (itemId: string, listingStage: string, fulfillmentStage: string | null) => {
-      const next = new Set(readIntakeSessionAckSet());
-      next.add(intakeSessionAckKey(itemId, listingStage, fulfillmentStage));
-      writeIntakeSessionAckSet(next);
+      acknowledgeIntakeStageForSession(itemId, listingStage, fulfillmentStage);
     },
     [],
   );
@@ -347,7 +344,11 @@ export function ExchangeHeaderAlertStack({
           if (layer.kind === "intake") {
             const { item } = layer;
             const stackAdvance =
-              item.listingStage === "evaluation" || item.listingStage === "evaluated"
+              item.listingStage === "evaluation" ||
+              item.listingStage === "evaluated" ||
+              item.listingStage === "validation_pending" ||
+              item.listingStage === "refused" ||
+              item.listingStage === "validated"
                 ? () => persistIntakeAck(item.id, item.listingStage, item.fulfillmentStage)
                 : undefined;
             const onStackDismiss = () => {

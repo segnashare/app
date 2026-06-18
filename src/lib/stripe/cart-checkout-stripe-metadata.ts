@@ -17,6 +17,7 @@ export type BuildCartOrderCheckoutMetadataInput = {
   deliveryLine1Meta: string;
   returnRelayFields: ConfirmCartReturnRelayFields;
   missingExchangeMods: number;
+  cartTotalMods: number;
   borrowDurationDays: number;
   centsPerMissingCredit: number;
   exchangeCreditsKind: string;
@@ -58,6 +59,7 @@ export function buildCartOrderCheckoutMetadata(
     delivery_instructions:
       input.deliveryChannel === "home" && input.deliveryInstructions ? input.deliveryInstructions.slice(0, 450) : "",
     missing_exchange_mods: String(input.missingExchangeMods),
+    cart_total_mods: String(input.cartTotalMods),
     borrow_duration_days: String(input.borrowDurationDays),
     cents_per_missing_credit: String(input.centsPerMissingCredit),
     exchange_credits_kind: input.exchangeCreditsKind,

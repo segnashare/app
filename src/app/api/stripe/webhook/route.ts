@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
-import { trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import {
+  trackOrderConfirmedServer,
+  parseOrderConfirmedItemCount,
+  parseOrderCheckoutEconomicsFromStripeSession,
+} from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
@@ -98,6 +102,8 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
               cart_id: cartId,
               checkout_mode: "webhook",
               used_included_order: session.metadata?.used_included_order === "true",
+              item_count: parseOrderConfirmedItemCount(session.metadata ?? undefined),
+              ...parseOrderCheckoutEconomicsFromStripeSession(session),
             });
           }
         }

@@ -56,6 +56,17 @@ export function writeIntakeSessionAckSet(next: Set<string>): void {
   }
 }
 
+/** Masque la carte intake courante (pile Échange / bandeau fiche) après action métier réalisée. */
+export function acknowledgeIntakeStageForSession(
+  itemId: string,
+  listingStage: string,
+  fulfillmentStage?: string | null,
+): void {
+  const next = new Set(readIntakeSessionAckSet());
+  next.add(intakeSessionAckKey(itemId, listingStage, fulfillmentStage));
+  writeIntakeSessionAckSet(next);
+}
+
 /** Same-tab + cross-tab updates for session ack storage. */
 export function subscribeIntakeSessionAck(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};

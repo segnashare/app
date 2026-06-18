@@ -28,6 +28,7 @@ import {
 } from "@/lib/cart/checkout-borrow-duration-storage";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { trackClientEvent } from "@/lib/analytics/track-client";
+import { borrowDurationAnalyticsProps } from "@/lib/analytics/borrow-duration-analytics";
 import { setCartReservationTimerStart } from "@/lib/cart/reservation-timer";
 import { CartCmsShopHubProvider } from "@/components/cart/CartCmsShopHubProvider";
 import { CartOutfitSuggestionsSection } from "@/components/cart/CartOutfitSuggestionsSection";
@@ -359,6 +360,7 @@ export function CartScreen({
             cart_id: activeCartId,
             item_count: lines.length,
             already_reserved: false,
+            ...borrowDurationAnalyticsProps(borrowDurationDays),
           });
           setCartReservationTimerStart();
         }

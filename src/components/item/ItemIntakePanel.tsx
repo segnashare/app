@@ -31,6 +31,7 @@ import {
   type MemberIntakeShippingGroupItem,
 } from "@/lib/items/member-intake-shipping-copy";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
+import { acknowledgeIntakeStageForSession } from "@/lib/items/intake-session-ack";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -290,6 +291,12 @@ export function ItemIntakePanel({
 
   const visible = pipelineVisible && (!canMinimize || !userMinimized);
 
+  const ackCurrentIntakeStage = useCallback(() => {
+    acknowledgeIntakeStageForSession(itemId, listingStage, fulfillmentStage);
+    onEvaluationAcknowledged?.();
+    onExchangeStackAdvance?.();
+  }, [itemId, listingStage, fulfillmentStage, onEvaluationAcknowledged, onExchangeStackAdvance]);
+
   const handleRefuseOffer = useCallback(async () => {
     setActionError(null);
     setIsRefusing(true);
@@ -332,8 +339,9 @@ export function ItemIntakePanel({
     } catch {
       // no-op
     }
+    ackCurrentIntakeStage();
     router.push("/exchange");
-  }, [itemId, router]);
+  }, [ackCurrentIntakeStage, itemId, router]);
 
   const handleAcceptOffer = useCallback(async () => {
     setActionError(null);
@@ -350,9 +358,10 @@ export function ItemIntakePanel({
       item_id: itemId,
       surface: "item_detail_panel",
     });
+    ackCurrentIntakeStage();
     onPipelineUpdated();
     router.push(`/items/${itemId}`);
-  }, [itemId, onPipelineUpdated, router]);
+  }, [ackCurrentIntakeStage, itemId, onPipelineUpdated, router]);
 
   const handleDeleteRefusedItem = useCallback(async () => {
     if (isDeletingRefusedItem) return;
@@ -393,8 +402,9 @@ export function ItemIntakePanel({
       // no-op
     }
 
+    ackCurrentIntakeStage();
     router.push("/exchange");
-  }, [isDeletingRefusedItem, itemId, router]);
+  }, [ackCurrentIntakeStage, isDeletingRefusedItem, itemId, router]);
 
   if (!visible) return null;
 

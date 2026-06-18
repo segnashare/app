@@ -58,12 +58,23 @@ export type AnalyticsEventProperties = {
     cart_id: string;
     item_count?: number;
     already_reserved?: boolean;
+    borrow_duration_days?: number;
+    borrow_duration_label?: string;
   };
   order_confirmed: {
     cart_id: string;
     checkout_mode?: "stripe" | "wallet_setup" | "wallet_only" | "webhook";
     used_included_order?: boolean;
     item_count?: number;
+    /** Total € encaissé (complément crédits + frais livraison/service), en centimes. 0 si wallet_only. */
+    cash_paid_cents?: number;
+    /** Valeur totale du panier en crédits d'échange (mods) débités du wallet. */
+    cart_credits_mods?: number;
+    /** Crédits (mods) achetés en complément € (si panier > solde wallet). */
+    missing_credits_mods?: number;
+    borrow_duration_days?: number;
+    /** `7_jours` | `14_jours` | `1_mois` — breakdown PostHog */
+    borrow_duration_label?: string;
   };
   item_draft_started: {
     item_id: string;

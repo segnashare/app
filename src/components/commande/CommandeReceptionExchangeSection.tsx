@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { formatMemberReceiptAutoConfirmRemainingFr } from "@/lib/cart/member-receipt-validation";
+import { outboundCalloutDismissStorageKey } from "@/components/exchange/ExchangeOutboundShipmentCallout";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -81,6 +82,11 @@ export function CommandeReceptionExchangeSection({
       if (!res.ok) {
         setError(data?.error ?? "Validation impossible. Réessaie.");
         return;
+      }
+      try {
+        window.localStorage.setItem(outboundCalloutDismissStorageKey(cartId, "delivered"), "1");
+      } catch {
+        // no-op
       }
       trackClientEvent("order_received", { cart_id: cartId, manual_confirm: true });
       router.push(`/exchange/emprunt/${cartId}`);

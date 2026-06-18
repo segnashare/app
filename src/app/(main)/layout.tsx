@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 
 import { MainShell } from "@/components/layout/MainShell";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
+import { fetchMemberPendingReceiptGate } from "@/lib/cart/fetch-member-pending-receipt-gate";
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function MainLayout({ children }: { children: ReactNode }) {
   const perf = createPerfTracker("main-layout");
@@ -26,6 +28,12 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
       : null;
   const inAppOnboardingRewardUserId = userState.onboarding_process === "reward" ? user.id : null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
+  const supabase = (await createSupabaseServerClient()) as any;
+  const memberReceiptPendingGate = await perf.measure("receipt.pendingGate", () =>
+    fetchMemberPendingReceiptGate(supabase, user.id),
+  );
+
   perf.log();
 
   return (
@@ -34,6 +42,7 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
       inAppOnboardingIntro={inAppOnboardingIntro}
       inAppOnboardingRewardUserId={inAppOnboardingRewardUserId}
       referrerBonusModal={userState.referrerBonusModal}
+      memberReceiptPendingGate={memberReceiptPendingGate}
     >
       {children}
     </MainShell>

@@ -192,13 +192,17 @@ export function CommandeDetailView({
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white">
         <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
           <div className="flex w-full items-center justify-between gap-3">
-            <Link
-              href="/exchange"
-              className="-ml-1.5 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-zinc-900 transition hover:bg-zinc-100"
-              aria-label="Fermer"
-            >
-              <X className="h-8 w-8" strokeWidth={2.25} />
-            </Link>
+            {showReceptionExchange && !receiptConfirmed ? (
+              <div className="h-12 w-12 shrink-0" aria-hidden />
+            ) : (
+              <Link
+                href="/exchange"
+                className="-ml-1.5 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-zinc-900 transition hover:bg-zinc-100"
+                aria-label="Fermer"
+              >
+                <X className="h-8 w-8" strokeWidth={2.25} />
+              </Link>
+            )}
             <div className="-mr-1 flex min-h-12 shrink-0 items-center">
               <ExchangeOrderHelpSection placement="header" />
             </div>

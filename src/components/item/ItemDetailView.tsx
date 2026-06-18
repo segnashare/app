@@ -23,13 +23,12 @@ import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metad
 import { fetchItemDetailDataForOwner } from "@/lib/items/fetch-item-detail-client";
 import { setItemIntakeListingStage } from "@/lib/items/item-intake";
 import {
+  acknowledgeIntakeStageForSession,
   getIntakeSessionAckServerStoreSnapshot,
   getIntakeSessionAckStoreSnapshot,
   intakeSessionAckKey,
   parseIntakeSessionAckStoreSnapshot,
-  readIntakeSessionAckSet,
   subscribeIntakeSessionAck,
-  writeIntakeSessionAckSet,
 } from "@/lib/items/intake-session-ack";
 import {
   invalidateLendItemDetailCache,
@@ -334,9 +333,7 @@ export function ItemDetailView({
 
   const acknowledgeIntakeForSession = useCallback(
     (ackItemId: string, listingStage: string, fulfillmentStage: string | null) => {
-      const next = new Set(readIntakeSessionAckSet());
-      next.add(intakeSessionAckKey(ackItemId, listingStage, fulfillmentStage));
-      writeIntakeSessionAckSet(next);
+      acknowledgeIntakeStageForSession(ackItemId, listingStage, fulfillmentStage);
     },
     [],
   );
@@ -474,6 +471,11 @@ export function ItemDetailView({
         setDeleteError(intakeRes.message);
         return;
       }
+      acknowledgeIntakeStageForSession(
+        itemId,
+        data?.intake?.listing_stage ?? "validation_pending",
+        data?.intake?.fulfillment_stage ?? null,
+      );
     }
     try {
       const activeDraftId = window.sessionStorage.getItem("segna:new-item:active-draft-id");

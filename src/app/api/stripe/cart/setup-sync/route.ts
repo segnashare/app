@@ -5,7 +5,12 @@ import {
   confirmCartPaidFromStripeSession,
   debitCartExchangeWalletFromStripeSession,
 } from "@/lib/stripe/cart-order-fulfillment";
-import { exchangeOrderSuccessUrl, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import {
+  exchangeOrderSuccessUrl,
+  parseOrderCheckoutEconomicsFromMetadata,
+  parseOrderConfirmedItemCount,
+  trackOrderConfirmedServer,
+} from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { persistStripeCustomerDefaultPaymentMethodFromSetupSession } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
@@ -93,12 +98,19 @@ export async function GET(request: Request) {
         cart_id: cartIdForNotify,
         checkout_mode: "wallet_setup",
         used_included_order: session.metadata?.used_included_order === "true",
+        item_count: parseOrderConfirmedItemCount(session.metadata ?? undefined),
+        ...parseOrderCheckoutEconomicsFromMetadata(session.metadata ?? undefined),
       });
       await flushServerAnalytics();
     }
 
     const successPath = cartIdForNotify
-      ? exchangeOrderSuccessUrl(url.origin, cartIdForNotify, "wallet_setup")
+      ? exchangeOrderSuccessUrl(
+          url.origin,
+          cartIdForNotify,
+          "wallet_setup",
+          parseOrderConfirmedItemCount(session.metadata ?? undefined),
+        )
       : "/exchange?cart=success";
     return NextResponse.redirect(new URL(successPath, url.origin));
   } catch {

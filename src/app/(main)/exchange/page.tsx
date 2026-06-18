@@ -1037,8 +1037,19 @@ export default async function ExchangePage() {
       : Promise.resolve([]),
   ]);
 
-  const showOutboundCallout =
-    outboundShipmentSummary != null && outboundShipmentSummary.status.toLowerCase() !== "closed";
+  const showOutboundCallout = (() => {
+    if (outboundShipmentSummary == null) return false;
+    if (outboundShipmentSummary.status.toLowerCase() === "closed") return false;
+    if (outboundShipmentSummary.status.toLowerCase() !== "delivered") return true;
+    const ship = outboundShipmentByCartId.get(outboundShipmentSummary.cartId);
+    if (!ship) return true;
+    const receiptConfirmedAt = memberReceiptConfirmedAtByCartId.get(outboundShipmentSummary.cartId) ?? null;
+    return !isMemberReceiptValidated(
+      receiptConfirmedAt,
+      memberReceiptAnchorFromOutboundShipment(ship),
+      exchangeListNowMs,
+    );
+  })();
 
   const uberRelayFallbackFromShipment =
     outboundShipmentSummary != null &&

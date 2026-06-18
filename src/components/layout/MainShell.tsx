@@ -12,6 +12,8 @@ import { PageChromeLoadingProvider } from "@/components/layout/PageChromeLoading
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
 import { ReferrerBonusModal, type ReferrerBonusModalPayload } from "@/components/referral/ReferrerBonusModal";
+import { MemberReceiptPendingGateModal } from "@/components/commande/MemberReceiptPendingGateModal";
+import type { MemberReceiptPendingGatePayload } from "@/lib/cart/fetch-member-pending-receipt-gate";
 import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
 import { isDesktopMobileGateEnabled } from "@/lib/config/desktop-mobile-gate-enabled";
 import { cn } from "@/lib/utils/cn";
@@ -28,6 +30,7 @@ type MainShellProps = {
   inAppOnboardingIntro?: InAppOnboardingIntroGate | null;
   inAppOnboardingRewardUserId?: string | null;
   referrerBonusModal?: ReferrerBonusModalPayload | null;
+  memberReceiptPendingGate?: MemberReceiptPendingGatePayload | null;
 };
 
 export function MainShell({
@@ -36,6 +39,7 @@ export function MainShell({
   inAppOnboardingIntro = null,
   inAppOnboardingRewardUserId = null,
   referrerBonusModal = null,
+  memberReceiptPendingGate = null,
 }: MainShellProps) {
   const desktopMobileGate = isDesktopMobileGateEnabled();
 
@@ -67,6 +71,7 @@ export function MainShell({
       ) : null}
       {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal /> : null}
       {referrerBonusModal ? <ReferrerBonusModal payload={referrerBonusModal} /> : null}
+      <MemberReceiptPendingGateModal gate={memberReceiptPendingGate} />
     </div>
     </PageChromeLoadingProvider>
   );
