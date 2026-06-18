@@ -109,6 +109,7 @@ export type AnalyticsEventProperties = {
   order_received: {
     cart_id: string;
     manual_confirm?: boolean;
+    confirm_source?: "auto";
   };
   order_returned: {
     cart_id: string;
