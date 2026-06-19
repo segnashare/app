@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pricing";
+
 type Props = {
   itemId: string;
   canShipNow: boolean;
@@ -30,7 +32,7 @@ export function ReturnExpeditionClient({ itemId, canShipNow, existingLabelUrl, e
         body: JSON.stringify({
           postal_code: postalCode,
           country: "FR",
-          weight_g: 900,
+          weight_g: SEGNA_PARCEL_WEIGHT_GRAMS,
           action: "24R",
         }),
       });

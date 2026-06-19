@@ -7,11 +7,10 @@ import {
   checkoutRelayProviderPointId,
   checkoutReturnRelayFields,
 } from "@/lib/cart/checkout-delivery-storage";
-import { computeCartCheckoutNetFees } from "@/lib/cart/cart-payment-fees";
+import { computeCartCheckoutShippingFees } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
-import {
-  computeCartCheckoutRoundTripShippingHtCents,
-} from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import { computeCartCheckoutRoundTripShippingHtCents } from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import { complementQualifiesForFreeRelay } from "@/lib/cart/cart-complement-relay-offer";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import {
   centsPerMissingCreditForDuration,
@@ -302,6 +301,7 @@ export async function POST(request: Request) {
       missingExchangeMods > 0
         ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
         : 0;
+    const complementRelayFree = complementQualifiesForFreeRelay(creditsCents / 100);
 
     try {
       await persistCartCheckoutBorrowDurationDays(admin, activeCart.cartId, userId, borrowDurationDays);
@@ -428,6 +428,7 @@ export async function POST(request: Request) {
         deliveryChannel,
         homeSpeedBilling,
         includedKind: includedExchangeShipping,
+        complementRelayFree,
         relayRoundTrip,
         currentRoundTrip,
         uberOutboundHtCents: uberFeeCents,
@@ -445,11 +446,7 @@ export async function POST(request: Request) {
     const priorityCents = 0;
 
     const shippingHtCents = billedRoundTripHtCents + priorityCents;
-    const fees = computeCartCheckoutNetFees({
-      billedShippingHtCents: shippingHtCents,
-      creditsTtcCents: creditsCents,
-      waiveServiceFeeForIncludedExchange: includedExchangeShipping !== "none",
-    });
+    const fees = computeCartCheckoutShippingFees(shippingHtCents);
     const serviceHtCents = fees.serviceHtCents;
     const totalCents = creditsCents + fees.feesTtcCents;
 

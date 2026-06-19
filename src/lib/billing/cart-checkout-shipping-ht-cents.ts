@@ -16,11 +16,17 @@ export function computeCartCheckoutRoundTripShippingHtCents(args: {
   deliveryChannel: "relay" | "home";
   homeSpeedBilling: CartCheckoutHomeSpeed;
   includedKind: IncludedExchangeShippingKind;
+  /** Livraison relais offerte si complément location ≥ 20 € (hors abonnement). */
+  complementRelayFree?: boolean;
   relayRoundTrip: ExchangeRoundTripShipping;
   currentRoundTrip: ExchangeRoundTripShipping;
   uberOutboundHtCents: number | null;
 }): number {
   if (args.includedKind === "member_all_modes") {
+    return 0;
+  }
+
+  if (args.complementRelayFree && args.deliveryChannel === "relay") {
     return 0;
   }
 

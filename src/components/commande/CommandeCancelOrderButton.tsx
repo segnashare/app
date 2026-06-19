@@ -170,12 +170,14 @@ export function CommandeCancelOrderButton({ cartId, cancellation, stripeEuroLine
                     </span>
                   </div>
                 ) : null}
-                <div className="flex justify-between gap-2">
-                  <span>Frais de service</span>
-                  <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                    {formatEuros(stripeEuroLines.serviceFeeEuros)}
-                  </span>
-                </div>
+                {stripeEuroLines.serviceFeeEuros > 0.005 ? (
+                  <div className="flex justify-between gap-2">
+                    <span>Frais de service</span>
+                    <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                      {formatEuros(stripeEuroLines.serviceFeeEuros)}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between gap-2">
                   <span>Frais de livraison</span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">

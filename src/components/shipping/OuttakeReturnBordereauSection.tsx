@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pricing";
+
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -42,7 +44,7 @@ export function OuttakeReturnBordereauSection({
         body: JSON.stringify({
           postal_code: postalCode,
           country: "FR",
-          weight_g: 900,
+          weight_g: SEGNA_PARCEL_WEIGHT_GRAMS,
           action: "24R",
         }),
       });

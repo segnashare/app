@@ -1,14 +1,8 @@
-/**
- * Poids par défaut (g) selon la catégorie affichée (libellé `item_categories.name`).
- * À ajuster selon votre grille métier (« gros » vs standard).
- */
-const HEAVY_CATEGORY_REGEX =
-  /valise|bagage|chaussure|botte|basket|\bsac(s)?\b|\bsac\s|sac à|sacoche volum|racket|raquette|ski|snow|carton|machine/i;
+import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pricing";
 
-export function defaultParcelWeightGramsFromCategory(categoryLabel: string | null | undefined): number {
-  if (!categoryLabel?.trim()) return 500;
-  const n = categoryLabel.normalize("NFD").replace(/\p{M}/gu, "");
-  return HEAVY_CATEGORY_REGEX.test(n) ? 1000 : 500;
+/** Poids colis fixe (g) — indépendant de la catégorie article. */
+export function defaultParcelWeightGramsFromCategory(_categoryLabel?: string | null): number {
+  return SEGNA_PARCEL_WEIGHT_GRAMS;
 }
 
 /** Pochette / grand format courrier : L × l (cm) ; épaisseur mini pliée pour MR. */

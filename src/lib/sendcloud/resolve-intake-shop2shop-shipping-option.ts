@@ -9,6 +9,7 @@ import {
 } from "@/lib/sendcloud/dynamic-checkout";
 import { sendcloudPanelFetch } from "@/lib/sendcloud/client";
 import { resolveRelayShippingOptionCode } from "@/lib/sendcloud/shipping-options";
+import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pricing";
 
 function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
@@ -82,7 +83,7 @@ export async function resolveIntakeShop2ShopShippingOptionCode(
     const { options } = await fetchSendcloudDeliveryOptions(env, {
       toPostalCode: toPc,
       toCountry: "FR",
-      weightGrams: 500,
+      weightGrams: SEGNA_PARCEL_WEIGHT_GRAMS,
       orderValueEur: 1,
     });
 

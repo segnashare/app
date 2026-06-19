@@ -108,7 +108,7 @@ export function buildOutboundShipmentAnnounceBody(input: {
 }): Record<string, unknown> {
   const weightValue =
     input.parcelWeightKg?.trim() ||
-    (input.itemCount != null ? formatSendcloudParcelWeightKg(input.itemCount) : "1.0");
+    (input.itemCount != null ? formatSendcloudParcelWeightKg(input.itemCount) : "0.99");
 
   const body: Record<string, unknown> = {
     label_details: { mime_type: "application/pdf", dpi: 72 },
@@ -148,7 +148,7 @@ export function buildReturnShipmentAnnounceBody(input: {
 }): Record<string, unknown> {
   const weightValue =
     input.parcelWeightKg?.trim() ||
-    (input.itemCount != null ? formatSendcloudParcelWeightKg(input.itemCount) : "1.0");
+    (input.itemCount != null ? formatSendcloudParcelWeightKg(input.itemCount) : "0.99");
   const toServicePoint: Record<string, string> = { id: String(input.hubServicePointId) };
   const post = input.hubPostNumber?.trim();
   if (post) toServicePoint.post_number = post.slice(0, 40);

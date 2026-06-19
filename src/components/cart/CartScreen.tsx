@@ -10,6 +10,7 @@ import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
 import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplementCheckoutBlock";
+import { CartComplementShippingIncentive } from "@/components/cart/CartComplementShippingIncentive";
 import { BorrowLocationInfoContent } from "@/components/cart/BorrowLocationInfoContent";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
 import { CartPaymentGateModal } from "@/components/cart/CartPaymentGateModal";
@@ -604,6 +605,13 @@ export function CartScreen({
                           </span>
                         </div>
                       </div>
+                      {cartExceedsWallet && borrowCheckoutOptions.length > 0 && orderedLines.length > 0 ? (
+                        <CartComplementShippingIncentive
+                          complementEuros={subtotalCashFees}
+                          cartItemIds={orderedLines.map((line) => line.itemId)}
+                          suggestionItems={[...cartOutfitSuggestionItems, ...cartShopSystemForYouItems]}
+                        />
+                      ) : null}
                     </div>
                   </div>
                 </section>

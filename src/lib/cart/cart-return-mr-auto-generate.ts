@@ -45,14 +45,9 @@ function aggregateReturnParcel(rows: ItemRow[]): {
   widthCm: number;
   depthCm: number;
 } {
-  let weightG = 0;
   let valueEur = 0;
   const titles: string[] = [];
   for (const d of rows) {
-    const catEmb = d.item_categories;
-    const catRow = Array.isArray(catEmb) ? catEmb[0] : catEmb;
-    const cat = catRow?.name ?? null;
-    weightG += defaultParcelWeightGramsFromCategory(cat);
     const p = d.price_points;
     if (p != null && Number.isFinite(Number(p))) valueEur += Math.max(0, Math.round(Number(p)));
     const t = d.title?.trim();
@@ -60,7 +55,7 @@ function aggregateReturnParcel(rows: ItemRow[]): {
   }
   const contentLabel = titles.length > 0 ? titles.join(" · ").slice(0, 200) : "Retour panier Segna";
   return {
-    weightG: Math.max(1, weightG),
+    weightG: defaultParcelWeightGramsFromCategory(null),
     valueEur: Math.max(0, valueEur),
     contentLabel,
     lengthCm: DEFAULT_POUCH_LENGTH_CM,

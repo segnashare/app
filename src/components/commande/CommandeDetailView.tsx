@@ -288,12 +288,14 @@ export function CommandeDetailView({
                   </span>
                 </div>
               ) : null}
-              <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Frais de service (TTC)</span>
-                <span className="shrink-0 tabular-nums font-medium text-zinc-900">
-                  {formatEuros(euro.serviceFeeEuros)}
-                </span>
-              </div>
+              {euro.serviceFeeEuros > 0.005 ? (
+                <div className="flex items-baseline justify-between gap-3 text-zinc-700">
+                  <span className="min-w-0 pr-2">Frais de service (TTC)</span>
+                  <span className="shrink-0 tabular-nums font-medium text-zinc-900">
+                    {formatEuros(euro.serviceFeeEuros)}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
                 <span className="shrink-0 tabular-nums font-medium text-zinc-900">

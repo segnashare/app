@@ -28,6 +28,7 @@ import {
   computeMissingCreditsCashCents,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
+import { complementQualifiesForFreeRelay, CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR } from "@/lib/cart/cart-complement-relay-offer";
 import {
   clearCheckoutBorrowDurationDays,
   defaultCheckoutBorrowDurationDays,
@@ -38,9 +39,8 @@ import {
 import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
 import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
 import {
-  computeCartCheckoutFeesWithServiceRoundUp,
   computeCartCheckoutIncludedFeeReductions,
-  computeCartCheckoutNetFees,
+  computeCartCheckoutShippingFees,
 } from "@/lib/cart/cart-payment-fees";
 import {
   computeCartCheckoutRoundTripShippingHtCents,
@@ -67,8 +67,8 @@ import {
 } from "@/lib/cart/use-checkout-relay-sendcloud-pricing";
 import { toCheckoutSendcloudOutboundOption } from "@/lib/cart/use-sendcloud-outbound-delivery-options";
 import { useSendcloudCheckoutShippingQuote } from "@/lib/cart/use-sendcloud-checkout-shipping-quote";
+import { SEGNA_PARCEL_WEIGHT_GRAMS, centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { formatCheckoutRelayDisplayLabel } from "@/lib/sendcloud/relay-point-ref";
-import { centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CheckoutHomePlanCarrierIcon } from "@/components/cart/CheckoutHomePlanCarrierIcon";
@@ -82,7 +82,7 @@ import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/se
 import { cn } from "@/lib/utils/cn";
 
 const TIMER_MS = 10 * 60 * 1000;
-const RELAY_SEARCH_WEIGHT_G = 900;
+const RELAY_SEARCH_WEIGHT_G = SEGNA_PARCEL_WEIGHT_GRAMS;
 
 function euros(value: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value);
@@ -263,6 +263,11 @@ export function CartPaymentScreen({
     [borrowCheckoutOptions, borrowDurationDays, missingExchangeMods],
   );
   const exchangeCreditsChargeEuros = exchangeCreditsEuroCents / 100;
+
+  const complementRelayFree = useMemo(
+    () => complementQualifiesForFreeRelay(exchangeCreditsChargeEuros),
+    [exchangeCreditsChargeEuros],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -764,6 +769,7 @@ export function CartPaymentScreen({
         deliveryChannel,
         homeSpeedBilling: homeSpeed,
         includedKind: includedExchangeShipping,
+        complementRelayFree,
         relayRoundTrip,
         currentRoundTrip: roundTripForBilling,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
@@ -781,6 +787,7 @@ export function CartPaymentScreen({
     exchangeShipping,
     homeSpeed,
     includedExchangeShipping,
+    complementRelayFree,
     itemCount,
     relayRoundTrip,
     selectedRelayCarrierRoundTrip,
@@ -825,7 +832,7 @@ export function CartPaymentScreen({
     uberOutboundCentsFromQuote,
   ]);
 
-  const relayInboundShowsZero = includedExchangeShipping !== "none";
+  const relayInboundShowsZero = includedExchangeShipping !== "none" || complementRelayFree;
 
   const relayHeaderPriceLoading =
     deliveryChannel === "relay" &&
@@ -835,8 +842,6 @@ export function CartPaymentScreen({
   const homeDeliveryShowsFullIncluded = includedExchangeShipping === "member_all_modes";
 
   const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
-
-  const waiveServiceFeeForIncludedExchange = includedExchangeShipping !== "none";
 
   const fullRoundTripHtCents = useMemo(() => {
     const roundTripForBilling =
@@ -878,18 +883,13 @@ export function CartPaymentScreen({
   ]);
 
   const feesPricing = useMemo(
-    () =>
-      computeCartCheckoutNetFees({
-        billedShippingHtCents: shippingHtCents,
-        creditsTtcCents,
-        waiveServiceFeeForIncludedExchange,
-      }),
-    [creditsTtcCents, shippingHtCents, waiveServiceFeeForIncludedExchange],
+    () => computeCartCheckoutShippingFees(shippingHtCents),
+    [shippingHtCents],
   );
 
   const grossFeesPricing = useMemo(
-    () => computeCartCheckoutFeesWithServiceRoundUp(fullRoundTripHtCents, creditsTtcCents),
-    [creditsTtcCents, fullRoundTripHtCents],
+    () => computeCartCheckoutShippingFees(fullRoundTripHtCents),
+    [fullRoundTripHtCents],
   );
 
   const includedFeeReductions = useMemo(
@@ -899,16 +899,19 @@ export function CartPaymentScreen({
 
   const showIncludedFeeReductionLines = includedFeeReductions.totalTtcCents > 0;
 
+  const shippingReductionLabel =
+    includedExchangeShipping !== "none"
+      ? "1er échange inclus"
+      : complementRelayFree && deliveryChannel === "relay"
+        ? "Livraison relais offerte"
+        : "1er échange inclus";
+
   const feesHtEuros = centsToEuros(feesPricing.feesHtCents);
   const feesVatEuros = centsToEuros(feesPricing.feesVatCents);
   const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
-  const serviceTtcEuros = centsToEuros(
-    showIncludedFeeReductionLines ? grossFeesPricing.serviceTtcCents : feesPricing.serviceTtcCents,
-  );
   const shippingTtcEuros = centsToEuros(
     showIncludedFeeReductionLines ? grossFeesPricing.shippingTtcCents : feesPricing.shippingTtcCents,
   );
-  const includedServiceReductionEuros = centsToEuros(includedFeeReductions.serviceTtcCents);
   const includedShippingReductionEuros = centsToEuros(includedFeeReductions.shippingTtcCents);
 
   const shippingFeesSplit = useMemo((): { outboundEuros: number; returnEuros: number } | null => {
@@ -968,8 +971,7 @@ export function CartPaymentScreen({
   ]);
 
   const expressOptionShippingTtcEuros = centsToEuros(
-    computeCartCheckoutFeesWithServiceRoundUp(expressOptionShippingHtCents, creditsTtcCents)
-      .shippingTtcCents,
+    computeCartCheckoutShippingFees(expressOptionShippingHtCents).shippingTtcCents,
   );
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
   const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
@@ -1594,8 +1596,7 @@ export function CartPaymentScreen({
                   const planSelected =
                     homeSpeed === "standard" && homeOutboundOptionCode === plan.optionCode;
                   const planShippingTtcEuros = centsToEuros(
-                    computeCartCheckoutFeesWithServiceRoundUp(plan.bundledRoundTripHtCents, creditsTtcCents)
-                      .shippingTtcCents,
+                    computeCartCheckoutShippingFees(plan.bundledRoundTripHtCents).shippingTtcCents,
                   );
                   return (
                     <button
@@ -1705,16 +1706,6 @@ export function CartPaymentScreen({
               <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
               <span className="shrink-0 tabular-nums font-medium text-zinc-900">{euros(exchangeCreditsChargeEuros)}</span>
             </div>
-            <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-              <span className="min-w-0 pr-2">Frais de service (TTC)</span>
-              <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
-            </div>
-            {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
-              <IncludedExchangeFeeReductionLine
-                label="1er échange inclus"
-                amountEuros={includedServiceReductionEuros}
-              />
-            ) : null}
             {shippingFeesSplit && !showIncludedFeeReductionLines ? (
               <>
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
@@ -1738,7 +1729,7 @@ export function CartPaymentScreen({
             )}
             {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
               <IncludedExchangeFeeReductionLine
-                label="1er échange inclus"
+                label={shippingReductionLabel}
                 amountEuros={includedShippingReductionEuros}
               />
             ) : null}
@@ -1826,22 +1817,6 @@ export function CartPaymentScreen({
             <div className="mt-6 space-y-4">
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[15px] font-semibold text-zinc-900">Frais de service (TTC)</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(serviceTtcEuros)}</span>
-                </div>
-                {showIncludedFeeReductionLines && includedServiceReductionEuros > 0 ? (
-                  <IncludedExchangeFeeReductionLine
-                    label="1er échange inclus"
-                    amountEuros={includedServiceReductionEuros}
-                    className="mt-1.5"
-                  />
-                ) : null}
-                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  Frais fixes pour le traitement et le suivi de ta commande (TVA 20 % incluse).
-                </p>
-              </div>
-              <div>
-                <div className="flex items-baseline justify-between">
                   <span className="min-w-0 flex-1 pr-2 text-[15px] font-semibold leading-snug text-zinc-900">
                     {deliveryChannel === "home" && homeSpeed === "uber_direct"
                       ? "Aller express - Retour relais (TTC)"
@@ -1851,7 +1826,7 @@ export function CartPaymentScreen({
                 </div>
                 {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
                   <IncludedExchangeFeeReductionLine
-                    label="1er échange inclus"
+                    label={shippingReductionLabel}
                     amountEuros={includedShippingReductionEuros}
                     className="mt-1.5"
                   />
@@ -1868,11 +1843,17 @@ export function CartPaymentScreen({
                         : null}
                   {showIncludedFeeReductionLines ? (
                     <span className="mt-1 block text-emerald-800/90">
-                      Livraison (tous modes) et frais de service pris en charge pour cet échange inclus
-                      {remainingIncludedOrdersThisMonth > 0
-                        ? ` (${remainingIncludedOrdersThisMonth} échange${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} inclus restant${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} avant paiement)`
-                        : ""}
-                      .
+                      {includedExchangeShipping !== "none" ? (
+                        <>
+                          Livraison (tous modes) prise en charge pour cet échange inclus
+                          {remainingIncludedOrdersThisMonth > 0
+                            ? ` (${remainingIncludedOrdersThisMonth} échange${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} inclus restant${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} avant paiement)`
+                            : ""}
+                          .
+                        </>
+                      ) : complementRelayFree && deliveryChannel === "relay" ? (
+                        <>Livraison point relais offerte dès {CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR}&nbsp;€ de complément.</>
+                      ) : null}
                     </span>
                   ) : null}
                 </p>

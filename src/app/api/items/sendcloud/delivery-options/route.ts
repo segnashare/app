@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
+import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pricing";
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { fetchCheckoutHomeSendcloudPricing } from "@/lib/sendcloud/checkout-home-delivery-options";
 import { shouldAttachCheckoutDebugToApiResponse } from "@/lib/sendcloud/checkout-home-debug";
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
       pricing_source: "sendcloud",
       delivery_channel: channel,
       weight_grams: homeQuotes.weightGrams,
-      weight_tier_label: itemCount <= 3 ? "0–1 kg" : "1–2 kg",
+      weight_tier_label: `${(SEGNA_PARCEL_WEIGHT_GRAMS / 1000).toFixed(2).replace(".", ",")} kg`,
       home_pricing: {
         method_options: options,
         default_option_code: hp.defaultOptionCode,
@@ -149,7 +150,7 @@ export async function POST(request: Request) {
     pricing_source: "sendcloud",
     delivery_channel: channel,
     weight_grams: quotes.weightGrams,
-    weight_tier_label: itemCount <= 3 ? "0–1 kg" : "1–2 kg",
+    weight_tier_label: `${(SEGNA_PARCEL_WEIGHT_GRAMS / 1000).toFixed(2).replace(".", ",")} kg`,
     relay_pricing: {
       delivery_method_id: p.deliveryMethodId,
       option_code: p.optionCode,

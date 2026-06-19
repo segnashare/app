@@ -2,9 +2,7 @@
  * Chiffrage livraison « échange » = envoi aller + retour (retour toujours en point relais).
  * Barèmes transporteur (€ HT) — simplification du poids par nombre d’articles.
  *
- * Tranches poids ↔ nombre de pièces (checkout relais / Sendcloud) :
- * - 1–3 articles → palier 0,5–1 kg
- * - 4–10 (max) → palier 1–2 kg
+ * Poids colis (checkout / Sendcloud / annonces) : **0,99 kg** fixe, quel que soit le nombre de pièces.
  *
  * Supplément : à partir du 4e article, +1,00 € par article sur la part **point relais**
  * (aller et retour en relais). Pour l’**aller domicile**, le supplément par article est
@@ -21,20 +19,16 @@ const HOME_BASE_CENTS = [790, 913, 1362, 1362] as const;
 
 const MAX_ITEMS = 10;
 
-/** Poids indicatif par palier (Dynamic Checkout Sendcloud). */
-const TIER_WEIGHT_GRAMS = [750, 1500, 2500, 3500] as const;
+/** Poids unique pour tous les colis échange / checkout Sendcloud. */
+export const SEGNA_PARCEL_WEIGHT_GRAMS = 990;
 
-export function exchangeShippingWeightGrams(itemCount: number): number {
-  const idx = exchangeShippingTierIndex(itemCount);
-  return TIER_WEIGHT_GRAMS[idx];
+export function exchangeShippingWeightGrams(_itemCount?: number): number {
+  return SEGNA_PARCEL_WEIGHT_GRAMS;
 }
 
-/** Poids colis pour POST /shipments/announce (tranches Sendcloud 0–1 kg / 1–2 kg). */
-export function formatSendcloudParcelWeightKg(itemCount: number): string {
-  const grams = exchangeShippingWeightGrams(itemCount);
-  const kg = grams / 1000;
-  if (grams < 1000) return kg.toFixed(2);
-  return kg.toFixed(1);
+/** Poids colis pour POST /shipments/announce. */
+export function formatSendcloudParcelWeightKg(_itemCount?: number): string {
+  return (SEGNA_PARCEL_WEIGHT_GRAMS / 1000).toFixed(2);
 }
 
 export function exchangeShippingTierIndex(itemCount: number): number {

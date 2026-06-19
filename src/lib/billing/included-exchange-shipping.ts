@@ -3,7 +3,7 @@ import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 /**
  * Règle livraison « incluse » sur le checkout échange :
  * - `none` : tout est facturé au barème (ou Uber devis).
- * - `member_all_modes` : aller-retour + frais de service offerts (relais, domicile, Uber, toute taille panier).
+ * - `member_all_modes` : aller-retour offert (relais, domicile, Uber, toute taille panier).
  */
 export type IncludedExchangeShippingKind = "none" | "member_all_modes" | "guest_relay_round_trip_equivalent";
 
