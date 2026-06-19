@@ -134,7 +134,8 @@ export function SendcloudServicePointPicker({
   const pickerReady = configReady && scriptReady && isSendcloudSppApiReady();
 
   const openPicker = useCallback(() => {
-    if (!configReady) {
+    const sppConfig = config;
+    if (!sppConfig?.enabled || !sppConfig.api_key) {
       setError("Carte relais Sendcloud indisponible.");
       return;
     }
@@ -147,16 +148,16 @@ export function SendcloudServicePointPicker({
 
     const pc = postalCode.replace(/\D/g, "").slice(0, 5);
     const openConfig: Record<string, unknown> = {
-      apiKey: config.api_key,
-      country: config.country ?? "FR",
-      language: config.language ?? "fr-fr",
+      apiKey: sppConfig.api_key,
+      country: sppConfig.country ?? "FR",
+      language: sppConfig.language ?? "fr-fr",
     };
     if (pc.length === 5) openConfig.postalCode = pc;
     const filter = carrierFilter?.trim();
     if (filter) {
       openConfig.carriers = filter;
-    } else if (config.carriers?.length) {
-      openConfig.carriers = config.carriers.join(",");
+    } else if (sppConfig.carriers?.length) {
+      openConfig.carriers = sppConfig.carriers.join(",");
     }
 
     window.sendcloud.servicePoints.open(
@@ -189,7 +190,7 @@ export function SendcloudServicePointPicker({
         setError(msg.slice(0, 280));
       },
     );
-  }, [carrierFilter, config, configReady, onSelect, pickerReady, postalCode]);
+  }, [carrierFilter, config, onSelect, pickerReady, postalCode]);
 
   if (config && !config.enabled) return null;
 
