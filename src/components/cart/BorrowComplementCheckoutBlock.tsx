@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 import { SegnaExchangeCreditPhrase, SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import {
   centsPerMissingCreditForDuration,
-  computeBorrowDailyPriceDisplayDiscountPercent,
   formatEuroPerCredit,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
@@ -89,15 +88,6 @@ function CalcRow({
   );
 }
 
-function UnitCreditDiscountBadge({ percent }: { percent: number }) {
-  if (percent <= 0) return null;
-  return (
-    <span className="inline-flex shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-emerald-800">
-      Économise {percent}&nbsp;%
-    </span>
-  );
-}
-
 export function BorrowComplementCheckoutBlock({
   options,
   durationDays,
@@ -118,13 +108,20 @@ export function BorrowComplementCheckoutBlock({
   const unitCreditPriceLabel = showDailyPrice
     ? formatEuroPerCredit(centsPerMissingCreditForDuration(options, durationDays))
     : null;
-  const unitCreditDiscountPercent = showDailyPrice
-    ? computeBorrowDailyPriceDisplayDiscountPercent(durationDays, options)
-    : 0;
 
   return (
     <div className={cn("space-y-5", className)} role="status" aria-live="polite">
-      <div className="flex items-start justify-between gap-3">
+      <div className="space-y-2.5">
+        <CalcRow label="Panier" value={<CalcPointsValue points={cartTotalPoints} />} />
+        <CalcRow label="Tes crédits" value={<CalcPointsValue points={availablePoints} prefix="−" />} />
+        <CalcRow
+          label="Crédits à compléter"
+          value={<CalcPointsValue points={missingPoints} emphasis />}
+          emphasis
+        />
+      </div>
+
+      <div className="flex items-start justify-between gap-3 border-t border-zinc-200 pt-5">
         <span className="pt-1.5 text-[15px] font-semibold text-zinc-900">Durée</span>
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-2">
@@ -155,7 +152,6 @@ export function BorrowComplementCheckoutBlock({
               className="inline-flex flex-wrap items-center justify-end gap-2 text-[14px] font-medium tabular-nums text-zinc-700"
               aria-label={`${unitCreditPriceLabel} par crédit`}
             >
-              <UnitCreditDiscountBadge percent={unitCreditDiscountPercent} />
               <span className="inline-flex items-center gap-1">
                 <span className="font-semibold text-zinc-900">{unitCreditPriceLabel}</span>
                 <span className="text-zinc-500" aria-hidden>
@@ -166,16 +162,6 @@ export function BorrowComplementCheckoutBlock({
             </span>
           ) : null}
         </div>
-      </div>
-
-      <div className="space-y-2.5 border-t border-zinc-200 pt-5">
-        <CalcRow label="Panier" value={<CalcPointsValue points={cartTotalPoints} />} />
-        <CalcRow label="Tes crédits" value={<CalcPointsValue points={availablePoints} prefix="−" />} />
-        <CalcRow
-          label="Crédits à compléter"
-          value={<CalcPointsValue points={missingPoints} emphasis />}
-          emphasis
-        />
       </div>
     </div>
   );
