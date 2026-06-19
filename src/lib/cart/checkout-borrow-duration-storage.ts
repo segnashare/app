@@ -1,5 +1,8 @@
 export const CHECKOUT_BORROW_DURATION_DAYS_KEY = "segna:checkout-borrow-duration-days";
 
+/** Durée d'emprunt par défaut au checkout (wallet suffisant ou complément non choisi). */
+export const DEFAULT_CHECKOUT_BORROW_DURATION_DAYS = 30;
+
 export function readCheckoutBorrowDurationDays(): number | null {
   if (typeof window === "undefined") return null;
   try {
@@ -31,19 +34,19 @@ export function clearCheckoutBorrowDurationDays() {
 export function resolveCheckoutBorrowDurationDays(
   stored: number | null | undefined,
   options: ReadonlyArray<{ durationDays: number }>,
-  fallbackDays = 7,
+  fallbackDays = DEFAULT_CHECKOUT_BORROW_DURATION_DAYS,
 ): number {
   const allowed = new Set(options.map((o) => o.durationDays));
   if (stored != null && allowed.has(stored)) return stored;
+  if (allowed.has(fallbackDays)) return fallbackDays;
   const first = options[0]?.durationDays;
   if (first != null && allowed.has(first)) return first;
-  if (allowed.has(fallbackDays)) return fallbackDays;
   return options[0]?.durationDays ?? fallbackDays;
 }
 
 export function defaultCheckoutBorrowDurationDays(
   options: ReadonlyArray<{ durationDays: number }>,
-  fallbackDays = 7,
+  fallbackDays = DEFAULT_CHECKOUT_BORROW_DURATION_DAYS,
 ): number {
   return resolveCheckoutBorrowDurationDays(null, options, fallbackDays);
 }

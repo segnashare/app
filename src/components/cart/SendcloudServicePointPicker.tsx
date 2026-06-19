@@ -77,6 +77,10 @@ declare global {
   }
 }
 
+function isSendcloudSppApiReady(): boolean {
+  return typeof window !== "undefined" && Boolean(window.sendcloud?.servicePoints?.open);
+}
+
 type Props = {
   postalCode: string;
   onSelect: (selection: SendcloudSppSelection) => void;
@@ -92,9 +96,23 @@ export function SendcloudServicePointPicker({
   carrierFilter = null,
 }: Props) {
   const [config, setConfig] = useState<SppConfig | null>(null);
-  const [scriptReady, setScriptReady] = useState(false);
+  const [scriptReady, setScriptReady] = useState(() => isSendcloudSppApiReady());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isSendcloudSppApiReady()) {
+      setScriptReady(true);
+      return;
+    }
+    const id = window.setInterval(() => {
+      if (isSendcloudSppApiReady()) {
+        setScriptReady(true);
+        window.clearInterval(id);
+      }
+    }, 100);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,13 +130,15 @@ export function SendcloudServicePointPicker({
     };
   }, []);
 
+  const configReady = Boolean(config?.enabled && config.api_key);
+  const pickerReady = configReady && scriptReady && isSendcloudSppApiReady();
+
   const openPicker = useCallback(() => {
-    if (!config?.enabled || !config.api_key) {
+    if (!configReady) {
       setError("Carte relais Sendcloud indisponible.");
       return;
     }
-    if (!scriptReady || !window.sendcloud?.servicePoints?.open) {
-      setError("Chargement de la carte… réessaie dans un instant.");
+    if (!pickerReady || !window.sendcloud?.servicePoints?.open) {
       return;
     }
 
@@ -169,26 +189,26 @@ export function SendcloudServicePointPicker({
         setError(msg.slice(0, 280));
       },
     );
-  }, [carrierFilter, config, onSelect, postalCode, scriptReady]);
+  }, [carrierFilter, config, configReady, onSelect, pickerReady, postalCode]);
 
-  if (!config?.enabled) return null;
+  if (config && !config.enabled) return null;
 
   return (
     <>
       <Script
         src={SPP_SCRIPT}
-        strategy="lazyOnload"
+        strategy="afterInteractive"
         onLoad={() => setScriptReady(true)}
         onError={() => setError("Impossible de charger la carte Sendcloud.")}
       />
       <button
         type="button"
-        disabled={disabled || loading}
+        disabled={disabled || loading || !pickerReady}
         onClick={() => openPicker()}
         className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-zinc-900 bg-white px-4 py-3 text-[15px] font-semibold text-zinc-900 transition hover:bg-zinc-50 active:bg-zinc-100 disabled:opacity-50"
       >
         <MapPin className="h-5 w-5 shrink-0" aria-hidden />
-        {loading ? "Ouverture…" : "Choisir un point relais"}
+        {loading ? "Ouverture…" : !pickerReady ? "Chargement de la carte…" : "Choisir un point relais"}
       </button>
       {error ? <p className="mt-2 text-[13px] text-red-600">{error}</p> : null}
     </>

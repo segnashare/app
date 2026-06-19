@@ -1650,7 +1650,7 @@ export function CartPaymentScreen({
             <CommandeOrderLineRows
               lines={initialLines}
               creditKind={walletCreditKind}
-              itemHrefSuffix=""
+              itemHrefSuffix="?from=cart"
               pointsUnitDisplay="icon"
             />
           )}

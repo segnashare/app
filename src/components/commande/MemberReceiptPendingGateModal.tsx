@@ -56,7 +56,7 @@ export function MemberReceiptPendingGateModal({ gate }: Props) {
             href={`/commande/${gate.cartId}`}
             className="flex h-12 w-full items-center justify-center rounded-full bg-zinc-900 text-[15px] font-semibold text-white transition hover:bg-zinc-800"
           >
-            Voir ma commande {gate.orderNumberCompact}
+            Voir ma commande
           </Link>
         </div>
       </div>

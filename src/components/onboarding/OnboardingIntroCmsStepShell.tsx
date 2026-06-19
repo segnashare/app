@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 
 import { AppViewport } from "@/components/layout/AppViewport";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import {
   isLightBackgroundHex,
   normalizeSlideBackgroundHex,
@@ -16,8 +17,8 @@ import { OnboardingProgressPills } from "@/components/onboarding/OnboardingProgr
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
-import { preloadOnboardingIntroCollageUrls } from "@/lib/onboarding/preload-onboarding-intro-images";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { preloadRemoteImages } from "@/lib/ui/preload-remote-images";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
@@ -85,8 +86,17 @@ export function OnboardingIntroCmsStepShell({
   errorMessage,
   onContinue,
 }: OnboardingIntroCmsStepShellProps) {
+  const initialStackFrames = useMemo(
+    () => (initialCmsFrames !== undefined ? stackRowsFromSectionRows(initialCmsFrames) : []),
+    [initialCmsFrames],
+  );
+  const initialCollageUrls = useMemo(() => collageSignedUrlsFromStack(initialStackFrames), [initialStackFrames]);
+
   const [frames, setFrames] = useState<CmsFrameRow[]>(() =>
-    initialCmsFrames !== undefined ? stackRowsFromSectionRows(initialCmsFrames) : [],
+    initialCmsFrames !== undefined && initialCollageUrls.length === 0 ? initialStackFrames : [],
+  );
+  const [introVisualsReady, setIntroVisualsReady] = useState(
+    () => initialCmsFrames !== undefined && initialCollageUrls.length === 0,
   );
   const isGridIntro = sectionKey === "onboarding_2_intro";
   const isCarouselIntro = sectionKey === "onboarding_3_intro";
@@ -102,7 +112,6 @@ export function OnboardingIntroCmsStepShell({
 
   useEffect(() => {
     let cancelled = false;
-    let timeoutId: number | undefined;
     const supabase = createSupabaseBrowserClient();
 
     void (async () => {
@@ -121,29 +130,20 @@ export function OnboardingIntroCmsStepShell({
         setCarouselBgHex(normalizeSlideBackgroundHex(firstRow.payload.slide_background_hex, "#ffffff"));
       }
 
-      /** Mise à jour immédiate : grille / pile gardent leur cadrage (placeholders) pendant le préchargement. */
-      setFrames(stack);
-
       const urls = collageSignedUrlsFromStack(stack);
-      if (urls.length === 0) return;
-
-      timeoutId = window.setTimeout(() => {
-        if (process.env.NODE_ENV === "development") {
-          console.warn("[onboarding-intro] préchargement visuels — timeout", {
-            sectionKey,
-            timeoutMs: ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS,
-          });
+      if (urls.length > 0) {
+        try {
+          await preloadRemoteImages(urls, { timeoutMs: ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS });
+        } catch {
+          /* ignore — afficher la page même si le réseau bloque */
         }
-      }, ONBOARDING_INTRO_PRELOAD_TIMEOUT_MS);
-
-      try {
-        await preloadOnboardingIntroCollageUrls(urls);
-      } finally {
-        if (timeoutId) window.clearTimeout(timeoutId);
       }
 
       if (cancelled) return;
-      if (process.env.NODE_ENV === "development") {
+      setFrames(stack);
+      setIntroVisualsReady(true);
+
+      if (process.env.NODE_ENV === "development" && urls.length > 0) {
         console.info("[onboarding-intro] préchargement visuels terminé", {
           sectionKey,
           imageCount: urls.length,
@@ -153,12 +153,15 @@ export function OnboardingIntroCmsStepShell({
 
     return () => {
       cancelled = true;
-      if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [sectionKey, initialCmsFrames]);
 
   const stackVisualShellClass =
     "relative z-20 mx-auto flex min-h-0 w-full max-w-[min(100%,440px)] flex-1 flex-col items-center justify-center px-5 py-[clamp(1.5rem,5dvh,3rem)] sm:px-7 md:max-w-[min(100%,760px)] md:px-10 lg:px-14";
+
+  if (!introVisualsReady) {
+    return <AppPageLoading label="Chargement" />;
+  }
 
   return (
     <AppViewport

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Info, X } from "lucide-react";
 
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
 import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplementCheckoutBlock";
@@ -17,6 +18,7 @@ import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
 import {
   computeMissingCreditsCashCents,
+  formatBorrowCheckoutDurationLabel,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
@@ -51,6 +53,7 @@ import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-pub
 import { isOnboardingOfferCmsFrame, isPackageCreditsTargetUrl } from "@/lib/cms/welcome-gift-offer-visibility";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
+import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
@@ -257,6 +260,14 @@ export function CartScreen({
   /** Panier total > capacité d’emprunt (wallet). */
   const cartExceedsWallet = activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
   const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalPoints - availablePoints) : 0;
+  const defaultBorrowDurationDays = useMemo(
+    () => defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
+    [borrowCheckoutOptions],
+  );
+  const cartBorrowDurationLabel = useMemo(
+    () => formatBorrowCheckoutDurationLabel(defaultBorrowDurationDays, borrowCheckoutOptions),
+    [borrowCheckoutOptions, defaultBorrowDurationDays],
+  );
 
   useEffect(() => {
     if (!cartExceedsWallet) {
@@ -275,6 +286,8 @@ export function CartScreen({
     setBorrowDurationDays(durationDays);
     writeCheckoutBorrowDurationDays(durationDays);
   }, []);
+
+  const walletCreditKind = walletCreditKindForMembership(membershipLabel);
 
   const exchangeCreditsEuroCents = cartExceedsWallet
     ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
@@ -452,9 +465,9 @@ export function CartScreen({
         </div>
       </header>
 
-      {/* Réserve la place du header fixe ; aligné sur la colonne max-w phone. */}
+      {/* Réserve la place du header fixe ; hauteur alignée sur la colonne header (pas de safe-area en double). */}
       <div
-        className="mx-auto h-[calc(env(safe-area-inset-top,0px)+8.5rem)] w-full max-w-[430px] shrink-0 bg-white"
+        className="mx-auto h-[calc(max(1.125rem,calc(env(safe-area-inset-top)+14px))+6.85rem)] w-full max-w-[430px] shrink-0 bg-white"
         aria-hidden
       />
 
@@ -469,7 +482,7 @@ export function CartScreen({
           {panierSectionOrder.map((slotKey) => {
             if (slotKey === "cart_system_items") {
               return (
-                <section key={slotKey} className="bg-white px-5 pb-4 pt-8">
+                <section key={slotKey} className="bg-white px-5 pb-4 pt-0">
                   {showOfferOnboardingUi ? (
                     <div
                       className="mb-5 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-[0_8px_28px_rgba(24,24,27,0.07)]"
@@ -548,15 +561,48 @@ export function CartScreen({
                           availablePoints={availablePoints}
                           missingPoints={missingExchangeMods}
                         />
-                      ) : null}
+                      ) : (
+                        <div className="flex items-baseline justify-between gap-4 leading-snug">
+                          <span className="text-[15px] font-semibold text-zinc-900">Durée de location</span>
+                          <span className="text-[15px] font-semibold tabular-nums text-zinc-900">
+                            {cartBorrowDurationLabel}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-6 w-full border-t border-zinc-200 pt-4">
                       <div className="flex w-full items-baseline justify-between gap-3">
                         <span className="text-[20px] font-extrabold leading-tight text-zinc-950">Sous-total</span>
-                        <span className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950">
-                          {euros(subtotalCashFees)}
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          {!cartExceedsWallet && cartTotalPoints > 0 ? (
+                            <span className="inline-flex items-baseline gap-0.5">
+                              <span
+                                className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950"
+                                aria-hidden
+                              >
+                                −
+                              </span>
+                              <SegnaPointsUnitDisplay
+                                points={cartTotalPoints}
+                                creditKind={walletCreditKind}
+                                unitDisplay="icon"
+                                className="gap-x-1"
+                                numberClassName="text-[20px] font-extrabold leading-tight text-zinc-950"
+                              />
+                            </span>
+                          ) : null}
+                          <span
+                            className={cn(
+                              "font-extrabold tabular-nums leading-tight text-zinc-950",
+                              !cartExceedsWallet && cartTotalPoints > 0
+                                ? "text-[13px] font-semibold text-zinc-500"
+                                : "text-[20px]",
+                            )}
+                          >
+                            {euros(subtotalCashFees)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

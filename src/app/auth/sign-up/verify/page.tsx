@@ -77,6 +77,9 @@ export default function SignUpVerifyPage() {
           <p className={cn(montserrat.className, "text-[15px] font-bold leading-snug text-[#999999]")}>
             Saisis les 6 chiffres reçus par e-mail
           </p>
+          <p className={cn(montserrat.className, "text-[13px] font-medium leading-snug text-[#999999]")}>
+            Vérifie aussi tes spams.
+          </p>
         </div>
       }
       mainLayout={

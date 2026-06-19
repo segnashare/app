@@ -96,6 +96,20 @@ export function shortestBorrowCheckoutOption(
   return sorted[0] ?? BORROW_CHECKOUT_OPTIONS_FALLBACK[0]!;
 }
 
+/** Libellé court pour l’UI panier / checkout (« 7 jours », « 1 mois », etc.). */
+export function formatBorrowCheckoutDurationLabel(
+  durationDays: number,
+  options: ReadonlyArray<BorrowCheckoutOption>,
+): string {
+  const days =
+    Number.isFinite(durationDays) && durationDays >= 1 ? Math.trunc(durationDays) : 30;
+  const match = options.find((o) => o.durationDays === days);
+  const label = match?.label?.trim();
+  if (label === "1 mois" || days === 30) return "1 mois";
+  if (label) return label;
+  return `${days} jours`;
+}
+
 /** Complément € / jour (part crédits manquants uniquement). */
 export function computeBorrowComplementDailyEuroCents(
   missingCredits: number,

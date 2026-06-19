@@ -245,7 +245,7 @@ export function ItemDetailView({
         if (!id) return;
         const path = window.location.pathname;
         if (path === `/items/${id}`) return;
-        if (path === "/cart") return;
+        if (path === "/cart" || path.startsWith("/cart/")) return;
         if (path === "/exchange" || path.startsWith("/exchange/")) return;
         router.replace("/exchange");
       });
