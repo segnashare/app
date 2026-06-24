@@ -90,6 +90,8 @@ export function cartOutboundAllowsSendcloudWebhookSync(status: string): boolean 
 export type MapSendcloudParcelOptions = {
   /** Aller panier livré à domicile (pas de point relais). */
   cartOutboundHome?: boolean;
+  /** Statut Segna actuel (relais : 2e+ événement transit → `in_transit_in`). */
+  cartOutboundCurrentStatus?: string;
 };
 
 function cartOutboundSendcloudIndicatesTransit(msg: string, statusId: number): boolean {
@@ -104,11 +106,15 @@ function cartOutboundSendcloudIndicatesTransit(msg: string, statusId: number): b
     msg === "accepted" ||
     msg.includes("sorting") ||
     msg.includes("sorted") ||
+    msg.includes("trié") ||
+    msg.includes("trie") ||
     msg.includes("announced") ||
     msg.includes("collected") ||
     msg.includes("processing") ||
     msg.includes("prise en charge") ||
     msg.includes("logistique") ||
+    msg.includes("en cours de livraison") ||
+    msg.includes("livraison en cours") ||
     statusId === 3 ||
     statusId === 4 ||
     statusId === 5 ||
@@ -126,11 +132,20 @@ function cartOutboundSendcloudIndicatesRelayPickupReady(msg: string, statusId: n
     msg.includes("ready to pick up") ||
     msg.includes("ready for collection") ||
     msg.includes("parcel is ready for collection") ||
+    msg.includes("point de retrait") ||
+    (msg.includes("disponible") && msg.includes("retrait")) ||
     (msg.includes("prêt") && msg.includes("retrait")) ||
     (msg.includes("pret") && msg.includes("retrait")) ||
     statusId === 91 ||
     statusId === 745
   );
+}
+
+/** Relais : premier transit → `dropped_in` ; ensuite → `in_transit_in`. */
+function cartOutboundRelayTransitTarget(currentStatus: string): "dropped_in" | "in_transit_in" {
+  const curRank = rankForward(OUTBOUND_FORWARD, currentStatus);
+  if (curRank >= 0) return "in_transit_in";
+  return "dropped_in";
 }
 
 export function mapSendcloudParcelToShipmentTarget(
@@ -158,7 +173,8 @@ export function mapSendcloudParcelToShipmentTarget(
       return "dropped_out";
     }
     if (cartOutboundSendcloudIndicatesTransit(msg, statusId)) {
-      return home ? "in_transit_in" : "dropped_in";
+      if (home) return "in_transit_in";
+      return cartOutboundRelayTransitTarget(options?.cartOutboundCurrentStatus ?? "");
     }
     return null;
   }
@@ -494,6 +510,7 @@ export async function processSendcloudParcelEvent(
   const mapOptions: MapSendcloudParcelOptions = {};
   if (norm(ship.context) === "cart_outbound") {
     mapOptions.cartOutboundHome = await loadCartOutboundHomeDelivery(admin, ship.id);
+    mapOptions.cartOutboundCurrentStatus = norm(ship.status);
   }
 
   const target = mapSendcloudParcelToShipmentTarget(ship.context, statusMessage, statusId, mapOptions);
