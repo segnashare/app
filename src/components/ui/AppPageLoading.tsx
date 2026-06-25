@@ -11,12 +11,12 @@ export function AppPageLoading({ label = "Chargement" }: AppPageLoadingProps) {
     <>
       <PageChromeLoadingMarker />
       <div
-      className="flex min-h-[70vh] items-center justify-center bg-white"
-      aria-busy
-      aria-label={label}
-    >
-      <AuthRingDotSpinner variant="onLight" dotCount={6} filledDots={6} spinning aria-label={label} />
-    </div>
+        className="segna-lock-document-scroll flex min-h-[100dvh] w-full items-center justify-center bg-white"
+        aria-busy
+        aria-label={label}
+      >
+        <AuthRingDotSpinner variant="onLight" dotCount={6} filledDots={6} spinning aria-label={label} />
+      </div>
     </>
   );
 }

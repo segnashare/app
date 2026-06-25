@@ -37,6 +37,7 @@ import {
   writeCheckoutBorrowDurationDays,
 } from "@/lib/cart/checkout-borrow-duration-storage";
 import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
+import { BORROW_OVERDUE_CG_LOCATION_HREF } from "@/lib/cart/format-borrow-overdue-copy";
 import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
 import {
   computeCartCheckoutIncludedFeeReductions,
@@ -1756,7 +1757,7 @@ export function CartPaymentScreen({
               <p className="text-[14px] font-normal leading-snug text-zinc-600">
                 Je confirme avoir pris connaissance des{" "}
                 <a
-                  href="/ressources/conditions-generales-location.pdf"
+                  href={BORROW_OVERDUE_CG_LOCATION_HREF}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-semibold text-zinc-800 underline underline-offset-2"

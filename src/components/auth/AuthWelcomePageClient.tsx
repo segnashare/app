@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AuthLandingCollage } from "@/components/auth/AuthLandingCollage";
+import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import type { AuthCollageFrameRow } from "@/lib/cms/fetch-auth-landing-collage";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { preloadRemoteImages } from "@/lib/ui/preload-remote-images";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
-import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
@@ -24,12 +25,17 @@ const LAUNCH_AT_MS = (() => {
 
 /** Au-delà de ce délai, on affiche quand même la page (évite blocage infini). */
 const COLLAGE_PRELOAD_TIMEOUT_MS = 12_000;
+const AUTH_LOGO_SRC = "/ressources/segna_logo.svg";
 
 function uniqueSignedCollageUrls(frames: AuthCollageFrameRow[]): string[] {
   const urls = frames
     .map((row) => row.payload.collage_image?.signed_url)
     .filter((u): u is string => typeof u === "string" && u.length > 0);
   return [...new Set(urls)];
+}
+
+function authVisualUrlsToPreload(frames: AuthCollageFrameRow[]): string[] {
+  return [...new Set([...uniqueSignedCollageUrls(frames), AUTH_LOGO_SRC])];
 }
 
 type AuthWelcomePageClientProps = {
@@ -120,7 +126,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   const supabase = createSupabaseBrowserClient();
   const [isContinuing, setIsContinuing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [collageReady, setCollageReady] = useState(true);
+  const [visualsReady, setVisualsReady] = useState(false);
 
   useEffect(() => {
     const url = window.location.href;
@@ -136,50 +142,28 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   }, []);
 
   useEffect(() => {
-    const urls = uniqueSignedCollageUrls(initialCollageFrames);
-    if (urls.length === 0) {
-      return;
-    }
-
+    const urls = authVisualUrlsToPreload(initialCollageFrames);
     let cancelled = false;
     const t0 = performance.now();
 
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled) {
-        setCollageReady(true);
-        if (process.env.NODE_ENV === "development") {
-          console.warn("[auth-collage][client] préchargement collage — timeout", {
-            timeoutMs: COLLAGE_PRELOAD_TIMEOUT_MS,
-          });
-        }
+    void (async () => {
+      try {
+        await preloadRemoteImages(urls, { timeoutMs: COLLAGE_PRELOAD_TIMEOUT_MS });
+      } catch {
+        /* ignore — afficher la page même si le réseau bloque */
       }
-    }, COLLAGE_PRELOAD_TIMEOUT_MS);
-
-    void Promise.all(
-      urls.map(
-        (href) =>
-          new Promise<void>((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
-            img.src = href;
-          }),
-      ),
-    ).then(() => {
-      window.clearTimeout(timeoutId);
       if (cancelled) return;
-      setCollageReady(true);
+      setVisualsReady(true);
       if (process.env.NODE_ENV === "development") {
-        console.info("[auth-collage][client] préchargement collage terminé", {
+        console.info("[auth-collage][client] préchargement visuels terminé", {
           imageCount: urls.length,
           ms: Math.round(performance.now() - t0),
         });
       }
-    });
+    })();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
     };
   }, [initialCollageFrames]);
 
@@ -203,35 +187,21 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
   };
 
   const collageFrames = initialCollageFrames;
-  const showCollageLoader = initialCollageFrames.length > 0 && !collageReady;
   const showAuthTeaser = AUTH_TEASER_MODE && LAUNCH_AT_MS !== null;
 
-  return (
-    <main
-      className="segna-lock-document-scroll relative flex h-dvh min-h-0 flex-col overflow-hidden bg-white"
-      aria-busy={showCollageLoader}
-    >
-      {showCollageLoader ? (
-        <div
-          className="flex min-h-[100dvh] flex-col items-center justify-center gap-5 bg-white px-6"
-          role="status"
-          aria-live="polite"
-          aria-label="Chargement des visuels"
-        >
-          <AuthRingDotSpinner variant="onLight" dotCount={6} filledDots={6} spinning aria-label="Chargement" />
-          <p className={cn(montserrat.className, "text-center text-[15px] font-semibold text-zinc-500")}>
-            Chargement…
-          </p>
-        </div>
-      ) : (
-        <>
-          {collageFrames.length > 0 ? (
-            <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-              <AuthLandingCollage frames={collageFrames} />
-            </div>
-          ) : null}
+  if (!visualsReady) {
+    return <AppPageLoading label="Chargement" />;
+  }
 
-          <div className="relative z-10 flex h-dvh min-h-0 min-w-0 flex-col bg-transparent pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
+  return (
+    <main className="segna-lock-document-scroll relative flex h-dvh min-h-0 flex-col overflow-hidden bg-white">
+      {collageFrames.length > 0 ? (
+        <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
+          <AuthLandingCollage frames={collageFrames} />
+        </div>
+      ) : null}
+
+      <div className="relative z-10 flex h-dvh min-h-0 min-w-0 flex-col bg-transparent pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
           <p
             className={cn(
               montserrat.className,
@@ -246,7 +216,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
               <div className="relative flex aspect-[497/204] w-[clamp(160px,45vw,250px)] items-center justify-center">
                 <img
-                  src="/ressources/segna_logo.svg"
+                  src={AUTH_LOGO_SRC}
                   alt="Segna"
                   width={497}
                   height={204}
@@ -336,8 +306,6 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
             )}
           </div>
         </div>
-        </>
-      )}
     </main>
   );
 }

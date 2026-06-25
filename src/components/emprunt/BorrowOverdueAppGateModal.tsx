@@ -12,6 +12,7 @@ import {
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
 import {
+  BORROW_OVERDUE_CG_LOCATION_HREF,
   BORROW_OVERDUE_CG_LOCATION_LABEL_FR,
   formatBorrowOverdueAppGateModalActionNoteFr,
   formatBorrowOverdueAppGateModalDeadlineCallout,
@@ -26,8 +27,6 @@ import {
 import { openMemberFeedbackModal } from "@/lib/feedback/open-member-feedback-modal";
 import { segnaInlineActionLinkClass } from "@/lib/ui/segna-inline-link";
 import { cn } from "@/lib/utils/cn";
-
-const CG_LOCATION_HREF = "/legal/conditions-generales-location";
 
 type Props = {
   gate: MemberBorrowOverdueAppGate | null;
@@ -107,7 +106,9 @@ export function BorrowOverdueAppGateModal({ gate }: Props) {
             >
               (
               <Link
-                href={CG_LOCATION_HREF}
+                href={BORROW_OVERDUE_CG_LOCATION_HREF}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="font-semibold text-blue-600 underline decoration-blue-600 underline-offset-2"
               >
                 {BORROW_OVERDUE_CG_LOCATION_LABEL_FR}

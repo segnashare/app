@@ -335,7 +335,9 @@ export function OnboardingPhoneVerifyCore({
 
         <p className="w-full max-w-[min(100%,380px)] text-center text-[14px] font-semibold text-[#999999]">
           {remainingSeconds > 0 ? (
-            <>Renvoyer le code dans {remainingSeconds}s.</>
+            <span className="inline-block max-w-full whitespace-nowrap">
+              Renvoyer le code dans {remainingSeconds}&nbsp;s.
+            </span>
           ) : (
             <button
               type="button"
