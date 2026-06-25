@@ -1,5 +1,9 @@
 import {
+  type BorrowOverdueChargeFailureReason,
+  formatBorrowOverdueDailyChargeNoteLinesFr,
+  formatBorrowOverdueDailySmsChargeClauseFr,
   formatBorrowOverdueEmailBodyLinesFr,
+  formatBorrowOverdueEmailSettlementParagraphFr,
   formatBorrowOverdueEmailSubjectFr,
   formatBorrowOverdueEmailTierNoteLinesFr,
 } from "@/lib/cart/format-borrow-overdue-copy";
@@ -284,56 +288,112 @@ export function borrowOverdueDailyEmail(
     penaltyCredits: number;
     ratePercent: number;
     chargeStatus: string;
+    chargeFailureReason?: BorrowOverdueChargeFailureReason;
     chargedViaStripe?: boolean;
+    regulariserUrl?: string | null;
+    profilePaymentUrl?: string | null;
   },
 ): { subject: string; text: string; html: string; smsBody: string } {
   const pEsc = escapeHtml(firstNameOrBonjour(firstName));
   const day = Math.max(1, Math.trunc(opts.lateDayIndex));
-  const amountLabel = formatPenaltyEuros(opts.penaltyCents);
   const tierLines = formatBorrowOverdueEmailTierNoteLinesFr(day);
   const subject = formatBorrowOverdueEmailSubjectFr(day);
 
-  const chargeNoteLines =
-    opts.chargeStatus === "failed"
-      ? [
-          "Nous n’avons pas pu prélever ta carte.",
-          "Mets à jour ton moyen de paiement depuis l’app.",
-        ]
-      : opts.chargeStatus === "charged"
-        ? [`Montant du jour : ${amountLabel}.`, "Prélevé sur ta carte enregistrée."]
-        : opts.chargeStatus === "pending"
-          ? [
-              `Montant du jour : ${amountLabel}.`,
-              "Prélèvement en attente (cumul minimum 0,50 €).",
-            ]
-          : [`Montant du jour : ${amountLabel}.`];
+  const chargeNoteLines = formatBorrowOverdueDailyChargeNoteLinesFr({
+    penaltyCents: opts.penaltyCents,
+    lateDayIndex: day,
+    ratePercent: opts.ratePercent,
+    chargeStatus: opts.chargeStatus,
+    chargeFailureReason: opts.chargeFailureReason,
+  });
 
   const bodyLines = formatBorrowOverdueEmailBodyLinesFr({
     lateDayIndex: day,
     cartLabel: opts.cartLabel,
-    ratePercent: opts.ratePercent,
     chargeNoteLines,
     tierLines,
   });
+
+  const settlementParagraph =
+    opts.chargeStatus !== "charged" && !opts.chargedViaStripe
+      ? formatBorrowOverdueEmailSettlementParagraphFr({
+          regulariserUrl: opts.regulariserUrl,
+          profilePaymentUrl: opts.profilePaymentUrl,
+        })
+      : null;
 
   const bodyParagraphs = bodyLines.map((line) => ({
     text: line,
     html: escapeHtml(line),
   }));
 
-  const { text, html } = shell(subject, subject, [
+  const paragraphs = [
     { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
     ...bodyParagraphs,
+    ...(settlementParagraph ? [settlementParagraph] : []),
     {
-      text: "Détail : rubrique Échange, emprunt en cours.",
-      html: "Détail : rubrique <strong>Échange</strong>, emprunt en cours.",
+      text: "Retrouve tous les détails dans l'onglet Échange, emprunt en cours.",
+      html: "Retrouve tous les détails dans l'onglet <strong>Échange</strong>, emprunt en cours.",
     },
-  ]);
+  ];
 
+  const { text, html } = shell(subject, subject, paragraphs);
+
+  const chargeClause = formatBorrowOverdueDailySmsChargeClauseFr({
+    chargeStatus: opts.chargeStatus,
+    chargeFailureReason: opts.chargeFailureReason,
+  });
+  const smsLink =
+    opts.regulariserUrl?.trim() ||
+    opts.profilePaymentUrl?.trim() ||
+    memberAppExchangeUrl();
   const smsBody = appendSmsAppLink(
-    `Segna : retard retour J${day}, ${amountLabel} (${opts.cartLabel.trim().slice(0, 28)}).`,
-    memberAppExchangeUrl(),
+    `Segna : retard retour J${day}, ${formatPenaltyEuros(opts.penaltyCents)} (${opts.cartLabel.trim().slice(0, 28)}). ${chargeClause}`,
+    smsLink,
   );
+
+  return { subject, text, html, smsBody };
+}
+
+function formatEurosNotice(cents: number): string {
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(
+    Math.max(0, cents) / 100,
+  );
+}
+
+export function borrowFormalNoticeSentEmail(
+  firstName: string | null,
+  opts: {
+    orderRef: string;
+    lateDayIndex: number;
+    deadlineLabel: string;
+    penaltiesAccruedCents: number;
+    empruntUrl: string;
+  },
+): { subject: string; text: string; html: string; smsBody: string } {
+  const pEsc = escapeHtml(firstNameOrBonjour(firstName));
+  const orderRefEsc = escapeHtml(opts.orderRef);
+  const day = Math.max(1, Math.trunc(opts.lateDayIndex));
+  const subject = `Segna — mise en demeure (emprunt ${opts.orderRef})`;
+
+  const paragraphs = [
+    { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
+    {
+      text: `Nous t'avons adressé une mise en demeure recommandée concernant ton emprunt ${opts.orderRef} (${day} jour${day > 1 ? "s" : ""} de retard).`,
+      html: `Nous t'avons adressé une <strong>mise en demeure recommandée</strong> concernant ton emprunt <strong>${orderRefEsc}</strong> (${day} jour${day > 1 ? "s" : ""} de retard).`,
+    },
+    {
+      text: `Tu disposes de 10 jours pour restituer ton colis, soit au plus tard le ${opts.deadlineLabel}. Frais de retard cumulés : ${formatEurosNotice(opts.penaltiesAccruedCents)}.`,
+      html: `Tu disposes de <strong>10 jours</strong> pour restituer ton colis, soit au plus tard le <strong>${escapeHtml(opts.deadlineLabel)}</strong>. Frais de retard cumulés : <strong>${escapeHtml(formatEurosNotice(opts.penaltiesAccruedCents))}</strong>.`,
+    },
+    {
+      text: "Consulte ta fiche emprunt pour déposer le colis ou nous contacter.",
+      html: "Consulte ta <strong>fiche emprunt</strong> pour déposer le colis ou nous contacter.",
+    },
+  ];
+
+  const { text, html } = shell(subject, subject, paragraphs);
+  const smsBody = `Segna : mise en demeure envoyée (emprunt ${opts.orderRef}). Restitue avant le ${opts.deadlineLabel}.`;
 
   return { subject, text, html, smsBody };
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 
 import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
@@ -12,8 +13,10 @@ import { PageChromeLoadingProvider } from "@/components/layout/PageChromeLoading
 import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardingIntroModal";
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
 import { ReferrerBonusModal, type ReferrerBonusModalPayload } from "@/components/referral/ReferrerBonusModal";
+import { BorrowOverdueAppGateModal } from "@/components/emprunt/BorrowOverdueAppGateModal";
 import { MemberReceiptPendingGateModal } from "@/components/commande/MemberReceiptPendingGateModal";
 import type { MemberReceiptPendingGatePayload } from "@/lib/cart/fetch-member-pending-receipt-gate";
+import type { MemberBorrowOverdueAppGate } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
 import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
 import { isDesktopMobileGateEnabled } from "@/lib/config/desktop-mobile-gate-enabled";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +34,7 @@ type MainShellProps = {
   inAppOnboardingRewardUserId?: string | null;
   referrerBonusModal?: ReferrerBonusModalPayload | null;
   memberReceiptPendingGate?: MemberReceiptPendingGatePayload | null;
+  memberBorrowOverdueAppGate?: MemberBorrowOverdueAppGate | null;
 };
 
 export function MainShell({
@@ -40,6 +44,7 @@ export function MainShell({
   inAppOnboardingRewardUserId = null,
   referrerBonusModal = null,
   memberReceiptPendingGate = null,
+  memberBorrowOverdueAppGate = null,
 }: MainShellProps) {
   const desktopMobileGate = isDesktopMobileGateEnabled();
 
@@ -72,6 +77,9 @@ export function MainShell({
       {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal /> : null}
       {referrerBonusModal ? <ReferrerBonusModal payload={referrerBonusModal} /> : null}
       <MemberReceiptPendingGateModal gate={memberReceiptPendingGate} />
+      <Suspense fallback={null}>
+        <BorrowOverdueAppGateModal gate={memberBorrowOverdueAppGate} />
+      </Suspense>
     </div>
     </PageChromeLoadingProvider>
   );

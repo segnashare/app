@@ -10,8 +10,8 @@ import {
   type BorrowOverdueAccrueResult,
 } from "@/lib/emprunt/borrow-overdue-penalty";
 import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
-import { notifyBorrowOverdueDaily } from "@/lib/notifications/lifecycle-shipment-notify";
 import { settleCartBorrowOverdueStripe } from "@/lib/cart/settle-borrow-overdue-stripe";
+import { notifyBorrowOverdueDailyWhenUnsettled } from "@/lib/cart/notify-borrow-overdue-daily-unsettled";
 
 const MAX_CARTS = 400;
 const OUTBOUND_FETCH_MULT = 3;
@@ -78,7 +78,7 @@ export async function runBorrowOverdueAccrual(
     .from("carts")
     .select("id,user_id,status,borrow_return_due_at")
     .in("id", cartIds)
-    .in("status", ["confirmed", "archived"])
+    .in("status", ["confirmed", "archived", "disputed"])
     .is("deleted_at", null);
 
   if (cErr) throw new Error(cErr.message);
@@ -166,43 +166,34 @@ export async function runBorrowOverdueAccrual(
     const stripe = await settleCartBorrowOverdueStripe(admin, {
       userId: cart.user_id,
       cartId: cart.id,
+      cronSmsNowMs: nowMs,
     });
     if (stripe.charged) {
       stripeCharged++;
     }
-
-    if (row?.applied === true && !row.duplicate) {
-      let chargeStatus = row.charge_status ?? "pending";
-      let chargedViaStripe = stripe.charged;
-
-      if (stripe.charged) {
-        chargeStatus = "charged";
-      } else if (chargeStatus === "pending" && stripe.error === "amount_below_stripe_minimum") {
-        chargeStatus = "pending";
-      } else if (stripe.error && stripe.error !== "stripe_charge_disabled" && stripe.error !== "nothing_to_settle") {
-        chargeStatus = "failed";
-      }
-
-      if (row.late_day != null && row.penalty_cents != null && row.rate_bps != null && chargeStatus) {
-        try {
-          await notifyBorrowOverdueDaily(admin, {
+    if (stripe.notified) {
+      notified++;
+    } else if (row?.applied === true && !row.duplicate) {
+      try {
+        if (
+          await notifyBorrowOverdueDailyWhenUnsettled(admin, {
             userId: cart.user_id,
             cartId: cart.id,
-            lateDayIndex: row.late_day,
-            penaltyCents: row.penalty_cents,
-            penaltyCredits: row.penalty_credits ?? 0,
-            rateBps: row.rate_bps,
-            chargeStatus,
             calendarDate,
-            chargedViaStripe,
+            accrue: row,
+            settleError: stripe.error,
             cronSmsNowMs: nowMs,
-          });
+          })
+        ) {
           notified++;
-        } catch (e) {
-          console.error("[borrow-overdue] notify", cart.id, e);
         }
+      } catch (e) {
+        console.error("[borrow-overdue] notify unsettled", cart.id, e);
+        errors++;
       }
-    } else {
+    }
+
+    if (!(row?.applied === true && !row.duplicate)) {
       skipped++;
     }
   }

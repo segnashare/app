@@ -17,6 +17,7 @@
     "supabase:functions:serve": "npx supabase functions serve",
     "cron:dev:borrow-reminders": "node scripts/dev-invoke-cron.mjs member-borrow-return-reminders",
     "cron:dev:borrow-overdue": "node scripts/dev-invoke-cron.mjs member-borrow-overdue-accrual",
+    "cron:dev:borrow-formal-notice": "node scripts/dev-invoke-cron.mjs member-borrow-formal-notice",
     "cron:dev:onboarding-reminders": "node scripts/dev-invoke-cron.mjs member-onboarding-reminders",
     "cron:dev:abandoned-cart-reminders": "node scripts/dev-invoke-cron.mjs member-abandoned-cart-reminders",
     "cron:dev:engagement-reminders": "node scripts/dev-invoke-cron.mjs member-engagement-reminders",
@@ -27,6 +28,10 @@
     "cron:preview:all": "node scripts/dev-invoke-cron.mjs all --preview",
     "analytics:seed-notification-sent": "node scripts/dev-seed-notification-sent.mjs",
     "dev:accrue-borrow-overdue": "node scripts/dev-accrue-borrow-overdue.mjs",
+    "dev:notify-borrow-overdue-day": "node scripts/dev-notify-borrow-overdue-day.mjs",
+    "dev:send-borrow-formal-notice": "node scripts/dev-send-borrow-formal-notice.mjs",
+    "dev:test-ar24": "node scripts/dev-test-ar24.mjs",
+    "test:borrow-recovery-policy": "node scripts/test-borrow-overdue-recovery-policy.mjs",
     "backfill:stripe-payment-methods": "node scripts/backfill-stripe-customer-payment-methods.mjs"
   },
   "dependencies": {

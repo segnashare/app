@@ -13,6 +13,17 @@ export function memberAppExchangeUrl(): string {
   return `${resolveMemberAppPublicOrigin()}/exchange`;
 }
 
+/** Page membre : paiement Stripe des frais de retard non prélevés. */
+export function memberBorrowOverdueRegulariserUrl(cartId: string): string {
+  const id = cartId.trim();
+  if (!id) return memberAppExchangeUrl();
+  return `${resolveMemberAppPublicOrigin()}/exchange/emprunt/${id}/regulariser`;
+}
+
+export function memberAppProfilePaymentUrl(): string {
+  return `${resolveMemberAppPublicOrigin()}/profile?tab=plus`;
+}
+
 export function memberAppShopUrl(): string {
   return `${resolveMemberAppPublicOrigin()}/shop`;
 }

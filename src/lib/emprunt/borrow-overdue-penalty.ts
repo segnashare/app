@@ -3,16 +3,18 @@ import { BORROW_RETURN_TZ, borrowCalendarDaysUntilDue } from "@/lib/cart/borrow-
 /** Conversion pénalité € → crédits wallet débités (5 cts/crédit, aligné wallet/prolongation). */
 export const BORROW_PENALTY_CENTS_PER_CREDIT = 5;
 
+/** Taux fixe des frais de retard : 3 % de la valeur panier par jour. */
+export const BORROW_OVERDUE_RATE_BPS = 300;
+
 export const BORROW_OVERDUE_MAX_ACCRUAL_DAY = 14;
 
 export type BorrowOverdueRateTier = "week1" | "week2";
 
-export function borrowOverdueRateBps(lateDayIndex: number): number {
-  if (!Number.isFinite(lateDayIndex) || lateDayIndex < 1) return 300;
-  if (lateDayIndex <= 7) return 300;
-  return 500;
+export function borrowOverdueRateBps(_lateDayIndex?: number): number {
+  return BORROW_OVERDUE_RATE_BPS;
 }
 
+/** @deprecated Taux unique 3 % — conservé pour compat. */
 export function borrowOverdueRateTier(lateDayIndex: number): BorrowOverdueRateTier {
   return lateDayIndex <= 7 ? "week1" : "week2";
 }

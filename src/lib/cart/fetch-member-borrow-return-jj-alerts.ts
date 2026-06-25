@@ -35,7 +35,7 @@ export async function fetchMemberBorrowReturnJjAlerts(
     .from("carts")
     .select("id,status,borrow_return_due_at")
     .eq("user_id", userId)
-    .in("status", ["confirmed", "archived"])
+    .in("status", ["confirmed", "archived", "disputed"])
     .is("deleted_at", null);
 
   if (cErr || !carts?.length) return [];

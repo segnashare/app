@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { BorrowOverdueChargeFailureReason } from "@/lib/cart/format-borrow-overdue-copy";
 import { normalizeOutboundShipmentStatusForUi } from "@/lib/cart/member-outbound-shipment-copy";
 import { loadCartUsesUberHomeDelivery } from "@/lib/cart/load-cart-uber-home-delivery";
 import { getSegnaSupportContact } from "@/lib/config/support-contact";
@@ -12,6 +13,15 @@ import {
 } from "@/lib/emprunt/borrow-period";
 import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import { NotificationKind } from "@/lib/notifications/kinds";
+import {
+  memberAppProfilePaymentUrl,
+  memberBorrowOverdueRegulariserUrl,
+} from "@/lib/notifications/member-app-links";
+import {
+  canCheckoutBorrowOverduePenalties,
+  fetchBorrowOverdueUnpaidDays,
+  sumBorrowOverdueUnpaidCents,
+} from "@/lib/stripe/borrow-overdue-checkout";
 import {
   borrowDeadlineReminderEmail,
   borrowOverdueDailyEmail,
@@ -513,15 +523,42 @@ export async function notifyBorrowOverdueDaily(
     penaltyCredits: number;
     rateBps: number;
     chargeStatus: string;
+    chargeFailureReason?: BorrowOverdueChargeFailureReason;
     calendarDate: string;
     chargedViaStripe?: boolean;
     cronSmsNowMs?: number;
+    /** Défaut : `txn:lc:borrow_overdue:{cartId}:{calendarDate}` */
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   const { data: user } = await admin.from("users").select("first_name").eq("id", input.userId).maybeSingle();
   const firstName = (user as { first_name?: string | null } | null)?.first_name ?? null;
   const cartLabel = `Commande ${input.cartId.slice(0, 8).toUpperCase()}`;
   const ratePercent = Math.round(input.rateBps / 100);
+
+  let regulariserUrl: string | null = null;
+  let profilePaymentUrl: string | null = null;
+  if (input.chargeStatus !== "charged" && !input.chargedViaStripe) {
+    try {
+      const unpaidDays = await fetchBorrowOverdueUnpaidDays(admin, input.cartId);
+      const unpaidTotalCents = sumBorrowOverdueUnpaidCents(unpaidDays);
+      if (canCheckoutBorrowOverduePenalties(unpaidTotalCents)) {
+        regulariserUrl = memberBorrowOverdueRegulariserUrl(input.cartId);
+      } else if (
+        input.chargeFailureReason === "no_payment_method" ||
+        input.chargeFailureReason === "card_declined"
+      ) {
+        profilePaymentUrl = memberAppProfilePaymentUrl();
+      }
+    } catch {
+      if (
+        input.chargeFailureReason === "no_payment_method" ||
+        input.chargeFailureReason === "card_declined"
+      ) {
+        profilePaymentUrl = memberAppProfilePaymentUrl();
+      }
+    }
+  }
 
   const { subject, text, html, smsBody } = borrowOverdueDailyEmail(firstName, {
     cartLabel,
@@ -530,13 +567,17 @@ export async function notifyBorrowOverdueDaily(
     penaltyCredits: input.penaltyCredits,
     ratePercent,
     chargeStatus: input.chargeStatus,
+    chargeFailureReason: input.chargeFailureReason,
     chargedViaStripe: input.chargedViaStripe,
+    regulariserUrl,
+    profilePaymentUrl,
   });
 
   await sendMemberOutreachNotification(admin, {
     userId: input.userId,
     kind: NotificationKind.borrowOverdueDaily,
-    idempotencyKey: `txn:lc:borrow_overdue:${input.cartId}:${input.calendarDate}`,
+    idempotencyKey:
+      input.idempotencyKey ?? `txn:lc:borrow_overdue:${input.cartId}:${input.calendarDate}`,
     metadata: {
       cart_id: input.cartId,
       late_day_index: input.lateDayIndex,

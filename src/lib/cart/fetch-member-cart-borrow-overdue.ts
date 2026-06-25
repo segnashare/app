@@ -12,7 +12,10 @@ export type MemberCartBorrowOverdueDay = {
 export type MemberCartBorrowOverdueSnapshot = {
   overdueId: string;
   status: string;
+  recoveryPhase: string | null;
   cartValueCents: number;
+  penaltyCapCents: number;
+  penaltiesAccruedCents: number;
   days: MemberCartBorrowOverdueDay[];
   totalPenaltyCents: number;
   totalPenaltyCredits: number;
@@ -23,7 +26,10 @@ export type MemberCartBorrowOverdueSnapshot = {
 type OverdueRow = {
   id?: string;
   status?: string;
+  recovery_phase?: string | null;
   cart_value_cents?: number;
+  penalty_cap_cents?: number | null;
+  penalties_accrued_cents?: number | null;
 };
 
 type DayRow = {
@@ -49,7 +55,7 @@ export async function fetchMemberCartBorrowOverdue(
 ): Promise<MemberCartBorrowOverdueSnapshot | null> {
   const { data: overdueRows, error: oErr } = await supabase
     .from("cart_borrow_overdue")
-    .select("id,status,cart_value_cents,updated_at")
+    .select("id,status,cart_value_cents,recovery_phase,penalties_accrued_cents,penalty_cap_cents,updated_at")
     .eq("cart_id", cartId);
 
   if (oErr || !Array.isArray(overdueRows) || overdueRows.length === 0) return null;
@@ -101,7 +107,10 @@ export async function fetchMemberCartBorrowOverdue(
   return {
     overdueId,
     status,
+    recoveryPhase: open.recovery_phase ?? null,
     cartValueCents: Number(open.cart_value_cents ?? 0),
+    penaltyCapCents: Number(open.penalty_cap_cents ?? open.cart_value_cents ?? 0),
+    penaltiesAccruedCents: Number(open.penalties_accrued_cents ?? totalPenaltyCents),
     days,
     totalPenaltyCents,
     totalPenaltyCredits,

@@ -1,0 +1,105 @@
+{
+  "_meta": {
+    "description": "Snapshot prod (2026-06-24) — panier témoin escalade J+15. PII anonymisée ; UUIDs conservés pour traçabilité.",
+    "source": "Segna PROD",
+    "snapshot_at": "2026-06-24T15:54:33+02:00",
+    "witness_cart_id": "593a6583-58b0-4046-a1ec-70c059af9e2c",
+    "use_in_dev": "node scripts/dev-seed-borrow-overdue-witness.mjs --dry-run puis sans --dry-run sur projet dev"
+  },
+  "cart": {
+    "id": "593a6583-58b0-4046-a1ec-70c059af9e2c",
+    "user_id": "201381f7-a5ec-49eb-a8dc-2a7f7531f00a",
+    "status": "disputed",
+    "borrow_return_due_at": "2026-06-03T23:59:59+02:00",
+    "member_email_anonymized": "witness-borrow-overdue@segna.dev",
+    "member_first_name_anonymized": "Witness",
+    "member_last_name_anonymized": "BorrowOverdue"
+  },
+  "cart_items": [
+    {
+      "cart_item_id": "10786f0a-2b75-46c9-adf7-2a016e1aa49c",
+      "item_id": "d548c289-d262-4f29-af74-2b85701796c6",
+      "title": "Cravate Kaki",
+      "price_points": 8
+    }
+  ],
+  "cart_borrow_overdue": {
+    "id": "ac3f8b31-b0fe-41c5-8499-78cf35b2ecf3",
+    "status": "escalated",
+    "resolution": "escalated_dispute",
+    "cart_value_cents": 800,
+    "opened_on": "2026-06-04",
+    "cart_dispute_id": "a7d1be27-edc6-4d70-abb1-0bfc32adcbcb"
+  },
+  "cart_dispute": {
+    "id": "a7d1be27-edc6-4d70-abb1-0bfc32adcbcb",
+    "reason": "borrow_return_overdue_escalation",
+    "status": "open",
+    "details": {
+      "due_at": "2026-06-03T23:59:59+02:00",
+      "calendar_date": "2026-06-24",
+      "late_day_index": 21
+    }
+  },
+  "shipments": {
+    "outbound": {
+      "id": "a711517c-78c4-45a9-bc06-5c55706b445c",
+      "status": "delivered",
+      "delivered_at": "2026-05-23T14:11:02.268+02:00"
+    },
+    "return": {
+      "id": "8512087a-92fc-46b3-95e5-dd2c339ad8bb",
+      "status": "ready",
+      "updated_at": "2026-06-24T08:43:22.52+02:00"
+    }
+  },
+  "metrics_at_snapshot": {
+    "late_day_today": 21,
+    "penalty_day_count": 14,
+    "max_late_day_charged": 14,
+    "total_penalty_cents": 448,
+    "charged_days": 14,
+    "failed_days": 0,
+    "penalty_rate_tiers": "J1-7: 3%, J8-14: 5%"
+  },
+  "penalty_days": [
+    { "late_day_index": 1, "calendar_date": "2026-06-04", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 2, "calendar_date": "2026-06-05", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 3, "calendar_date": "2026-06-06", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 4, "calendar_date": "2026-06-07", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 5, "calendar_date": "2026-06-08", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 6, "calendar_date": "2026-06-09", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 7, "calendar_date": "2026-06-10", "rate_bps": 300, "penalty_cents": 24, "charge_status": "charged" },
+    { "late_day_index": 8, "calendar_date": "2026-06-11", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 9, "calendar_date": "2026-06-12", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 10, "calendar_date": "2026-06-13", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 11, "calendar_date": "2026-06-14", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 12, "calendar_date": "2026-06-15", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 13, "calendar_date": "2026-06-16", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" },
+    { "late_day_index": 14, "calendar_date": "2026-06-17", "rate_bps": 500, "penalty_cents": 40, "charge_status": "charged" }
+  ],
+  "target_future_phases": {
+    "j1": "app_gate_modal_suspension",
+    "j15": "escalated_ops",
+    "j21": "formal_notice_ar24",
+    "after_notice_deadline": "non_restitution_charge_attempt",
+    "on_charge_failure": "payment_recovery_required"
+  },
+  "locked_decisions": {
+    "penalty_cap_pct": 100,
+    "rate_after_j14_bps": 500,
+    "formal_notice_day": 21,
+    "formal_notice_deadline_days": 10,
+    "formal_notice_channel": "AR24",
+    "processing_fee_cents_lt_100_eur": 1999,
+    "processing_fee_cents_gte_100_eur": 2999,
+    "cart_value_threshold_cents": 10000,
+    "app_block_day": 1,
+    "post_indemnity_refund": "100pct_cart_value_keep_late_fees",
+    "ar24": {
+      "account": "1 compte entreprise Segna",
+      "billing": "facturation globale + CB",
+      "med_pdf": "généré backend, envoyé via API AR24"
+    }
+  }
+}

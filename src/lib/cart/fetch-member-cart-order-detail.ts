@@ -222,7 +222,7 @@ export async function fetchMemberCartOrderDetail(
       }
     | null;
 
-  if (!cart || !["confirmed", "archived", "canceled"].includes(cart.status)) {
+  if (!cart || !["confirmed", "archived", "canceled", "disputed"].includes(cart.status)) {
     return null;
   }
 

@@ -11,7 +11,7 @@ import {
 import {
   BORROW_OVERDUE_CG_LOCATION_HREF,
   formatBorrowOverdueBannerBodyLinesFr,
-  formatBorrowOverdueHeadlineLinesFr,
+  formatBorrowOverdueHeadlineFr,
   formatBorrowOverdueOrderLinesFr,
 } from "@/lib/cart/format-borrow-overdue-copy";
 import type { MemberBorrowReturnOverdueAlert } from "@/lib/cart/fetch-member-borrow-return-overdue-alerts";
@@ -62,7 +62,7 @@ export function BorrowReturnOverdueBanner({ alerts }: Props) {
 
   if (!visibleAlert) return null;
 
-  const headlineLines = formatBorrowOverdueHeadlineLinesFr(visibleAlert.lateDayIndex);
+  const headline = formatBorrowOverdueHeadlineFr(visibleAlert.lateDayIndex);
   const orderLines = formatBorrowOverdueOrderLinesFr(
     visibleAlert.orderNumberCompact,
     visibleAlert.lateDayIndex,
@@ -78,15 +78,7 @@ export function BorrowReturnOverdueBanner({ alerts }: Props) {
     >
       <SegnaDialogTitleRow
         id="borrow-return-overdue-title"
-        title={
-          <>
-            {headlineLines.map((line) => (
-              <span key={line} className="block">
-                {line}
-              </span>
-            ))}
-          </>
-        }
+        title={headline}
         right={<SegnaDialogDismissButton variant="inline" onClick={dismiss} aria-label="Fermer" />}
       />
       <CopyLines lines={orderLines} className="mt-2" />

@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 import { formatBorrowReturnDueDateFr } from "@/lib/cart/cart-borrow-return-due";
 import { isBorrowReturnAlertPhaseParis } from "@/lib/cart/borrow-return-calendar";
+import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
+import { EmpruntBorrowOverdueSection } from "@/components/emprunt/EmpruntBorrowOverdueSection";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -13,6 +15,7 @@ type EmpruntBorrowSummarySectionProps = {
   cartId: string;
   returnDueMs: number | null;
   returnCommitmentMet?: boolean;
+  borrowOverdue?: MemberCartBorrowOverdueSnapshot | null;
 };
 
 const BODY_GRAY = "text-[#545454]";
@@ -30,6 +33,7 @@ export function EmpruntBorrowSummarySection({
   cartId,
   returnDueMs,
   returnCommitmentMet,
+  borrowOverdue = null,
 }: EmpruntBorrowSummarySectionProps) {
   const hasDue = returnDueMs != null && Number.isFinite(returnDueMs);
   const [now, setNow] = useState(() => Date.now());
@@ -105,6 +109,9 @@ export function EmpruntBorrowSummarySection({
           Retourner
         </Link>
       </div>
+      {borrowOverdue && !returnCommitmentMet ? (
+        <EmpruntBorrowOverdueSection overdue={borrowOverdue} />
+      ) : null}
     </section>
   );
 }

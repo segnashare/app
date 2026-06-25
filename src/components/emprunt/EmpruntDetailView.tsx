@@ -3,13 +3,12 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
-import { EmpruntBorrowOverdueSection } from "@/components/emprunt/EmpruntBorrowOverdueSection";
-import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowSummarySection";
-import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import { EmpruntBorrowCountdown } from "@/components/emprunt/EmpruntBorrowCountdown";
+import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowSummarySection";
+import { resolveMemberCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
+import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
-import { resolveMemberCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
@@ -88,11 +87,8 @@ export function EmpruntDetailView({
         cartId={detail.cartId}
         returnDueMs={hasReturnDue ? returnDueMs : null}
         returnCommitmentMet={returnCommitmentMet}
+        borrowOverdue={showBorrowOverdue ? borrowOverdue : null}
       />
-
-      {showBorrowOverdue && borrowOverdue ? (
-        <EmpruntBorrowOverdueSection overdue={borrowOverdue} />
-      ) : null}
 
       <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-4">
         {/* Pas de border-t : EmpruntBorrowSummarySection a déjà border-b (évite double trait). */}

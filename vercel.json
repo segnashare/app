@@ -9,6 +9,10 @@
       "schedule": "0,30 * * * *"
     },
     {
+      "path": "/api/cron/member-borrow-formal-notice",
+      "schedule": "0,30 * * * *"
+    },
+    {
       "path": "/api/cron/member-onboarding-reminders",
       "schedule": "0,30 * * * *"
     },

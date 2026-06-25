@@ -15,6 +15,7 @@
  *
  * **Emprunt / délais** : `borrow_return_deadline_reminder` — J-7/J-3/J-1 (19h30 Paris) + J-J (10h Paris) ; e-mail + SMS  
  * - `borrow_overdue_daily` — 10h Paris (même cron matin) ; pénalité journalière après échéance
+ * - `borrow_formal_notice_sent` — J+21 MED AR24 ; e-mail + SMS complémentaire
  *
  * **Pièce / annonce** (via `POST /api/internal/member-lifecycle/notify`)  
  * - `item_listing_evaluated`, `item_received_by_segna`, `item_validated_by_segna`
@@ -48,6 +49,7 @@ export const NotificationKind = {
   memberIntakeDroppedIn: "member_intake_dropped_in",
   borrowReturnDeadlineReminder: "borrow_return_deadline_reminder",
   borrowOverdueDaily: "borrow_overdue_daily",
+  borrowFormalNoticeSent: "borrow_formal_notice_sent",
   itemListingEvaluated: "item_listing_evaluated",
   itemReceivedBySegna: "item_received_by_segna",
   itemValidatedBySegna: "item_validated_by_segna",

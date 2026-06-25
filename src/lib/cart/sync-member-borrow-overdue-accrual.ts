@@ -27,7 +27,7 @@ export async function syncMemberBorrowOverdueAccrual(
     .from("carts")
     .select("id,user_id,status,borrow_return_due_at")
     .eq("user_id", userId)
-    .in("status", ["confirmed", "archived"])
+    .in("status", ["confirmed", "archived", "disputed"])
     .is("deleted_at", null);
 
   if (cErr || !carts?.length) return { accrued: 0, stripeCharged: 0, errors: 0 };
@@ -131,6 +131,7 @@ export async function syncMemberBorrowOverdueAccrual(
     const stripe = await settleCartBorrowOverdueStripe(admin, {
       userId: cart.user_id,
       cartId: cart.id,
+      cronSmsNowMs: nowMs,
     });
     if (stripe.charged) {
       stripeCharged++;

@@ -11,7 +11,6 @@ import { ExchangeCartSection } from "@/components/exchange/ExchangeCartSection";
 import { ExchangeCommercePromo } from "@/components/exchange/ExchangeCommercePromo";
 import { ExchangeEmptyFill } from "@/components/exchange/ExchangeEmptyFill";
 import { BorrowReturnJjDayBanner } from "@/components/exchange/BorrowReturnJjDayBanner";
-import { BorrowReturnOverdueBanner } from "@/components/exchange/BorrowReturnOverdueBanner";
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeWalletAnnouncementProvider } from "@/components/exchange/ExchangeWalletAnnouncementContext";
 import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
@@ -29,7 +28,6 @@ import { parseItemPhotosLayout, type ItemPhotoLayout } from "@/lib/items/item-ph
 import { MainContent } from "@/components/layout/MainContent";
 import { fetchActiveCartLinesForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { fetchMemberBorrowReturnJjAlerts } from "@/lib/cart/fetch-member-borrow-return-jj-alerts";
-import { fetchMemberBorrowReturnOverdueAlerts } from "@/lib/cart/fetch-member-borrow-return-overdue-alerts";
 import { formatBorrowOverdueDaysLabelFr } from "@/lib/cart/format-borrow-overdue-copy";
 import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
@@ -1106,9 +1104,7 @@ export default async function ExchangePage() {
       ),
     };
   }
-  const [borrowReturnOverdueAlerts, borrowReturnJjAlerts, piggybackDepositQueue, transferDepositQueue] =
-    await Promise.all([
-    perf.measure("borrowReturnOverdueAlerts", () => fetchMemberBorrowReturnOverdueAlerts(supabase, userId)),
+  const [borrowReturnJjAlerts, piggybackDepositQueue, transferDepositQueue] = await Promise.all([
     perf.measure("borrowReturnJjAlerts", () => fetchMemberBorrowReturnJjAlerts(supabase, userId)),
     perf.measure("piggyback.depositQueue", async () => {
       try {
@@ -1182,14 +1178,7 @@ export default async function ExchangePage() {
           activeCartCostPoints={activeCartCostPoints}
           guideOfferOnboarding={showOfferInAppOnboarding}
         />
-        {borrowReturnOverdueAlerts.length > 0 ? (
-          <div className="px-5 pb-2">
-            <div className="mx-auto w-full max-w-[460px]">
-              <BorrowReturnOverdueBanner alerts={borrowReturnOverdueAlerts} />
-            </div>
-          </div>
-        ) : null}
-        {borrowReturnOverdueAlerts.length === 0 && borrowReturnJjAlerts.length > 0 ? (
+        {borrowReturnJjAlerts.length > 0 ? (
           <div className="px-5 pb-2">
             <div className="mx-auto w-full max-w-[460px]">
               <BorrowReturnJjDayBanner alerts={borrowReturnJjAlerts} />
