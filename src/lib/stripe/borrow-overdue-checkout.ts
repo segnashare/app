@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
+import { clearBorrowPaymentRecoveryIfSettled } from "@/lib/emprunt/borrow-payment-recovery";
 import { BORROW_OVERDUE_STRIPE_MIN_EUR_CENTS } from "@/lib/stripe/borrow-overdue-penalty-charge";
 import { getStripeConfig } from "@/lib/social/stripe";
 
@@ -206,6 +207,8 @@ export async function applyBorrowOverdueCheckoutSession(
       stripe_payment_intent_id: paymentIntentId,
     })
     .in("id", overdueDayIds);
+
+  await clearBorrowPaymentRecoveryIfSettled(admin, cartId);
 
   return { applied: true, paymentIntentId };
 }
