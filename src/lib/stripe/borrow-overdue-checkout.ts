@@ -32,6 +32,23 @@ export function sumBorrowOverdueUnpaidCents(days: BorrowOverdueUnpaidDay[]): num
   return days.reduce((sum, d) => sum + Math.max(0, Math.trunc(Number(d.penalty_cents))), 0);
 }
 
+/** Marque les jours inclus sur la facture non-restitution (évite double encaissement). */
+export async function markBorrowOverdueUnpaidDaysOnNonRestitutionInvoice(
+  admin: SupabaseClient,
+  dayIds: string[],
+  stripeInvoiceId: string,
+): Promise<void> {
+  if (dayIds.length === 0) return;
+  await admin
+    .from("cart_borrow_overdue_days")
+    .update({
+      charge_status: "charged",
+      stripe_payment_intent_id: stripeInvoiceId,
+    })
+    .in("id", dayIds)
+    .in("charge_status", ["pending", "failed"]);
+}
+
 export function canCheckoutBorrowOverduePenalties(totalCents: number): boolean {
   return totalCents >= BORROW_OVERDUE_STRIPE_MIN_EUR_CENTS;
 }

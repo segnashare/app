@@ -9,8 +9,8 @@ import { settleBorrowOverdueStripeCharges } from "@/lib/stripe/borrow-overdue-pe
 /** Tente le prélèvement Stripe des jours de pénalité en attente pour un panier emprunt. */
 export async function settleCartBorrowOverdueStripe(
   admin: SupabaseClient,
-  input: { userId: string; cartId: string; cronSmsNowMs?: number },
-): Promise<{ charged: boolean; notified?: boolean; error?: string }> {
+  input: { userId: string; cartId: string; cronSmsNowMs?: number; skipCronSmsDailyCap?: boolean },
+): Promise<{ charged: boolean; notified?: boolean; error?: string; paymentIntentId?: string }> {
   const result = await settleBorrowOverdueStripeCharges(admin, input);
   let notified = false;
 
@@ -21,6 +21,7 @@ export async function settleCartBorrowOverdueStripe(
         cartId: input.cartId,
         paymentIntentId: result.paymentIntentId,
         cronSmsNowMs: input.cronSmsNowMs,
+        skipCronSmsDailyCap: input.skipCronSmsDailyCap,
       });
     } catch (e) {
       console.error("[borrow-overdue] notify after stripe", input.cartId, e);
@@ -36,7 +37,7 @@ export async function settleCartBorrowOverdueStripe(
   }
 
   if (result.charged) {
-    return { charged: true, notified };
+    return { charged: true, notified, paymentIntentId: result.paymentIntentId };
   }
 
   if (

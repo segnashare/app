@@ -157,14 +157,16 @@ export function formatBorrowOverdueAppGateModalDeadlineCallout(opts: {
   if (opts.deadlineIsProjected) {
     return {
       title: `Échéance indicative : ${opts.deadlineLabel}`,
-      body: "Sans retour déposé, une mise en demeure pourra t'être adressée, puis la valeur du panier pourra être exigée. Cette date est une estimation selon le calendrier prévu par nos conditions générales.",
+      body: "Sans retour déposé, la valeur du panier pourra être exigée.",
+      inlineCgLink: true,
       tone: "neutral",
     };
   }
 
   return {
     title: `Au plus tard le ${opts.deadlineLabel}`,
-    body: "Sans retour déposé, la valeur du panier pourra être exigée conformément aux conditions générales de location.",
+    body: "Sans retour déposé, la valeur du panier pourra être exigée.",
+    inlineCgLink: true,
     tone: "warning",
   };
 }
@@ -180,6 +182,70 @@ export function formatBorrowOverdueAppGateModalActionNoteFr(opts?: {
     return "Dépose ton colis au relais avant la date indiquée pour éviter la facturation de la valeur du panier.";
   }
   return "Dépose ton colis au relais ou prolonge l'échange depuis ta page emprunt pour stopper les pénalités.";
+}
+
+/** Modale blocage — indemnité non-restitution réglée. */
+export function formatBorrowOverdueAppGateModalSettledHeadlineFr(): string {
+  return "Indemnité réglée · Litige en cours";
+}
+
+export function formatBorrowOverdueAppGateModalSettledIntroFr(): string {
+  return "Le règlement de l'indemnité de non-restitution a bien été enregistré.";
+}
+
+export function formatBorrowOverdueAppGateModalDisputeResolutionCallout(): BorrowOverdueAppGateDeadlineCallout {
+  return {
+    title: "Litige en cours de résolution",
+    body: "Notre équipe examine ton dossier. Tu recevras un retour sous quelques jours ouvrés (statut de ton compte, des pièces concernées, clôture du litige…). Merci d'attendre notre message avant toute décision.",
+    tone: "neutral",
+  };
+}
+
+export function formatBorrowOverdueAppGateModalInvoiceLinkLabelFr(): string {
+  return "Voir ma facture Stripe";
+}
+
+/** Modale simplifiée — délai de restitution MED atteint ou dépassé, facture non payée. */
+export function formatBorrowOverdueAppGateModalPostDeadlineHeadlineFr(): string {
+  return "Délai de restitution dépassé";
+}
+
+export function formatBorrowOverdueAppGateModalPostDeadlineIntroFr(): string {
+  return "Des mesures de recouvrement et, le cas échéant, des démarches judiciaires sont engagées.";
+}
+
+export type BorrowOverdueAppGateRecoveryOption = {
+  key: string;
+  label: string;
+};
+
+/** Deux sorties pour suspendre le recouvrement / contentieux. */
+export function formatBorrowOverdueAppGateModalRecoveryOptionsFr(): BorrowOverdueAppGateRecoveryOption[] {
+  return [
+    {
+      key: "return_partial",
+      label:
+        "Retourner la box au relais et régler les frais de retard restants (facture partielle).",
+    },
+    {
+      key: "pay_full",
+      label:
+        "Régler la facture totale : indemnité de non-restitution et frais de retard dus.",
+    },
+  ];
+}
+
+export function formatBorrowOverdueAppGateModalRecoveryCallout(): BorrowOverdueAppGateDeadlineCallout {
+  return {
+    title: "Recouvrement en cours",
+    body: "Ces démarches restent suspendues si tu actives l'une des options ci-dessous.",
+    tone: "urgent",
+  };
+}
+
+export function formatBorrowOverdueAppGateModalUnpaidInvoiceIntroFr(totalCents: number): string {
+  const total = formatBorrowOverdueEurosFr(totalCents);
+  return `Une facture de ${total} est en attente de règlement.`;
 }
 
 /** @deprecated Préférer les helpers structurés ci-dessus + JSX dans la modale. */

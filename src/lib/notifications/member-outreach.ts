@@ -12,17 +12,15 @@ import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
+import { loadUserContact } from "@/lib/notifications/member-outreach-contact";
+import {
+  isMemberOutreachSmsRequested,
+  tryUpgradeMemberOutreachSms,
+} from "@/lib/notifications/member-outreach-sms-upgrade";
 
 export type MemberOutreachChannels = "email" | "email+phone";
 
-async function loadUserContact(admin: SupabaseClient, userId: string) {
-  const { data, error } = await admin.from("users").select("email, phone, first_name").eq("id", userId).maybeSingle();
-  if (error) {
-    console.error("[notifications] member-outreach loadUserContact", error.message);
-    return null;
-  }
-  return data;
-}
+export { loadUserContact };
 
 /**
  * Envoi membre générique (journal `notification_send_log` + e-mail HTML ; SMS si
@@ -49,16 +47,39 @@ export async function sendMemberOutreachNotification(
     transactionalSms?: boolean;
     /** Plafond SMS crons (2/jour Paris, emprunt prioritaire). */
     applyCronSmsDailyCap?: boolean;
+    /** Dev / re-test : ignore le plafond SMS journalier. */
+    skipCronSmsDailyCap?: boolean;
     cronSmsNowMs?: number;
   },
 ): Promise<void> {
+  const smsRequested = isMemberOutreachSmsRequested({
+    channels: input.channels,
+    smsBody: input.smsBody,
+    transactionalSms: input.transactionalSms,
+  });
+
   const claimed = await claimNotificationSend(admin, {
     idempotencyKey: input.idempotencyKey,
     kind: input.kind,
     userId: input.userId,
     metadata: input.metadata ?? {},
   });
-  if (!claimed) return;
+  if (!claimed) {
+    if (smsRequested && input.smsBody?.trim()) {
+      await tryUpgradeMemberOutreachSms(admin, {
+        idempotencyKey: input.idempotencyKey,
+        userId: input.userId,
+        kind: input.kind,
+        smsBody: input.smsBody,
+        metadata: input.metadata,
+        transactionalSms: input.transactionalSms,
+        applyCronSmsDailyCap: input.applyCronSmsDailyCap,
+        skipCronSmsDailyCap: input.skipCronSmsDailyCap,
+        cronSmsNowMs: input.cronSmsNowMs,
+      });
+    }
+    return;
+  }
 
   const user = await loadUserContact(admin, input.userId);
   const email = user?.email?.trim();
@@ -82,11 +103,8 @@ export async function sendMemberOutreachNotification(
     }
 
     const smsAlertsOn = getServerEnv().SEGNA_NOTIFY_SMS_ALERTS?.trim() === "1";
-    let allowSms =
-      input.channels === "email+phone" &&
-      Boolean(input.smsBody?.trim()) &&
-      (input.transactionalSms === true || smsAlertsOn);
-    if (allowSms && input.applyCronSmsDailyCap) {
+    let allowSms = smsRequested;
+    if (allowSms && input.applyCronSmsDailyCap && !input.skipCronSmsDailyCap) {
       allowSms = await shouldSendMemberCronSms(
         admin,
         input.userId,

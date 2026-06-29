@@ -2,19 +2,22 @@ import { NextResponse } from "next/server";
 
 import { notifyBorrowOverdueDailyWhenUnsettled } from "@/lib/cart/notify-borrow-overdue-daily-unsettled";
 import {
+  borrowOverdueStripeNotifyKey,
   notifyBorrowOverdueAfterStripeCharge,
   notifyUnsentBorrowOverdueStripeCharges,
+  resetBorrowOverdueOutreachForCart,
 } from "@/lib/cart/notify-borrow-overdue-after-stripe-charge";
 import { settleCartBorrowOverdueStripe } from "@/lib/cart/settle-borrow-overdue-stripe";
 import type { BorrowOverdueAccrueResult } from "@/lib/emprunt/borrow-overdue-penalty";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { maybeNotifyBorrowOverdueEscalationDisputeN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
 
 type Body = {
   cart_id?: string;
   calendar_date?: string;
   /** Crée la ligne via RPC si absente (comme dev-accrue). */
   accrue_if_missing?: boolean;
-  /** Supprime `notification_send_log` pour ce jour avant envoi (re-test). */
+  /** Efface idempotence outreach (jour + Stripe PI) et `notified_at` avant envoi. */
   force?: boolean;
 };
 
@@ -67,17 +70,17 @@ export async function POST(request: Request) {
   }
 
   const userId = String(cart.user_id);
+  const devNotifyOpts = { skipCronSmsDailyCap: true as const };
 
+  let resetResult: { clearedLogs: number; resetDays: number } | null = null;
   if (body.force === true) {
-    await admin
-      .from("notification_send_log")
-      .delete()
-      .eq("idempotency_key", `txn:lc:borrow_overdue:${cartId}:${calendarDate}`);
+    resetResult = await resetBorrowOverdueOutreachForCart(admin, cartId, { calendarDate });
   }
 
   let accrueResult: BorrowOverdueAccrueResult | null = null;
+  const accrueIfMissing = body.accrue_if_missing === true || body.force === true;
 
-  if (body.accrue_if_missing === true) {
+  if (accrueIfMissing) {
     const { data, error } = await admin.rpc("accrue_cart_borrow_overdue_day", {
       p_cart_id: cartId,
       p_calendar_date: calendarDate,
@@ -87,6 +90,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
     accrueResult = data as BorrowOverdueAccrueResult;
+    try {
+      await maybeNotifyBorrowOverdueEscalationDisputeN8n(admin, cartId, accrueResult);
+    } catch (e) {
+      console.error("[dev/notify-borrow-overdue-day] dispute n8n", cartId, e);
+    }
   }
 
   const { data: dayRow, error: dayErr } = await admin
@@ -103,8 +111,9 @@ export async function POST(request: Request) {
       {
         ok: false,
         error: "day_not_found",
-        hint: "Passe accrue_if_missing: true ou lance dev-accrue-borrow-overdue.mjs avant.",
+        hint: "Jour absent : relance avec --force (accuse auto) ou --accrue.",
         accrue: accrueResult,
+        reset: resetResult,
       },
       { status: 404 },
     );
@@ -114,26 +123,32 @@ export async function POST(request: Request) {
     userId,
     cartId,
     cronSmsNowMs: Date.now(),
+    ...devNotifyOpts,
   });
 
   let channel: "stripe_charge" | "unsettled" | "stripe_backfill" | "none" = "none";
 
-  if (stripe.charged && stripe.notified) {
-    channel = "stripe_charge";
+  if (stripe.charged && stripe.paymentIntentId) {
+    if (
+      await notifyBorrowOverdueAfterStripeCharge(admin, {
+        userId,
+        cartId,
+        paymentIntentId: stripe.paymentIntentId,
+        cronSmsNowMs: Date.now(),
+        ...devNotifyOpts,
+      })
+    ) {
+      channel = "stripe_charge";
+    }
   } else if (String(dayRow.charge_status) === "charged" && dayRow.stripe_payment_intent_id) {
     const pi = String(dayRow.stripe_payment_intent_id);
-    if (body.force === true) {
-      await admin
-        .from("notification_send_log")
-        .delete()
-        .eq("idempotency_key", `txn:lc:borrow_overdue_stripe:${pi}`);
-    }
     if (
       await notifyBorrowOverdueAfterStripeCharge(admin, {
         userId,
         cartId,
         paymentIntentId: pi,
         cronSmsNowMs: Date.now(),
+        ...devNotifyOpts,
       })
     ) {
       channel = "stripe_backfill";
@@ -143,10 +158,11 @@ export async function POST(request: Request) {
       userId,
       cartId,
       cronSmsNowMs: Date.now(),
+      ...devNotifyOpts,
     })
   ) {
     channel = "stripe_backfill";
-  } else {
+  } else if (String(dayRow.charge_status) !== "charged") {
     const accrue: BorrowOverdueAccrueResult = {
       ok: true,
       applied: true,
@@ -164,17 +180,30 @@ export async function POST(request: Request) {
         accrue,
         settleError: stripe.error,
         cronSmsNowMs: Date.now(),
+        ...devNotifyOpts,
       })
     ) {
       channel = "unsettled";
     }
   }
 
-  const { data: logRow } = await admin
+  const calendarLogKey = `txn:lc:borrow_overdue:${cartId}:${calendarDate}`;
+  const stripeLogKey = dayRow.stripe_payment_intent_id
+    ? borrowOverdueStripeNotifyKey(String(dayRow.stripe_payment_intent_id))
+    : stripe.paymentIntentId
+      ? borrowOverdueStripeNotifyKey(stripe.paymentIntentId)
+      : null;
+
+  const logKeys = [calendarLogKey, ...(stripeLogKey ? [stripeLogKey] : [])];
+  const { data: logRows } = await admin
     .from("notification_send_log")
     .select("idempotency_key,delivery_channels,kind,created_at")
-    .eq("idempotency_key", `txn:lc:borrow_overdue:${cartId}:${calendarDate}`)
-    .maybeSingle();
+    .in("idempotency_key", logKeys);
+
+  const primaryLog =
+    (logRows ?? []).find((r) => r.idempotency_key === stripeLogKey) ??
+    (logRows ?? []).find((r) => r.idempotency_key === calendarLogKey) ??
+    null;
 
   return NextResponse.json({
     ok: true,
@@ -183,12 +212,18 @@ export async function POST(request: Request) {
     late_day_index: dayRow.late_day_index,
     charge_status: dayRow.charge_status,
     notify_channel: channel,
-    stripe: { charged: stripe.charged, error: stripe.error ?? null, notified: stripe.notified ?? false },
+    stripe: {
+      charged: stripe.charged,
+      error: stripe.error ?? null,
+      payment_intent_id: stripe.paymentIntentId ?? dayRow.stripe_payment_intent_id ?? null,
+    },
     accrue: accrueResult,
-    recent_log: logRow ?? null,
+    reset: resetResult,
+    outreach_logs: logRows ?? [],
+    delivery_channels: (primaryLog as { delivery_channels?: string } | null)?.delivery_channels ?? null,
     note:
       channel === "none"
-        ? "Aucun envoi (idempotence, Resend/Twilio off, ou jour déjà charged sans PI)."
-        : "Vérifie ta boîte mail / SMS. SEGNA_NOTIFY_SMS_ALERTS=1 pour le SMS.",
+        ? "Aucun envoi (Resend/Twilio off, ou outreach déjà complet)."
+        : "Dev : plafond SMS désactivé. Vérifie mail + SMS.",
   });
 }

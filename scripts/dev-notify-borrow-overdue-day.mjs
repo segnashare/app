@@ -8,6 +8,7 @@
  *   node scripts/dev-notify-borrow-overdue-day.mjs <cart-uuid> 2026-06-26
  *   node scripts/dev-notify-borrow-overdue-day.mjs <cart-uuid> 2026-06-26 --accrue
  *   node scripts/dev-notify-borrow-overdue-day.mjs <cart-uuid> 2026-06-26 --force
+ *     (--force accuse le jour s'il manque, reset idempotence, sans plafond SMS)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +40,7 @@ function loadDotEnvFile(relPath) {
 
 const cartId = (process.argv[2] || "").trim();
 const calendarDate = (process.argv[3] || "").trim();
-const accrueIfMissing = process.argv.includes("--accrue");
+const accrueIfMissing = process.argv.includes("--accrue") || process.argv.includes("--force");
 const force = process.argv.includes("--force");
 
 if (!/^[0-9a-f-]{36}$/i.test(cartId) || !/^\d{4}-\d{2}-\d{2}$/.test(calendarDate)) {
@@ -67,8 +68,14 @@ const body = JSON.stringify({
 console.log(`→ POST ${url}`);
 console.log(`  cart: ${cartId}`);
 console.log(`  calendar_date: ${calendarDate}`);
-if (accrueIfMissing) console.log("  accrue_if_missing: true");
-if (force) console.log("  force: true (efface idempotence jour)");
+if (accrueIfMissing) {
+  console.log(
+    force && !process.argv.includes("--accrue")
+      ? "  accrue_if_missing: true (--force)"
+      : "  accrue_if_missing: true",
+  );
+}
+if (force) console.log("  force: true (reset idempotence jour + Stripe PI + notified_at)");
 
 const res = await fetch(url, {
   method: "POST",

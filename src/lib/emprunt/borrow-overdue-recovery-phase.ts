@@ -37,12 +37,23 @@ const OPEN_RECOVERY_PHASES = new Set<BorrowOverdueRecoveryPhase>([
   "collection",
 ]);
 
+const TERMINAL_OVERDUE_RECOVERY_PHASES = new Set<BorrowOverdueRecoveryPhase>([
+  "waived",
+  "resolved_paid",
+  "resolved_return",
+]);
+
 export function isBorrowOverdueRecoveryPhase(value: string | null | undefined): value is BorrowOverdueRecoveryPhase {
   return BORROW_OVERDUE_RECOVERY_PHASES.includes(value as BorrowOverdueRecoveryPhase);
 }
 
 export function isOpenBorrowOverdueRecoveryPhase(phase: string | null | undefined): boolean {
   return isBorrowOverdueRecoveryPhase(phase) && OPEN_RECOVERY_PHASES.has(phase);
+}
+
+/** Dossier overdue clôturé côté BO (grâce, soldé, retour reçu). */
+export function isTerminalBorrowOverdueRecoveryPhase(phase: string | null | undefined): boolean {
+  return isBorrowOverdueRecoveryPhase(phase) && TERMINAL_OVERDUE_RECOVERY_PHASES.has(phase);
 }
 
 /** Dossier ouvert côté app gate (J+1 suspension UX). */

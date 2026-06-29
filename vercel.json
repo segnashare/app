@@ -13,6 +13,10 @@
       "schedule": "0,30 * * * *"
     },
     {
+      "path": "/api/cron/member-borrow-non-restitution-invoice",
+      "schedule": "0,30 * * * *"
+    },
+    {
       "path": "/api/cron/member-onboarding-reminders",
       "schedule": "0,30 * * * *"
     },

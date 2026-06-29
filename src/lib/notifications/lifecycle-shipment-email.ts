@@ -397,3 +397,61 @@ export function borrowFormalNoticeSentEmail(
 
   return { subject, text, html, smsBody };
 }
+
+export function borrowNonRestitutionInvoicedEmail(
+  firstName: string | null,
+  opts: {
+    orderRef: string;
+    cartValueCents: number;
+    unpaidPenaltyCents: number;
+    totalCents: number;
+    hostedInvoiceUrl: string | null;
+    empruntUrl: string;
+  },
+): { subject: string; text: string; html: string; smsBody: string } {
+  const pEsc = escapeHtml(firstNameOrBonjour(firstName));
+  const orderRefEsc = escapeHtml(opts.orderRef);
+  const totalLabel = formatEurosNotice(opts.totalCents);
+  const subject = `Segna — facture non-restitution (emprunt ${opts.orderRef})`;
+
+  const invoiceLine = opts.hostedInvoiceUrl
+    ? {
+        text: `Consulte et règle ta facture : ${opts.hostedInvoiceUrl}`,
+        html: `Consulte et règle ta facture : <a href="${escapeHtml(opts.hostedInvoiceUrl)}">lien sécurisé Stripe</a>.`,
+      }
+    : {
+        text: "Consulte ta fiche emprunt pour le détail.",
+        html: "Consulte ta <strong>fiche emprunt</strong> pour le détail.",
+      };
+
+  const penaltyLine =
+    opts.unpaidPenaltyCents > 0
+      ? {
+          text: `valeur du panier ${formatEurosNotice(opts.cartValueCents)} + frais de retard non réglés ${formatEurosNotice(opts.unpaidPenaltyCents)}`,
+          html: `valeur du panier <strong>${escapeHtml(formatEurosNotice(opts.cartValueCents))}</strong> + frais de retard non réglés <strong>${escapeHtml(formatEurosNotice(opts.unpaidPenaltyCents))}</strong>`,
+        }
+      : {
+          text: `valeur du panier ${formatEurosNotice(opts.cartValueCents)}`,
+          html: `valeur du panier <strong>${escapeHtml(formatEurosNotice(opts.cartValueCents))}</strong>`,
+        };
+
+  const paragraphs = [
+    { text: `Bonjour ${firstNameOrBonjour(firstName)},`, html: `Bonjour ${pEsc},` },
+    {
+      text: `Le délai de restitution de ton emprunt ${opts.orderRef} est dépassé. Une facture de ${totalLabel} a été émise (${penaltyLine.text}).`,
+      html: `Le délai de restitution de ton emprunt <strong>${orderRefEsc}</strong> est dépassé. Une facture de <strong>${escapeHtml(totalLabel)}</strong> a été émise (${penaltyLine.html}).`,
+    },
+    invoiceLine,
+    {
+      text: "Tu peux encore déposer ton colis au relais ; en cas de retour après règlement, la valeur du panier pourra être remboursée selon nos conditions.",
+      html: "Tu peux encore déposer ton colis au relais ; en cas de retour après règlement, la valeur du panier pourra être remboursée selon nos conditions.",
+    },
+  ];
+
+  const { text, html } = shell(subject, subject, paragraphs);
+  const smsBody = opts.hostedInvoiceUrl
+    ? `Segna : facture non-restitution ${totalLabel} (emprunt ${opts.orderRef}). ${opts.hostedInvoiceUrl}`
+    : `Segna : facture non-restitution ${totalLabel} (emprunt ${opts.orderRef}).`;
+
+  return { subject, text, html, smsBody };
+}

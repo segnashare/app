@@ -20,8 +20,8 @@ function borrowNonReturnProcessingFeeCents(cartValueCents) {
     : BORROW_NON_RETURN_PROCESSING_FEE_CENTS_GTE_100_EUR;
 }
 
-function borrowNonRestitutionChargeTotalCents(cartValueCents) {
-  return Math.max(0, Math.trunc(cartValueCents)) + borrowNonReturnProcessingFeeCents(cartValueCents);
+function borrowNonRestitutionChargeTotalCents(cartValueCents, unpaidPenaltyCents = 0) {
+  return Math.max(0, Math.trunc(cartValueCents)) + Math.max(0, Math.trunc(unpaidPenaltyCents));
 }
 
 function isPenaltyCapReached(penaltiesAccruedCents, cartValueCents) {
@@ -47,7 +47,8 @@ function shouldBlockAppForBorrowOverdue(input) {
   return open.has(input.recoveryPhase ?? "");
 }
 
-assert.strictEqual(borrowNonRestitutionChargeTotalCents(800), 800 + 1999);
+assert.strictEqual(borrowNonRestitutionChargeTotalCents(800, 4200), 5000);
+assert.strictEqual(borrowNonRestitutionChargeTotalCents(14000, 8820), 22820);
 assert.strictEqual(isPenaltyCapReached(800, 800), false);
 assert.strictEqual(BORROW_FORMAL_NOTICE_DEADLINE_DAYS, 10);
 

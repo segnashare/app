@@ -527,6 +527,7 @@ export async function notifyBorrowOverdueDaily(
     calendarDate: string;
     chargedViaStripe?: boolean;
     cronSmsNowMs?: number;
+    skipCronSmsDailyCap?: boolean;
     /** Défaut : `txn:lc:borrow_overdue:{cartId}:{calendarDate}` */
     idempotencyKey?: string;
   },
@@ -591,6 +592,7 @@ export async function notifyBorrowOverdueDaily(
     channels: "email+phone",
     smsBody,
     applyCronSmsDailyCap: true,
+    skipCronSmsDailyCap: input.skipCronSmsDailyCap,
     cronSmsNowMs: input.cronSmsNowMs,
   });
 }

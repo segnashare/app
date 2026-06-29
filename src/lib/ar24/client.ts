@@ -62,7 +62,7 @@ export function getAr24Config(opts?: { forceDryRun?: boolean }): Ar24Config | nu
     userId,
     paymentSlug: process.env.AR24_PAYMENT_SLUG?.trim() || null,
     webhookUrl: process.env.AR24_WEBHOOK_URL?.trim() || null,
-    dryRun: false,
+    dryRun,
   };
 }
 

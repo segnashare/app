@@ -15,6 +15,8 @@ import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period
 import { BORROW_OVERDUE_STRIPE_MIN_EUR_CENTS } from "@/lib/stripe/borrow-overdue-penalty-charge";
 import { formatBorrowReturnDueDateFr } from "@/lib/cart/cart-borrow-return-due";
 
+import { syncBorrowNonRestitutionChargeFromStripe } from "@/lib/stripe/sync-borrow-non-restitution-charge-from-stripe";
+
 export type MemberBorrowOverdueAppGateChargeDay = MemberCartBorrowOverdueDay;
 
 export type MemberBorrowOverdueAppGate = {
@@ -35,6 +37,13 @@ export type MemberBorrowOverdueAppGate = {
   formalNoticeSent: boolean;
   formalNoticeDeadlineLabel: string | null;
   formalNoticeDeadlinePassed: boolean;
+  nonRestitutionSettled: boolean;
+  nonRestitutionInvoiced: boolean;
+  /** À partir du délai MED / facture émise : modale simplifiée. */
+  postRestitutionDeadline: boolean;
+  nonRestitutionInvoiceUrl: string | null;
+  nonRestitutionInvoiceTotalCents: number;
+  hasOpenDispute: boolean;
   empruntHref: string;
   regulariserHref: string;
   problemeHref: string;
@@ -68,6 +77,17 @@ export function isBorrowOverdueGateAllowedPath(
 
 type ReadonlyURLSearchParams = Pick<URLSearchParams, "get">;
 
+function isAtOrPastRestitutionDeadlineDay(nowMs: number, formalNoticeDeadlineIso: string | null): boolean {
+  const raw = formalNoticeDeadlineIso?.trim();
+  if (!raw) return false;
+  const deadlineMs = Date.parse(raw);
+  if (!Number.isFinite(deadlineMs)) return false;
+  const tz = "Europe/Paris";
+  const deadlineParis = new Date(deadlineMs).toLocaleDateString("en-CA", { timeZone: tz });
+  const nowParis = new Date(nowMs).toLocaleDateString("en-CA", { timeZone: tz });
+  return nowParis >= deadlineParis;
+}
+
 /**
  * Panier emprunt en retard sans retour engagé → modale blocage app (PR3).
  */
@@ -75,10 +95,13 @@ export async function fetchMemberBorrowOverdueAppGate(
   supabase: SupabaseClient,
   userId: string,
   nowMs: number = Date.now(),
+  opts?: { admin?: SupabaseClient },
 ): Promise<MemberBorrowOverdueAppGate | null> {
   const { data: overdueRows, error: oErr } = await supabase
     .from("cart_borrow_overdue")
-    .select("id,cart_id,status,recovery_phase,formal_notice_sent_at,formal_notice_deadline_at")
+    .select(
+      "id,cart_id,status,recovery_phase,formal_notice_sent_at,formal_notice_deadline_at,non_restitution_invoice_id,non_restitution_charge_cents",
+    )
     .eq("user_id", userId)
     .in("status", ["active", "escalated"])
     .order("updated_at", { ascending: false })
@@ -93,6 +116,7 @@ export async function fetchMemberBorrowOverdueAppGate(
     recovery_phase: string | null;
     formal_notice_sent_at?: string | null;
     formal_notice_deadline_at?: string | null;
+    non_restitution_charge_cents?: number | null;
   }[]) {
     const cartId = row.cart_id;
 
@@ -105,6 +129,17 @@ export async function fetchMemberBorrowOverdueAppGate(
 
     if (!cart || cart.deleted_at != null) continue;
     if (!["confirmed", "archived", "disputed"].includes(String(cart.status ?? ""))) continue;
+
+    const { data: terminalResolvedOverdue } = await supabase
+      .from("cart_borrow_overdue")
+      .select("id, recovery_phase")
+      .eq("cart_id", cartId)
+      .eq("status", "resolved")
+      .in("recovery_phase", ["waived", "resolved_paid", "resolved_return"])
+      .limit(1)
+      .maybeSingle();
+
+    if (terminalResolvedOverdue?.id) continue;
 
     const { data: outboundRows } = await supabase
       .from("shipments")
@@ -194,10 +229,91 @@ export async function fetchMemberBorrowOverdueAppGate(
       formalNoticeDeadlineAtIso: row.formal_notice_deadline_at,
     });
 
+    const { data: nonRestitutionCharge } = await supabase
+      .from("cart_borrow_non_restitution_charges")
+      .select("id,overdue_id,status,stripe_invoice_id,stripe_invoice_hosted_url,amount_cents,unpaid_penalty_cents")
+      .eq("cart_id", cartId)
+      .maybeSingle();
+
+    let chargeRow = nonRestitutionCharge as {
+      id?: string;
+      overdue_id?: string;
+      status?: string;
+      stripe_invoice_id?: string | null;
+      stripe_invoice_hosted_url?: string | null;
+      amount_cents?: number;
+      unpaid_penalty_cents?: number;
+    } | null;
+
+    if (opts?.admin && chargeRow?.id) {
+      const synced = await syncBorrowNonRestitutionChargeFromStripe(opts.admin, {
+        id: chargeRow.id,
+        overdue_id: chargeRow.overdue_id ?? row.id,
+        status: chargeRow.status,
+        stripe_invoice_id: chargeRow.stripe_invoice_id,
+        stripe_invoice_hosted_url: chargeRow.stripe_invoice_hosted_url,
+      });
+      if (synced.paid) {
+        chargeRow = {
+          ...chargeRow,
+          status: "succeeded",
+          stripe_invoice_hosted_url: synced.hostedInvoiceUrl,
+        };
+        row.recovery_phase = "non_restitution_charged";
+      } else if (synced.hostedInvoiceUrl) {
+        chargeRow = {
+          ...chargeRow,
+          stripe_invoice_hosted_url: synced.hostedInvoiceUrl,
+        };
+      }
+    }
+
+    const recoveryPhase = row.recovery_phase;
+    const chargeSucceeded = String(chargeRow?.status ?? "").toLowerCase() === "succeeded";
+    const nonRestitutionSettled =
+      recoveryPhase === "non_restitution_charged" ||
+      recoveryPhase === "resolved_paid" ||
+      chargeSucceeded;
+
+    const nonRestitutionInvoiceUrl =
+      String(chargeRow?.stripe_invoice_hosted_url ?? "").trim() || null;
+
+    const nonRestitutionInvoiced =
+      Boolean(nonRestitutionInvoiceUrl) ||
+      recoveryPhase === "non_restitution_due" ||
+      recoveryPhase === "non_restitution_charged";
+
+    const invoiceTotalFromCharge = Math.max(
+      0,
+      Number(chargeRow?.amount_cents ?? 0) + Number(chargeRow?.unpaid_penalty_cents ?? 0),
+    );
+
+    const nonRestitutionInvoiceTotalCents =
+      invoiceTotalFromCharge ||
+      Math.max(0, Number(row.non_restitution_charge_cents ?? 0)) ||
+      (nonRestitutionInvoiced ? Math.max(0, Number(overdueSnapshot?.cartValueCents ?? 0) + unpaidPenaltyCents) : 0);
+
+    const postRestitutionDeadline =
+      formalNoticeDeadlinePassed ||
+      isAtOrPastRestitutionDeadlineDay(nowMs, formalNoticeDeadlineIso) ||
+      nonRestitutionInvoiced ||
+      nonRestitutionSettled;
+
+    const { data: openDispute } = await supabase
+      .from("cart_disputes")
+      .select("id")
+      .eq("cart_id", cartId)
+      .is("deleted_at", null)
+      .in("status", ["open", "in_review"])
+      .limit(1)
+      .maybeSingle();
+
+    const hasOpenDispute = Boolean(openDispute?.id) || String(cart.status ?? "") === "disputed";
+
     return {
       cartId,
       overdueId: row.id,
-      recoveryPhase: row.recovery_phase,
+      recoveryPhase,
       overdueStatus: row.status,
       lateDayIndex,
       hasFailedCharge,
@@ -214,6 +330,12 @@ export async function fetchMemberBorrowOverdueAppGate(
         ? formatBorrowReturnDueDateFr(formalNoticeDeadlineMs)
         : null,
       formalNoticeDeadlinePassed,
+      nonRestitutionSettled,
+      nonRestitutionInvoiced,
+      postRestitutionDeadline,
+      nonRestitutionInvoiceUrl,
+      nonRestitutionInvoiceTotalCents,
+      hasOpenDispute,
       empruntHref: `/exchange/emprunt/${cartId}`,
       regulariserHref: `/exchange/emprunt/${cartId}/regulariser`,
       problemeHref: `/commande/${cartId}/probleme?kind=borrow`,

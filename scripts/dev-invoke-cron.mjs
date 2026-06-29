@@ -43,6 +43,7 @@ function loadDotEnvFile(relPath) {
 const CRON_ROUTES = [
   "member-borrow-overdue-accrual",
   "member-borrow-formal-notice",
+  "member-borrow-non-restitution-invoice",
   "member-onboarding-reminders",
   "member-abandoned-cart-reminders",
   "member-borrow-return-reminders",

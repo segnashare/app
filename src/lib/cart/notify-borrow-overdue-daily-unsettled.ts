@@ -16,6 +16,7 @@ export async function notifyBorrowOverdueDailyWhenUnsettled(
     accrue: BorrowOverdueAccrueResult;
     settleError?: string | null;
     cronSmsNowMs?: number;
+    skipCronSmsDailyCap?: boolean;
   },
 ): Promise<boolean> {
   const penaltyCents = Math.max(0, Math.trunc(Number(input.accrue.penalty_cents ?? 0)));
@@ -48,6 +49,7 @@ export async function notifyBorrowOverdueDailyWhenUnsettled(
     chargeFailureReason: ctx.chargeFailureReason,
     calendarDate: input.calendarDate,
     cronSmsNowMs: input.cronSmsNowMs,
+    skipCronSmsDailyCap: input.skipCronSmsDailyCap,
   });
 
   return true;

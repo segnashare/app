@@ -11,6 +11,7 @@ import {
 } from "@/lib/emprunt/borrow-overdue-penalty";
 import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import { settleCartBorrowOverdueStripe } from "@/lib/cart/settle-borrow-overdue-stripe";
+import { maybeNotifyBorrowOverdueEscalationDisputeN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
 
 /**
  * Journalise le jour de retard en base (`cart_borrow_overdue*`) pour les paniers du membre.
@@ -126,6 +127,13 @@ export async function syncMemberBorrowOverdueAccrual(
       accrued++;
     } else if (row?.skipped) {
       console.info("[borrow-overdue] sync skip", cart.id, row.skipped);
+    }
+
+    try {
+      await maybeNotifyBorrowOverdueEscalationDisputeN8n(admin, cart.id, row);
+    } catch (e) {
+      console.error("[borrow-overdue] sync dispute n8n", cart.id, e);
+      errors++;
     }
 
     const stripe = await settleCartBorrowOverdueStripe(admin, {

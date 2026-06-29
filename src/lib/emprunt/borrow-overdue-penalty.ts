@@ -65,4 +65,7 @@ export type BorrowOverdueAccrueResult = {
   rate_bps?: number;
   day_id?: string;
   error?: string;
+  escalated?: boolean;
+  dispute_id?: string | null;
+  dispute_created?: boolean;
 };

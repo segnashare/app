@@ -50,7 +50,8 @@ export async function POST(request: Request) {
   const result = await sendBorrowFormalNoticeForCart(admin, {
     cartId,
     force: body.force === true,
-    dryRun: body.dry_run === true,
+    dryRun:
+      body.dry_run === true || process.env.SEGNA_BORROW_FORMAL_NOTICE_DRY_RUN === "1",
   });
 
   if (!result.ok) {

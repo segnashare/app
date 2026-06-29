@@ -73,9 +73,12 @@ export function borrowFormalNoticeDeadlineIso(sentAtIso: string): string {
   return new Date(ms).toISOString();
 }
 
-/** Montant PI indemnité = valeur panier + frais traitement. */
-export function borrowNonRestitutionChargeTotalCents(cartValueCents: number): number {
-  return Math.max(0, Math.trunc(cartValueCents)) + borrowNonReturnProcessingFeeCents(cartValueCents);
+/** Montant facture non-restitution = valeur panier + frais de retard non réglés. */
+export function borrowNonRestitutionChargeTotalCents(
+  cartValueCents: number,
+  unpaidPenaltyCents: number = 0,
+): number {
+  return Math.max(0, Math.trunc(cartValueCents)) + Math.max(0, Math.trunc(unpaidPenaltyCents));
 }
 
 export function isPenaltyCapReached(_penaltiesAccruedCents: number, _cartValueCents: number): boolean {
@@ -90,7 +93,8 @@ export function runBorrowOverdueRecoveryPolicySelfTest(): void {
 
   assert(borrowNonReturnProcessingFeeCents(800) === 1999, "fee lt 100");
   assert(borrowNonReturnProcessingFeeCents(10_000) === 2999, "fee gte 100");
-  assert(borrowNonRestitutionChargeTotalCents(800) === 800 + 1999, "charge total");
+  assert(borrowNonRestitutionChargeTotalCents(800, 4200) === 5000, "charge total");
+  assert(borrowNonRestitutionChargeTotalCents(800, 0) === 800, "charge cart only");
   assert(!isPenaltyCapReached(800, 800), "no penalty cap");
   assert(BORROW_FORMAL_NOTICE_DEADLINE_DAYS === 10, "med deadline");
   assert(

@@ -10,6 +10,7 @@ import {
 } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
+import { processBorrowNonRestitutionStripeInvoiceEvent } from "@/lib/stripe/borrow-non-restitution-invoice-webhook";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -172,6 +173,14 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
         console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (subscription event)", e);
       }
       return "processed";
+    }
+
+    case "invoice.paid":
+    case "invoice.payment_failed":
+    case "invoice.marked_uncollectible":
+    case "invoice.finalized": {
+      const invoice = event.data.object as Stripe.Invoice;
+      return processBorrowNonRestitutionStripeInvoiceEvent(admin, invoice, event.type);
     }
 
     default:

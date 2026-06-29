@@ -6,6 +6,7 @@ import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-u
 import { fetchMemberPendingReceiptGate } from "@/lib/cart/fetch-member-pending-receipt-gate";
 import { fetchMemberBorrowOverdueAppGate } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function MainLayout({ children }: { children: ReactNode }) {
@@ -31,9 +32,12 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
   const supabase = (await createSupabaseServerClient()) as any;
+  const admin = createSupabaseAdminClient();
   const [memberReceiptPendingGate, memberBorrowOverdueAppGate] = await Promise.all([
     perf.measure("receipt.pendingGate", () => fetchMemberPendingReceiptGate(supabase, user.id)),
-    perf.measure("borrow.overdueAppGate", () => fetchMemberBorrowOverdueAppGate(supabase, user.id)),
+    perf.measure("borrow.overdueAppGate", () =>
+      fetchMemberBorrowOverdueAppGate(supabase, user.id, Date.now(), { admin }),
+    ),
   ]);
 
   perf.log();

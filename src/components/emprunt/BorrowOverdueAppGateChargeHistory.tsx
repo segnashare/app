@@ -54,19 +54,21 @@ export function BorrowOverdueAppGateChargeHistory({
   });
 
   return (
-    <div className="mt-3 rounded-xl border border-zinc-200/90 bg-zinc-50/80 text-left">
+    <div className="rounded-xl border border-zinc-200/90 bg-zinc-50/80 text-left">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left sm:py-2.5"
       >
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-semibold text-zinc-900">
+          <span className="block text-[12px] font-semibold text-zinc-900 sm:text-[13px]">
             {formatBorrowOverdueAppGateChargeHistoryTitleFr()}
           </span>
           {!open ? (
-            <span className="mt-0.5 block truncate text-[12px] font-medium text-zinc-600">{teaser}</span>
+            <span className="mt-0.5 block truncate text-[11px] font-medium text-zinc-600 sm:text-[12px]">
+              {teaser}
+            </span>
           ) : null}
         </span>
         <ChevronDown
@@ -75,28 +77,28 @@ export function BorrowOverdueAppGateChargeHistory({
           aria-hidden
         />
       </button>
-      {showStripeSettlement && unpaidPenaltyCents > 0 ? (
-        <div className="border-t border-zinc-200/80 px-3 py-2.5">
-          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5">
-            <p className="text-[12px] font-semibold leading-snug text-zinc-900">
-              Total à régler : {formatEuros(unpaidPenaltyCents)}{" "}
-              <Link href={regulariserHref} className={cn(segnaInlineActionLinkClass, "text-[12px] font-semibold")}>
-                {formatBorrowOverdueAppGateChargeHistorySettleLabelFr()}
-              </Link>
-            </p>
-          </div>
-        </div>
-      ) : null}
       {open ? (
-        <div className="space-y-3 border-t border-zinc-200/80 px-3 pb-3 pt-2">
+        <div className="space-y-2 border-t border-zinc-200/80 px-3 pb-2.5 pt-2 sm:space-y-2.5 sm:pb-3">
+          {showStripeSettlement && unpaidPenaltyCents > 0 ? (
+            <div className="rounded-lg border border-zinc-200 bg-white px-2.5 py-2 sm:px-3 sm:py-2.5">
+              <p className="text-[11px] font-semibold leading-snug text-zinc-900 sm:text-[12px]">
+                Total à régler : {formatEuros(unpaidPenaltyCents)}{" "}
+                <Link href={regulariserHref} className={cn(segnaInlineActionLinkClass, "text-[11px] font-semibold sm:text-[12px]")}>
+                  {formatBorrowOverdueAppGateChargeHistorySettleLabelFr()}
+                </Link>
+              </p>
+            </div>
+          ) : null}
           {chargeDays.length === 0 ? (
-            <p className="text-[12px] font-medium text-zinc-600">Aucun prélèvement enregistré pour l&apos;instant.</p>
+            <p className="text-[11px] font-medium text-zinc-600 sm:text-[12px]">
+              Aucun prélèvement enregistré pour l&apos;instant.
+            </p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="max-h-[7.25rem] space-y-1 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch] sm:max-h-[8.5rem] sm:space-y-1.5">
               {[...chargeDays].reverse().map((day) => (
                 <li
                   key={day.id}
-                  className="flex items-baseline justify-between gap-2 text-[12px] leading-snug text-zinc-800"
+                  className="flex items-baseline justify-between gap-2 text-[11px] leading-snug text-zinc-800 sm:text-[12px]"
                 >
                   <span className="min-w-0 truncate">
                     J{day.lateDayIndex}
@@ -106,7 +108,7 @@ export function BorrowOverdueAppGateChargeHistory({
                     <span className="font-semibold tabular-nums">{formatEuros(day.penaltyCents)}</span>
                     <span
                       className={cn(
-                        "ml-1.5 font-medium",
+                        "ml-1 font-medium sm:ml-1.5",
                         day.chargeStatus === "charged"
                           ? "text-emerald-700"
                           : day.chargeStatus === "failed"
@@ -122,7 +124,7 @@ export function BorrowOverdueAppGateChargeHistory({
             </ul>
           )}
           {unpaidPenaltyCents > 0 && !showStripeSettlement ? (
-            <p className="text-[12px] font-medium leading-relaxed text-zinc-600">
+            <p className="text-[11px] font-medium leading-relaxed text-zinc-600 sm:text-[12px]">
               {formatBorrowOverdueAppGateChargeHistoryPendingNoteFr()}
             </p>
           ) : null}
