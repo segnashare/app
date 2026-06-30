@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createPerfTracker } from "@/lib/perf/server-timing";
+import {
+  isBorrowRecoveryAuthSuspendAllowedPath,
+  parseBorrowRecoveryAuthSuspendRow,
+} from "@/lib/emprunt/borrow-recovery-auth-suspend";
 
 const SESSION_IDLE_COOKIE = "segna_last_seen_at";
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -13,6 +17,7 @@ const PUBLIC_PREFIXES = [
   "/auth/reset-password",
   "/auth/sign-up/email",
   "/auth/sign-up/verify",
+  "/auth/emprunt-suspendu",
 ];
 
 const PROTECTED_PREFIXES = [
@@ -235,6 +240,51 @@ export async function middleware(request: NextRequest) {
     return finalize(NextResponse.redirect(url));
   }
 
+  if (user && (isProtectedRoute(pathname) || pathname.startsWith("/api"))) {
+    const borrowOverdueApiBypass =
+      pathname.startsWith("/api/stripe/borrow-overdue") ||
+      API_MIDDLEWARE_BYPASS_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+
+    if (!borrowOverdueApiBypass) {
+      const suspendRes = await perf.measure("users.borrow_recovery_suspend.read", () =>
+        supabase
+          .from("users")
+          .select(
+            "borrow_recovery_suspended_at, borrow_recovery_suspend_cart_id, borrow_recovery_suspend_reason",
+          )
+          .eq("id", user.id)
+          .maybeSingle(),
+      );
+
+      const suspend = parseBorrowRecoveryAuthSuspendRow(
+        suspendRes.data as {
+          borrow_recovery_suspended_at?: string | null;
+          borrow_recovery_suspend_cart_id?: string | null;
+          borrow_recovery_suspend_reason?: string | null;
+        } | null,
+      );
+
+      if (suspend) {
+        const allowed = isBorrowRecoveryAuthSuspendAllowedPath(
+          pathname,
+          request.nextUrl.searchParams,
+          suspend.cartId,
+        );
+        if (!allowed) {
+          if (pathname.startsWith("/api")) {
+            return finalize(
+              NextResponse.json({ error: "borrow_recovery_auth_suspended" }, { status: 403 }),
+            );
+          }
+          const url = request.nextUrl.clone();
+          url.pathname = "/auth/emprunt-suspendu";
+          url.search = "";
+          return finalize(NextResponse.redirect(url));
+        }
+      }
+    }
+  }
+
   let cachedReachedIndex: number | null = null;
   let cachedReachedPath: OnboardingPath | undefined;
   let cachedStatus: string | null | undefined;
@@ -427,7 +477,13 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (user && isPublicRoute(pathname) && pathname !== "/" && !isExplicitMemberSignIn(request)) {
+  if (
+    user &&
+    isPublicRoute(pathname) &&
+    pathname !== "/" &&
+    pathname !== "/auth/emprunt-suspendu" &&
+    !isExplicitMemberSignIn(request)
+  ) {
     const { reachedIndex, status, onboardingMode } = await ensureFullReachedState();
     const url = request.nextUrl.clone();
     url.pathname =
