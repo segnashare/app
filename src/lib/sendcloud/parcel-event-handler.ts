@@ -124,21 +124,29 @@ function cartOutboundSendcloudIndicatesTransit(msg: string, statusId: number): b
 }
 
 function cartOutboundSendcloudIndicatesRelayPickupReady(msg: string, statusId: number): boolean {
-  if (cartOutboundSendcloudIndicatesTransit(msg, statusId)) return false;
-  return (
+  const pickupByMessage =
+    msg.includes("awaiting customer pickup") ||
     msg.includes("awaiting pickup") ||
+    (msg.includes("awaiting") && msg.includes("pickup")) ||
     msg.includes("ready for pickup") ||
     msg.includes("available for pickup") ||
     msg.includes("ready to pick up") ||
     msg.includes("ready for collection") ||
     msg.includes("parcel is ready for collection") ||
     msg.includes("point de retrait") ||
+    msg.includes("attente du retrait") ||
+    (msg.includes("en attente") && msg.includes("retrait")) ||
     (msg.includes("disponible") && msg.includes("retrait")) ||
     (msg.includes("prêt") && msg.includes("retrait")) ||
     (msg.includes("pret") && msg.includes("retrait")) ||
     statusId === 91 ||
-    statusId === 745
-  );
+    statusId === 745;
+
+  // Libellé relais explicite (ex. Chronopost « en attente du retrait ») prime sur un statusId transit ambigu.
+  if (pickupByMessage) return true;
+
+  if (cartOutboundSendcloudIndicatesTransit(msg, statusId)) return false;
+  return false;
 }
 
 /** Relais : premier transit → `dropped_in` ; ensuite → `in_transit_in`. */
