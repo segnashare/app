@@ -14,6 +14,7 @@ import { InAppOnboardingIntroModal } from "@/components/onboarding/InAppOnboardi
 import { InAppOnboardingRewardModal } from "@/components/onboarding/InAppOnboardingRewardModal";
 import { ReferrerBonusModal, type ReferrerBonusModalPayload } from "@/components/referral/ReferrerBonusModal";
 import { BorrowOverdueAppGateModal } from "@/components/emprunt/BorrowOverdueAppGateModal";
+import { BorrowOverduePaymentRecoveryBanner } from "@/components/emprunt/BorrowOverduePaymentRecoveryBanner";
 import { MemberReceiptPendingGateModal } from "@/components/commande/MemberReceiptPendingGateModal";
 import type { MemberReceiptPendingGatePayload } from "@/lib/cart/fetch-member-pending-receipt-gate";
 import type { MemberBorrowOverdueAppGate } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
@@ -59,6 +60,9 @@ export function MainShell({
           <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-900">
             Mode demo: modifications et paiements desactives.
           </div>
+        ) : null}
+        {memberBorrowOverdueAppGate ? (
+          <BorrowOverduePaymentRecoveryBanner gate={memberBorrowOverdueAppGate} />
         ) : null}
         <div className={cn("flex min-h-[100dvh] flex-col md:min-h-[calc(100dvh-48px)]")}>{children}</div>
       </div>

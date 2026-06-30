@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
+import { enterBorrowPaymentRecovery, clearBorrowPaymentRecoveryIfSettled } from "@/lib/emprunt/borrow-payment-recovery";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { resolveStripeCustomerPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 
@@ -83,6 +84,7 @@ async function chargeBorrowOverdueViaStripe(
   const pm = await resolveStripeCustomerPaymentMethod(stripe, admin, input.userId);
   if (!pm.ok) {
     await markOverdueDaysChargeFailed(admin, input.overdueDayIds);
+    await enterBorrowPaymentRecovery(admin, { cartId: input.cartId, chargeError: pm.error });
     return { charged: false, error: pm.error };
   }
 
@@ -112,14 +114,18 @@ async function chargeBorrowOverdueViaStripe(
 
     if (pi.status !== "succeeded") {
       await markOverdueDaysChargeFailed(admin, input.overdueDayIds);
-      return { charged: false, error: `payment_intent_${pi.status}` };
+      const err = `payment_intent_${pi.status}`;
+      await enterBorrowPaymentRecovery(admin, { cartId: input.cartId, chargeError: err });
+      return { charged: false, error: err };
     }
 
     await markOverdueDaysCharged(admin, input.overdueDayIds, pi.id);
+    await clearBorrowPaymentRecoveryIfSettled(admin, input.cartId);
     return { charged: true, paymentIntentId: pi.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await markOverdueDaysChargeFailed(admin, input.overdueDayIds);
+    await enterBorrowPaymentRecovery(admin, { cartId: input.cartId, chargeError: msg });
     return { charged: false, error: msg };
   }
 }

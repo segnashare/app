@@ -23,6 +23,7 @@ export type MemberBorrowOverdueAppGate = {
   cartId: string;
   overdueId: string;
   recoveryPhase: string | null;
+  recoveryStatus: string;
   overdueStatus: string;
   lateDayIndex: number;
   hasFailedCharge: boolean;
@@ -32,6 +33,7 @@ export type MemberBorrowOverdueAppGate = {
   unpaidPenaltyCents: number;
   cartValueCents: number;
   showStripeSettlement: boolean;
+  showPaymentRecoveryBanner: boolean;
   nonRestitutionDeadlineLabel: string;
   nonRestitutionDeadlineIsProjected: boolean;
   formalNoticeSent: boolean;
@@ -100,7 +102,7 @@ export async function fetchMemberBorrowOverdueAppGate(
   const { data: overdueRows, error: oErr } = await supabase
     .from("cart_borrow_overdue")
     .select(
-      "id,cart_id,status,recovery_phase,formal_notice_sent_at,formal_notice_deadline_at,non_restitution_invoice_id,non_restitution_charge_cents",
+      "id,cart_id,status,recovery_phase,recovery_status,formal_notice_sent_at,formal_notice_deadline_at,non_restitution_invoice_id,non_restitution_charge_cents",
     )
     .eq("user_id", userId)
     .in("status", ["active", "escalated"])
@@ -114,6 +116,7 @@ export async function fetchMemberBorrowOverdueAppGate(
     cart_id: string;
     status: string;
     recovery_phase: string | null;
+    recovery_status?: string | null;
     formal_notice_sent_at?: string | null;
     formal_notice_deadline_at?: string | null;
     non_restitution_charge_cents?: number | null;
@@ -214,6 +217,11 @@ export async function fetchMemberBorrowOverdueAppGate(
     const totalPenaltyCents = overdueSnapshot?.totalPenaltyCents ?? chargedPenaltyCents + unpaidPenaltyCents;
     const showStripeSettlement =
       hasFailedCharge || unpaidPenaltyCents >= BORROW_OVERDUE_STRIPE_MIN_EUR_CENTS;
+    const showPaymentRecoveryBanner =
+      row.recovery_phase === "payment_recovery" ||
+      String(row.recovery_status ?? "") === "requires_action" ||
+      String(row.recovery_status ?? "") === "recovery_required" ||
+      (hasFailedCharge && unpaidPenaltyCents >= BORROW_OVERDUE_STRIPE_MIN_EUR_CENTS);
 
     const formalNoticeSent = Boolean(String(row.formal_notice_sent_at ?? "").trim());
     const formalNoticeDeadlineIso = String(row.formal_notice_deadline_at ?? "").trim();
@@ -269,6 +277,7 @@ export async function fetchMemberBorrowOverdueAppGate(
     }
 
     const recoveryPhase = row.recovery_phase;
+    const recoveryStatus = String(row.recovery_status ?? "none");
     const chargeSucceeded = String(chargeRow?.status ?? "").toLowerCase() === "succeeded";
     const nonRestitutionSettled =
       recoveryPhase === "non_restitution_charged" ||
@@ -314,6 +323,7 @@ export async function fetchMemberBorrowOverdueAppGate(
       cartId,
       overdueId: row.id,
       recoveryPhase,
+      recoveryStatus,
       overdueStatus: row.status,
       lateDayIndex,
       hasFailedCharge,
@@ -323,6 +333,7 @@ export async function fetchMemberBorrowOverdueAppGate(
       unpaidPenaltyCents,
       cartValueCents: overdueSnapshot?.cartValueCents ?? 0,
       showStripeSettlement,
+      showPaymentRecoveryBanner,
       nonRestitutionDeadlineLabel: formatBorrowReturnDueDateFr(deadlineMs),
       nonRestitutionDeadlineIsProjected: isProjected,
       formalNoticeSent,
