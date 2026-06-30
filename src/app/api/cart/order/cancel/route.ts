@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
-import { cancelCartOutboundSendcloudOrder } from "@/lib/cart/cancel-cart-outbound-sendcloud-order";
+import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
@@ -66,6 +66,17 @@ export async function POST(request: Request) {
     invoiceRaw != null && typeof invoiceRaw === "object" && !Array.isArray(invoiceRaw)
       ? (invoiceRaw as Record<string, unknown>)
       : null;
+
+  const admin = createSupabaseAdminClient();
+
+  try {
+    const scCancel = await cancelCartSendcloudOrdersForCart(admin, cartId);
+    if (scCancel.notices.length > 0) {
+      console.info("[api/cart/order/cancel] sendcloud (pre-rpc)", scCancel.notices.join(" · "));
+    }
+  } catch (e) {
+    console.error("[api/cart/order/cancel] sendcloud cancel (pre-rpc)", e);
+  }
 
   const { data, error } = await supabase.rpc("member_cancel_cart_order_pending_preparation", {
     p_cart_id: cartId,
@@ -149,15 +160,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const admin = createSupabaseAdminClient();
-  try {
-    const scCancel = await cancelCartOutboundSendcloudOrder(admin, cartId);
-    if (scCancel.notices.length > 0) {
-      console.info("[api/cart/order/cancel] sendcloud", scCancel.notices.join(" · "));
-    }
-  } catch (e) {
-    console.error("[api/cart/order/cancel] sendcloud cancel", e);
-  }
+  await archiveCartShipmentsAfterCancel(admin, cartId);
 
   const hadStripePayment = cents > 0;
   const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);

@@ -70,7 +70,7 @@ import { toCheckoutSendcloudOutboundOption } from "@/lib/cart/use-sendcloud-outb
 import { useSendcloudCheckoutShippingQuote } from "@/lib/cart/use-sendcloud-checkout-shipping-quote";
 import { SEGNA_PARCEL_WEIGHT_GRAMS, centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { formatCheckoutRelayDisplayLabel } from "@/lib/sendcloud/relay-point-ref";
-import { buildUberMemberArrivalLineFr, uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
+import { buildCoursierMemberArrivalLineFr, coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CheckoutHomePlanCarrierIcon } from "@/components/cart/CheckoutHomePlanCarrierIcon";
 import {
@@ -372,10 +372,10 @@ export function CartPaymentScreen({
           const addr = readCheckoutDeliveryAddress();
           if (addr == null || deliveryAddressKeyRef.current !== keyWhenScheduled) return;
 
-          const res = await fetch("/api/uber-direct/quote", {
+          const res = await fetch("/api/coursier/quote", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deliveryAddress: addr }),
+            body: JSON.stringify({ deliveryAddress: addr, itemCount: initialLines.length }),
           });
           const j = (await res.json()) as {
             ok?: boolean;
@@ -406,7 +406,7 @@ export function CartPaymentScreen({
           } else {
             setUberQuote(null);
             setUberQuoteFetch("error");
-            setUberQuoteError("Réponse Uber inattendue.");
+            setUberQuoteError("Réponse Coursier inattendue.");
             setUberQuoteErrorCode(null);
             setUberQuoteErrorDetail(null);
           }
@@ -414,7 +414,7 @@ export function CartPaymentScreen({
           if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
           setUberQuote(null);
           setUberQuoteFetch("error");
-          setUberQuoteError("Connexion impossible pour le devis Uber.");
+          setUberQuoteError("Connexion impossible pour le devis express.");
           setUberQuoteErrorCode(null);
           setUberQuoteErrorDetail(null);
         }
@@ -427,7 +427,7 @@ export function CartPaymentScreen({
         uberQuoteDebounceRef.current = null;
       }
     };
-  }, [deliveryAddressKey]);
+  }, [deliveryAddressKey, initialLines.length]);
 
   const uberQuotePanelPhase: UberDirectQuotePhase = useMemo(() => {
     if (deliveryChannel !== "home") return "invite";
@@ -444,7 +444,7 @@ export function CartPaymentScreen({
 
   useEffect(() => {
     if (deliveryChannel !== "home" || uberQuoteFetch !== "error") return;
-    console.warn("[uber-direct/quote] devis indisponible au checkout", {
+    console.warn("[coursier/quote] devis indisponible au checkout", {
       message: uberQuoteError,
       code: uberQuoteErrorCode,
       detail: uberQuoteErrorDetail,
@@ -470,18 +470,11 @@ export function CartPaymentScreen({
     homeSpeed === "uber_direct" &&
     uberQuoteFetch === "ok" &&
     uberQuote
-      ? `${String(uberQuote.id ?? "")}|${String(uberQuote.duration ?? "")}`
+      ? `${String(uberQuote.serviceId ?? "")}|${String(uberQuote.deliveryEndDate ?? "")}`
       : "";
-  const uberArrivalBaseTimeMs = useMemo(() => {
-    void uberArrivalKey;
-    return Date.now();
-  }, [uberArrivalKey]);
   const uberArrivalLine = useMemo(
-    () =>
-      uberArrivalKey
-        ? buildUberMemberArrivalLineFr(uberQuote, uberArrivalBaseTimeMs)
-        : null,
-    [uberArrivalKey, uberArrivalBaseTimeMs, uberQuote],
+    () => (uberArrivalKey ? buildCoursierMemberArrivalLineFr(uberQuote) : null),
+    [uberArrivalKey, uberQuote],
   );
 
   const itemCount = initialLines.length;
@@ -699,7 +692,7 @@ export function CartPaymentScreen({
   const uberOutboundCentsFromQuote = useMemo(() => {
     if (deliveryChannel !== "home") return null;
     if (uberQuoteFetch !== "ok" || !uberQuote) return null;
-    return uberQuoteFeeCentsFromRaw(uberQuote);
+    return coursierQuoteFeeCentsFromRaw(uberQuote);
   }, [deliveryChannel, uberQuoteFetch, uberQuote]);
 
   const exchangeShipping = useMemo(() => {

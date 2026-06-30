@@ -34,10 +34,11 @@ import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
-import { buildFranceUberAddressJson } from "@/lib/uber-direct/addresses";
-import { readUberDirectConfig } from "@/lib/uber-direct/config";
-import { fetchUberDeliveryQuoteRaw } from "@/lib/uber-direct/deliveries-api";
-import { uberQuoteFeeCentsFromRaw } from "@/lib/uber-direct/format-quote-for-display";
+import { parseFranceCoursierAddress } from "@/lib/coursier/addresses";
+import { readCoursierConfig } from "@/lib/coursier/config";
+import { fetchCoursierExpressQuote } from "@/lib/coursier/getprice-api";
+import { buildDefaultCoursierPackages } from "@/lib/coursier/packages";
+import { coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
 import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shipping-postal";
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
@@ -376,49 +377,59 @@ export async function POST(request: Request) {
       remainingIncludedOrdersThisMonth: remainingIncludedOrders,
     });
 
-    const needsUberQuote =
+    const needsExpressQuote =
       deliveryChannel === "home" &&
       homeSpeedBilling === "uber_direct" &&
       includedExchangeShipping === "none";
 
-    let uberFeeCents: number | null = null;
-    if (needsUberQuote) {
+    let expressOutboundHtCents: number | null = null;
+    if (needsExpressQuote) {
       if (!deliveryAddress) {
         return NextResponse.json(
-          { message: "Adresse de livraison requise pour Uber Direct." },
+          { message: "Adresse de livraison requise pour la livraison express." },
           { status: 400 },
         );
       }
-      const uberConfig = readUberDirectConfig();
-      if (!uberConfig) {
+      const coursierConfig = readCoursierConfig();
+      if (!coursierConfig) {
         return NextResponse.json(
-          { message: "Uber Direct n’est pas configuré sur ce serveur — impossible de lancer le paiement." },
+          { message: "Coursier.fr n’est pas configuré sur ce serveur — impossible de lancer le paiement." },
           { status: 503 },
         );
       }
-      const dropoffAddressJson = buildFranceUberAddressJson(
+      const toAddress = parseFranceCoursierAddress(
         deliveryAddress.label,
         deliveryAddress.city ?? deliveryAddress.relativeCity,
       );
-      let quote: Record<string, unknown>;
+      if (!toAddress.PostalCode || !toAddress.Address) {
+        return NextResponse.json(
+          { message: "Adresse de livraison incomplète (rue ou code postal manquant)." },
+          { status: 400 },
+        );
+      }
       try {
-        quote = await fetchUberDeliveryQuoteRaw({ config: uberConfig, dropoffAddressJson });
+        const quote = await fetchCoursierExpressQuote({
+          config: coursierConfig,
+          fromAddress: coursierConfig.pickupAddress,
+          toAddress,
+          packages: buildDefaultCoursierPackages(itemCount),
+        });
+        const parsed = coursierQuoteFeeCentsFromRaw(quote);
+        if (parsed == null) {
+          return NextResponse.json(
+            { message: "Réponse Coursier inattendue (tarif). Réessaie dans un instant." },
+            { status: 502 },
+          );
+        }
+        expressOutboundHtCents = parsed;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "uber_quote_failed";
-        console.error("[stripe/cart/checkout] uber quote for billing failed", msg);
+        const msg = e instanceof Error ? e.message : "coursier_quote_failed";
+        console.error("[stripe/cart/checkout] coursier quote for billing failed", msg);
         return NextResponse.json(
-          { message: "Impossible d’obtenir le tarif Uber pour cette adresse. Vérifie l’adresse ou réessaie." },
+          { message: "Impossible d’obtenir le tarif express pour cette adresse. Vérifie l’adresse ou réessaie." },
           { status: 502 },
         );
       }
-      const parsed = uberQuoteFeeCentsFromRaw(quote);
-      if (parsed == null) {
-        return NextResponse.json(
-          { message: "Réponse Uber inattendue (tarif). Réessaie dans un instant." },
-          { status: 502 },
-        );
-      }
-      uberFeeCents = parsed;
     }
 
     let billedRoundTripHtCents: number;
@@ -431,7 +442,7 @@ export async function POST(request: Request) {
         complementRelayFree,
         relayRoundTrip,
         currentRoundTrip,
-        uberOutboundHtCents: uberFeeCents,
+        uberOutboundHtCents: expressOutboundHtCents,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "shipping_ht_failed";
@@ -442,7 +453,7 @@ export async function POST(request: Request) {
       );
     }
 
-    /** Plus de surtaxe Segna pour Uber : aller facturé = devis API `delivery_quotes` + retour barème relais. */
+    /** Aller express facturé = devis Coursier `getprice` + retour barème relais. */
     const priorityCents = 0;
 
     const shippingHtCents = billedRoundTripHtCents + priorityCents;

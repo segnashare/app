@@ -6,7 +6,6 @@ import {
   deleteSendcloudOrder,
   findSendcloudOrderByNumber,
 } from "@/lib/sendcloud/orders-api";
-import { markCartSendcloudOutboundCancelled } from "@/lib/cart/persist-cart-sendcloud-outbound-ref";
 import {
   buildSendcloudOrderNumber,
   fetchSendcloudParcel,
@@ -20,7 +19,7 @@ import {
   isSendcloudParcelCancelled,
 } from "@/lib/sendcloud/shipments";
 
-export type CancelCartOutboundSendcloudOrderResult = {
+export type CancelCartReturnSendcloudOrderResult = {
   ok: boolean;
   skipped?: boolean;
   reason?: string;
@@ -41,13 +40,10 @@ function collectSendcloudOrderNumbers(input: {
   cartId: string;
   shipmentId: string;
   meta: Record<string, unknown>;
-  cartOrderNumber?: string | null;
 }): string[] {
   const numbers = new Set<string>();
   const fromMeta = String(input.meta.sendcloud_order_number ?? "").trim();
   if (fromMeta) numbers.add(fromMeta);
-  const fromCart = String(input.cartOrderNumber ?? "").trim();
-  if (fromCart) numbers.add(fromCart);
 
   const maxGen = Math.max(1, Math.min(10, Math.trunc(Number(input.meta.sendcloud_label_generation ?? 1))));
   for (let gen = 1; gen <= maxGen + 2; gen++) {
@@ -80,9 +76,9 @@ async function cancelSendcloudParcelsAndShipmentsForOrderNumber(
   for (const shipmentId of await findSendcloudShipmentIdsByOrderNumber(env, on)) {
     const cancelled = await cancelSendcloudShipment(env, shipmentId);
     if (cancelled.ok) {
-      notices.push(`Expédition Sendcloud ${shipmentId} annulée (${on}).`);
+      notices.push(`Expédition Sendcloud retour ${shipmentId} annulée (${on}).`);
     } else {
-      notices.push(`Échec annulation expédition ${shipmentId} : ${cancelled.error}`);
+      notices.push(`Échec annulation expédition retour ${shipmentId} : ${cancelled.error}`);
     }
   }
 
@@ -93,33 +89,31 @@ async function cancelSendcloudParcelsAndShipmentsForOrderNumber(
   for (const parcelId of parcelIds) {
     const snap = await fetchSendcloudParcel(env, parcelId);
     if (snap?.isCancelled) {
-      notices.push(`Colis Sendcloud ${parcelId} déjà annulé.`);
+      notices.push(`Colis retour Sendcloud ${parcelId} déjà annulé.`);
       continue;
     }
 
     const listed = await findSendcloudParcelsByOrderNumberV3(env, on);
     const listedParcel = listed.find((p) => p.id === parcelId);
     if (listedParcel && isSendcloudParcelCancelled(listedParcel)) {
-      notices.push(`Colis Sendcloud ${parcelId} déjà annulé (v3).`);
+      notices.push(`Colis retour Sendcloud ${parcelId} déjà annulé (v3).`);
       continue;
     }
 
     const cancelled = await cancelSendcloudOutboundParcel(env, parcelId);
     if (cancelled.ok) {
-      notices.push(`Colis Sendcloud ${parcelId} annulé (${on}).`);
+      notices.push(`Colis retour Sendcloud ${parcelId} annulé (${on}).`);
     } else {
-      notices.push(`Échec annulation colis ${parcelId} : ${cancelled.error}`);
+      notices.push(`Échec annulation colis retour ${parcelId} : ${cancelled.error}`);
     }
   }
 }
 
-/**
- * Annule côté Sendcloud la commande / tous les colis aller liés au panier (best-effort, ne bloque pas l’annulation BO).
- */
-export async function cancelCartOutboundSendcloudOrder(
+/** Annule côté Sendcloud la commande / tous les colis retour liés au panier (best-effort). */
+export async function cancelCartReturnSendcloudOrder(
   admin: SupabaseClient,
   cartId: string,
-): Promise<CancelCartOutboundSendcloudOrderResult> {
+): Promise<CancelCartReturnSendcloudOrderResult> {
   const notices: string[] = [];
   const env = getSendcloudEnv();
   if (!env) {
@@ -128,24 +122,17 @@ export async function cancelCartOutboundSendcloudOrder(
 
   const trimmedCartId = cartId.trim();
 
-  const { data: cartRow } = await admin
-    .from("carts")
-    .select("sendcloud_outbound_order_number")
-    .eq("id", trimmedCartId)
-    .is("deleted_at", null)
-    .maybeSingle();
-
   const { data: ship } = await admin
     .from("shipments")
     .select("id")
     .eq("cart_id", trimmedCartId)
-    .eq("context", "cart_outbound")
+    .eq("context", "cart_return")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (!ship?.id) {
-    return { ok: true, skipped: true, reason: "no_shipment", notices };
+    return { ok: true, skipped: true, reason: "no_return_shipment", notices };
   }
 
   const shipmentId = String(ship.id);
@@ -181,10 +168,6 @@ export async function cancelCartOutboundSendcloudOrder(
     cartId: trimmedCartId,
     shipmentId,
     meta,
-    cartOrderNumber:
-      typeof cartRow?.sendcloud_outbound_order_number === "string"
-        ? cartRow.sendcloud_outbound_order_number
-        : null,
   });
 
   for (const orderNumber of orderNumbers) {
@@ -195,7 +178,6 @@ export async function cancelCartOutboundSendcloudOrder(
   const panelOrderId = String(meta.sendcloud_panel_order_id ?? "").trim();
   const primaryOrderNumber =
     String(meta.sendcloud_order_number ?? "").trim() ||
-    String(cartRow?.sendcloud_outbound_order_number ?? "").trim() ||
     buildSendcloudOrderNumber({ cartId: trimmedCartId, shipmentId, generation: 1 });
 
   const orderIdsToDelete = new Set<string>();
@@ -212,14 +194,10 @@ export async function cancelCartOutboundSendcloudOrder(
   for (const orderIdToDelete of orderIdsToDelete) {
     const deleted = await deleteSendcloudOrder(env, orderIdToDelete);
     if (deleted.ok) {
-      notices.push(`Commande Sendcloud ${orderIdToDelete} supprimée.`);
+      notices.push(`Commande retour Sendcloud ${orderIdToDelete} supprimée.`);
     } else {
-      notices.push(`Échec suppression commande Sendcloud ${orderIdToDelete} : ${deleted.error}`);
+      notices.push(`Échec suppression commande retour Sendcloud ${orderIdToDelete} : ${deleted.error}`);
     }
-  }
-
-  if (orderIdsToDelete.size === 0 && meta.sendcloud_order_provisioned_at) {
-    notices.push("Commande Sendcloud introuvable (déjà supprimée ?).");
   }
 
   const cancelledAt = new Date().toISOString();
@@ -236,11 +214,6 @@ export async function cancelCartOutboundSendcloudOrder(
   if (destId) {
     await admin.from("shipment_destinations").update({ metadata: nextMeta }).eq("id", destId);
   }
-
-  await markCartSendcloudOutboundCancelled(admin, trimmedCartId, {
-    cancelledAt,
-    orderNumber: primaryOrderNumber || undefined,
-  });
 
   return { ok: true, notices };
 }

@@ -79,6 +79,120 @@ export async function pickRelayShippingMethodIdForCarrier(
   return fallback?.id ?? null;
 }
 
+/**
+ * Méthode panel retour pour un transporteur donné (0,5–1 kg FR).
+ * - chronopost → Shop2Shop
+ * - mondial_relay → Locker, puis point relais
+ */
+export async function pickReturnShippingMethodIdForCarrier(
+  env: SendcloudEnv,
+  carrierSlug: string,
+): Promise<number | null> {
+  const c = carrierSlug.trim().toLowerCase();
+  if (!c) return null;
+
+  const res = await sendcloudPanelFetch<{ shipping_methods: { id: number; name?: string; carrier?: string }[] }>(
+    env,
+    "/shipping_methods?sender_address=all",
+    { method: "GET" },
+  );
+  if (!res.ok) return null;
+
+  const methods = res.data.shipping_methods ?? [];
+
+  if (c === "chronopost" || c.includes("chrono")) {
+    const chrono = methods.find(
+      (m) =>
+        m.carrier === "chronopost" &&
+        typeof m.name === "string" &&
+        /shop2shop/i.test(m.name) &&
+        /0\.5-1/i.test(m.name) &&
+        !/international/i.test(m.name),
+    );
+    if (chrono?.id) return chrono.id;
+    return pickRelayShippingMethodIdForCarrier(env, "chronopost");
+  }
+
+  if (c === "mondial_relay" || c.includes("mondial")) {
+    const locker = methods.find(
+      (m) =>
+        m.carrier === "mondial_relay" &&
+        typeof m.name === "string" &&
+        /locker/i.test(m.name) &&
+        /0\.5-1/i.test(m.name) &&
+        !/international/i.test(m.name),
+    );
+    if (locker?.id) return locker.id;
+    return pickRelayShippingMethodIdForCarrier(env, "mondial_relay");
+  }
+
+  return pickRelayShippingMethodIdForCarrier(env, c);
+}
+
+type ReturnCarrierPreference = "chronopost" | "mondial_relay";
+
+function readReturnCarrierPreference(): ReturnCarrierPreference {
+  const raw = (process.env.SENDCLOUD_RETURN_CARRIER_PREFERENCE ?? "chronopost").trim().toLowerCase();
+  if (raw === "mondial_relay" || raw === "mr" || raw === "locker") return "mondial_relay";
+  return "chronopost";
+}
+
+/**
+ * Méthode panel pour retours panier (0,5–1 kg) :
+ * - chronopost : Chrono Shop2Shop (point relais)
+ * - mondial_relay : Locker Delivery
+ */
+export async function pickReturnShippingMethodId(env: SendcloudEnv): Promise<number | null> {
+  const preference = readReturnCarrierPreference();
+  const carriers: ReturnCarrierPreference[] =
+    preference === "mondial_relay" ? ["mondial_relay", "chronopost"] : ["chronopost", "mondial_relay"];
+
+  const res = await sendcloudPanelFetch<{ shipping_methods: { id: number; name?: string; carrier?: string }[] }>(
+    env,
+    "/shipping_methods?sender_address=all",
+    { method: "GET" },
+  );
+  if (!res.ok) return null;
+
+  const methods = res.data.shipping_methods ?? [];
+
+  for (const carrier of carriers) {
+    if (carrier === "chronopost") {
+      const chrono = methods.find(
+        (m) =>
+          m.carrier === "chronopost" &&
+          typeof m.name === "string" &&
+          /shop2shop/i.test(m.name) &&
+          /0\.5-1/i.test(m.name) &&
+          !/international/i.test(m.name),
+      );
+      if (chrono?.id) return chrono.id;
+    }
+    if (carrier === "mondial_relay") {
+      const locker = methods.find(
+        (m) =>
+          m.carrier === "mondial_relay" &&
+          typeof m.name === "string" &&
+          /locker/i.test(m.name) &&
+          /0\.5-1/i.test(m.name) &&
+          !/international/i.test(m.name),
+      );
+      if (locker?.id) return locker.id;
+      const relay = methods.find(
+        (m) =>
+          m.carrier === "mondial_relay" &&
+          typeof m.name === "string" &&
+          (/point relais|service point/i.test(m.name)) &&
+          /0\.5-1/i.test(m.name) &&
+          !/international/i.test(m.name),
+      );
+      if (relay?.id) return relay.id;
+    }
+  }
+
+  return null;
+}
+
 function normMethodLabel(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
 }

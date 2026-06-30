@@ -5,6 +5,7 @@ import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendclou
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { toRelayCheckoutSendcloudOutboundOption } from "@/lib/cart/use-checkout-relay-sendcloud-pricing";
 import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
+import { provisionCartReturnSendcloudOrder } from "@/lib/cart/provision-cart-return-sendcloud-order";
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
@@ -190,7 +191,7 @@ export async function resolveCartCheckoutSendcloudOutboundSelection(params: {
   };
 }
 
-/** Après `confirm_cart_paid_from_stripe` : meta transporteur + commande Sendcloud importée (idempotent). */
+/** Après `confirm_cart_paid_from_stripe` : meta transporteur + commandes Sendcloud aller + retour (idempotent). */
 export async function finalizeCartOutboundSendcloudAfterConfirm(
   admin: AdminClientWithTable,
   params: {
@@ -208,16 +209,40 @@ export async function finalizeCartOutboundSendcloudAfterConfirm(
     );
   }
 
-  try {
-    await provisionCartOutboundSendcloudOrder(admin as unknown as SupabaseClient, {
-      cartId: params.cartId,
-      deliveryChannel: params.deliveryChannel,
-      homeSpeed: params.homeSpeed ?? null,
+  const client = admin as unknown as SupabaseClient;
+
+  const outbound = await provisionCartOutboundSendcloudOrder(client, {
+    cartId: params.cartId,
+    deliveryChannel: params.deliveryChannel,
+    homeSpeed: params.homeSpeed ?? null,
+  });
+  if (!outbound.ok) {
+    console.error("[cart-order] sendcloud outbound provision failed", outbound.error);
+  } else if ("skipped" in outbound && outbound.skipped) {
+    console.info("[cart-order] sendcloud outbound provision skipped", outbound.reason);
+  } else if ("orderNumber" in outbound) {
+    console.info("[cart-order] sendcloud outbound provisioned", outbound.orderNumber);
+  }
+
+  const retour = await provisionCartReturnSendcloudOrder(client, {
+    cartId: params.cartId,
+    deliveryChannel: params.deliveryChannel,
+    homeSpeed: params.homeSpeed ?? null,
+  });
+  if (!retour.ok) {
+    console.error("[cart-order] sendcloud return provision failed", retour.error);
+  } else if ("skipped" in retour && retour.skipped) {
+    console.info("[cart-order] sendcloud return provision skipped", retour.reason);
+  } else if ("orderNumber" in retour) {
+    console.info("[cart-order] sendcloud return provisioned", {
+      orderNumber: retour.orderNumber,
+      returnShipmentId: retour.returnShipmentId,
     });
-  } catch (e) {
-    console.error("[cart-order] sendcloud provision after confirm", e);
   }
 }
+
+/** @deprecated Utiliser finalizeCartOutboundSendcloudAfterConfirm (provision aller + retour). */
+export const finalizeCartSendcloudOrdersAfterConfirm = finalizeCartOutboundSendcloudAfterConfirm;
 
 export async function confirmCartPaidWalletOnly(
   admin: AdminClientWithTable,

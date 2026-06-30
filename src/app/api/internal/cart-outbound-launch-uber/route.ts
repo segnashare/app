@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { launchUberDirectForCartOutboundReady } from "@/lib/uber-direct/launch-uber-for-cart-ready";
+import { launchCoursierForCartOutboundReady } from "@/lib/coursier/launch-coursier-for-cart-ready";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -8,7 +8,7 @@ function isUuid(value: string) {
 }
 
 /**
- * Appel serveur-à-serveur (ex. back-office après « colis prêt ») : crée la course Uber si l’aller est `ready` et la commande était Uber Direct.
+ * Appel serveur-à-serveur (ex. back-office après « colis prêt ») : passe commande Coursier si l’aller est `ready` et la commande était express domicile.
  * Auth : `Authorization: Bearer ${SEGNA_INTERNAL_CART_LAUNCH_UBER_SECRET}`.
  */
 export async function POST(request: Request) {
@@ -35,6 +35,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createSupabaseAdminClient() as any;
-  const uber = await launchUberDirectForCartOutboundReady(admin, cartId);
-  return NextResponse.json({ ok: true as const, uber });
+  const coursier = await launchCoursierForCartOutboundReady(admin, cartId);
+  return NextResponse.json({ ok: true as const, coursier, uber: coursier });
 }

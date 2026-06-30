@@ -75,6 +75,8 @@ export function getSegnaReturnDeliveryRelayHubEntriesFromEnv(): SegnaReturnHubRe
       }
       return out;
     } catch {
+      const m = raw.match(/FR-\d+/i);
+      if (m) return [{ code: m[0]!, label: m[0]! }];
       return [];
     }
   }

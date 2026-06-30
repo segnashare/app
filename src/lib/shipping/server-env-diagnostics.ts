@@ -29,6 +29,7 @@ export type ShippingEnvDiagnostics = {
   mondial_relay_connect: EnvGroupDiagnostic;
   mondial_relay_hub: EnvGroupDiagnostic;
   uber_direct: EnvGroupDiagnostic;
+  coursier: EnvGroupDiagnostic;
 };
 
 function probe(key: string): EnvVarProbe {
@@ -92,6 +93,24 @@ const UBER_REQUIRED = [
 ] as const;
 const UBER_OPTIONAL = ["UBER_DIRECT_ENABLE_TEST_ROBO", "UBER_DIRECT_DROPOFF_PHONE_FALLBACK"] as const;
 
+const COURSIER_REQUIRED = [
+  "COURSIER_USER",
+  "COURSIER_APIKEY",
+  "COURSIER_CLIENT_ID",
+  "COURSIER_PICKUP_ADDRESS",
+  "COURSIER_PICKUP_POSTAL_CODE",
+  "COURSIER_PICKUP_CITY",
+  "COURSIER_PICKUP_COMPANY",
+  "COURSIER_PICKUP_CONTACT",
+  "COURSIER_PICKUP_PHONE",
+] as const;
+const COURSIER_OPTIONAL = [
+  "COURSIER_PICKUP_COUNTRY",
+  "COURSIER_PICKUP_EMAIL",
+  "COURSIER_DROPOFF_PHONE_FALLBACK",
+  "COURSIER_LANG",
+] as const;
+
 export function getShippingEnvDiagnostics(): ShippingEnvDiagnostics {
   return {
     deployment: {
@@ -104,6 +123,7 @@ export function getShippingEnvDiagnostics(): ShippingEnvDiagnostics {
     mondial_relay_connect: diagnoseGroup([...MR_CONNECT_REQUIRED], [...MR_CONNECT_OPTIONAL]),
     mondial_relay_hub: diagnoseGroup([...MR_HUB_REQUIRED], [...MR_HUB_OPTIONAL]),
     uber_direct: diagnoseGroup([...UBER_REQUIRED], [...UBER_OPTIONAL]),
+    coursier: diagnoseGroup([...COURSIER_REQUIRED], [...COURSIER_OPTIONAL]),
   };
 }
 

@@ -9,13 +9,14 @@ type OutboundSnapshot = {
   trackingNumber?: string | null;
 } | null;
 
-/** Aller panier via Uber Direct (provider en base, URL Uber, ou id de livraison type UUID). */
+/** Aller panier express domicile (Coursier.fr ou legacy Uber Direct). */
 export function isUberCartOutboundShipment(s: OutboundSnapshot | undefined): boolean {
   if (!s) return false;
-  if (s.outboundProviderCode === "uber_direct") return true;
+  if (s.outboundProviderCode === "coursier" || s.outboundProviderCode === "uber_direct") return true;
   if (s.memberTrackingUrl && /uber\.com/i.test(s.memberTrackingUrl)) return true;
   const tn = s.trackingNumber;
   if (tn && UUID_RE.test(tn)) return true;
+  if (tn && /^\d{5,12}$/.test(tn.trim())) return true;
   return false;
 }
 

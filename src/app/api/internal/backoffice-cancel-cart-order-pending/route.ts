@@ -4,7 +4,7 @@ import Stripe from "stripe";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
-import { cancelCartOutboundSendcloudOrder } from "@/lib/cart/cancel-cart-outbound-sendcloud-order";
+import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -132,6 +132,15 @@ export async function POST(request: Request) {
 
   const invoice = invRow as Record<string, unknown> | null;
 
+  try {
+    const scCancel = await cancelCartSendcloudOrdersForCart(admin, cartId);
+    if (scCancel.notices.length > 0) {
+      console.info("[internal/backoffice-cancel-cart-order-pending] sendcloud (pre-rpc)", scCancel.notices.join(" · "));
+    }
+  } catch (e) {
+    console.error("[internal/backoffice-cancel-cart-order-pending] sendcloud cancel (pre-rpc)", e);
+  }
+
   const { data: rpcData, error: rpcErr } = await admin.rpc("backoffice_cancel_cart_order_pending_preparation", {
     p_cart_id: cartId,
     p_actor_user_id: actorUserId,
@@ -170,14 +179,7 @@ export async function POST(request: Request) {
     }
   }
 
-  try {
-    const scCancel = await cancelCartOutboundSendcloudOrder(admin, cartId);
-    if (scCancel.notices.length > 0) {
-      console.info("[internal/backoffice-cancel-cart-order-pending] sendcloud", scCancel.notices.join(" · "));
-    }
-  } catch (e) {
-    console.error("[internal/backoffice-cancel-cart-order-pending] sendcloud cancel", e);
-  }
+  await archiveCartShipmentsAfterCancel(admin, cartId);
 
   const idempotencyKey = `txn:${NotificationKind.cartOrderCanceledBackofficePrep}:${cartId}`;
   const smsBody =

@@ -176,3 +176,31 @@ export function findSendcloudDeliveryOptionByMethodId(
     null
   );
 }
+
+function carrierSlugMatchesOption(carrierSlug: string, optionCarrierCode: string): boolean {
+  const slug = carrierSlug.trim().toLowerCase();
+  const code = optionCarrierCode.trim().toLowerCase();
+  if (!slug || !code) return false;
+  if (slug === code) return true;
+  if (slug === "chronopost") return code.includes("chrono");
+  if (slug === "mondial_relay") return code.includes("mondial");
+  if (slug === "colissimo") return code.includes("colissimo");
+  return code.includes(slug) || slug.includes(code);
+}
+
+/** Option Dynamic Checkout alignée sur le transporteur aller (relais ou domicile). */
+export function pickSendcloudDeliveryOptionForCarrier(
+  options: SendcloudDeliveryOption[],
+  channel: "relay" | "home",
+  carrierSlug: string,
+): SendcloudDeliveryOption | null {
+  const slug = carrierSlug.trim().toLowerCase();
+  if (!slug) return null;
+
+  const channelFiltered = options.filter((o) =>
+    channel === "relay" ? isRelayDeliveryMethod(o.deliveryMethodType) : isHomeDeliveryMethod(o.deliveryMethodType),
+  );
+  const pool = channelFiltered.length > 0 ? channelFiltered : options;
+  const byCarrier = pool.filter((o) => carrierSlugMatchesOption(slug, o.carrierCode));
+  return cheapestPricedOption(byCarrier.length > 0 ? byCarrier : pool);
+}
