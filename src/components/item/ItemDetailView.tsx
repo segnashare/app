@@ -75,7 +75,7 @@ function ItemDetailLoadingBody({
         </div>
       </header>
       <div
-        className="mx-auto max-w-[430px] px-6 pb-12 pt-2"
+        className="mx-auto max-w-[430px] px-6 pb-28 pt-2"
         style={{ paddingTop: headerHeight }}
       >
         <div className="pb-2">
@@ -134,6 +134,7 @@ type ItemDetailViewProps = {
   initialOutfitLook?: ItemOutfitLookPayload | null;
   initialOutfitCompanionItems?: ShopCatalogItem[];
   initialOutfitCompanionCoverUrlById?: Record<string, string>;
+  initialGuestCashRental?: boolean;
 };
 
 export function ItemDetailView({
@@ -145,6 +146,7 @@ export function ItemDetailView({
   initialOutfitLook = null,
   initialOutfitCompanionItems = [],
   initialOutfitCompanionCoverUrlById = {},
+  initialGuestCashRental = false,
 }: ItemDetailViewProps = {}) {
   const params = useParams();
   const router = useRouter();
@@ -780,7 +782,7 @@ export function ItemDetailView({
       ) : null}
 
       <div
-        className="relative z-0 mx-auto max-w-[430px] px-6 pb-6"
+        className="relative z-0 mx-auto max-w-[430px] px-6 pb-28"
         style={{ paddingTop: headerHeight + fixedStripHeight }}
       >
         <ItemViewView
@@ -796,6 +798,7 @@ export function ItemDetailView({
           outfitLook={showOutfitSection ? initialOutfitLook : null}
           outfitCompanionItems={showOutfitSection ? initialOutfitCompanionItems : []}
           outfitCompanionCoverUrlById={showOutfitSection ? initialOutfitCompanionCoverUrlById : {}}
+          guestCashRental={initialGuestCashRental}
         />
       </div>
 

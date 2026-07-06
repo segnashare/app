@@ -109,6 +109,7 @@ const COURSIER_OPTIONAL = [
   "COURSIER_PICKUP_EMAIL",
   "COURSIER_DROPOFF_PHONE_FALLBACK",
   "COURSIER_LANG",
+  "COURSIER_CHECKOUT_SERVICE_IDS",
 ] as const;
 
 export function getShippingEnvDiagnostics(): ShippingEnvDiagnostics {

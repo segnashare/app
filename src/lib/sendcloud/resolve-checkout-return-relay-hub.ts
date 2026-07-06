@@ -1,4 +1,5 @@
 import type { CheckoutRelaySelection } from "@/lib/cart/checkout-delivery-storage";
+import { relayPointCodesMatch } from "@/lib/sendcloud/relay-point-ref";
 import { getSegnaReturnDeliveryRelayHubEntriesFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import {
@@ -37,8 +38,7 @@ function pickDefaultHubPoint(points: CheckoutReturnHubRelayPoint[]): CheckoutRet
   const envEntries = getSegnaReturnDeliveryRelayHubEntriesFromEnv();
   if (envEntries.length > 0) {
     for (const entry of envEntries) {
-      const code = entry.code.trim().toUpperCase();
-      const found = points.find((p) => p.code.trim().toUpperCase() === code);
+      const found = points.find((p) => relayPointCodesMatch(p.code, entry.code));
       if (found) {
         return { ...found, label: entry.label.trim() || found.label };
       }
@@ -112,7 +112,9 @@ export async function listCheckoutReturnHubRelays(params?: {
   }
 
   if (hubDisplayCodes.size > 0) {
-    points = points.filter((p) => hubDisplayCodes.has(p.code.trim().toUpperCase()));
+    points = points.filter((p) =>
+      [...hubDisplayCodes].some((envCode) => relayPointCodesMatch(p.code, envCode)),
+    );
   }
 
   if (points.length === 0) {

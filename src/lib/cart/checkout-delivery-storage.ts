@@ -9,6 +9,7 @@ export const CHECKOUT_RELAY_SELECTION_KEY = "segna:checkout-relay-selection";
 export const CHECKOUT_RETURN_RELAY_SELECTION_KEY = "segna:checkout-return-relay-selection";
 export const CHECKOUT_DELIVERY_CHANNEL_KEY = "segna:checkout-delivery-channel";
 export const CHECKOUT_HOME_SPEED_KEY = "segna:checkout-home-speed";
+export const CHECKOUT_COURSIER_SLOT_KEY = "segna:checkout-coursier-slot-key";
 
 /** Onglet checkout « Point relais » / « Domicile » — persistant pour navigation / remontage. */
 export type CheckoutDeliveryChannel = "relay" | "home";
@@ -175,6 +176,25 @@ export function readCheckoutHomeSpeed(): CheckoutHomeDeliverySpeed | null {
 export function writeCheckoutHomeSpeed(value: CheckoutHomeDeliverySpeed) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(CHECKOUT_HOME_SPEED_KEY, value);
+}
+
+export function readCheckoutCoursierSlotKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(CHECKOUT_COURSIER_SLOT_KEY)?.trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCheckoutCoursierSlotKey(value: string | null) {
+  if (typeof window === "undefined") return;
+  if (value == null || !value.trim()) {
+    window.sessionStorage.removeItem(CHECKOUT_COURSIER_SLOT_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(CHECKOUT_COURSIER_SLOT_KEY, value.trim());
 }
 
 /** Champs suffisants pour détecter Paris (client ou corps JSON API checkout). */

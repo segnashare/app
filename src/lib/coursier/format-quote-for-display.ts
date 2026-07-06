@@ -73,9 +73,9 @@ export function buildCoursierMemberArrivalLineFr(
   if (!start || !end) {
     const formattedStart = formatMaybeDateFr(startRaw);
     const formattedEnd = formatMaybeDateFr(endRaw);
-    if (formattedStart && formattedEnd) return `${formattedStart} – ${formattedEnd}`;
+    if (formattedStart && formattedEnd) return `${formattedStart} - ${formattedEnd}`;
     return formattedStart ?? formattedEnd;
   }
 
-  return `${formatClockFr(start)} – ${formatClockFr(end)}`;
+  return `${formatClockFr(start)} - ${formatClockFr(end)}`;
 }

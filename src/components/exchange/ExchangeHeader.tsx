@@ -10,6 +10,7 @@ import { Info } from "lucide-react";
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { SegnaDialogDismissButton } from "@/components/ui/SegnaAppDialog";
 import { useOnboardingOfferActive } from "@/lib/onboarding/onboarding-offer-claimed-event";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeHeaderProps = {
@@ -28,7 +29,9 @@ export function ExchangeHeader({
   guideOfferOnboarding = false,
 }: ExchangeHeaderProps) {
   const [membershipModalOpen, setMembershipModalOpen] = useState(false);
-  const showOfferOnboarding = useOnboardingOfferActive(guideOfferOnboarding);
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
+  const showOfferOnboardingRaw = useOnboardingOfferActive(guideOfferOnboarding);
+  const showOfferOnboarding = guestCashRental ? false : showOfferOnboardingRaw;
 
   const subscriberMembershipDescription = useMemo(() => {
     if (membershipLabel === "Membre X") {
@@ -71,10 +74,10 @@ export function ExchangeHeader({
             </div>
             {membershipLabel === "Guest" ? (
               <div className="mt-2 space-y-2 text-sm text-zinc-600">
-                <p>Tu es en mode Guest avec tes crédits Segna (prêt + allocation mensuelle).</p>
+                <p>Tu es en mode Guest : location de pièces en euros, sans wallet ni prêt vers Segna.</p>
                 <p>
-                  Avec Segna X, tu débloques <strong className="font-bold text-zinc-900">500 crédits Segna</strong>{" "}
-                  par mois et plus d&apos;échanges inclus.
+                  Avec Segna X, tu débloques l&apos;économie crédits, les prêts et{" "}
+                  <strong className="font-bold text-zinc-900">500 crédits Segna</strong> par mois.
                 </p>
               </div>
             ) : subscriberMembershipDescription ? (

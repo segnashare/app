@@ -11,6 +11,7 @@ import type { ItemOutfitCompanionRef, ItemOutfitLookPayload } from "@/lib/items/
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
+import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
@@ -18,6 +19,7 @@ type ItemOutfitSectionProps = {
   outfit: ItemOutfitLookPayload;
   companionItems: ShopCatalogItem[];
   initialCoverUrlById?: Record<string, string>;
+  guestCashRental?: boolean;
 };
 
 function companionRoleLabel(companion: ItemOutfitCompanionRef, item: ShopCatalogItem): string | null {
@@ -26,7 +28,12 @@ function companionRoleLabel(companion: ItemOutfitCompanionRef, item: ShopCatalog
   return null;
 }
 
-export function ItemOutfitSection({ outfit, companionItems, initialCoverUrlById = {} }: ItemOutfitSectionProps) {
+export function ItemOutfitSection({
+  outfit,
+  companionItems,
+  initialCoverUrlById = {},
+  guestCashRental = false,
+}: ItemOutfitSectionProps) {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { cartItemIds, cartBusyIds, toggleCart } = useToggleCartItem();
   const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(initialCoverUrlById);
@@ -117,7 +124,15 @@ export function ItemOutfitSection({ outfit, companionItems, initialCoverUrlById 
                     <p className="truncate text-sm font-semibold text-zinc-900">{item.title}</p>
                     <p className="truncate text-xs text-zinc-600">{item.brand_label ?? "Marque"}</p>
                     <p className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-800">
-                      {(item.price_points ?? 0).toLocaleString("fr-FR")} crédits
+                      {guestCashRental ? (
+                        <ItemWeeklyRentalPriceDisplay
+                          pricePoints={item.price_points}
+                          priceClassName="text-xs font-semibold text-zinc-800"
+                          suffixClassName="text-[11px] font-normal text-zinc-600"
+                        />
+                      ) : (
+                        `${(item.price_points ?? 0).toLocaleString("fr-FR")} crédits`
+                      )}
                     </p>
                   </div>
                   <ChevronRight className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />

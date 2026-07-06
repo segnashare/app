@@ -30,7 +30,7 @@ export function buildMondialRelayTrackingUrl(trackingNumber: string): string {
 export function buildCarrierTrackingUrlFromNumber(trackingNumber: string | null | undefined): string | null {
   const num = String(trackingNumber ?? "").trim();
   if (!num) return null;
-  if (num.toUpperCase().startsWith("XT")) {
+  if (/^XT/i.test(num) || /^[A-Z]{2}\d{9}[A-Z]{2}$/i.test(num) || /^[A-Z]{2}\d/i.test(num)) {
     return buildChronopostTrackingUrl(num);
   }
   return buildMondialRelayTrackingUrl(num);

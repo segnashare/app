@@ -1,50 +1,22 @@
-"use client";
+import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 
-import { Suspense, useLayoutEffect, type ReactNode } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { getCurrentAuthUser } from "@/lib/auth/current-user-server";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 
-import {
-  clearPostSubmitBlock,
-  hasFromItemSession,
-  isPostSubmitBlocked,
-  setFromItemSession,
-} from "@/lib/items/new-item-nav";
+import NewItemClientLayout from "./NewItemClientLayout";
 
-/**
- * Après soumission, si l’item est marqué « soumis » et qu’on n’est pas dans une session « modifier »
- * (?from=item / session), on renvoie vers la fiche pièce au lieu de réouvrir le formulaire.
- */
-function NewItemStackGuard({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const itemId = searchParams.get("itemId")?.trim() ?? null;
-  const fromItem = searchParams.get("from") === "item";
-
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!pathname?.startsWith("/items/new")) return;
-    if (!itemId) return;
-
-    if (fromItem) {
-      setFromItemSession();
-      clearPostSubmitBlock(itemId);
-      return;
+export default async function NewItemLayout({ children }: { children: ReactNode }) {
+  const { user } = await getCurrentAuthUser();
+  if (user) {
+    const supabase = await createSupabaseServerClient();
+    const membershipLabel = await resolveMembershipLabel(supabase, user.id);
+    if (isGuestCashRentalMode(membershipLabel)) {
+      redirect("/package?plan=x");
     }
+  }
 
-    if (hasFromItemSession()) return;
-
-    if (!isPostSubmitBlocked(itemId)) return;
-
-    window.location.replace(`${window.location.origin}/items/${encodeURIComponent(itemId)}`);
-  }, [pathname, itemId, fromItem]);
-
-  return <>{children}</>;
-}
-
-export default function NewItemLayout({ children }: { children: ReactNode }) {
-  return (
-    <Suspense fallback={<div className="min-h-[100dvh] bg-[#fafafa]" aria-hidden />}>
-      <NewItemStackGuard>{children}</NewItemStackGuard>
-    </Suspense>
-  );
+  return <NewItemClientLayout>{children}</NewItemClientLayout>;
 }

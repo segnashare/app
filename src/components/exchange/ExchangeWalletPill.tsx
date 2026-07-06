@@ -18,6 +18,7 @@ import {
   WALLET_PILL_SPRING,
 } from "@/lib/wallet/wallet-pill-frame-animation";
 import { cn } from "@/lib/utils/cn";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 
 type ExchangeWalletPillProps = {
   membershipLabel: string;
@@ -36,6 +37,7 @@ export function ExchangeWalletPill({
   onWalletPanelOpenChange,
   className,
 }: ExchangeWalletPillProps) {
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const announcementCtx = useExchangeWalletAnnouncement();
   const reducedMotion = useReducedMotion();
@@ -87,6 +89,10 @@ export function ExchangeWalletPill({
     if (frameAnimation || reducedMotion || !pillElRef.current) return;
     pillElRef.current.style.transform = "";
   }, [frameAnimation, reducedMotion]);
+
+  if (guestCashRental) {
+    return null;
+  }
 
   return (
     <>

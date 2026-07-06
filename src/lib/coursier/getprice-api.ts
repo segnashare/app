@@ -1,5 +1,9 @@
 import type { CoursierEnvConfig } from "@/lib/coursier/config";
-import { selectCoursierExpressOffer } from "@/lib/coursier/select-express-offer";
+import { filterCoursierDirect2hSlotOffers } from "@/lib/coursier/express-service";
+import {
+  buildNormalizedCoursierQuoteFromOffer,
+  resolveCoursierOfferFromGetprice,
+} from "@/lib/coursier/selectable-offers";
 import type {
   CoursierAddress,
   CoursierGetPriceOffer,
@@ -94,33 +98,31 @@ export async function fetchCoursierGetPriceOffers(params: {
   return offers;
 }
 
+export function buildCoursierExpressQuoteFromGetpriceOffers(
+  allOffers: CoursierGetPriceOffer[],
+  slotKey?: string | null,
+): CoursierNormalizedExpressQuote {
+  const checkoutOffers = filterCoursierDirect2hSlotOffers(allOffers);
+  if (checkoutOffers.length === 0) {
+    throw new Error("coursier_getprice_no_checkout_offers");
+  }
+
+  const selected = resolveCoursierOfferFromGetprice(checkoutOffers, slotKey);
+  if (!selected) {
+    throw new Error("coursier_getprice_no_express_offer");
+  }
+
+  return buildNormalizedCoursierQuoteFromOffer(selected, checkoutOffers);
+}
+
 export async function fetchCoursierExpressQuote(params: {
   config: CoursierEnvConfig;
   fromAddress: CoursierAddress;
   toAddress: CoursierAddress;
   packages: CoursierPackage[];
   startDate?: string;
+  slotKey?: string | null;
 }): Promise<CoursierNormalizedExpressQuote> {
-  const offers = await fetchCoursierGetPriceOffers(params);
-  const selected = selectCoursierExpressOffer(offers);
-  if (!selected) {
-    throw new Error("coursier_getprice_no_express_offer");
-  }
-
-  const priceEuros = Number(selected.Price);
-  if (!Number.isFinite(priceEuros) || priceEuros < 0) {
-    throw new Error("coursier_getprice_invalid_price");
-  }
-
-  return {
-    provider: "coursier",
-    serviceId: selected.ServiceId,
-    service: selected.Service,
-    priceHtCents: Math.round(priceEuros * 100),
-    pickupStartDate: selected.PickupStartDate,
-    pickupEndDate: selected.PickupEndDate,
-    deliveryStartDate: selected.DeliveryStartDate,
-    deliveryEndDate: selected.DeliveryEndDate,
-    offers,
-  };
+  const allOffers = await fetchCoursierGetPriceOffers(params);
+  return buildCoursierExpressQuoteFromGetpriceOffers(allOffers, params.slotKey);
 }

@@ -9,6 +9,7 @@ import { fetchCartCheckoutPaymentDetail } from "@/lib/stripe/fetch-cart-checkout
 import { cartOrderStripeInvoiceJsonToEuroDetail } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
+import { hasPreprintedCartReturnLabel } from "@/lib/cart/cart-return-provision-meta";
 import type { WalletCreditKind } from "@/lib/wallet/credit-kind";
 
 type QueryResult = { data: unknown; error?: { message?: string } | null };
@@ -75,6 +76,8 @@ export type MemberCartOrderReturnShipment = {
   trackingNumber: string | null;
   memberTrackingUrl: string | null;
   labelUrl: string | null;
+  /** Bordereau retour déjà imprimé (pochette aller), pas portail membre. */
+  preprintedReturnLabel: boolean;
 };
 
 export { isCartReturnCommitmentMet } from "@/lib/cart/cart-return-status";
@@ -253,7 +256,7 @@ export async function fetchMemberCartOrderDetail(
     supabase
       .from("shipments")
       .select(
-        "id, status, tracking_number, member_tracking_url, created_at, updated_at, shipment_labels(label_url)",
+        "id, status, tracking_number, member_tracking_url, created_at, updated_at, shipment_labels(label_url), shipment_destinations(metadata)",
       )
       .eq("cart_id", cartId)
       .eq("context", "cart_return")
@@ -390,6 +393,29 @@ export async function fetchMemberCartOrderDetail(
       typeof rawStatus === "string"
         ? (normalizeCartReturnShipmentStatus(rawStatus) ?? rawStatus)
         : "pending";
+    const destEmb = returnShipRow.shipment_destinations;
+    const destRow = Array.isArray(destEmb) ? destEmb[0] : destEmb;
+    const returnDestMeta =
+      destRow &&
+      typeof destRow === "object" &&
+      "metadata" in destRow &&
+      destRow.metadata &&
+      typeof destRow.metadata === "object"
+        ? (destRow.metadata as Record<string, unknown>)
+        : {};
+    const outboundDestEmb = shipRow?.shipment_destinations;
+    const outboundDestList = Array.isArray(outboundDestEmb)
+      ? outboundDestEmb
+      : outboundDestEmb
+        ? [outboundDestEmb]
+        : [];
+    const outboundDestRow = outboundDestList.find(
+      (d) => d && typeof d === "object",
+    ) as { metadata?: unknown } | undefined;
+    const outboundDestMeta =
+      outboundDestRow?.metadata && typeof outboundDestRow.metadata === "object"
+        ? (outboundDestRow.metadata as Record<string, unknown>)
+        : {};
     return {
       id: String(returnShipRow.id ?? ""),
       status: normalizedStatus,
@@ -398,6 +424,14 @@ export async function fetchMemberCartOrderDetail(
       trackingNumber: typeof tn === "string" && tn.trim() ? tn.trim() : null,
       memberTrackingUrl: typeof mtu === "string" && mtu.trim() ? mtu.trim() : null,
       labelUrl,
+      preprintedReturnLabel: hasPreprintedCartReturnLabel({
+        returnShipmentId: String(returnShipRow.id ?? ""),
+        destMeta: returnDestMeta,
+        outboundDestMeta,
+        trackingNumber: typeof tn === "string" && tn.trim() ? tn.trim() : null,
+        trackingUrl: typeof mtu === "string" && mtu.trim() ? mtu.trim() : null,
+        labelUrl,
+      }),
     };
   })();
 

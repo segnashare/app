@@ -246,6 +246,22 @@ export async function createDummyOutboundShipmentForReturnPortal(
   };
 }
 
+/** Annule l’expédition aller factice après obtention de l’URL portail (évite un colis « prêt à envoyer » fantôme). */
+export async function cancelDummyOutboundAfterReturnPortalUrl(
+  env: SendcloudEnv,
+  created: { shipmentId: string; parcelId: number | null },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cancelled = await cancelSendcloudShipment(env, created.shipmentId);
+  if (!cancelled.ok) {
+    return { ok: false, error: cancelled.error };
+  }
+  if (created.parcelId != null) {
+    const { cancelSendcloudOutboundParcel } = await import("@/lib/sendcloud/orders-api");
+    await cancelSendcloudOutboundParcel(env, created.parcelId).catch(() => undefined);
+  }
+  return { ok: true };
+}
+
 export async function fetchSendcloudReturnPortalUrl(
   env: SendcloudEnv,
   shipmentId: string,

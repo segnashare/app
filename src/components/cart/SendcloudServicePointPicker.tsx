@@ -87,6 +87,9 @@ type Props = {
   disabled?: boolean;
   /** Limite la carte au transporteur choisi (chronopost | mondial_relay). */
   carrierFilter?: string | null;
+  buttonLabel?: string;
+  buttonClassName?: string;
+  showMapPinIcon?: boolean;
 };
 
 export function SendcloudServicePointPicker({
@@ -94,6 +97,9 @@ export function SendcloudServicePointPicker({
   onSelect,
   disabled = false,
   carrierFilter = null,
+  buttonLabel = "Choisir un point relais",
+  buttonClassName,
+  showMapPinIcon = true,
 }: Props) {
   const [config, setConfig] = useState<SppConfig | null>(null);
   const [scriptReady, setScriptReady] = useState(() => isSendcloudSppApiReady());
@@ -173,20 +179,28 @@ export function SendcloudServicePointPicker({
       },
       (fail) => {
         setLoading(false);
-        let msg = "Carte fermée ou erreur Sendcloud.";
-        if (fail && typeof fail === "object") {
+        if (!fail) return;
+
+        let msg = "";
+        if (typeof fail === "object") {
           const o = fail as Record<string, unknown>;
           if (typeof o.message === "string") msg = o.message;
           else if (typeof o.carrier === "string") msg = o.carrier;
           else if (Array.isArray(o.errors) && o.errors[0] && typeof o.errors[0] === "object") {
             const e0 = o.errors[0] as Record<string, unknown>;
-            msg = String(e0.carrier ?? e0.message ?? msg);
+            msg = String(e0.carrier ?? e0.message ?? "");
           }
         }
+
+        if (!msg.trim() || /fermée|fermee|closed|cancel|dismiss|aborted/i.test(msg)) return;
+
         if (/n'ont pas encore été activés|not been activated/i.test(msg)) {
-          msg =
-            "Un transporteur demandé n’est pas activé dans Sendcloud → Intégrations → Segna → Points relais. Réessaie après avoir coché les bons transporteurs (ex. Mondial Relay + Colissimo).";
+          setError(
+            "Un transporteur demandé n’est pas activé dans Sendcloud → Intégrations → Segna → Points relais. Réessaie après avoir coché les bons transporteurs (ex. Mondial Relay + Colissimo).",
+          );
+          return;
         }
+
         setError(msg.slice(0, 280));
       },
     );
@@ -206,10 +220,13 @@ export function SendcloudServicePointPicker({
         type="button"
         disabled={disabled || loading || !pickerReady}
         onClick={() => openPicker()}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-zinc-900 bg-white px-4 py-3 text-[15px] font-semibold text-zinc-900 transition hover:bg-zinc-50 active:bg-zinc-100 disabled:opacity-50"
+        className={
+          buttonClassName ??
+          "flex w-full items-center justify-center gap-2 rounded-xl border-2 border-zinc-900 bg-white px-4 py-3 text-[15px] font-semibold text-zinc-900 transition hover:bg-zinc-50 active:bg-zinc-100 disabled:opacity-50"
+        }
       >
-        <MapPin className="h-5 w-5 shrink-0" aria-hidden />
-        {loading ? "Ouverture…" : !pickerReady ? "Chargement de la carte…" : "Choisir un point relais"}
+        {showMapPinIcon ? <MapPin className="h-5 w-5 shrink-0" aria-hidden /> : null}
+        {loading ? "Ouverture…" : !pickerReady ? "Chargement de la carte…" : buttonLabel}
       </button>
       {error ? <p className="mt-2 text-[13px] text-red-600">{error}</p> : null}
     </>

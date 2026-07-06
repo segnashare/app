@@ -18,6 +18,7 @@ import {
   fetchSendcloudDeliveryOptions,
   findSendcloudDeliveryOptionByCode,
   pickSendcloudDeliveryOption,
+  pickSendcloudReturnRelayDeliveryOption,
   type SendcloudDeliveryOption,
 } from "@/lib/sendcloud/dynamic-checkout";
 import { getSegnaLogisticsHubFromEnv } from "@/lib/sendcloud/logistics-hub";
@@ -207,7 +208,7 @@ export async function quoteSendcloudRoundTripShipping(
   } else {
     outboundOption = pickSendcloudDeliveryOption(outboundFetch.options, "home");
   }
-  const returnOption = pickSendcloudDeliveryOption(returnFetch.options, "relay");
+  const returnOption = pickSendcloudReturnRelayDeliveryOption(returnFetch.options);
 
   const hasDcRates =
     outboundOption?.shippingRateCents != null && returnOption?.shippingRateCents != null;

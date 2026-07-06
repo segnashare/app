@@ -12,7 +12,11 @@ import {
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import type { BorrowCheckoutOption } from "@/lib/billing/fetch-borrow-checkout-options";
+import { BORROW_CHECKOUT_OPTIONS_FALLBACK } from "@/lib/billing/fetch-borrow-checkout-options";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { cn } from "@/lib/utils/cn";
 
@@ -72,6 +76,7 @@ export type CartPanierLineRowsProps = {
   lines: CartLineRowData[];
   membershipLabel: "Guest" | "Membre +" | "Membre X";
   availablePoints: number;
+  borrowCheckoutOptions?: BorrowCheckoutOption[];
   removingLineId: string | null;
   lineRemoveError: string | null;
   onRemoveLine: (lineId: string) => void;
@@ -91,6 +96,7 @@ export function CartPanierLineRows({
   lines,
   membershipLabel,
   availablePoints,
+  borrowCheckoutOptions = BORROW_CHECKOUT_OPTIONS_FALLBACK,
   removingLineId,
   lineRemoveError,
   onRemoveLine,
@@ -99,7 +105,7 @@ export function CartPanierLineRows({
   guideAddArticlesLink = false,
 }: CartPanierLineRowsProps) {
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
-  const isGuest = membershipLabel === "Guest";
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
 
   return (
     <>
@@ -180,13 +186,21 @@ export function CartPanierLineRows({
                       </p>
                     ) : null}
                     <p className="mt-1 text-[15px] tracking-tight text-zinc-900">
-                      <SegnaPointsUnitDisplay
-                        points={line.pricePoints}
-                        creditKind={walletCreditKind}
-                        numberClassName="text-[15px] font-semibold tabular-nums text-zinc-900"
-                      />
+                      {guestCashRental ? (
+                        <ItemWeeklyRentalPriceDisplay
+                          pricePoints={line.pricePoints}
+                          borrowCheckoutOptions={borrowCheckoutOptions}
+                          priceClassName="text-[15px] font-semibold text-zinc-900"
+                        />
+                      ) : (
+                        <SegnaPointsUnitDisplay
+                          points={line.pricePoints}
+                          creditKind={walletCreditKind}
+                          numberClassName="text-[15px] font-semibold tabular-nums text-zinc-900"
+                        />
+                      )}
                     </p>
-                    {!isGuest && otherMembersHint ? (
+                    {!guestCashRental && otherMembersHint ? (
                       <p className="mt-0.5 text-[12px] italic leading-snug text-zinc-500">{otherMembersHint}</p>
                     ) : null}
                     {line.status !== "disponible" && !line.reservedByOther ? (

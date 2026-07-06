@@ -36,6 +36,14 @@ export type BuildCartOrderCheckoutMetadataInput = {
   includedExchangeShipping: string;
   priorityCents: number;
   sendcloudOutboundSelection: CheckoutSendcloudOutboundOption | null;
+  coursierSelection?: {
+    slotKey: string;
+    serviceId: string;
+    pickupStartDate: string;
+    deliveryStartDate: string;
+    deliveryEndDate: string;
+  } | null;
+  guestCashRental?: boolean;
 };
 
 export function buildCartOrderCheckoutMetadata(
@@ -84,6 +92,15 @@ export function buildCartOrderCheckoutMetadata(
     return_relay_code: input.returnRelayFields.returnRelayPointId,
     return_relay_label: input.returnRelayFields.returnRelayLabel,
     return_relay_search_postal_code: input.returnRelayFields.returnRelaySearchPostalCode,
+    ...(input.coursierSelection
+      ? {
+          coursier_slot_key: input.coursierSelection.slotKey.slice(0, 180),
+          coursier_service_id: input.coursierSelection.serviceId.slice(0, 32),
+          coursier_pickup_start: input.coursierSelection.pickupStartDate.slice(0, 32),
+          coursier_delivery_start: input.coursierSelection.deliveryStartDate.slice(0, 32),
+          coursier_delivery_end: input.coursierSelection.deliveryEndDate.slice(0, 32),
+        }
+      : {}),
     ...(input.sendcloudOutboundSelection
       ? {
           sendcloud_outbound_option_code: input.sendcloudOutboundSelection.optionCode.slice(0, 120),
@@ -92,5 +109,6 @@ export function buildCartOrderCheckoutMetadata(
           sendcloud_outbound_carrier: input.sendcloudOutboundSelection.carrierCode.slice(0, 40),
         }
       : {}),
+    ...(input.guestCashRental ? { guest_cash_rental: "true" } : {}),
   };
 }

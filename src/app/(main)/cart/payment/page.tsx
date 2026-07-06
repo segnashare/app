@@ -23,6 +23,10 @@ import {
   isSendcloudServicePointPickerEnabled,
 } from "@/lib/sendcloud/config";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import {
+  guestStripeCompPoints,
+  isGuestCashRentalMode,
+} from "@/lib/billing/guest-rental-pricing";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
 
@@ -150,16 +154,23 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
   }
 
   const cartTotalMods = lines.reduce((sum, line) => sum + line.pricePoints, 0);
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
   const walletRes = await supabase
     .from("user_wallets")
     .select("balance_points, balance_consumption_points, balance_exchange_points")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .maybeSingle();
-  const availableWalletMods = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>).total;
-  /** Même logique que le panier : seuls les crédits au-delà du solde sont facturés en €. */
-  const cartExceedsWallet = cartTotalMods > availableWalletMods;
-  const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalMods - availableWalletMods) : 0;
+  const availableWalletMods = guestCashRental
+    ? 0
+    : parseUserWalletPointsRow(walletRes.data as Record<string, unknown>).total;
+  /** Guest : location 100 % panier en €. Abonnée : complément sur crédits manquants. */
+  const cartExceedsWallet = guestCashRental ? cartTotalMods > 0 : cartTotalMods > availableWalletMods;
+  const missingExchangeMods = guestCashRental
+    ? guestStripeCompPoints(cartTotalMods)
+    : cartExceedsWallet
+      ? Math.max(0, cartTotalMods - availableWalletMods)
+      : 0;
   const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
 
   const sendcloudEnv = getSendcloudEnv();

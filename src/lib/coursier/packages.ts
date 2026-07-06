@@ -1,12 +1,12 @@
 import type { CoursierPackage } from "@/lib/coursier/types";
 
-/** Grille standard Coursier « M » — colis moyen (mode / accessoires). */
-const DEFAULT_MEDIUM_PACKAGE: Omit<CoursierPackage, "NumberOfPackage"> = {
-  Name: "M",
-  Weight: 5,
-  Length: 40,
-  Width: 30,
-  Height: 30,
+/** Grille standard Coursier « S » — petit colis (mode / accessoires). */
+const DEFAULT_PACKAGE: Omit<CoursierPackage, "NumberOfPackage"> = {
+  Name: "S",
+  Weight: 3,
+  Length: 30,
+  Width: 25,
+  Height: 25,
 };
 
 /** Colisage par défaut pour le devis checkout (1 ligne par article). */
@@ -14,7 +14,7 @@ export function buildDefaultCoursierPackages(itemCount: number): CoursierPackage
   const count = Math.max(1, Math.min(99, Math.floor(itemCount) || 1));
   return [
     {
-      ...DEFAULT_MEDIUM_PACKAGE,
+      ...DEFAULT_PACKAGE,
       NumberOfPackage: count,
     },
   ];

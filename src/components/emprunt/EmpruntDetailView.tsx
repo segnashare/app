@@ -10,6 +10,10 @@ import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-ca
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
 import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
+import {
+  isGuestCashRentalOrderDisplay,
+  resolveGuestOrderRentalEuros,
+} from "@/lib/billing/guest-rental-pricing";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { segnaHeaderInlineLinkClass } from "@/lib/ui/segna-inline-link";
@@ -44,6 +48,8 @@ export function EmpruntDetailView({
   const returnDueMs = resolveMemberCartBorrowReturnDueMs(detail, membershipLabel, borrowExtensionDaysTotal);
   const hasReturnDue = Number.isFinite(returnDueMs);
   const showBorrowOverdue = Boolean(borrowOverdue && !returnCommitmentMet);
+  const guestCashRental = isGuestCashRentalOrderDisplay(membershipLabel, detail);
+  const guestRentalEuros = guestCashRental ? resolveGuestOrderRentalEuros(detail) : 0;
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
@@ -99,18 +105,32 @@ export function EmpruntDetailView({
           {detail.lines.length === 0 ? (
             <p className="text-sm text-zinc-500">Aucun article.</p>
           ) : (
-            <CommandeOrderLineRows lines={detail.lines} creditKind={creditKind} pointsUnitDisplay="icon" />
+            <CommandeOrderLineRows
+              lines={detail.lines}
+              creditKind={creditKind}
+              pointsUnitDisplay="icon"
+              guestCashRental={guestCashRental}
+            />
           )}
           <div className="mt-4 flex items-center justify-between gap-3 pt-2">
-            <span className="text-[16px] font-bold text-zinc-900">Total emprunté</span>
-            <SegnaPointsUnitDisplay
-              points={detail.totalPoints}
-              creditKind={creditKind}
-              unitDisplay="icon"
-              numberClassName="text-[17px] font-bold text-zinc-900"
-            />
+            <span className="text-[16px] font-bold text-zinc-900">
+              {guestCashRental ? "Prix de location" : "Total emprunté"}
+            </span>
+            {guestCashRental ? (
+              <span className="text-[17px] font-bold tabular-nums text-zinc-900">
+                {formatEuros(guestRentalEuros)}
+              </span>
+            ) : (
+              <SegnaPointsUnitDisplay
+                points={detail.totalPoints}
+                creditKind={creditKind}
+                unitDisplay="icon"
+                numberClassName="text-[17px] font-bold text-zinc-900"
+              />
+            )}
           </div>
-          {detail.paymentBreakdown?.creditSplit &&
+          {!guestCashRental &&
+          detail.paymentBreakdown?.creditSplit &&
           detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
@@ -136,7 +156,9 @@ export function EmpruntDetailView({
             <div className="space-y-2.5 text-[15px] leading-snug">
               {detail.paymentBreakdown.euroDetail.complementCreditsEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                  <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
+                  <span className="min-w-0 pr-2">
+                    {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+                  </span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
                     {formatEuros(detail.paymentBreakdown.euroDetail.complementCreditsEuros)}
                   </span>

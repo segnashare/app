@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { RetourDetailView } from "@/components/retour/RetourDetailView";
 import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-extension-days";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -55,6 +56,11 @@ export default async function ExchangeRetourPage({ params, searchParams }: PageP
   const showAvisSuccess = query.avis === "ok";
   const avisSuccessCredits = Math.max(0, Math.floor(Number(query.credits ?? 0)));
 
+  const { data: profileRow } = await supabase.from("users").select("adress").eq("id", userId).maybeSingle();
+  const memberPostalCode =
+    parseMemberAdressForShipment((profileRow as { adress?: string | null } | null)?.adress)?.sender_postcode ??
+    null;
+
   return (
     <RetourDetailView
       detail={detail}
@@ -62,6 +68,7 @@ export default async function ExchangeRetourPage({ params, searchParams }: PageP
       borrowExtensionDaysTotal={borrowExtensionDaysTotal}
       showAvisSuccess={showAvisSuccess}
       avisSuccessCredits={avisSuccessCredits}
+      memberPostalCode={memberPostalCode}
     />
   );
 }

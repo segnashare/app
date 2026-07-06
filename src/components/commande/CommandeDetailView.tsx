@@ -16,6 +16,7 @@ import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRo
 import type { MemberCartOrderDetail, MemberCartOrderShipment } from "@/lib/cart/fetch-member-cart-order-detail";
 import {
   checkoutPaymentIndicatesUberDirect,
+  isCartOutboundCoursier,
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
 import { formatCartBorrowRentalDurationLabel } from "@/lib/emprunt/borrow-period";
@@ -32,6 +33,10 @@ import {
   normalizeOutboundShipmentStatusForUi,
 } from "@/lib/cart/member-outbound-shipment-copy";
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
+import {
+  isGuestCashRentalOrderDisplay,
+  resolveGuestOrderRentalEuros,
+} from "@/lib/billing/guest-rental-pricing";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { ExchangeOrderHelpSection } from "@/components/exchange/ExchangeOrderHelpSection";
@@ -67,9 +72,11 @@ function formatLivraisonPrevuePlus2Jours(anchorIso: string): string {
 /** Sous-titre sous le statut : date prévue = passage ready + 2 jours (référence Europe/Paris pour l’affichage). */
 function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
   if (d.cartStatus === "canceled") return null;
+  const isCoursierOutbound = isCartOutboundCoursier(d.shipment);
   const isUberOutbound =
-    isUberCartOutboundShipment(d.shipment) ||
-    checkoutPaymentIndicatesUberDirect(d.paymentBreakdown?.euroDetail);
+    !isCoursierOutbound &&
+    (isUberCartOutboundShipment(d.shipment) ||
+      checkoutPaymentIndicatesUberDirect(d.paymentBreakdown?.euroDetail));
   if (!d.shipment) {
     return "Ton colis est en préparation ; tu recevras des détails sur le suivi du colis.";
   }
@@ -89,9 +96,11 @@ function livraisonPrevueLine(d: MemberCartOrderDetail): string | null {
 }
 
 function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPhases | null {
+  const isCoursier = isCartOutboundCoursier(detail.shipment);
   const isUber =
-    isUberCartOutboundShipment(detail.shipment) ||
-    checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail);
+    !isCoursier &&
+    (isUberCartOutboundShipment(detail.shipment) ||
+      checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail));
   if (!isUber || !detail.shipment) return null;
 
   const st = normalizeOutboundShipmentStatusForUi(detail.shipment.status);
@@ -115,7 +124,7 @@ function buildCommandeUberPhases(detail: MemberCartOrderDetail): CommandeUberPha
 
   if (st === "ready") {
     return {
-      preparationLine: "Votre box est prête, le coursier Uber va bientôt la récupérer.",
+      preparationLine: "Votre box est prête, un coursier Coursier.fr va bientôt la récupérer.",
       deliveryWindowLine: null,
     };
   }
@@ -133,9 +142,11 @@ export function CommandeDetailView({
   const headerDate = formatDateTimeParis(detail.createdAtIso);
   const creditKind = detail.walletCreditKind;
   const previsionLine = livraisonPrevueLine(detail);
+  const isCoursierOutbound = isCartOutboundCoursier(detail.shipment);
   const isUberOutbound =
-    isUberCartOutboundShipment(detail.shipment) ||
-    checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail);
+    !isCoursierOutbound &&
+    (isUberCartOutboundShipment(detail.shipment) ||
+      checkoutPaymentIndicatesUberDirect(detail.paymentBreakdown?.euroDetail));
   const mondialTrackingUrl =
     !isUberOutbound && detail.shipment?.trackingNumber != null
       ? buildMondialRelayTrackingUrl(detail.shipment.trackingNumber)
@@ -167,6 +178,8 @@ export function CommandeDetailView({
     detail.checkoutBorrowDurationDays,
     membershipLabel,
   );
+  const guestCashRental = isGuestCashRentalOrderDisplay(membershipLabel, detail);
+  const guestRentalEuros = guestCashRental ? resolveGuestOrderRentalEuros(detail) : 0;
 
   const euro = detail.paymentBreakdown?.euroDetail ?? null;
   const showFraisFactures =
@@ -244,18 +257,32 @@ export function CommandeDetailView({
           {detail.lines.length === 0 ? (
             <p className="text-sm text-zinc-500">Aucun article sur cette commande.</p>
           ) : (
-            <CommandeOrderLineRows lines={detail.lines} creditKind={creditKind} pointsUnitDisplay="icon" />
+            <CommandeOrderLineRows
+              lines={detail.lines}
+              creditKind={creditKind}
+              pointsUnitDisplay="icon"
+              guestCashRental={guestCashRental}
+            />
           )}
           <div className="mt-4 flex items-center justify-between gap-3 pt-2">
-            <span className="text-[16px] font-bold text-zinc-900">Total échangé</span>
-            <SegnaPointsUnitDisplay
-              points={detail.totalPoints}
-              creditKind={creditKind}
-              unitDisplay="icon"
-              numberClassName="text-[17px] font-bold text-zinc-900"
-            />
+            <span className="text-[16px] font-bold text-zinc-900">
+              {guestCashRental ? "Prix de location" : "Total échangé"}
+            </span>
+            {guestCashRental ? (
+              <span className="text-[17px] font-bold tabular-nums text-zinc-900">
+                {formatEuros(guestRentalEuros)}
+              </span>
+            ) : (
+              <SegnaPointsUnitDisplay
+                points={detail.totalPoints}
+                creditKind={creditKind}
+                unitDisplay="icon"
+                numberClassName="text-[17px] font-bold text-zinc-900"
+              />
+            )}
           </div>
-          {detail.paymentBreakdown?.creditSplit &&
+          {!guestCashRental &&
+          detail.paymentBreakdown?.creditSplit &&
           detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
@@ -282,7 +309,9 @@ export function CommandeDetailView({
             <div className="space-y-2.5 text-[15px] leading-snug">
               {euro.complementCreditsEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                  <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
+                  <span className="min-w-0 pr-2">
+                    {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+                  </span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
                     {formatEuros(euro.complementCreditsEuros)}
                   </span>

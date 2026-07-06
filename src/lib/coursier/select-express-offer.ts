@@ -1,3 +1,4 @@
+import { filterCoursierDirect2hSlotOffers } from "@/lib/coursier/express-service";
 import type { CoursierGetPriceOffer } from "@/lib/coursier/types";
 
 function parseCoursierDateMs(value: string): number {
@@ -11,25 +12,17 @@ function parsePriceEuros(value: string): number {
   return Number.isFinite(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
 }
 
-function isSlotService(offer: CoursierGetPriceOffer): boolean {
-  return /cr[ée]neau/i.test(offer.Service);
-}
-
-/**
- * Choisit l’offre express immédiate la plus rapide (Prioritaire / Exclu…).
- * Les créneaux horaires sont conservés dans `offers` pour une sélection ultérieure (partie 2).
- */
+/** Premier créneau « 2 h direct » disponible (le plus tôt, puis le moins cher). */
 export function selectCoursierExpressOffer(
   offers: CoursierGetPriceOffer[],
 ): CoursierGetPriceOffer | null {
-  if (offers.length === 0) return null;
+  const slots = filterCoursierDirect2hSlotOffers(offers);
+  if (slots.length === 0) return null;
 
-  const immediate = offers.filter((o) => !isSlotService(o));
-  const pool = immediate.length > 0 ? immediate : offers;
-
-  const sorted = [...pool].sort((a, b) => {
-    const endDiff = parseCoursierDateMs(a.DeliveryEndDate) - parseCoursierDateMs(b.DeliveryEndDate);
-    if (endDiff !== 0) return endDiff;
+  const sorted = [...slots].sort((a, b) => {
+    const startDiff =
+      parseCoursierDateMs(a.DeliveryStartDate) - parseCoursierDateMs(b.DeliveryStartDate);
+    if (startDiff !== 0) return startDiff;
     return parsePriceEuros(a.Price) - parsePriceEuros(b.Price);
   });
 

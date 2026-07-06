@@ -290,19 +290,45 @@ export async function tryCreateCoursierFromStripeSession(
   const packages = buildDefaultCoursierPackages(itemCount);
   const fromAddress = buildCoursierPickupOrderAddress(config);
 
+  const coursierServiceIdMeta = metaStr(session, "coursier_service_id");
+  const coursierPickupStartMeta = metaStr(session, "coursier_pickup_start");
+  const coursierSlotKeyMeta = metaStr(session, "coursier_slot_key");
+
   console.log("[coursier] Passage commande (session)", session.id, cartId || "");
 
   try {
-    const quote = await fetchCoursierExpressQuote({
-      config,
-      fromAddress: config.pickupAddress,
-      toAddress: toBase,
-      packages,
-    });
+    let serviceId: number;
+    let startDate: string;
+    let quoteForSnapshot: Record<string, unknown>;
 
-    const serviceId = Number.parseInt(quote.serviceId, 10);
-    if (!Number.isFinite(serviceId) || serviceId <= 0) {
-      throw new Error("coursier_invalid_service_id");
+    if (coursierServiceIdMeta && coursierPickupStartMeta) {
+      serviceId = Number.parseInt(coursierServiceIdMeta, 10);
+      startDate = coursierPickupStartMeta;
+      if (!Number.isFinite(serviceId) || serviceId <= 0 || !startDate) {
+        throw new Error("coursier_invalid_checkout_metadata");
+      }
+      quoteForSnapshot = {
+        serviceId: coursierServiceIdMeta,
+        service: metaStr(session, "coursier_service_id"),
+        pickupStartDate: coursierPickupStartMeta,
+        deliveryStartDate: metaStr(session, "coursier_delivery_start"),
+        deliveryEndDate: metaStr(session, "coursier_delivery_end"),
+        priceHtCents: null,
+      };
+    } else {
+      const quote = await fetchCoursierExpressQuote({
+        config,
+        fromAddress: config.pickupAddress,
+        toAddress: toBase,
+        packages,
+        slotKey: coursierSlotKeyMeta || null,
+      });
+      serviceId = Number.parseInt(quote.serviceId, 10);
+      startDate = quote.pickupStartDate;
+      quoteForSnapshot = quote as unknown as Record<string, unknown>;
+      if (!Number.isFinite(serviceId) || serviceId <= 0) {
+        throw new Error("coursier_invalid_service_id");
+      }
     }
 
     const order = await createCoursierOrder({
@@ -311,7 +337,7 @@ export async function tryCreateCoursierFromStripeSession(
       fromAddress,
       toAddress,
       packages,
-      startDate: quote.pickupStartDate,
+      startDate,
       reference1: cartId ? cartId.slice(0, 50) : undefined,
       reference2: session.id.slice(0, 50),
     });
@@ -326,7 +352,7 @@ export async function tryCreateCoursierFromStripeSession(
       await persistCoursierBookingSnapshot(
         admin,
         cartId,
-        quote as unknown as Record<string, unknown>,
+        quoteForSnapshot,
         Number.isFinite(orderPriceHt) ? orderPriceHt : null,
         missionNumber,
       );

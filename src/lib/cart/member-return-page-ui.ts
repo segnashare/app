@@ -1,4 +1,4 @@
-import { isCartReturnMemberTrackingNumber } from "@/lib/cart/cart-return-shipment";
+import { isCartReturnPortalTrackingNumber } from "@/lib/cart/cart-return-provision-meta";
 import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import { getMemberReturnShipmentPhaseCopy, getReturnShipmentSubtitle } from "@/lib/cart/member-return-shipment-copy";
 import { formatBorrowReturnDueDateShortFr, resolveCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
@@ -34,6 +34,10 @@ export type MemberReturnPageUi = {
   showReturnTrackingButton?: boolean;
   /** Bouton « Réinitialiser le retour » (secondaire, uniquement avec suivi XT). */
   showReturnResetButton?: boolean;
+  /** Bordereau perdu : annule la commande retour provisionnée et bascule sur le portail aller. */
+  showReturnLostLabelButton?: boolean;
+  /** Bordereau pré-imprimé : carte Sendcloud des relais à proximité. */
+  showReturnRelaySearchButton?: boolean;
 };
 
 type Ctx = {
@@ -51,6 +55,8 @@ type Ctx = {
   borrowReturnDueAtIso?: string | null;
   /** Repli legacy si `borrow_return_due_at` absent. */
   borrowExtensionDaysTotal?: number;
+  /** Bordereau retour déjà imprimé (pochette aller), pas portail membre. */
+  preprintedReturnLabel?: boolean;
 };
 
 function fmt(iso: string) {
@@ -82,13 +88,35 @@ function returnActionFlags(ctx: Ctx): {
   showReturnPrepareButton: boolean;
   showReturnTrackingButton: boolean;
   showReturnResetButton: boolean;
+  showReturnLostLabelButton: boolean;
+  showReturnRelaySearchButton: boolean;
 } {
-  const hasXtTracking = isCartReturnMemberTrackingNumber(ctx.trackingNumber);
+  const hasXtTracking = isCartReturnPortalTrackingNumber(ctx.trackingNumber);
+  const preprinted = ctx.preprintedReturnLabel === true;
+
+  if (preprinted && !hasXtTracking) {
+    return {
+      showReturnPrepareButton: false,
+      showReturnTrackingButton: false,
+      showReturnResetButton: false,
+      showReturnLostLabelButton: true,
+      showReturnRelaySearchButton: true,
+    };
+  }
+
   return {
     showReturnPrepareButton: !hasXtTracking,
     showReturnTrackingButton: hasXtTracking,
     showReturnResetButton: hasXtTracking,
+    showReturnLostLabelButton: false,
+    showReturnRelaySearchButton: false,
   };
+}
+
+function preprintedReturnBodyLines(): string[] {
+  return [
+    "Utilise la pochette retour et le bordereau glissés dans ton colis aller, puis dépose au relais indiqué sur l’étiquette.",
+  ];
 }
 
 /**
@@ -108,14 +136,17 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
 
   switch (s) {
     case "pending": {
+      const preprinted = ctx.preprintedReturnLabel === true;
       return {
         headerTitle: phase.title,
         metaLine: m,
         heroTagline: heroTaglineReturnBeforeDeadline(ctx),
-        bodyLines: [
-          "Utilise la pochette fournie. Crée ton étiquette retour gratuitement sur le portail Sendcloud (données préremplies).",
-        ],
-        showBorrowDelayLearnMore: true,
+        bodyLines: preprinted
+          ? preprintedReturnBodyLines()
+          : [
+              "Utilise la pochette fournie. Crée ton étiquette retour gratuitement sur le portail Sendcloud (données préremplies).",
+            ],
+        showBorrowDelayLearnMore: !preprinted,
         membershipLabel: ctx.membershipLabel,
         ctas: prepareReturnCtas,
         ...actions,
@@ -123,15 +154,22 @@ export function getMemberReturnPageUi(statusRaw: string | null | undefined, ctx:
     }
     case "ready": {
       const ctas: ReturnPageCta[] = prepareReturnCtas;
+      const preprinted = ctx.preprintedReturnLabel === true;
       return {
         headerTitle: phase.title,
         metaLine: m,
-        heroTagline: actions.showReturnTrackingButton
-          ? "Ton étiquette retour est prête"
-          : "Imprime et dépose ton colis",
-        bodyLines: actions.showReturnTrackingButton
-          ? ["Dépose ton colis au relais indiqué sur ton bordereau."]
-          : [phase.detail],
+        heroTagline: preprinted
+          ? heroTaglineReturnBeforeDeadline(ctx)
+          : actions.showReturnTrackingButton
+            ? "Ton étiquette retour est prête"
+            : "Imprime et dépose ton colis",
+        bodyLines:
+          preprinted && !isCartReturnPortalTrackingNumber(ctx.trackingNumber)
+            ? preprintedReturnBodyLines()
+            : actions.showReturnTrackingButton
+              ? ["Dépose ton colis au relais indiqué sur ton bordereau."]
+              : [phase.detail],
+        showBorrowDelayLearnMore: !preprinted,
         ctas,
         ...actions,
       };

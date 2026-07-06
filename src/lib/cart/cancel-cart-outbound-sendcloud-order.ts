@@ -130,7 +130,7 @@ export async function cancelCartOutboundSendcloudOrder(
 
   const { data: cartRow } = await admin
     .from("carts")
-    .select("sendcloud_outbound_order_number")
+    .select("sendcloud_outbound_order_number, sendcloud_outbound_panel_order_id")
     .eq("id", trimmedCartId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -192,7 +192,12 @@ export async function cancelCartOutboundSendcloudOrder(
   }
 
   const integrationId = await resolveSendcloudIntegrationId(env);
-  const panelOrderId = String(meta.sendcloud_panel_order_id ?? "").trim();
+  const panelOrderId =
+    String(meta.sendcloud_panel_order_id ?? "").trim() ||
+    String(
+      (cartRow as { sendcloud_outbound_panel_order_id?: string | null } | null)
+        ?.sendcloud_outbound_panel_order_id ?? "",
+    ).trim();
   const primaryOrderNumber =
     String(meta.sendcloud_order_number ?? "").trim() ||
     String(cartRow?.sendcloud_outbound_order_number ?? "").trim() ||

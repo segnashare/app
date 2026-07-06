@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { RetourDetailView } from "@/components/retour/RetourDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -43,5 +44,16 @@ export default async function CommandeRetourPage({ params }: PageProps) {
     redirect(`/commande/${cartId}`);
   }
 
-  return <RetourDetailView detail={detail} membershipLabel={membershipLabel} />;
+  const { data: profileRow } = await supabase.from("users").select("adress").eq("id", userId).maybeSingle();
+  const memberPostalCode =
+    parseMemberAdressForShipment((profileRow as { adress?: string | null } | null)?.adress)?.sender_postcode ??
+    null;
+
+  return (
+    <RetourDetailView
+      detail={detail}
+      membershipLabel={membershipLabel}
+      memberPostalCode={memberPostalCode}
+    />
+  );
 }

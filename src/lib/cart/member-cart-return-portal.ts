@@ -12,19 +12,25 @@ import {
 } from "@/lib/sendcloud/returns-api";
 import {
   buildReturnPortalUrlWithPrefill,
+  cancelDummyOutboundAfterReturnPortalUrl,
   cancelSendcloudShipment,
   createDummyOutboundShipmentForReturnPortal,
   fetchSendcloudReturnPortalUrl,
-  intakeReturnPortalCancelAfterMs,
+  stripReturnPortalUrlToBase,
 } from "@/lib/sendcloud/return-portal-shipment";
+import { pickOutboundPanelShipmentIdForReturnPortal, findSendcloudParcelsByOrderNumberV3 } from "@/lib/sendcloud/shipments";
 import {
   clearCartReturnDestinationPortalMeta,
+  clearCartReturnProvisionMeta,
   ensureCartReturnShipmentForPortal,
   isCartReturnMemberTrackingNumber,
   resetCartReturnShipmentForPortal,
+  collectCartReturnSyncOrderNumbers,
   syncCartReturnFromSendcloudByOrder,
   syncCartReturnShipmentPortalIds,
 } from "@/lib/cart/cart-return-shipment";
+import { cancelCartReturnSendcloudOrder } from "@/lib/cart/cancel-cart-return-sendcloud-order";
+import { isCartReturnPortalTrackingNumber } from "@/lib/cart/cart-return-provision-meta";
 import { isCartReturnLockedForMemberSetup, normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import type { SendcloudOutboundRecipient } from "@/lib/sendcloud/shipments";
 
@@ -126,6 +132,7 @@ async function loadCartReturnPortalContext(
       destId: string;
       destMeta: Record<string, unknown>;
       outboundShipmentId: string;
+      outboundTrackingNumber: string | null;
       returnStatus: string;
       portal: CartReturnPortalSession;
     }
@@ -146,7 +153,7 @@ async function loadCartReturnPortalContext(
 
   const { data: outShip } = await admin
     .from("shipments")
-    .select("id,status,shipment_destinations(id,metadata)")
+    .select("id,status,tracking_number,shipment_destinations(id,metadata)")
     .eq("cart_id", cartId)
     .eq("context", "cart_outbound")
     .is("deleted_at", null)
@@ -193,6 +200,10 @@ async function loadCartReturnPortalContext(
     destId,
     destMeta,
     outboundShipmentId,
+    outboundTrackingNumber:
+      typeof (outShip as { tracking_number?: string } | null)?.tracking_number === "string"
+        ? (outShip as { tracking_number: string }).tracking_number.trim() || null
+        : null,
     returnStatus,
     portal: readCartReturnPortalFromDestMeta(destMeta),
   };
@@ -343,6 +354,48 @@ async function cancelCartReturnSendcloudArtifacts(
   return warnings;
 }
 
+function buildCartOutboundOrderNumber(cartId: string, outboundShipmentId: string, destMeta: Record<string, unknown>): string {
+  return (
+    strMeta(destMeta, "sendcloud_order_number") ||
+    buildSendcloudOrderNumber({
+      cartId,
+      shipmentId: outboundShipmentId,
+      generation: 1,
+    })
+  );
+}
+
+async function resolveOutboundPanelShipmentForReturnPortal(
+  env: NonNullable<ReturnType<typeof getSendcloudEnv>>,
+  params: {
+    outboundDestMeta: Record<string, unknown>;
+    outboundOrderNumber: string;
+    outboundTrackingNumber: string | null;
+  },
+): Promise<string | null> {
+  return pickOutboundPanelShipmentIdForReturnPortal(env, {
+    outboundOrderNumber: params.outboundOrderNumber,
+    outboundDestMeta: params.outboundDestMeta,
+    outboundTrackingNumber: params.outboundTrackingNumber,
+    excludeShipmentIds: [
+      strMeta(params.outboundDestMeta, "sc_cart_return_dummy_shipment_id"),
+    ].filter(Boolean),
+  });
+}
+
+async function cancelKnownCartReturnDummyShipments(
+  env: NonNullable<ReturnType<typeof getSendcloudEnv>>,
+  shipmentIds: Array<string | null | undefined>,
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const raw of shipmentIds) {
+    const id = String(raw ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    await cancelSendcloudShipment(env, id).catch(() => undefined);
+  }
+}
+
 export async function cancelDueCartReturnDummyShipments(
   admin: SupabaseClient,
   cartId: string,
@@ -404,7 +457,7 @@ export async function runCartReturnPortalStart(
   }
 
   if ((params.force || portalExpired) && ctx.portal.shipmentId) {
-    await cancelSendcloudShipment(env, ctx.portal.shipmentId).catch(() => undefined);
+    await cancelKnownCartReturnDummyShipments(env, [ctx.portal.shipmentId]);
   }
 
   const { data: member } = await admin
@@ -432,42 +485,81 @@ export async function runCartReturnPortalStart(
     };
   }
 
-  const orderNumber =
-    strMeta(ctx.destMeta, "sendcloud_order_number") ||
-    buildSendcloudOrderNumber({
-      cartId,
-      shipmentId: ctx.outboundShipmentId,
-      generation: 1,
-    });
+  const orderNumber = buildCartOutboundOrderNumber(cartId, ctx.outboundShipmentId, ctx.destMeta);
 
   const ensuredReturn = await ensureCartReturnShipmentForPortal(admin, cartId, orderNumber);
   if (!ensuredReturn.ok) {
     return { ok: false, error: ensuredReturn.error, status: 500 };
   }
 
-  const created = await createDummyOutboundShipmentForReturnPortal(env, {
-    orderNumber,
-    toRecipient: recipient,
-    senderAddressId,
+  const outboundPanelShipmentId = await resolveOutboundPanelShipmentForReturnPortal(env, {
+    outboundDestMeta: ctx.destMeta,
+    outboundOrderNumber: orderNumber,
+    outboundTrackingNumber: ctx.outboundTrackingNumber,
   });
-  if (!created.ok) {
-    return {
-      ok: false,
-      error: created.error,
-      status: 502,
-      developerHint: CART_RETURN_PORTAL_ENV_HINT,
-    };
+
+  let portalBaseUrl: string | null = null;
+  let portalSourceShipmentId: string | null = null;
+  let dummyCreated: { shipmentId: string; parcelId: number | null; trackingNumber: string | null } | null =
+    null;
+  let dummyCancelledAt: string | null = null;
+
+  if (outboundPanelShipmentId) {
+    const portalFromOutbound = await fetchSendcloudReturnPortalUrl(env, outboundPanelShipmentId);
+    if (portalFromOutbound.ok) {
+      portalBaseUrl = portalFromOutbound.url;
+      portalSourceShipmentId = outboundPanelShipmentId;
+      await cancelKnownCartReturnDummyShipments(env, [
+        strMeta(ctx.destMeta, "sc_cart_return_dummy_shipment_id"),
+        ctx.portal.shipmentId,
+      ]);
+    }
   }
 
-  const portalRaw = await fetchSendcloudReturnPortalUrl(env, created.shipmentId);
-  if (!portalRaw.ok) {
-    await cancelSendcloudShipment(env, created.shipmentId).catch(() => undefined);
-    return { ok: false, error: portalRaw.error, status: 502, developerHint: CART_RETURN_PORTAL_ENV_HINT };
+  if (!portalBaseUrl) {
+    const created = await createDummyOutboundShipmentForReturnPortal(env, {
+      orderNumber,
+      toRecipient: recipient,
+      senderAddressId,
+    });
+    if (!created.ok) {
+      return {
+        ok: false,
+        error: created.error,
+        status: 502,
+        developerHint: CART_RETURN_PORTAL_ENV_HINT,
+      };
+    }
+
+    const portalFromDummy = await fetchSendcloudReturnPortalUrl(env, created.shipmentId);
+    if (!portalFromDummy.ok) {
+      await cancelSendcloudShipment(env, created.shipmentId).catch(() => undefined);
+      return { ok: false, error: portalFromDummy.error, status: 502, developerHint: CART_RETURN_PORTAL_ENV_HINT };
+    }
+
+    dummyCancelledAt = new Date().toISOString();
+    const cancelDummy = await cancelDummyOutboundAfterReturnPortalUrl(env, created);
+    if (!cancelDummy.ok) {
+      return {
+        ok: false,
+        error:
+          "Le portail retour est prêt mais l’annulation de l’expédition technique Sendcloud a échoué. Réessaie ou contacte le support.",
+        status: 502,
+        developerHint: cancelDummy.error,
+      };
+    }
+
+    portalBaseUrl = portalFromDummy.url;
+    portalSourceShipmentId = created.shipmentId;
+    dummyCreated = created;
   }
 
   const postalCode = recipient.postalCode;
-  const portalIdentifier = created.trackingNumber || orderNumber;
-  const portalUrl = buildReturnPortalUrlWithPrefill(portalRaw.url, {
+  const portalIdentifier =
+    ctx.outboundTrackingNumber?.trim() ||
+    dummyCreated?.trackingNumber?.trim() ||
+    orderNumber;
+  const portalUrl = buildReturnPortalUrlWithPrefill(portalBaseUrl, {
     orderNumber,
     postalCode,
     identifier: portalIdentifier,
@@ -477,22 +569,36 @@ export async function runCartReturnPortalStart(
     cartReturnShipmentId: ensuredReturn.shipmentId,
     cartId,
     orderNumber,
-    panelShipmentId: created.shipmentId,
-    outboundParcelId: created.parcelId ?? null,
+    panelShipmentId: outboundPanelShipmentId || portalSourceShipmentId || "",
+    outboundParcelId:
+      parsePositiveInt(ctx.destMeta.sendcloud_parcel_id) ?? dummyCreated?.parcelId ?? null,
   });
 
-  const cancelAfterAt = new Date(Date.now() + intakeReturnPortalCancelAfterMs()).toISOString();
-  const patched = await patchOutboundDestMeta(admin, ctx.destId, ctx.destMeta, {
+  const metaPatch: Record<string, unknown> = {
     sc_cart_return_portal_url: portalUrl,
     sc_cart_return_portal_identifier: portalIdentifier,
     sc_cart_return_portal_postal_code: postalCode,
     sc_cart_return_portal_order_number: orderNumber,
-    sc_cart_return_dummy_shipment_id: created.shipmentId,
+    sc_cart_return_portal_base_url: stripReturnPortalUrlToBase(portalBaseUrl),
     sc_cart_return_shipment_id: ensuredReturn.shipmentId,
-    ...(created.parcelId ? { sc_cart_return_dummy_parcel_id: created.parcelId } : {}),
-    sc_cart_return_dummy_cancel_after_at: cancelAfterAt,
-    sc_cart_return_dummy_shipment_cancelled_at: null,
-  });
+    sc_cart_return_outbound_portal_shipment_id: outboundPanelShipmentId,
+    sc_cart_return_dummy_shipment_cancelled_at: dummyCancelledAt,
+    sc_cart_return_dummy_cancel_after_at: null,
+  };
+  if (outboundPanelShipmentId && !dummyCreated) {
+    metaPatch.sendcloud_panel_shipment_id = outboundPanelShipmentId;
+  }
+  if (dummyCreated) {
+    metaPatch.sc_cart_return_dummy_shipment_id = dummyCreated.shipmentId;
+    if (dummyCreated.parcelId) {
+      metaPatch.sc_cart_return_dummy_parcel_id = dummyCreated.parcelId;
+    }
+  } else {
+    metaPatch.sc_cart_return_dummy_shipment_id = null;
+    metaPatch.sc_cart_return_dummy_parcel_id = null;
+  }
+
+  const patched = await patchOutboundDestMeta(admin, ctx.destId, ctx.destMeta, metaPatch);
   if (!patched.ok) {
     return { ok: false, error: patched.error, status: 500 };
   }
@@ -528,30 +634,34 @@ export async function runCartReturnPortalSync(
 
   await cancelDueCartReturnDummyShipments(admin, cartId);
 
-  const { data: cartRow } = await admin
-    .from("carts")
-    .select("sendcloud_outbound_order_number")
-    .eq("id", cartId)
+  const { data: retShip } = await admin
+    .from("shipments")
+    .select("id")
+    .eq("cart_id", cartId)
+    .eq("context", "cart_return")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  const orderNumber =
-    strMeta(ctx.destMeta, "sendcloud_order_number") ||
-    strMeta(ctx.destMeta, "sc_cart_return_portal_order_number") ||
-    String((cartRow as { sendcloud_outbound_order_number?: string } | null)?.sendcloud_outbound_order_number ?? "").trim() ||
-    buildSendcloudOrderNumber({
-      cartId,
-      shipmentId: ctx.outboundShipmentId,
-      generation: 1,
-    });
+  const orderNumbers = await collectCartReturnSyncOrderNumbers(admin, {
+    cartId,
+    outboundShipmentId: ctx.outboundShipmentId,
+    outboundDestMeta: ctx.destMeta,
+    cartReturnShipmentId: retShip?.id ? String(retShip.id) : null,
+  });
 
   const outboundParcelId = parsePositiveInt(ctx.destMeta.sendcloud_parcel_id);
   const dummyParcelId = parsePositiveInt(ctx.destMeta.sc_cart_return_dummy_parcel_id);
+  const portalIdentifier =
+    strMeta(ctx.destMeta, "sc_cart_return_portal_identifier") || ctx.outboundTrackingNumber;
 
   const sync = await syncCartReturnFromSendcloudByOrder(admin, env, {
     cartId,
-    orderNumber,
+    orderNumbers,
     outboundParcelId,
     dummyParcelId,
+    portalIdentifier,
   });
   if (!sync.ok) {
     return { ok: false, error: sync.error, status: 502 };
@@ -681,4 +791,103 @@ export async function runCartReturnPortalReset(
   }
 
   return warnings.length > 0 ? { ok: true, warnings } : { ok: true };
+}
+
+/** Bordereau perdu : annule la commande retour Sendcloud (BO) et ouvre le portail sur l’expédition aller. */
+export async function runCartReturnProvisionedLostLabel(
+  admin: SupabaseClient,
+  params: { userId: string; cartId: string },
+): Promise<
+  | { ok: true; return_portal_url: string }
+  | { ok: false; error: string; status: number }
+> {
+  const cartId = params.cartId.trim();
+  if (!CART_ID_RE.test(cartId)) {
+    return { ok: false, error: "Identifiant commande invalide.", status: 400 };
+  }
+
+  const env = getSendcloudEnv();
+  if (!env) {
+    return {
+      ok: false,
+      error: "Retour indisponible : Sendcloud non configuré.",
+      status: 501,
+    };
+  }
+
+  const ctx = await loadCartReturnPortalContext(admin, params.userId, cartId);
+  if (!ctx.ok) return ctx;
+
+  const { data: retShip } = await admin
+    .from("shipments")
+    .select("id, status, tracking_number")
+    .eq("cart_id", cartId)
+    .eq("context", "cart_return")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!retShip?.id) {
+    return { ok: false, error: "Aucun retour en cours pour cette commande.", status: 404 };
+  }
+
+  const returnShipmentId = String(retShip.id);
+  const returnStatus = normalizeCartReturnShipmentStatus((retShip as { status?: string }).status) ?? "pending";
+  if (isCartReturnLockedForMemberSetup(returnStatus)) {
+    return { ok: false, error: "Ce retour est déjà pris en charge.", status: 409 };
+  }
+
+  const trackingNumber = String((retShip as { tracking_number?: string }).tracking_number ?? "").trim();
+  if (isCartReturnPortalTrackingNumber(trackingNumber)) {
+    return {
+      ok: false,
+      error: "Utilise « Réinitialiser le retour » pour rouvrir le portail.",
+      status: 409,
+    };
+  }
+
+  const { data: retDest } = await admin
+    .from("shipment_destinations")
+    .select("metadata")
+    .eq("shipment_id", returnShipmentId)
+    .limit(1)
+    .maybeSingle();
+  const returnDestMeta =
+    retDest?.metadata && typeof retDest.metadata === "object"
+      ? (retDest.metadata as Record<string, unknown>)
+      : {};
+
+  await cancelCartReturnSendcloudOrder(admin, cartId);
+
+  const returnOrderNumber = buildSendcloudOrderNumber({
+    cartId,
+    shipmentId: returnShipmentId,
+    generation: 1,
+  });
+  const returnParcels = await findSendcloudParcelsByOrderNumberV3(env, returnOrderNumber);
+  for (const parcel of returnParcels) {
+    if (parcel.id > 0) {
+      await cancelSendcloudOutboundParcel(env, parcel.id).catch(() => undefined);
+    }
+  }
+  const returnParcelId = parsePositiveInt(returnDestMeta.sendcloud_parcel_id);
+  if (returnParcelId) {
+    await cancelSendcloudOutboundParcel(env, returnParcelId).catch(() => undefined);
+  }
+
+  await resetCartReturnShipmentForPortal(admin, cartId, env);
+  await clearCartReturnProvisionMeta(admin, returnShipmentId);
+  await clearCartReturnDestinationPortalMeta(admin, returnShipmentId);
+
+  const portal = await runCartReturnPortalStart(admin, {
+    userId: params.userId,
+    cartId,
+    force: true,
+  });
+  if (!portal.ok) {
+    return { ok: false, error: portal.error, status: portal.status };
+  }
+
+  return { ok: true, return_portal_url: portal.return_portal_url };
 }

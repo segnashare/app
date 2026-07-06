@@ -91,8 +91,8 @@ export function CommandeExpeditionSummarySection({
             ) : null}
             <p className="text-[13px] leading-relaxed text-zinc-500">
               {uberPhases?.inTransit
-                ? "Suis ta livraison en direct sur Uber."
-                : "Suivi disponible sur Uber dès activation de la course."}
+                ? "Suis ta livraison en direct sur Coursier.fr."
+                : "Suivi disponible sur Coursier.fr dès activation de la course."}
             </p>
           </>
         ) : trackingRef ? (
@@ -106,7 +106,7 @@ export function CommandeExpeditionSummarySection({
       {variant === "uber" ? (
         trackingHref ? (
           <Link href={trackingHref} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
-            Voir le suivi Uber
+            Voir le suivi Coursier.fr
           </Link>
         ) : null
       ) : trackingHref ? (

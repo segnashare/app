@@ -151,6 +151,28 @@ export function pickSendcloudDeliveryOption(
   return cheapestPricedOption(filtered.length > 0 ? filtered : options);
 }
 
+function isLockerDeliveryOption(o: SendcloudDeliveryOption): boolean {
+  const blob = `${o.title} ${o.description ?? ""} ${o.deliveryMethodType}`.toLowerCase();
+  return blob.includes("locker");
+}
+
+function isHomeDomesticDeliveryOption(o: SendcloudDeliveryOption): boolean {
+  const blob = `${o.title} ${o.description ?? ""} ${o.deliveryMethodType}`.toLowerCase();
+  return /home|domicile|domestic|door/.test(blob);
+}
+
+/** Retour panier : point relais classique, pas Locker Delivery (souvent moins cher en DC). */
+export function pickSendcloudReturnRelayDeliveryOption(
+  options: SendcloudDeliveryOption[],
+): SendcloudDeliveryOption | null {
+  const relay = filterSendcloudDeliveryOptions(options, "relay");
+  const pointRelais = relay.filter(
+    (o) => !isLockerDeliveryOption(o) && !isHomeDomesticDeliveryOption(o),
+  );
+  if (pointRelais.length === 0) return null;
+  return cheapestPricedOption(pointRelais);
+}
+
 export function findSendcloudDeliveryOptionByCode(
   options: SendcloudDeliveryOption[],
   channel: "relay" | "home",
@@ -202,5 +224,6 @@ export function pickSendcloudDeliveryOptionForCarrier(
   );
   const pool = channelFiltered.length > 0 ? channelFiltered : options;
   const byCarrier = pool.filter((o) => carrierSlugMatchesOption(slug, o.carrierCode));
-  return cheapestPricedOption(byCarrier.length > 0 ? byCarrier : pool);
+  if (byCarrier.length === 0) return null;
+  return cheapestPricedOption(byCarrier);
 }

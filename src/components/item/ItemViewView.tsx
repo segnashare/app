@@ -95,6 +95,7 @@ type ItemViewViewProps = {
   outfitLook?: ItemOutfitLookPayload | null;
   outfitCompanionItems?: ShopCatalogItem[];
   outfitCompanionCoverUrlById?: Record<string, string>;
+  guestCashRental?: boolean;
 };
 
 function ItemViewCoverPhoto({
@@ -205,6 +206,7 @@ export function ItemViewView({
   outfitLook = null,
   outfitCompanionItems = [],
   outfitCompanionCoverUrlById = {},
+  guestCashRental = false,
 }: ItemViewViewProps) {
   const [likedFrames, setLikedFrames] = useState<Record<string, boolean>>({});
   const normalizedSlots = normalizeItemPhotoSlots(slots);
@@ -249,7 +251,7 @@ export function ItemViewView({
 
       {/* 2. Infos */}
       <div className="pt-2">
-        <ItemInfoCard data={infoCard} />
+        <ItemInfoCard data={infoCard} guestCashRental={guestCashRental} />
       </div>
 
       <div className="space-y-4 pt-4">
@@ -277,6 +279,7 @@ export function ItemViewView({
             outfit={outfitLook}
             companionItems={outfitCompanionItems}
             initialCoverUrlById={outfitCompanionCoverUrlById}
+            guestCashRental={guestCashRental}
           />
         ) : null}
 

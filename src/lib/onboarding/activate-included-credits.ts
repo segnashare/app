@@ -1,4 +1,6 @@
 import { fetchPlanEntitlementComparisonLimits } from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
+import { resolveMembershipLabelForServiceRole } from "@/lib/user/resolve-membership-label";
 
 /** Une seule activation des crédits inclus Guest (étape onboarding « offer »). */
 export function onboardingIncludedCreditsIdempotencyKey(userId: string): string {
@@ -163,6 +165,8 @@ export async function activateOnboardingIncludedCredits(
 ): Promise<ActivateIncludedCreditsResult> {
   const limits = await fetchPlanEntitlementComparisonLimits();
   const includedCreditsAmount = Math.max(0, Math.floor(limits.guestMonthlyCredits));
+  const membershipLabel = await resolveMembershipLabelForServiceRole(admin, userId);
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
 
   const alreadyHasGrant = await hasOnboardingIncludedCreditsGrant(admin, userId);
 
@@ -184,16 +188,16 @@ export async function activateOnboardingIncludedCredits(
       ok: true,
       alreadyClaimed: true,
       creditsGranted: 0,
-      includedCreditsAmount,
+      includedCreditsAmount: guestCashRental ? 0 : includedCreditsAmount,
     };
   }
 
-  if (alreadyHasGrant) {
+  if (alreadyHasGrant || guestCashRental) {
     return {
       ok: true,
       alreadyClaimed: true,
       creditsGranted: 0,
-      includedCreditsAmount,
+      includedCreditsAmount: guestCashRental ? 0 : includedCreditsAmount,
     };
   }
 

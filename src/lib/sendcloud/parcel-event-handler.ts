@@ -2,8 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { trackServerEvent } from "@/lib/analytics/track-server";
+import { triggerCartReturnProvisionAfterOutboundLabel } from "@/lib/cart/trigger-cart-return-provision-after-outbound-label";
 import {
   findShipmentBySendcloudParcelIdExtended,
+  linkOutboundSendcloudParcelIdIfMissing,
   resolveShipmentForSendcloudWebhook,
 } from "@/lib/sendcloud/cart-return-sendcloud-webhook";
 import type { SendcloudEnv } from "@/lib/sendcloud/config";
@@ -20,6 +22,10 @@ import {
   syncCartReturnShipmentTracking,
 } from "@/lib/cart/cart-return-shipment";
 import { isIntakeMemberReturnTrackingNumber } from "@/lib/items/intake-shipping-metadata";
+import {
+  buildCarrierTrackingUrlFromNumber,
+  isSendcloudLabelOrInternalUrl,
+} from "@/lib/shipping/intake-carrier-tracking";
 import {
   patchMemberIntakeShipmentReturnParcel,
   readMemberIntakeDestinationMetadata,
@@ -464,7 +470,35 @@ export async function processSendcloudParcelEvent(
   }
 
   const ship = resolved.shipment;
-  const provisioned = "provisioned" in resolved && Boolean(resolved.provisioned);
+  let provisioned = "provisioned" in resolved && Boolean(resolved.provisioned);
+
+  if (norm(ship.context) === "cart_outbound" && parcelId != null) {
+    try {
+      const { data: shipRow } = await admin.from("shipments").select("cart_id").eq("id", ship.id).maybeSingle();
+      const cartId =
+        typeof (shipRow as { cart_id?: unknown } | null)?.cart_id === "string"
+          ? (shipRow as { cart_id: string }).cart_id
+          : null;
+      if (cartId) {
+        await linkOutboundSendcloudParcelIdIfMissing(admin, cartId, parcelId);
+        const triggered = await triggerCartReturnProvisionAfterOutboundLabel(admin, cartId, {
+          source: options?.source?.trim() || "sendcloud_webhook",
+          webhookTrackingNumber: trackingNumber,
+        });
+        if (triggered.triggered) {
+          provisioned = true;
+        } else if (triggered.error) {
+          console.error("[sendcloud-webhook] cart_outbound return provision failed", {
+            cartId,
+            error: triggered.error,
+            source: options?.source,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[sendcloud-webhook] cart_outbound return provision", e);
+    }
+  }
 
   if (norm(ship.context) === "member_intake") {
     try {
@@ -510,6 +544,22 @@ export async function processSendcloudParcelEvent(
   }
 
   if (norm(ship.context) === "cart_outbound" && !cartOutboundAllowsSendcloudWebhookSync(ship.status)) {
+    if (trackingNumber || trackingUrl) {
+      const memberUrl =
+        trackingUrl && !isSendcloudLabelOrInternalUrl(trackingUrl)
+          ? trackingUrl
+          : trackingNumber
+            ? buildCarrierTrackingUrlFromNumber(trackingNumber)
+            : null;
+      await admin
+        .from("shipments")
+        .update({
+          ...(trackingNumber ? { tracking_number: trackingNumber } : {}),
+          ...(memberUrl ? { member_tracking_url: memberUrl } : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ship.id);
+    }
     return { ok: true, ignored: "cart_outbound_awaiting_backoffice_ready" };
   }
 

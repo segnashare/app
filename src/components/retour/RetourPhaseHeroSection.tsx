@@ -40,27 +40,27 @@ export function RetourPhaseHeroSection({ ui }: Props) {
     <section
       className={cn(
         segnaMontserrat.className,
-        "flex flex-col items-center px-5 pb-3 pt-3 text-center",
+        "flex w-full flex-col items-center gap-5 pt-5 text-center sm:pt-6",
       )}
       aria-labelledby="retour-phase-hero-title"
     >
-      <div className="relative mx-auto w-full max-w-[220px] shrink-0">
+      <div className="relative mx-auto w-full max-w-[200px] shrink-0">
         <Image
           src="/ressources/Alerte_oeil.png"
           alt=""
           width={480}
           height={480}
-          className="mx-auto h-auto w-full max-h-[180px] object-contain"
+          className="mx-auto h-auto w-full max-h-[150px] object-contain object-bottom"
         />
       </div>
       <h2
         id="retour-phase-hero-title"
-        className="mt-5 max-w-[20rem] text-[22px] font-bold leading-tight tracking-tight text-black sm:text-[24px]"
+        className="max-w-[20rem] text-[22px] font-bold leading-tight tracking-tight text-black sm:text-[24px]"
       >
         {ui.heroTagline}
       </h2>
       {ui.bodyLines.length > 0 ? (
-        <div className="mt-3 max-w-[24rem] space-y-2">
+        <div className="max-w-[24rem] space-y-2">
           {ui.bodyLines.map((line, i) => (
             <p key={i} className={cn("text-[15px] font-normal leading-relaxed", BODY_GRAY)}>
               {line}
@@ -79,12 +79,7 @@ export function RetourPhaseHeroSection({ ui }: Props) {
         </div>
       ) : null}
       {ui.ctas.length > 0 ? (
-        <div
-          className={cn(
-            "flex w-full max-w-md flex-col items-stretch gap-2.5",
-            ui.bodyLines.length > 0 ? "mt-8" : "mt-6",
-          )}
-        >
+        <div className="flex w-full max-w-md flex-col items-stretch gap-2.5">
           {ui.ctas.map((cta) => (
             <CtaLink key={`${cta.href}-${cta.label}`} cta={cta} />
           ))}

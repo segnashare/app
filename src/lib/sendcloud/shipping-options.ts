@@ -5,7 +5,13 @@ export async function resolveRelayShippingOptionCode(
   env: SendcloudEnv,
   shippingMethodId: number,
 ): Promise<string | null> {
-  if (env.relayShippingOptionCode) return env.relayShippingOptionCode;
+  if (
+    env.relayShippingOptionCode &&
+    env.relayShippingMethodId != null &&
+    shippingMethodId === env.relayShippingMethodId
+  ) {
+    return env.relayShippingOptionCode;
+  }
 
   const res = await sendcloudPanelV3Fetch<{ data: Record<string, string | null> }>(
     env,
@@ -43,6 +49,56 @@ export async function pickDefaultRelayShippingMethodId(env: SendcloudEnv): Promi
   return relay?.id ?? null;
 }
 
+type PanelShippingMethod = { id: number; name?: string; carrier?: string };
+
+function normPanelMethodName(name: string): string {
+  return name.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function isPanelLockerMethodName(name: string): boolean {
+  return /locker/.test(normPanelMethodName(name));
+}
+
+function isPanelHomeDomesticMethodName(name: string): boolean {
+  return /home|domicile|domestic|door/.test(normPanelMethodName(name));
+}
+
+function isPanelWeightBandOk(name: string): boolean {
+  const n = normPanelMethodName(name);
+  return /0\.5-1|0-1|0\.25-0\.5|0\.5|0,5/.test(n) || n.includes("kg");
+}
+
+/** MR retour panier : hors Locker / domicile (tranche 0,5–1 kg si disponible). */
+export function pickMondialRelayReturnShippingMethodIdFromPanel(
+  methods: PanelShippingMethod[],
+): number | null {
+  const candidates = methods.filter(
+    (m) =>
+      m.carrier === "mondial_relay" &&
+      typeof m.name === "string" &&
+      !isPanelLockerMethodName(m.name) &&
+      !isPanelHomeDomesticMethodName(m.name) &&
+      !/international/i.test(m.name),
+  );
+  if (candidates.length === 0) return null;
+
+  const weightOk = candidates.filter((m) => isPanelWeightBandOk(String(m.name ?? "")));
+  const pool = weightOk.length > 0 ? weightOk : candidates;
+
+  const ranked = pool
+    .map((m) => {
+      const n = normPanelMethodName(String(m.name ?? ""));
+      let score = 0;
+      if (/point relais|parcel shop|service point/.test(n)) score += 20;
+      if (/relais|relay/.test(n) && !/locker/.test(n)) score += 10;
+      if (/return|retour/.test(n)) score += 5;
+      return { id: m.id, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return ranked[0]?.id ?? null;
+}
+
 /** Méthode point relais / service point pour un transporteur (0,5–1 kg FR, hors international). */
 export async function pickRelayShippingMethodIdForCarrier(
   env: SendcloudEnv,
@@ -63,7 +119,8 @@ export async function pickRelayShippingMethodIdForCarrier(
     (m: { id: number; name?: string; carrier?: string }) =>
       m.carrier === c &&
       typeof m.name === "string" &&
-      (/point relais|service point|parcel shop|relais/i.test(m.name)) &&
+      !/locker/i.test(m.name) &&
+      (/point relais|parcel shop|service point/i.test(m.name)) &&
       /0\.5-1|0-1|0\.25-0\.5/i.test(m.name) &&
       !/international/i.test(m.name),
   );
@@ -73,16 +130,22 @@ export async function pickRelayShippingMethodIdForCarrier(
     (m: { id: number; name?: string; carrier?: string }) =>
       m.carrier === c &&
       typeof m.name === "string" &&
-      /point relais|service point|relais/i.test(m.name) &&
+      !/locker/i.test(m.name) &&
+      /point relais|parcel shop|service point/i.test(m.name) &&
       !/international/i.test(m.name),
   );
-  return fallback?.id ?? null;
+  if (fallback?.id) return fallback.id;
+
+  if (c === "mondial_relay" || c.includes("mondial")) {
+    return pickMondialRelayReturnShippingMethodIdFromPanel(methods);
+  }
+  return null;
 }
 
 /**
  * Méthode panel retour pour un transporteur donné (0,5–1 kg FR).
  * - chronopost → Shop2Shop
- * - mondial_relay → Locker, puis point relais
+ * - mondial_relay → Point Relais (pas Locker)
  */
 export async function pickReturnShippingMethodIdForCarrier(
   env: SendcloudEnv,
@@ -114,15 +177,6 @@ export async function pickReturnShippingMethodIdForCarrier(
   }
 
   if (c === "mondial_relay" || c.includes("mondial")) {
-    const locker = methods.find(
-      (m) =>
-        m.carrier === "mondial_relay" &&
-        typeof m.name === "string" &&
-        /locker/i.test(m.name) &&
-        /0\.5-1/i.test(m.name) &&
-        !/international/i.test(m.name),
-    );
-    if (locker?.id) return locker.id;
     return pickRelayShippingMethodIdForCarrier(env, "mondial_relay");
   }
 
@@ -132,15 +186,15 @@ export async function pickReturnShippingMethodIdForCarrier(
 type ReturnCarrierPreference = "chronopost" | "mondial_relay";
 
 function readReturnCarrierPreference(): ReturnCarrierPreference {
-  const raw = (process.env.SENDCLOUD_RETURN_CARRIER_PREFERENCE ?? "chronopost").trim().toLowerCase();
-  if (raw === "mondial_relay" || raw === "mr" || raw === "locker") return "mondial_relay";
-  return "chronopost";
+  const raw = (process.env.SENDCLOUD_RETURN_CARRIER_PREFERENCE ?? "mondial_relay").trim().toLowerCase();
+  if (raw === "chronopost" || raw === "chrono") return "chronopost";
+  return "mondial_relay";
 }
 
 /**
  * Méthode panel pour retours panier (0,5–1 kg) :
  * - chronopost : Chrono Shop2Shop (point relais)
- * - mondial_relay : Locker Delivery
+ * - mondial_relay : Point Relais (pas Locker Delivery)
  */
 export async function pickReturnShippingMethodId(env: SendcloudEnv): Promise<number | null> {
   const preference = readReturnCarrierPreference();
@@ -169,24 +223,20 @@ export async function pickReturnShippingMethodId(env: SendcloudEnv): Promise<num
       if (chrono?.id) return chrono.id;
     }
     if (carrier === "mondial_relay") {
-      const locker = methods.find(
-        (m) =>
-          m.carrier === "mondial_relay" &&
-          typeof m.name === "string" &&
-          /locker/i.test(m.name) &&
-          /0\.5-1/i.test(m.name) &&
-          !/international/i.test(m.name),
-      );
-      if (locker?.id) return locker.id;
       const relay = methods.find(
         (m) =>
           m.carrier === "mondial_relay" &&
           typeof m.name === "string" &&
-          (/point relais|service point/i.test(m.name)) &&
+          !/locker/i.test(m.name) &&
+          /point relais/i.test(m.name) &&
           /0\.5-1/i.test(m.name) &&
           !/international/i.test(m.name),
       );
       if (relay?.id) return relay.id;
+      const viaCarrier = await pickRelayShippingMethodIdForCarrier(env, "mondial_relay");
+      if (viaCarrier) return viaCarrier;
+      const mr = pickMondialRelayReturnShippingMethodIdFromPanel(methods);
+      if (mr) return mr;
     }
   }
 

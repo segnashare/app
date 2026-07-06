@@ -17,6 +17,11 @@ import {
   computeMissingCreditsCashCents,
   fetchBorrowCheckoutOptions,
 } from "@/lib/billing/fetch-borrow-checkout-options";
+import {
+  computeGuestCartRentalEuroCents,
+  guestStripeCompPoints,
+  isGuestCashRentalMode,
+} from "@/lib/billing/guest-rental-pricing";
 import { defaultCheckoutBorrowDurationDays } from "@/lib/cart/checkout-borrow-duration-storage";
 import { cartPaymentProfileGateMessage, fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
@@ -39,6 +44,10 @@ import { readCoursierConfig } from "@/lib/coursier/config";
 import { fetchCoursierExpressQuote } from "@/lib/coursier/getprice-api";
 import { buildDefaultCoursierPackages } from "@/lib/coursier/packages";
 import { coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
+import {
+  coursierOfferSlotKey,
+  findCoursierOfferBySlotKey,
+} from "@/lib/coursier/selectable-offers";
 import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shipping-postal";
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
@@ -185,6 +194,8 @@ export async function POST(request: Request) {
     }
 
     const homeSpeedBilling = normalizeHomeSpeedForBilling(homeSpeedRaw);
+    const coursierSlotKey =
+      typeof body.coursierSlotKey === "string" ? body.coursierSlotKey.trim() : "";
     const deliveryInstructions = parseDeliveryInstructions(body.deliveryInstructions);
     const sendcloudOutboundSelection = parseSendcloudOutboundSelection(body.sendcloudOutboundSelection);
     const needsSendcloudOutboundPick =
@@ -283,23 +294,31 @@ export async function POST(request: Request) {
       .is("deleted_at", null)
       .maybeSingle();
 
-    const availableWalletMods = parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
-    const cartExceedsWallet = cartTotalMods > availableWalletMods;
-    const missingExchangeMods = cartExceedsWallet ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods)) : 0;
+    const guestCashRental = isGuestCashRentalMode(membershipLabel);
+    const availableWalletMods = guestCashRental
+      ? 0
+      : parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
+    const cartExceedsWallet = guestCashRental ? cartTotalMods > 0 : cartTotalMods > availableWalletMods;
+    const missingExchangeMods = guestCashRental
+      ? guestStripeCompPoints(cartTotalMods)
+      : cartExceedsWallet
+        ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods))
+        : 0;
 
     const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
     const allowedBorrowDurations = new Set(borrowCheckoutOptions.map((o) => o.durationDays));
-    const borrowDurationDays =
-      missingExchangeMods > 0
-        ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
-        : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
+    const needsBorrowDuration = guestCashRental ? cartTotalMods > 0 : missingExchangeMods > 0;
+    const borrowDurationDays = needsBorrowDuration
+      ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
+      : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
     if (borrowDurationDays == null) {
       return NextResponse.json({ message: "Choisis une durée d'emprunt valide." }, { status: 400 });
     }
 
     const centsPerMissingCredit = centsPerMissingCreditForDuration(borrowCheckoutOptions, borrowDurationDays);
-    const creditsCents =
-      missingExchangeMods > 0
+    const creditsCents = guestCashRental
+      ? computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
+      : missingExchangeMods > 0
         ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
         : 0;
     const complementRelayFree = complementQualifiesForFreeRelay(creditsCents / 100);
@@ -383,6 +402,13 @@ export async function POST(request: Request) {
       includedExchangeShipping === "none";
 
     let expressOutboundHtCents: number | null = null;
+    let coursierSelection: {
+      slotKey: string;
+      serviceId: string;
+      pickupStartDate: string;
+      deliveryStartDate: string;
+      deliveryEndDate: string;
+    } | null = null;
     if (needsExpressQuote) {
       if (!deliveryAddress) {
         return NextResponse.json(
@@ -413,7 +439,14 @@ export async function POST(request: Request) {
           fromAddress: coursierConfig.pickupAddress,
           toAddress,
           packages: buildDefaultCoursierPackages(itemCount),
+          slotKey: coursierSlotKey || null,
         });
+        if (coursierSlotKey && !findCoursierOfferBySlotKey(quote.offers, coursierSlotKey)) {
+          return NextResponse.json(
+            { message: "Créneau express invalide ou expiré. Choisis un autre créneau." },
+            { status: 400 },
+          );
+        }
         const parsed = coursierQuoteFeeCentsFromRaw(quote);
         if (parsed == null) {
           return NextResponse.json(
@@ -422,6 +455,21 @@ export async function POST(request: Request) {
           );
         }
         expressOutboundHtCents = parsed;
+        coursierSelection = {
+          slotKey: coursierOfferSlotKey({
+            ServiceId: quote.serviceId,
+            Service: quote.service,
+            PickupStartDate: quote.pickupStartDate,
+            PickupEndDate: quote.pickupEndDate,
+            DeliveryStartDate: quote.deliveryStartDate,
+            DeliveryEndDate: quote.deliveryEndDate,
+            Price: String(quote.priceHtCents / 100),
+          }),
+          serviceId: quote.serviceId,
+          pickupStartDate: quote.pickupStartDate,
+          deliveryStartDate: quote.deliveryStartDate,
+          deliveryEndDate: quote.deliveryEndDate,
+        };
       } catch (e) {
         const msg = e instanceof Error ? e.message : "coursier_quote_failed";
         console.error("[stripe/cart/checkout] coursier quote for billing failed", msg);
@@ -466,6 +514,12 @@ export async function POST(request: Request) {
     const usedIncludedOrder = includedExchangeShipping !== "none";
 
     if (totalCents === 0) {
+      if (guestCashRental && cartTotalMods > 0) {
+        return NextResponse.json(
+          { message: "Le prix de location est requis pour finaliser la commande." },
+          { status: 400 },
+        );
+      }
       const creditsKind = walletCreditKindForMembership(membershipLabel);
       const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
       const deliveryLine1Meta =
@@ -499,6 +553,8 @@ export async function POST(request: Request) {
         includedExchangeShipping,
         priorityCents,
         sendcloudOutboundSelection,
+        coursierSelection,
+        guestCashRental,
       });
 
       const stripe = new Stripe(config.secretKey);
@@ -651,8 +707,10 @@ export async function POST(request: Request) {
           currency: "eur",
           unit_amount: creditsCents,
           product_data: {
-            name: "Complément crédits Segna",
-            description: `${missingExchangeMods} crédit(s) manquant(s) · ${borrowDurationDays} j`,
+            name: guestCashRental ? "Prix de location" : "Complément crédits Segna",
+            description: guestCashRental
+              ? `Location · ${borrowDurationDays} j`
+              : `${missingExchangeMods} crédit(s) manquant(s) · ${borrowDurationDays} j`,
           },
         },
       });
@@ -672,7 +730,7 @@ export async function POST(request: Request) {
                   ? `Point relais — ${relaySelection.label}`
                   : "Point relais"
                 : homeSpeedBilling === "uber_direct"
-                  ? "Livraison à domicile (Uber Direct + retour relais)"
+                  ? "Livraison à domicile (Coursier.fr + retour relais)"
                   : "Livraison à domicile",
           },
         },
@@ -738,6 +796,8 @@ export async function POST(request: Request) {
         includedExchangeShipping,
         priorityCents,
         sendcloudOutboundSelection,
+        coursierSelection,
+        guestCashRental,
       }),
     });
 

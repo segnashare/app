@@ -36,6 +36,28 @@ export function parseSendcloudRelayPointRef(raw: string): ParsedSendcloudRelayRe
   };
 }
 
+/**
+ * Clé de comparaison Mondial Relay / Sendcloud (ex. `FR-028163` ≈ `FR28163`).
+ */
+export function relayPointCodeMatchKey(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  const parsed = parseSendcloudRelayPointRef(t);
+  if (parsed) return String(parsed.servicePointId);
+  const upper = t.toUpperCase();
+  const digits = upper.replace(/^[A-Z]{2}-?/, "").replace(/\D/g, "");
+  if (!digits) return upper;
+  return digits.replace(/^0+/, "") || "0";
+}
+
+export function relayPointCodesMatch(a: string, b: string): boolean {
+  const left = a.trim();
+  const right = b.trim();
+  if (!left || !right) return false;
+  if (left.toLowerCase() === right.toLowerCase()) return true;
+  return relayPointCodeMatchKey(left) === relayPointCodeMatchKey(right);
+}
+
 export function carrierDisplayName(carrier: string | null | undefined): string {
   const c = (carrier ?? "").trim().toLowerCase();
   if (c === "mondial_relay") return "Mondial Relay";

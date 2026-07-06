@@ -5,7 +5,7 @@ import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendclou
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { toRelayCheckoutSendcloudOutboundOption } from "@/lib/cart/use-checkout-relay-sendcloud-pricing";
 import { provisionCartOutboundSendcloudOrder } from "@/lib/cart/provision-cart-outbound-sendcloud-order";
-import { provisionCartReturnSendcloudOrder } from "@/lib/cart/provision-cart-return-sendcloud-order";
+import { finalizeCoursierExpressHomeAfterConfirm } from "@/lib/cart/coursier-checkout-meta";
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
@@ -191,7 +191,7 @@ export async function resolveCartCheckoutSendcloudOutboundSelection(params: {
   };
 }
 
-/** Après `confirm_cart_paid_from_stripe` : meta transporteur + commandes Sendcloud aller + retour (idempotent). */
+/** Après `confirm_cart_paid_from_stripe` : meta transporteur + commande Sendcloud aller (retour après étiquette aller). */
 export async function finalizeCartOutboundSendcloudAfterConfirm(
   admin: AdminClientWithTable,
   params: {
@@ -223,25 +223,9 @@ export async function finalizeCartOutboundSendcloudAfterConfirm(
   } else if ("orderNumber" in outbound) {
     console.info("[cart-order] sendcloud outbound provisioned", outbound.orderNumber);
   }
-
-  const retour = await provisionCartReturnSendcloudOrder(client, {
-    cartId: params.cartId,
-    deliveryChannel: params.deliveryChannel,
-    homeSpeed: params.homeSpeed ?? null,
-  });
-  if (!retour.ok) {
-    console.error("[cart-order] sendcloud return provision failed", retour.error);
-  } else if ("skipped" in retour && retour.skipped) {
-    console.info("[cart-order] sendcloud return provision skipped", retour.reason);
-  } else if ("orderNumber" in retour) {
-    console.info("[cart-order] sendcloud return provisioned", {
-      orderNumber: retour.orderNumber,
-      returnShipmentId: retour.returnShipmentId,
-    });
-  }
 }
 
-/** @deprecated Utiliser finalizeCartOutboundSendcloudAfterConfirm (provision aller + retour). */
+/** @deprecated Utiliser finalizeCartOutboundSendcloudAfterConfirm (aller au paiement, retour après étiquette aller). */
 export const finalizeCartSendcloudOrdersAfterConfirm = finalizeCartOutboundSendcloudAfterConfirm;
 
 export async function confirmCartPaidWalletOnly(
@@ -342,6 +326,13 @@ export async function confirmCartPaidFromStripeSession(
     deliveryChannel,
     homeSpeed,
     sendcloudOutbound: sendcloudOutboundFromStripeMetadata(session.metadata),
+  });
+
+  await finalizeCoursierExpressHomeAfterConfirm(admin as unknown as SupabaseClient, {
+    cartId,
+    stripeMetadata: session.metadata,
+    deliveryChannel,
+    homeSpeed,
   });
 
   return { ok: true, alreadyConfirmed };

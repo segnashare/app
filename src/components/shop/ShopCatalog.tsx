@@ -48,7 +48,8 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { ShopHubSectionSkeleton } from "@/components/shop/ShopCatalogLoadingFallback";
-import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { GuestCashRentalCatalogProvider } from "@/components/shop/GuestCashRentalCatalogContext";
+import { PieceCardPriceDisplay } from "@/components/shop/PieceCardPriceDisplay";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
@@ -215,6 +216,8 @@ type ShopCatalogProps = {
   includedCreditsActivationContent?: WelcomeGiftLandingContent | null;
   /** Couvertures déjà résolues côté serveur (id → URL signée). */
   initialCoverUrlById?: Record<string, string>;
+  /** Guest : affichage prix location €/sem au lieu des crédits. */
+  guestCashRental?: boolean;
 };
 
 type MenuKey = keyof ShopFilters;
@@ -320,23 +323,18 @@ function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
   return t ? `Taille ${t}` : "Taille unique";
 }
 
+/** @deprecated Préférer {@link PieceCardPriceDisplay} (contexte GuestCashRentalCatalog). */
 function pieceCardPricePoints(
   pricePoints: number | null,
   options?: { numberClassName?: string; iconColor?: "fixed" | "current" },
 ) {
-  if (typeof pricePoints === "number" && !Number.isNaN(pricePoints)) {
-    return (
-      <SegnaPointsUnitDisplay
-        points={pricePoints}
-        creditKind="consumption"
-        unitDisplay="icon"
-        iconColor={options?.iconColor ?? "fixed"}
-        className="shrink-0 gap-x-0.5"
-        numberClassName={cn("tabular-nums", options?.numberClassName)}
-      />
-    );
-  }
-  return <span className={cn("tabular-nums", options?.numberClassName)}>—</span>;
+  return (
+    <PieceCardPriceDisplay
+      pricePoints={pricePoints}
+      numberClassName={options?.numberClassName}
+      iconColor={options?.iconColor}
+    />
+  );
 }
 
 /** Style panneau gauche pour pièces mises en avant via CMS (À découvrir, bons coups, À la une…). */
@@ -854,6 +852,7 @@ export function ShopCatalog({
   welcomeGiftOfferEligible = false,
   includedCreditsActivationContent = null,
   initialCoverUrlById: initialCoverUrlByIdProp = {},
+  guestCashRental = false,
 }: ShopCatalogProps) {
   const offerOnboardingActive = useOnboardingOfferActive(welcomeGiftOfferEligible);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -2560,8 +2559,9 @@ export function ShopCatalog({
   }
 
   return (
+    <GuestCashRentalCatalogProvider guestCashRental={guestCashRental}>
     <OnboardingIncludedCreditsProvider
-      active={offerOnboardingActive}
+      active={offerOnboardingActive && !guestCashRental}
       content={includedCreditsActivationContent}
     >
     <div className={cn("min-h-0 bg-white text-zinc-900", guideCartOnboarding && "segna-guidance-shimmer-active")}>
@@ -3094,6 +3094,7 @@ export function ShopCatalog({
       ) : null}
     </div>
     </OnboardingIncludedCreditsProvider>
+    </GuestCashRentalCatalogProvider>
   );
 }
 

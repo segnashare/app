@@ -1,6 +1,6 @@
 import type { SendcloudEnv } from "@/lib/sendcloud/config";
 import { sendcloudServicePointsFetch } from "@/lib/sendcloud/client";
-import { parseSendcloudRelayPointRef } from "@/lib/sendcloud/relay-point-ref";
+import { parseSendcloudRelayPointRef, relayPointCodeMatchKey, relayPointCodesMatch } from "@/lib/sendcloud/relay-point-ref";
 
 export type SendcloudServicePointHit = {
   id: number;
@@ -28,8 +28,15 @@ type RawServicePoint = {
 function formatRelayDisplayCode(code: string, country: string): string {
   const c = code.trim();
   if (!c) return "";
-  if (c.includes("-")) return c;
+  if (c.includes("-")) return c.toUpperCase();
   const cc = country.trim().toUpperCase() || "FR";
+  const upper = c.toUpperCase();
+  if (upper.startsWith(cc)) {
+    const rest = upper.slice(cc.length);
+    if (/^\d+$/.test(rest)) {
+      return `${cc}-${rest.padStart(6, "0")}`;
+    }
+  }
   return `${cc}-${c}`;
 }
 
@@ -139,15 +146,16 @@ export async function resolveSendcloudServicePointId(
     }
   }
 
-  const normalized = raw.replace(/^([A-Z]{2})-?/i, "").trim();
+  const matchKey = relayPointCodeMatchKey(raw);
   if (error && points.length === 0) {
     return { error };
   }
 
   const hit =
-    points.find((p) => p.code === normalized) ||
-    points.find((p) => p.displayCode.toLowerCase() === raw.toLowerCase()) ||
-    points.find((p) => p.code.toLowerCase() === raw.toLowerCase());
+    points.find((p) => relayPointCodesMatch(p.code, raw)) ||
+    points.find((p) => relayPointCodesMatch(p.displayCode, raw)) ||
+    points.find((p) => relayPointCodeMatchKey(p.code) === matchKey) ||
+    points.find((p) => relayPointCodeMatchKey(p.displayCode) === matchKey);
 
   if (!hit) {
     if (numericId != null && Number.isFinite(numericId)) {

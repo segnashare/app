@@ -13,6 +13,8 @@ import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -30,8 +32,12 @@ export default async function ItemDetailsPage({ params }: PageProps) {
   let initialOutfitLook: ItemOutfitLookPayload | null = null;
   let initialOutfitCompanionItems: ShopCatalogItem[] = [];
   let initialOutfitCompanionCoverUrlById: Record<string, string> = {};
+  let initialGuestCashRental = false;
 
   if (user) {
+    const membershipLabel = await resolveMembershipLabel(supabase, user.id);
+    initialGuestCashRental = isGuestCashRentalMode(membershipLabel);
+
     const [cmsFrames, detailRes, outfitLook] = await Promise.all([
       fetchCmsSectionFramesResolved(supabase, "segna_stock_property"),
       fetchItemDetailPayloadForUser(supabase, user.id, id),
@@ -72,6 +78,7 @@ export default async function ItemDetailsPage({ params }: PageProps) {
         initialOutfitLook={initialOutfitLook}
         initialOutfitCompanionItems={initialOutfitCompanionItems}
         initialOutfitCompanionCoverUrlById={initialOutfitCompanionCoverUrlById}
+        initialGuestCashRental={initialGuestCashRental}
       />
     </Suspense>
   );

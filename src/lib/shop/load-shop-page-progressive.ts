@@ -61,6 +61,7 @@ export type ShopPageLoadContext = {
   onboardingProcess: string | null;
   includedCreditsClaimed: boolean;
   guideCartOnboarding: boolean;
+  guestCashRental: boolean;
 };
 
 function parseCatalogItems(data: unknown): ShopCatalogItem[] {
@@ -278,6 +279,7 @@ export async function loadShopPageCritical(ctx: ShopPageLoadContext): Promise<Sh
     initialShopHubSections: hubPack.hubSections,
     boutiqueHubSectionOrder,
     guideCartOnboarding: ctx.guideCartOnboarding,
+    guestCashRental: ctx.guestCashRental,
     readyHubSectionKeys: [...criticalSectionKeys],
     categories: mapCategoryFilterRows(catResFinal.data),
     sizes: mapSizeFilterRows(sizeResFinal.data),
@@ -340,6 +342,7 @@ export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPa
     initialShopHubSections: hubPack.hubSections,
     boutiqueHubSectionOrder,
     guideCartOnboarding: ctx.guideCartOnboarding,
+    guestCashRental: ctx.guestCashRental,
     readyHubSectionKeys: [...boutiqueHubSectionOrder],
     categories: mapCategoryFilterRows(catResFinal.data),
     sizes: mapSizeFilterRows(sizeResFinal.data),

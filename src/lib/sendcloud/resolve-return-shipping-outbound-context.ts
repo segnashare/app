@@ -2,8 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   checkoutMetaIndicatesUberDirect,
+  isCartOutboundCoursier,
   isUberCartOutboundShipment,
 } from "@/lib/cart/cart-outbound-delivery-kind";
+import { metadataIndicatesCoursierCheckout } from "@/lib/cart/coursier-checkout-meta";
 import { readSendcloudOutboundMetaFromRecord } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { parseSendcloudRelayPointRef } from "@/lib/sendcloud/relay-point-ref";
 import { exchangeShippingWeightGrams } from "@/lib/shipping/exchange-shipping-pricing";
@@ -49,30 +51,91 @@ function normalizeCarrierSlug(raw: string): string | null {
   return c.replace(/\s+/g, "_");
 }
 
-function resolveOutboundShipmentProviderCode(input: {
-  destMetadata?: Record<string, unknown> | null;
-  relayCarrier?: string | null;
-}): string {
-  const checkout = readSendcloudOutboundMetaFromRecord(input.destMetadata);
-  const carrier = (
-    checkout?.sendcloud_outbound_carrier ||
-    input.relayCarrier ||
-    checkout?.sendcloud_outbound_method_title ||
-    ""
-  )
-    .toLowerCase()
-    .trim();
+function carrierSlugFromOptionCode(optionCode: string): string | null {
+  const prefix = optionCode.split(":")[0]?.trim() ?? "";
+  return prefix ? normalizeCarrierSlug(prefix) : null;
+}
 
-  if (carrier.includes("chronopost")) return "chronopost";
-  if (carrier.includes("mondial")) return "mondial_relay";
-  if (carrier.includes("colissimo")) return "colissimo";
-  if (carrier.includes("dhl")) return "dhl";
-  if (carrier.includes("ups")) return "ups";
-  if (carrier.includes("dpd")) return "dpd";
-  return "sendcloud";
+/** Aller express Coursier.fr → retour Chronopost par défaut. */
+export function isCoursierOutboundForReturn(ctx: ReturnShippingOutboundContext): boolean {
+  if (isCartOutboundCoursier({ outboundProviderCode: ctx.outboundProviderCode })) return true;
+  return metadataIndicatesCoursierCheckout(ctx.destMetadata);
+}
+
+/**
+ * Transporteur aller (checkout / relais / provider) pour aligner le retour.
+ * Coursier → null (le résolveur force Chronopost).
+ */
+export function inferOutboundCarrierSlug(ctx: ReturnShippingOutboundContext): string | null {
+  if (isCoursierOutboundForReturn(ctx)) return null;
+
+  const meta = ctx.destMetadata ?? {};
+  const checkout = readSendcloudOutboundMetaFromRecord(meta);
+
+  const directCarrier =
+    typeof meta.sendcloud_outbound_carrier === "string"
+      ? meta.sendcloud_outbound_carrier.trim()
+      : checkout?.sendcloud_outbound_carrier?.trim() ?? "";
+  if (directCarrier) {
+    const slug = normalizeCarrierSlug(directCarrier);
+    if (slug) return slug;
+  }
+
+  const optionCode =
+    (typeof meta.sendcloud_outbound_option_code === "string"
+      ? meta.sendcloud_outbound_option_code.trim()
+      : "") || checkout?.sendcloud_outbound_option_code?.trim() || "";
+  const fromOption = carrierSlugFromOptionCode(optionCode);
+  if (fromOption) return fromOption;
+
+  const methodTitle =
+    (typeof meta.sendcloud_outbound_method_title === "string"
+      ? meta.sendcloud_outbound_method_title.trim()
+      : "") || checkout?.sendcloud_outbound_method_title?.trim() || "";
+  if (methodTitle) {
+    const slug = normalizeCarrierSlug(methodTitle);
+    if (slug) return slug;
+  }
+
+  const parsed = parseSendcloudRelayPointRef(ctx.relayCode ?? "");
+  if (parsed?.carrier) {
+    const slug = normalizeCarrierSlug(parsed.carrier);
+    if (slug) return slug;
+  }
+
+  const trackingUrl = (ctx.memberTrackingUrl ?? "").trim().toLowerCase();
+  if (trackingUrl.includes("chronopost")) return "chronopost";
+  if (trackingUrl.includes("mondialrelay") || trackingUrl.includes("mondial-relay")) {
+    return "mondial_relay";
+  }
+
+  const provider = (ctx.outboundProviderCode ?? "").trim().toLowerCase();
+  if (
+    provider &&
+    provider !== "sendcloud" &&
+    provider !== "coursier" &&
+    provider !== "uber_direct"
+  ) {
+    const slug = normalizeCarrierSlug(provider);
+    if (slug) return slug;
+  }
+
+  if (
+    checkoutMetaIndicatesUberDirect(ctx.checkoutDeliveryChannel, ctx.checkoutHomeSpeed) ||
+    isUberCartOutboundShipment({
+      outboundProviderCode: ctx.outboundProviderCode,
+      memberTrackingUrl: ctx.memberTrackingUrl,
+      trackingNumber: ctx.trackingNumber,
+    })
+  ) {
+    return "chronopost";
+  }
+
+  return null;
 }
 
 export function isReturnShippingHomeOrUber(ctx: ReturnShippingOutboundContext): boolean {
+  if (isCoursierOutboundForReturn(ctx)) return true;
   if (
     checkoutMetaIndicatesUberDirect(ctx.checkoutDeliveryChannel, ctx.checkoutHomeSpeed) ||
     isUberCartOutboundShipment({
@@ -85,7 +148,7 @@ export function isReturnShippingHomeOrUber(ctx: ReturnShippingOutboundContext): 
   }
 
   if ((ctx.checkoutDeliveryChannel ?? "").trim().toLowerCase() === "home") {
-    return true;
+    return inferOutboundCarrierSlug(ctx) === "chronopost";
   }
 
   return isCartOutboundHomeDestination({
@@ -102,24 +165,9 @@ export function classifyReturnShippingRoute(ctx: ReturnShippingOutboundContext):
   return "home_or_uber";
 }
 
+/** @deprecated Utiliser `inferOutboundCarrierSlug`. */
 export function inferOutboundRelayCarrierSlug(ctx: ReturnShippingOutboundContext): string | null {
-  const checkout = readSendcloudOutboundMetaFromRecord(ctx.destMetadata);
-  const fromCheckout = checkout?.sendcloud_outbound_carrier?.trim();
-  if (fromCheckout) {
-    return normalizeCarrierSlug(fromCheckout);
-  }
-
-  const parsed = parseSendcloudRelayPointRef(ctx.relayCode ?? "");
-  const relayCarrier = parsed?.carrier ?? null;
-
-  const provider = resolveOutboundShipmentProviderCode({
-    destMetadata: ctx.destMetadata,
-    relayCarrier,
-  });
-  if (provider === "sendcloud") {
-    return relayCarrier ? normalizeCarrierSlug(relayCarrier) : null;
-  }
-  return normalizeCarrierSlug(provider);
+  return inferOutboundCarrierSlug(ctx);
 }
 
 export async function loadReturnShippingOutboundContextForCart(

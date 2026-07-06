@@ -1,12 +1,115 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isIntakeMemberReturnTrackingNumber } from "@/lib/items/intake-shipping-metadata";
+import {
+  buildCarrierTrackingUrlFromNumber,
+  isSendcloudLabelOrInternalUrl,
+} from "@/lib/shipping/intake-carrier-tracking";
 import { cancelSendcloudOutboundParcel } from "@/lib/sendcloud/orders-api";
 import type { SendcloudEnv } from "@/lib/sendcloud/config";
 import { buildSendcloudV3ParcelLabelUrl } from "@/lib/sendcloud/label-url";
 import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
-import { findSendcloudParcelsByOrderNumberV3 } from "@/lib/sendcloud/shipments";
+import { resolveSendcloudParcelIdFromTracking } from "@/lib/sendcloud/parcel-tracking";
+import {
+  findSendcloudReturnsByOrderNumber,
+  findSendcloudReturnsByTrackingNumber,
+  type SendcloudReturnListItem,
+} from "@/lib/sendcloud/returns-api";
+import {
+  findSendcloudParcelsByOrderNumberV3,
+  type SendcloudShipmentParcel,
+} from "@/lib/sendcloud/shipments";
 import { ensureCartReturnShipmentFromSendcloudWebhook } from "@/lib/sendcloud/cart-return-sendcloud-webhook";
+
+export { isCartReturnSendcloudOrderProvisioned } from "@/lib/cart/cart-return-provision-meta";
+import { isCartReturnSendcloudOrderProvisioned } from "@/lib/cart/cart-return-provision-meta";
+
+function shipmentDestinationMeta(row: {
+  shipment_destinations?: unknown;
+}): Record<string, unknown> {
+  const destEmb = row.shipment_destinations;
+  const dest = Array.isArray(destEmb) ? destEmb[0] : destEmb;
+  if (dest && typeof dest === "object" && "metadata" in dest && dest.metadata && typeof dest.metadata === "object") {
+    return dest.metadata as Record<string, unknown>;
+  }
+  return {};
+}
+
+/** Fusionne les expéditions `cart_return` en double (course webhook / BO). */
+export async function consolidateDuplicateCartReturnShipments(
+  admin: SupabaseClient,
+  cartId: string,
+): Promise<{ canonicalId: string | null; removedIds: string[] }> {
+  const trimmedCartId = cartId.trim();
+  const { data: rows } = await admin
+    .from("shipments")
+    .select("id, tracking_number, created_at, shipment_destinations(metadata)")
+    .eq("cart_id", trimmedCartId)
+    .eq("context", "cart_return")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (!rows?.length) return { canonicalId: null, removedIds: [] };
+  if (rows.length === 1) return { canonicalId: String(rows[0].id), removedIds: [] };
+
+  let canonicalIdx = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const meta = shipmentDestinationMeta(rows[i] as { shipment_destinations?: unknown });
+    if (isCartReturnSendcloudOrderProvisioned(meta)) {
+      canonicalIdx = i;
+      break;
+    }
+  }
+  for (let i = 0; i < rows.length; i++) {
+    if (i === canonicalIdx) continue;
+    const tn = String((rows[i] as { tracking_number?: string }).tracking_number ?? "").trim();
+    const canonicalTn = String(
+      (rows[canonicalIdx] as { tracking_number?: string }).tracking_number ?? "",
+    ).trim();
+    if (tn && !canonicalTn) canonicalIdx = i;
+  }
+
+  const canonicalId = String(rows[canonicalIdx].id);
+  const removedIds: string[] = [];
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    const id = String(row.id);
+    if (id === canonicalId) continue;
+    const { error } = await admin.from("shipments").update({ deleted_at: now }).eq("id", id);
+    if (!error) removedIds.push(id);
+  }
+
+  if (removedIds.length > 0) {
+    console.info("[cart-return-shipment] consolidated duplicate cart_return shipments", {
+      cartId: trimmedCartId,
+      canonicalId,
+      removedIds,
+    });
+  }
+
+  return { canonicalId, removedIds };
+}
+
+/** Vérifie si une commande retour Sendcloud est déjà provisionnée pour ce panier. */
+export async function isCartReturnProvisionedForCart(
+  admin: SupabaseClient,
+  cartId: string,
+): Promise<boolean> {
+  await consolidateDuplicateCartReturnShipments(admin, cartId);
+  const { data: rows } = await admin
+    .from("shipments")
+    .select("shipment_destinations(metadata)")
+    .eq("cart_id", cartId.trim())
+    .eq("context", "cart_return")
+    .is("deleted_at", null);
+
+  for (const row of rows ?? []) {
+    if (isCartReturnSendcloudOrderProvisioned(shipmentDestinationMeta(row as { shipment_destinations?: unknown }))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Suivi retour portail Sendcloud (colis retour Chronopost / Mondial Relay). */
 export function isCartReturnMemberTrackingNumber(trackingNumber: string | null | undefined): boolean {
@@ -15,12 +118,68 @@ export function isCartReturnMemberTrackingNumber(trackingNumber: string | null |
 
 const RESETTABLE_RETURN_STATUSES = new Set(["pending", "ready", "failed"]);
 
+/** Métadonnées Sendcloud aller à ne pas recopier sur la destination retour (sinon faux « already_provisioned »). */
+const OUTBOUND_SENDCLOUD_META_KEYS_FOR_RETURN = [
+  "sendcloud_order_provisioned_at",
+  "sendcloud_panel_order_id",
+  "sendcloud_order_number",
+  "sendcloud_order_cancelled_at",
+  "sendcloud_label_generation",
+  "sendcloud_parcel_id",
+  "sendcloud_panel_shipment_id",
+  "sc_cart_return_provisioned_at",
+] as const;
+
+export function stripOutboundSendcloudProvisionMetaForReturnBootstrap(
+  meta: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const out =
+    meta && typeof meta === "object" ? { ...(meta as Record<string, unknown>) } : {};
+  for (const key of OUTBOUND_SENDCLOUD_META_KEYS_FOR_RETURN) {
+    delete out[key];
+  }
+  return out;
+}
+
+const RETURN_PROVISION_META_KEYS = [
+  "sc_cart_return_provisioned_at",
+  "sendcloud_order_provisioned_at",
+  "sendcloud_panel_order_id",
+] as const;
+
+/** Efface les métadonnées de provision retour BO (après annulation / bordereau perdu). */
+export async function clearCartReturnProvisionMeta(
+  admin: SupabaseClient,
+  cartReturnShipmentId: string,
+): Promise<void> {
+  const { data: dest } = await admin
+    .from("shipment_destinations")
+    .select("id, metadata")
+    .eq("shipment_id", cartReturnShipmentId.trim())
+    .limit(1)
+    .maybeSingle();
+  if (!dest?.id) return;
+
+  const prev =
+    dest.metadata && typeof dest.metadata === "object"
+      ? { ...(dest.metadata as Record<string, unknown>) }
+      : {};
+  for (const key of RETURN_PROVISION_META_KEYS) {
+    delete prev[key];
+  }
+  await admin.from("shipment_destinations").update({ metadata: prev }).eq("id", dest.id);
+}
+
 /** Crée ou réutilise l’expédition DB `cart_return` avant ouverture du portail Sendcloud. */
 export async function ensureCartReturnShipmentForPortal(
   admin: SupabaseClient,
   cartId: string,
   orderNumber: string,
+  options?: { assignSendcloudProvider?: boolean },
 ): Promise<{ ok: true; shipmentId: string; reused: boolean } | { ok: false; error: string }> {
+  const assignSendcloudProvider = options?.assignSendcloudProvider !== false;
+  await consolidateDuplicateCartReturnShipments(admin, cartId);
+
   const { data: existing } = await admin
     .from("shipments")
     .select("id, status")
@@ -45,14 +204,17 @@ export async function ensureCartReturnShipmentForPortal(
     return { ok: false, error: insErr?.message ?? "Création expédition retour impossible." };
   }
 
-  const shipmentId = String(inserted.id);
+  const { canonicalId } = await consolidateDuplicateCartReturnShipments(admin, cartId);
+  const shipmentId = canonicalId ?? String(inserted.id);
 
-  const { error: providerErr } = await admin.rpc("set_shipment_provider", {
-    p_shipment_id: shipmentId,
-    p_provider_code: "sendcloud",
-  });
-  if (providerErr) {
-    console.warn("[cart-return-shipment] set_shipment_provider", providerErr.message);
+  if (assignSendcloudProvider) {
+    const { error: providerErr } = await admin.rpc("set_shipment_provider", {
+      p_shipment_id: shipmentId,
+      p_provider_code: "sendcloud",
+    });
+    if (providerErr) {
+      console.warn("[cart-return-shipment] set_shipment_provider", providerErr.message);
+    }
   }
 
   const returnOrderNumber =
@@ -103,14 +265,20 @@ export async function syncCartReturnShipmentTracking(
   params: { trackingNumber?: string | null; trackingUrl?: string | null },
 ): Promise<void> {
   const tn = params.trackingNumber?.trim();
-  const url = params.trackingUrl?.trim();
-  if (!tn && !url) return;
+  const rawUrl = params.trackingUrl?.trim();
+  const memberUrl =
+    rawUrl && !isSendcloudLabelOrInternalUrl(rawUrl)
+      ? rawUrl
+      : tn
+        ? buildCarrierTrackingUrlFromNumber(tn)
+        : undefined;
+  if (!tn && !memberUrl) return;
 
   await service
     .from("shipments")
     .update({
       ...(tn ? { tracking_number: tn } : {}),
-      ...(url ? { member_tracking_url: url } : {}),
+      ...(memberUrl ? { member_tracking_url: memberUrl } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", shipmentId.trim())
@@ -211,7 +379,10 @@ async function ensureCartReturnDestination(
     city: t?.city ?? null,
     postal_code: t?.postal_code ?? null,
     phone: t?.phone ?? null,
-    metadata: { ...(t?.metadata ?? {}), ...metaPatch },
+    metadata: {
+      ...stripOutboundSendcloudProvisionMetaForReturnBootstrap(t?.metadata),
+      ...metaPatch,
+    },
   });
 }
 
@@ -315,6 +486,189 @@ export async function clearCartReturnDestinationPortalMeta(
   await admin.from("shipment_destinations").update({ metadata: prev }).eq("id", dest.id);
 }
 
+function strMetaValue(meta: Record<string, unknown>, key: string): string {
+  return typeof meta[key] === "string" ? meta[key].trim() : "";
+}
+
+/** Numéros de commande Sendcloud à interroger pour relier un retour portail au `cart_return`. */
+export async function collectCartReturnSyncOrderNumbers(
+  admin: SupabaseClient,
+  params: {
+    cartId: string;
+    outboundShipmentId: string;
+    outboundDestMeta: Record<string, unknown>;
+    cartReturnShipmentId?: string | null;
+    extraOrderNumbers?: string[];
+  },
+): Promise<string[]> {
+  const numbers = new Set<string>();
+  const add = (raw: string | null | undefined) => {
+    const on = String(raw ?? "").trim();
+    if (on) numbers.add(on);
+  };
+
+  add(strMetaValue(params.outboundDestMeta, "sendcloud_order_number"));
+  add(strMetaValue(params.outboundDestMeta, "sc_cart_return_portal_order_number"));
+  for (const extra of params.extraOrderNumbers ?? []) add(extra);
+
+  const { data: cartRow } = await admin
+    .from("carts")
+    .select("sendcloud_outbound_order_number")
+    .eq("id", params.cartId.trim())
+    .maybeSingle();
+  add(String((cartRow as { sendcloud_outbound_order_number?: string } | null)?.sendcloud_outbound_order_number ?? ""));
+
+  for (let gen = 1; gen <= 3; gen++) {
+    add(
+      buildSendcloudOrderNumber({
+        cartId: params.cartId,
+        shipmentId: params.outboundShipmentId,
+        generation: gen,
+      }),
+    );
+  }
+
+  let returnShipmentId = params.cartReturnShipmentId?.trim() || "";
+  if (!returnShipmentId) {
+    returnShipmentId = strMetaValue(params.outboundDestMeta, "sc_cart_return_shipment_id");
+  }
+  if (!returnShipmentId) {
+    const { data: retShip } = await admin
+      .from("shipments")
+      .select("id")
+      .eq("cart_id", params.cartId.trim())
+      .eq("context", "cart_return")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    returnShipmentId = retShip?.id ? String(retShip.id) : "";
+  }
+
+  if (returnShipmentId) {
+    const { data: retDest } = await admin
+      .from("shipment_destinations")
+      .select("metadata")
+      .eq("shipment_id", returnShipmentId)
+      .limit(1)
+      .maybeSingle();
+    const retMeta =
+      retDest?.metadata && typeof retDest.metadata === "object"
+        ? (retDest.metadata as Record<string, unknown>)
+        : {};
+    add(strMetaValue(retMeta, "sendcloud_order_number"));
+    const maxGen = Math.max(
+      1,
+      Math.min(10, Math.trunc(Number(retMeta.sendcloud_label_generation ?? 1))),
+    );
+    for (let gen = 1; gen <= maxGen + 2; gen++) {
+      add(
+        buildSendcloudOrderNumber({
+          cartId: params.cartId,
+          shipmentId: returnShipmentId,
+          generation: gen,
+        }),
+      );
+    }
+  }
+
+  return [...numbers];
+}
+
+type PickedCartReturnParcel = {
+  parcelId: number;
+  trackingNumber: string | null;
+  orderNumber: string;
+};
+
+async function pickCartReturnParcelFromSendcloud(
+  env: SendcloudEnv,
+  params: {
+    orderNumbers: string[];
+    excludeParcelIds: Set<number>;
+    portalIdentifier?: string | null;
+  },
+): Promise<PickedCartReturnParcel | null> {
+  const seenParcelIds = new Set<number>();
+
+  const fromParcel = (
+    parcel: SendcloudShipmentParcel,
+    orderNumber: string,
+  ): PickedCartReturnParcel | null => {
+    const id = typeof parcel.id === "number" ? parcel.id : NaN;
+    if (!Number.isFinite(id) || id <= 0 || params.excludeParcelIds.has(id) || seenParcelIds.has(id)) {
+      return null;
+    }
+    seenParcelIds.add(id);
+    const trackingNumber = String(parcel.tracking_number ?? "").trim() || null;
+    return { parcelId: id, trackingNumber, orderNumber };
+  };
+
+  let fallback: PickedCartReturnParcel | null = null;
+  for (const orderNumber of params.orderNumbers) {
+    const parcels = await findSendcloudParcelsByOrderNumberV3(env, orderNumber);
+    for (const parcel of parcels) {
+      const picked = fromParcel(parcel, orderNumber);
+      if (!picked) continue;
+      if (isCartReturnMemberTrackingNumber(picked.trackingNumber ?? "")) return picked;
+      if (!fallback && picked.trackingNumber) fallback = picked;
+    }
+  }
+  if (fallback) return fallback;
+
+  const fromReturnRow = async (
+    row: SendcloudReturnListItem,
+    orderNumber: string,
+  ): Promise<PickedCartReturnParcel | null> => {
+    const trackingNumber = String(row.tracking_number ?? "").trim();
+    if (!trackingNumber || !isCartReturnMemberTrackingNumber(trackingNumber)) return null;
+    const parcelId = await resolveSendcloudParcelIdFromTracking(env, trackingNumber);
+    if (!parcelId || params.excludeParcelIds.has(parcelId) || seenParcelIds.has(parcelId)) return null;
+    seenParcelIds.add(parcelId);
+    return { parcelId, trackingNumber, orderNumber };
+  };
+
+  for (const orderNumber of params.orderNumbers) {
+    const found = await findSendcloudReturnsByOrderNumber(env, orderNumber, {
+      lookbackDays: 45,
+      maxPages: 6,
+    });
+    if (!found.ok) continue;
+    for (const row of found.returns) {
+      const picked = await fromReturnRow(row, orderNumber);
+      if (picked) return picked;
+    }
+  }
+
+  const portalIdentifier = params.portalIdentifier?.trim() ?? "";
+  if (portalIdentifier) {
+    const found = await findSendcloudReturnsByTrackingNumber(env, portalIdentifier, {
+      lookbackDays: 45,
+      maxPages: 6,
+    });
+    if (found.ok) {
+      for (const row of found.returns) {
+        const orderNumber = String(row.order_number ?? "").trim() || portalIdentifier;
+        const picked = await fromReturnRow(row, orderNumber);
+        if (picked) return picked;
+      }
+    }
+
+    if (isCartReturnMemberTrackingNumber(portalIdentifier)) {
+      const parcelId = await resolveSendcloudParcelIdFromTracking(env, portalIdentifier);
+      if (parcelId && !params.excludeParcelIds.has(parcelId) && !seenParcelIds.has(parcelId)) {
+        return {
+          parcelId,
+          trackingNumber: portalIdentifier,
+          orderNumber: params.orderNumbers[0] ?? portalIdentifier,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Relève côté Sendcloud le colis retour (suivi XT) et l’aligne sur le shipment `cart_return`
  * — même principe que la synchro webhook / intake après portail.
@@ -324,41 +678,33 @@ export async function syncCartReturnFromSendcloudByOrder(
   env: SendcloudEnv,
   params: {
     cartId: string;
-    orderNumber: string;
+    orderNumbers: string[];
     outboundParcelId?: number | null;
     dummyParcelId?: number | null;
+    portalIdentifier?: string | null;
   },
 ): Promise<{ ok: true; synced: boolean; tracking_number?: string | null } | { ok: false; error: string }> {
-  const orderNumber = params.orderNumber.trim();
-  if (!orderNumber) {
+  const orderNumbers = [...new Set(params.orderNumbers.map((on) => on.trim()).filter(Boolean))];
+  if (orderNumbers.length === 0) {
     return { ok: true, synced: false };
   }
 
-  const parcels = await findSendcloudParcelsByOrderNumberV3(env, orderNumber);
   const exclude = new Set<number>();
   if (params.dummyParcelId != null && params.dummyParcelId > 0) exclude.add(params.dummyParcelId);
   if (params.outboundParcelId != null && params.outboundParcelId > 0) exclude.add(params.outboundParcelId);
 
-  let chosen: (typeof parcels)[number] | null = null;
-  for (const parcel of parcels) {
-    const id = typeof parcel.id === "number" ? parcel.id : NaN;
-    if (!Number.isFinite(id) || id <= 0 || exclude.has(id)) continue;
-    const tn = String(parcel.tracking_number ?? "").trim();
-    if (isCartReturnMemberTrackingNumber(tn)) {
-      chosen = parcel;
-      break;
-    }
-    if (!chosen && tn) {
-      chosen = parcel;
-    }
-  }
-
-  if (!chosen?.id) {
+  const chosen = await pickCartReturnParcelFromSendcloud(env, {
+    orderNumbers,
+    excludeParcelIds: exclude,
+    portalIdentifier: params.portalIdentifier,
+  });
+  if (!chosen) {
     return { ok: true, synced: false };
   }
 
-  const parcelId = chosen.id as number;
-  const trackingNumber = String(chosen.tracking_number ?? "").trim() || null;
+  const parcelId = chosen.parcelId;
+  const trackingNumber = chosen.trackingNumber;
+  const orderNumber = chosen.orderNumber;
   const labelUrl = buildSendcloudV3ParcelLabelUrl(env, parcelId);
 
   const ensured = await ensureCartReturnShipmentFromSendcloudWebhook(admin, env, {

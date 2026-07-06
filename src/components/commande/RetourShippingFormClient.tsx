@@ -73,6 +73,7 @@ export function RetourShippingFormClient({
           trackingNumber: typeof j.numero_suivi === "string" ? j.numero_suivi : prev?.trackingNumber ?? null,
           memberTrackingUrl: prev?.memberTrackingUrl ?? null,
           labelUrl: typeof j.label_url === "string" ? j.label_url : null,
+          preprintedReturnLabel: prev?.preprintedReturnLabel ?? false,
         }));
         return;
       }

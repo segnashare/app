@@ -6,6 +6,8 @@ import {
 } from "@/lib/onboarding/activate-included-credits";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import type { ShopPageLoadContext } from "@/lib/shop/load-shop-page-progressive";
 
 export async function buildShopPageLoadContext(): Promise<ShopPageLoadContext | null> {
@@ -14,9 +16,10 @@ export async function buildShopPageLoadContext(): Promise<ShopPageLoadContext | 
   if (!user) return null;
 
   const admin = createSupabaseAdminClient() as Parameters<typeof hasOnboardingIncludedCreditsGrant>[0];
-  const [userState, includedCreditsClaimed] = await Promise.all([
+  const [userState, includedCreditsClaimed, membershipLabel] = await Promise.all([
     getCurrentUserAppState(user.id),
     hasOnboardingIncludedCreditsGrant(admin, user.id),
+    resolveMembershipLabel(supabase, user.id),
   ]);
 
   const onboardingProcess = await resolveOnboardingProcessForOfferVisibility(
@@ -38,5 +41,6 @@ export async function buildShopPageLoadContext(): Promise<ShopPageLoadContext | 
     onboardingProcess: onboardingProcess ?? null,
     includedCreditsClaimed,
     guideCartOnboarding: userState.onboarding_process === "panier",
+    guestCashRental: isGuestCashRentalMode(membershipLabel),
   };
 }

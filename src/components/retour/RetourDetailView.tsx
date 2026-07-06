@@ -20,6 +20,7 @@ type RetourDetailViewProps = {
   borrowExtensionDaysTotal?: number;
   showAvisSuccess?: boolean;
   avisSuccessCredits?: number;
+  memberPostalCode?: string | null;
 };
 
 export function RetourDetailView({
@@ -28,6 +29,7 @@ export function RetourDetailView({
   borrowExtensionDaysTotal = 0,
   showAvisSuccess = false,
   avisSuccessCredits = 0,
+  memberPostalCode = null,
 }: RetourDetailViewProps) {
   const rs = detail.returnShipment;
   const statusForCopy = rs?.status ?? "pending";
@@ -47,12 +49,13 @@ export function RetourDetailView({
     membershipLabel,
     borrowReturnDueAtIso: detail.borrowReturnDueAt,
     borrowExtensionDaysTotal,
+    preprintedReturnLabel: rs?.preprintedReturnLabel ?? false,
   });
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white pb-[max(5rem,env(safe-area-inset-bottom,0px)+4.5rem)]">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white">
-        <div className="flex w-full flex-col px-5 pb-5 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
+        <div className="flex w-full flex-col px-5 pb-4 pt-[max(1.125rem,calc(env(safe-area-inset-top)+14px))]">
           <div className="flex w-full items-center justify-between gap-3">
             <Link
               href="/exchange"
@@ -80,22 +83,29 @@ export function RetourDetailView({
         </p>
       ) : null}
 
-      <RetourPhaseHeroSection ui={ui} />
+      <div className="flex flex-col items-center gap-5 px-5 pb-6">
+        <RetourPhaseHeroSection ui={ui} />
 
-      {ui.showReturnPrepareButton || ui.showReturnTrackingButton || ui.showReturnResetButton ? (
-        <div className="flex flex-col items-center px-5 pb-2 pt-0">
+        {ui.showReturnPrepareButton ||
+        ui.showReturnTrackingButton ||
+        ui.showReturnResetButton ||
+        ui.showReturnLostLabelButton ||
+        ui.showReturnRelaySearchButton ? (
           <RetourReturnPortalButton
             cartId={detail.cartId}
             showPrepareButton={ui.showReturnPrepareButton}
             showTrackingButton={ui.showReturnTrackingButton}
             showResetButton={ui.showReturnResetButton ?? false}
+            showLostLabelButton={ui.showReturnLostLabelButton ?? false}
+            showRelaySearchButton={ui.showReturnRelaySearchButton ?? false}
+            memberPostalCode={memberPostalCode}
             trackingNumber={detail.returnShipment?.trackingNumber ?? null}
             trackingUrl={detail.returnShipment?.memberTrackingUrl ?? null}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-4">
+      <div className="flex flex-1 flex-col gap-6 px-5 pb-6 pt-2">
         <section className="pt-2">
           <h2 className={cn("mb-3 min-w-0", segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}>
             Contenu du panier

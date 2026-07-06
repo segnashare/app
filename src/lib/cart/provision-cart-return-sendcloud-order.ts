@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
-import { ensureCartReturnShipmentForPortal } from "@/lib/cart/cart-return-shipment";
-import { readCheckoutReturnRelayFromOutboundMetadata } from "@/lib/cart/checkout-return-relay-meta";
+import { shouldSkipSendcloudReturnForLegacyUberMr } from "@/lib/cart/coursier-checkout-meta";
 import {
-  getSegnaRecipientFromEnv,
-  getSegnaReturnDeliveryRelayCodesFromEnv,
-} from "@/lib/mondial-relay/segna-recipient-env";
+  ensureCartReturnShipmentForPortal,
+  isCartReturnProvisionedForCart,
+  isCartReturnSendcloudOrderProvisioned,
+} from "@/lib/cart/cart-return-shipment";
+import { readCheckoutReturnRelayFromOutboundMetadata } from "@/lib/cart/checkout-return-relay-meta";
+import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
 import { parseMemberAdressForShipment } from "@/lib/mondial-relay/parse-member-address";
 import { normalizeFrenchPhoneToE164 } from "@/lib/phone/fr-mobile";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
@@ -17,10 +18,9 @@ import {
   upsertSendcloudOrders,
 } from "@/lib/sendcloud/orders-api";
 import { buildSendcloudOrderNumber } from "@/lib/sendcloud/parcel-sync";
-import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
 import { loadReturnShippingOutboundContextForCart } from "@/lib/sendcloud/resolve-return-shipping-outbound-context";
+import { resolveReturnHubSendcloudServicePoint } from "@/lib/sendcloud/resolve-return-hub-sendcloud-service-point";
 import { resolveReturnShippingOptionCode } from "@/lib/sendcloud/resolve-return-shipping-option";
-import { resolveSendcloudServicePointId } from "@/lib/sendcloud/service-points";
 import type { SendcloudOutboundRecipient } from "@/lib/sendcloud/shipments";
 import {
   buildSendcloudOrderItemsFromLines,
@@ -87,6 +87,56 @@ async function readReturnGeneration(
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
 }
 
+const PROVISION_LOCK_MS = 90_000;
+
+async function claimCartReturnProvisionLock(
+  admin: SupabaseClient,
+  returnShipmentId: string,
+): Promise<{ claimed: boolean; reason?: string }> {
+  const { data: dest } = await admin
+    .from("shipment_destinations")
+    .select("id, metadata")
+    .eq("shipment_id", returnShipmentId)
+    .limit(1)
+    .maybeSingle();
+  const row = dest as { id?: string; metadata?: Record<string, unknown> } | null;
+  if (!row?.id) return { claimed: true };
+
+  const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  if (isCartReturnSendcloudOrderProvisioned(meta)) {
+    return { claimed: false, reason: "already_provisioned" };
+  }
+
+  const lockAt = String(meta.sc_cart_return_provision_lock_at ?? "").trim();
+  if (lockAt && Date.now() - Date.parse(lockAt) < PROVISION_LOCK_MS) {
+    return { claimed: false, reason: "provision_in_progress" };
+  }
+
+  const now = new Date().toISOString();
+  await admin
+    .from("shipment_destinations")
+    .update({ metadata: { ...meta, sc_cart_return_provision_lock_at: now } })
+    .eq("id", row.id);
+  return { claimed: true };
+}
+
+async function releaseCartReturnProvisionLock(
+  admin: SupabaseClient,
+  returnShipmentId: string,
+): Promise<void> {
+  const { data: dest } = await admin
+    .from("shipment_destinations")
+    .select("id, metadata")
+    .eq("shipment_id", returnShipmentId)
+    .limit(1)
+    .maybeSingle();
+  const row = dest as { id?: string; metadata?: Record<string, unknown> } | null;
+  if (!row?.id) return;
+  const meta = row.metadata && typeof row.metadata === "object" ? { ...row.metadata } : {};
+  delete meta.sc_cart_return_provision_lock_at;
+  await admin.from("shipment_destinations").update({ metadata: meta }).eq("id", row.id);
+}
+
 /**
  * Commande Sendcloud retour (importée, sans étiquette) dès confirmation panier.
  */
@@ -104,11 +154,20 @@ export async function provisionCartReturnSendcloudOrder(
   if (!env) return { ok: true, skipped: true, reason: "sendcloud_not_configured" };
 
   const deliveryChannel = params.deliveryChannel ?? "relay";
-  if (checkoutMetaIndicatesUberDirect(deliveryChannel, params.homeSpeed ?? null)) {
+  if (
+    shouldSkipSendcloudReturnForLegacyUberMr({
+      deliveryChannel,
+      homeSpeed: params.homeSpeed ?? null,
+    })
+  ) {
     return { ok: true, skipped: true, reason: "uber_direct" };
   }
 
   const cartId = params.cartId.trim();
+
+  if (!params.force && (await isCartReturnProvisionedForCart(admin, cartId))) {
+    return { ok: true, skipped: true, reason: "already_provisioned" };
+  }
 
   const { data: outShip } = await admin
     .from("shipments")
@@ -126,36 +185,24 @@ export async function provisionCartReturnSendcloudOrder(
 
   const outboundShipmentId = String(outShip.id);
 
-  const ensured = await ensureCartReturnShipmentForPortal(admin, cartId, "");
-  if (!ensured.ok) return { ok: false, error: ensured.error };
-  const returnShipmentId = ensured.shipmentId;
-
   const destEmb = (outShip as { shipment_destinations?: unknown }).shipment_destinations;
   const destRows = Array.isArray(destEmb) ? destEmb : destEmb ? [destEmb] : [];
   const outDest = (destRows[0] ?? null) as { metadata?: Record<string, unknown> } | null;
   const returnRelayMeta = readCheckoutReturnRelayFromOutboundMetadata(outDest?.metadata);
 
-  const hubFallback = await resolveDefaultCheckoutReturnRelayHub();
-  const hubRelayCode =
-    returnRelayMeta.returnRelayPointId?.trim() ||
-    (hubFallback.ok ? hubFallback.selection.code : "") ||
-    getSegnaReturnDeliveryRelayCodesFromEnv()[0]?.trim() ||
-    "";
-  if (!hubRelayCode) {
-    return { ok: true, skipped: true, reason: "no_return_hub" };
-  }
-
-  const hubResolved = await resolveSendcloudServicePointId(env, {
-    relayCode: hubRelayCode,
-    country: "FR",
-    postalCode:
-      returnRelayMeta.returnRelaySearchPostalCode ||
-      (hubFallback.ok ? hubFallback.selection.postalCode : "") ||
-      "",
-  });
+  const hubResolved = await resolveReturnHubSendcloudServicePoint(env, { returnRelayMeta });
   if ("error" in hubResolved) {
+    if (hubResolved.error === "no_return_hub") {
+      return { ok: true, skipped: true, reason: "no_return_hub" };
+    }
     return { ok: false, error: hubResolved.error };
   }
+
+  const ensured = await ensureCartReturnShipmentForPortal(admin, cartId, "", {
+    assignSendcloudProvider: false,
+  });
+  if (!ensured.ok) return { ok: false, error: ensured.error };
+  const returnShipmentId = ensured.shipmentId;
 
   const generation = Math.max(
     1,
@@ -164,19 +211,9 @@ export async function provisionCartReturnSendcloudOrder(
   );
 
   if (!params.force) {
-    const { data: dest } = await admin
-      .from("shipment_destinations")
-      .select("metadata")
-      .eq("shipment_id", returnShipmentId)
-      .limit(1)
-      .maybeSingle();
-    const meta = (dest as { metadata?: Record<string, unknown> } | null)?.metadata ?? {};
-    if (meta.sendcloud_order_provisioned_at && meta.sendcloud_order_number) {
-      return {
-        ok: true,
-        skipped: true,
-        reason: "already_provisioned",
-      };
+    const claim = await claimCartReturnProvisionLock(admin, returnShipmentId);
+    if (!claim.claimed) {
+      return { ok: true, skipped: true, reason: claim.reason ?? "provision_in_progress" };
     }
   }
 
@@ -203,7 +240,10 @@ export async function provisionCartReturnSendcloudOrder(
   );
 
   const shippingResolved = await resolveReturnShippingOptionCode(env, returnCtx);
-  if (!shippingResolved.ok) return { ok: false, error: shippingResolved.error };
+  if (!shippingResolved.ok) {
+    if (!params.force) await releaseCartReturnProvisionLock(admin, returnShipmentId);
+    return { ok: false, error: shippingResolved.error };
+  }
 
   const hubContact = hubRecipientFromEnv();
   if ("error" in hubContact) return { ok: false, error: hubContact.error };
@@ -228,6 +268,10 @@ export async function provisionCartReturnSendcloudOrder(
   const existing = await findSendcloudOrderByNumber(env, orderNumber, integrationId);
   if (existing) {
     const panelId = String(existing.id ?? "").trim() || null;
+    await admin.rpc("set_shipment_provider", {
+      p_shipment_id: returnShipmentId,
+      p_provider_code: "sendcloud",
+    });
     await mergeReturnProvisionMeta(admin, returnShipmentId, {
       sendcloud_order_number: orderNumber,
       sendcloud_panel_order_id: panelId,
@@ -253,6 +297,7 @@ export async function provisionCartReturnSendcloudOrder(
   ]);
 
   if (!upsert.ok) {
+    if (!params.force) await releaseCartReturnProvisionLock(admin, returnShipmentId);
     console.error("[cart-order] sendcloud return order provision failed", upsert.error);
     return { ok: false, error: upsert.error };
   }

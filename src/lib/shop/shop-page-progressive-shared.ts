@@ -26,6 +26,7 @@ export type ShopPageCatalogPayload = ShopCatalogFilterProps & {
   boutiqueHubSectionOrder: string[];
   guideCartOnboarding: boolean;
   readyHubSectionKeys: string[];
+  guestCashRental: boolean;
 };
 
 export type ShopProgressiveChunk = {

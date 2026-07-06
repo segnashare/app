@@ -52,6 +52,7 @@ export function ShopCatalogReadyShell({ payload }: ShopCatalogReadyShellProps) {
         boutiqueHubSectionOrder={payload.boutiqueHubSectionOrder}
         guideCartOnboarding={payload.guideCartOnboarding}
         readyHubSectionKeys={payload.boutiqueHubSectionOrder}
+        guestCashRental={payload.guestCashRental}
       />
     </PageImageReadyShell>
   );

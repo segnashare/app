@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 
 import { parseFranceCoursierAddress } from "@/lib/coursier/addresses";
 import { readCoursierConfig } from "@/lib/coursier/config";
-import { fetchCoursierExpressQuote } from "@/lib/coursier/getprice-api";
+import {
+  buildCoursierExpressQuoteFromGetpriceOffers,
+  fetchCoursierGetPriceOffers,
+} from "@/lib/coursier/getprice-api";
 import { buildDefaultCoursierPackages } from "@/lib/coursier/packages";
+import {
+  buildCoursierQuoteDebugSummary,
+  logCoursierQuoteDebug,
+} from "@/lib/coursier/quote-debug";
 import type { CheckoutDeliveryAddress } from "@/lib/cart/checkout-delivery-storage";
 import {
   formatMissingEnvMessage,
@@ -43,8 +50,8 @@ function friendlyCoursierQuoteMessageFromDetail(detail: string): string {
   if (/coursier_getprice_error:/i.test(t)) {
     return t.replace(/^coursier_getprice_error:\s*/i, "").trim() || "Devis indisponible pour cette adresse.";
   }
-  if (/empty|no_express|invalid_price|unexpected_shape/i.test(t)) {
-    return "Aucune option express disponible pour cette adresse.";
+  if (/empty|no_express|no_checkout_offers|no_direct_2h|invalid_price|unexpected_shape/i.test(t)) {
+    return "Aucun créneau express disponible pour cette adresse.";
   }
   if (/401|403|unauthorized|forbidden/i.test(t)) {
     return "Service express momentanément indisponible. Réessaie plus tard.";
@@ -57,6 +64,7 @@ function friendlyCoursierQuoteMessageFromDetail(detail: string): string {
  * Authentifié — ne expose pas les secrets ; renvoie le devis express normalisé.
  */
 export async function POST(request: Request) {
+  let quoteDebug: ReturnType<typeof buildCoursierQuoteDebugSummary> | null = null;
   try {
     const config = readCoursierConfig();
     if (!config) {
@@ -103,26 +111,41 @@ export async function POST(request: Request) {
     }
 
     const itemCount = parseItemCount(body.itemCount);
-    const quote = await fetchCoursierExpressQuote({
+    const allOffers = await fetchCoursierGetPriceOffers({
       config,
       fromAddress: config.pickupAddress,
       toAddress,
       packages: buildDefaultCoursierPackages(itemCount),
     });
+    const debug = buildCoursierQuoteDebugSummary(allOffers);
+    quoteDebug = debug;
+    if (process.env.NODE_ENV === "development") {
+      logCoursierQuoteDebug("devis checkout", debug);
+    }
 
-    return NextResponse.json({ ok: true, quote });
+    const quote = buildCoursierExpressQuoteFromGetpriceOffers(allOffers);
+
+    const payload: Record<string, unknown> = { ok: true, quote };
+    if (exposeCoursierQuoteBrowserDebug()) {
+      payload.debug = debug;
+    }
+    return NextResponse.json(payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "coursier_quote_failed";
     const short = msg.startsWith("coursier_getprice_")
       ? msg.replace(/^coursier_getprice_\d+:\s*/i, "").slice(0, 500)
       : msg.slice(0, 500);
     console.error("[coursier/quote]", msg);
+    if (quoteDebug && process.env.NODE_ENV === "development") {
+      logCoursierQuoteDebug("devis checkout — échec", quoteDebug);
+    }
     const body: Record<string, unknown> = {
       ok: false,
       message: friendlyCoursierQuoteMessageFromDetail(short),
     };
     if (exposeCoursierQuoteBrowserDebug()) {
       body.detail = short;
+      if (quoteDebug) body.debug = quoteDebug;
     }
     return NextResponse.json(body, { status: 502 });
   }

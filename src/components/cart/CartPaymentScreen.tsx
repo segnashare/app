@@ -11,11 +11,13 @@ import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServiceP
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
 import {
+  readCheckoutCoursierSlotKey,
   readCheckoutDeliveryAddress,
   readCheckoutDeliveryChannel,
   readCheckoutDeliveryInstructions,
   readCheckoutHomeSpeed,
   readCheckoutRelaySelection,
+  writeCheckoutCoursierSlotKey,
   writeCheckoutDeliveryAddress,
   writeCheckoutDeliveryChannel,
   writeCheckoutDeliveryInstructions,
@@ -28,6 +30,10 @@ import {
   computeMissingCreditsCashCents,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
+import {
+  computeGuestCartRentalEuroCents,
+  isGuestCashRentalMode,
+} from "@/lib/billing/guest-rental-pricing";
 import { complementQualifiesForFreeRelay, CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR } from "@/lib/cart/cart-complement-relay-offer";
 import {
   clearCheckoutBorrowDurationDays,
@@ -70,7 +76,14 @@ import { toCheckoutSendcloudOutboundOption } from "@/lib/cart/use-sendcloud-outb
 import { useSendcloudCheckoutShippingQuote } from "@/lib/cart/use-sendcloud-checkout-shipping-quote";
 import { SEGNA_PARCEL_WEIGHT_GRAMS, centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { formatCheckoutRelayDisplayLabel } from "@/lib/sendcloud/relay-point-ref";
-import { buildCoursierMemberArrivalLineFr, coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
+import { coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
+import { formatCoursierOfferSlotButtonLabel } from "@/lib/coursier/format-offer-label";
+import {
+  buildNormalizedCoursierQuoteFromOffer,
+  findCoursierOfferBySlotKey,
+} from "@/lib/coursier/selectable-offers";
+import type { CoursierGetPriceOffer } from "@/lib/coursier/types";
+import { CoursierSlotPicker } from "@/components/cart/CoursierSlotPicker";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { CheckoutHomePlanCarrierIcon } from "@/components/cart/CheckoutHomePlanCarrierIcon";
 import {
@@ -78,7 +91,7 @@ import {
   uberDirectUnavailablePriceLabel,
   type UberDirectQuotePhase,
 } from "@/components/cart/UberDirectQuotePanel";
-import { UberWordmarkIcon } from "@/components/icons/UberWordmarkIcon";
+import { ExpressDeliveryOptionIcon } from "@/components/cart/ExpressDeliveryOptionIcon";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
@@ -178,6 +191,7 @@ export function CartPaymentScreen({
   initialSendcloudFeatures,
 }: CartPaymentScreenProps) {
   const router = useRouter();
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
   const [homeSpeed, setHomeSpeed] = useState<HomeDeliverySpeed>("standard");
   const checkoutUiPrefsRestoredRef = useRef(false);
@@ -219,6 +233,9 @@ export function CartPaymentScreen({
   const [uberQuoteError, setUberQuoteError] = useState<string | null>(null);
   const [uberQuoteErrorCode, setUberQuoteErrorCode] = useState<string | null>(null);
   const [uberQuoteErrorDetail, setUberQuoteErrorDetail] = useState<string | null>(null);
+  const [selectedCoursierSlotKey, setSelectedCoursierSlotKey] = useState(
+    () => readCheckoutCoursierSlotKey() ?? "",
+  );
   const uberQuoteDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultRelayPostalCode = useMemo(
     () => extractPostalCodeFromAddress(initialProfileDeliveryAddress),
@@ -243,9 +260,15 @@ export function CartPaymentScreen({
     refreshCheckoutLocalState();
   }, [refreshCheckoutLocalState]);
 
+  const cartTotalMods = useMemo(
+    () => initialLines.reduce((sum, line) => sum + line.pricePoints, 0),
+    [initialLines],
+  );
+
   useEffect(() => {
-    if (missingExchangeMods <= 0) {
-      clearCheckoutBorrowDurationDays();
+    const needsDuration = guestCashRental ? cartTotalMods > 0 : missingExchangeMods > 0;
+    if (!needsDuration) {
+      if (!guestCashRental) clearCheckoutBorrowDurationDays();
       return;
     }
     const resolved = resolveCheckoutBorrowDurationDays(
@@ -254,14 +277,18 @@ export function CartPaymentScreen({
     );
     setBorrowDurationDays(resolved);
     writeCheckoutBorrowDurationDays(resolved);
-  }, [borrowCheckoutOptions, missingExchangeMods]);
+  }, [borrowCheckoutOptions, cartTotalMods, guestCashRental, missingExchangeMods]);
 
   const exchangeCreditsEuroCents = useMemo(
     () =>
-      missingExchangeMods > 0
-        ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
-        : 0,
-    [borrowCheckoutOptions, borrowDurationDays, missingExchangeMods],
+      guestCashRental
+        ? cartTotalMods > 0
+          ? computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
+          : 0
+        : missingExchangeMods > 0
+          ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
+          : 0,
+    [borrowCheckoutOptions, borrowDurationDays, cartTotalMods, guestCashRental, missingExchangeMods],
   );
   const exchangeCreditsChargeEuros = exchangeCreditsEuroCents / 100;
 
@@ -383,6 +410,17 @@ export function CartPaymentScreen({
             message?: string;
             detail?: string;
             code?: string;
+            debug?: {
+              checkoutServiceIdsFilter: string[] | null;
+              rawOfferCount: number;
+              checkoutOfferCount: number;
+              excludedOfferCount: number;
+              offers: Array<{
+                serviceId: string;
+                service: string;
+                includedInCheckout: boolean;
+              }>;
+            };
           };
           if (deliveryAddressKeyRef.current !== keyWhenScheduled) return;
 
@@ -396,9 +434,19 @@ export function CartPaymentScreen({
             );
             setUberQuoteErrorCode(typeof j.code === "string" && j.code.trim() ? j.code.trim() : null);
             setUberQuoteErrorDetail(typeof j.detail === "string" && j.detail.trim() ? j.detail.trim() : null);
+            if (process.env.NODE_ENV === "development") {
+              console.warn("[coursier/quote] devis indisponible", {
+                message: j.message,
+                detail: j.detail,
+                debug: j.debug,
+              });
+            }
             return;
           }
           if (j.quote && typeof j.quote === "object") {
+            if (process.env.NODE_ENV === "development" && j.debug) {
+              console.info("[coursier/quote] devis ok", j.debug);
+            }
             setUberQuote(j.quote);
             setUberQuoteFetch("ok");
             setUberQuoteErrorCode(null);
@@ -428,6 +476,49 @@ export function CartPaymentScreen({
       }
     };
   }, [deliveryAddressKey, initialLines.length]);
+
+  const coursierOffers = useMemo((): CoursierGetPriceOffer[] => {
+    if (!uberQuote || !Array.isArray(uberQuote.offers)) return [];
+    return uberQuote.offers as CoursierGetPriceOffer[];
+  }, [uberQuote]);
+
+  useEffect(() => {
+    if (uberQuoteFetch !== "ok" || coursierOffers.length === 0) {
+      setSelectedCoursierSlotKey("");
+      writeCheckoutCoursierSlotKey(null);
+      return;
+    }
+    const saved = readCheckoutCoursierSlotKey();
+    if (saved && findCoursierOfferBySlotKey(coursierOffers, saved)) {
+      setSelectedCoursierSlotKey(saved);
+      return;
+    }
+    setSelectedCoursierSlotKey("");
+    writeCheckoutCoursierSlotKey(null);
+  }, [coursierOffers, uberQuoteFetch]);
+
+  const activeCoursierOffer = useMemo(() => {
+    if (coursierOffers.length === 0 || !selectedCoursierSlotKey.trim()) return null;
+    return findCoursierOfferBySlotKey(coursierOffers, selectedCoursierSlotKey);
+  }, [coursierOffers, selectedCoursierSlotKey]);
+
+  const selectedCoursierSlotLabel = useMemo(() => {
+    if (!activeCoursierOffer) return null;
+    return formatCoursierOfferSlotButtonLabel(activeCoursierOffer);
+  }, [activeCoursierOffer]);
+
+  const activeCoursierQuote = useMemo((): Record<string, unknown> | null => {
+    if (!activeCoursierOffer) return uberQuote;
+    return buildNormalizedCoursierQuoteFromOffer(
+      activeCoursierOffer,
+      coursierOffers,
+    ) as unknown as Record<string, unknown>;
+  }, [activeCoursierOffer, coursierOffers, uberQuote]);
+
+  const selectCoursierSlot = useCallback((slotKey: string) => {
+    setSelectedCoursierSlotKey(slotKey);
+    writeCheckoutCoursierSlotKey(slotKey);
+  }, []);
 
   const uberQuotePanelPhase: UberDirectQuotePhase = useMemo(() => {
     if (deliveryChannel !== "home") return "invite";
@@ -464,25 +555,8 @@ export function CartPaymentScreen({
         uberQuotePanelPhase !== "ok" &&
         uberQuotePanelPhase !== "invite"));
 
-  /** Horloge de référence fixée quand le devis change, pour un libellé d’heure stable. */
-  const uberArrivalKey =
-    deliveryChannel === "home" &&
-    homeSpeed === "uber_direct" &&
-    uberQuoteFetch === "ok" &&
-    uberQuote
-      ? `${String(uberQuote.serviceId ?? "")}|${String(uberQuote.deliveryEndDate ?? "")}`
-      : "";
-  const uberArrivalLine = useMemo(
-    () => (uberArrivalKey ? buildCoursierMemberArrivalLineFr(uberQuote) : null),
-    [uberArrivalKey, uberQuote],
-  );
-
   const itemCount = initialLines.length;
-  const cartTotalMods = useMemo(
-    () => initialLines.reduce((sum, line) => sum + line.pricePoints, 0),
-    [initialLines],
-  );
-  const walletAppliedMods = Math.min(cartTotalMods, Math.max(0, availableWalletMods));
+  const walletAppliedMods = guestCashRental ? 0 : Math.min(cartTotalMods, Math.max(0, availableWalletMods));
 
   const relayPostalNorm = relayPostal.replace(/\D/g, "").slice(0, 5);
   const selectionPostalNorm = (selectedRelay?.postalCode ?? "").replace(/\D/g, "").slice(0, 5);
@@ -688,12 +762,12 @@ export function CartPaymentScreen({
     selectedHomeSendcloudPlan?.returnTtcCents,
   ]);
 
-  /** Aller domicile en Uber : centimes issus du devis API (aligné facturation Stripe). */
+  /** Aller domicile express : centimes issus du créneau Coursier sélectionné. */
   const uberOutboundCentsFromQuote = useMemo(() => {
     if (deliveryChannel !== "home") return null;
-    if (uberQuoteFetch !== "ok" || !uberQuote) return null;
-    return coursierQuoteFeeCentsFromRaw(uberQuote);
-  }, [deliveryChannel, uberQuoteFetch, uberQuote]);
+    if (uberQuoteFetch !== "ok" || !activeCoursierQuote) return null;
+    return coursierQuoteFeeCentsFromRaw(activeCoursierQuote);
+  }, [activeCoursierQuote, deliveryChannel, uberQuoteFetch]);
 
   const exchangeShipping = useMemo(() => {
     if (deliveryChannel === "relay") return relayRoundTrip;
@@ -968,7 +1042,7 @@ export function CartPaymentScreen({
     computeCartCheckoutShippingFees(expressOptionShippingHtCents).shippingTtcCents,
   );
   const grandTotal = exchangeCreditsChargeEuros + feesTtcEuros;
-  const complementMods = Math.max(0, cartTotalMods - walletAppliedMods);
+  const complementMods = guestCashRental ? cartTotalMods : Math.max(0, cartTotalMods - walletAppliedMods);
 
   /** Liste MR : CP de recherche = CP du point choisi. Carte Sendcloud : sélection sur la carte suffit. */
   const relayPostalMatchesSelection = sendcloudSpp
@@ -1010,16 +1084,25 @@ export function CartPaymentScreen({
       setStripeCheckoutError("Tu dois confirmer avoir lu les conditions générales de location pour continuer.");
       return;
     }
+    if (
+      deliveryChannel === "home" &&
+      homeSpeed === "uber_direct" &&
+      coursierOffers.length > 0 &&
+      !selectedCoursierSlotKey.trim()
+    ) {
+      setStripeCheckoutError("Choisis un créneau de livraison avant de payer.");
+      return;
+    }
     if (deliveryChannel === "home" && homeSpeed === "uber_direct" && uberOutboundCentsFromQuote == null) {
       setStripeCheckoutError(
-        "Attends l’affichage du tarif Uber (ou corrige l’adresse) avant de payer.",
+        "Attends l’affichage du tarif express (ou corrige l’adresse) avant de payer.",
       );
       return;
     }
     if (!carrierPickReady) {
       setStripeCheckoutError(
         deliveryChannel === "home"
-          ? "Choisis une option de livraison (Uber ou offre domicile disponible)."
+          ? "Choisis une option de livraison (express Coursier.fr ou offre domicile disponible)."
           : "Choisis un transporteur pour l’expédition aller.",
       );
       return;
@@ -1045,12 +1128,18 @@ export function CartPaymentScreen({
           relaySelection: deliveryChannel === "relay" ? selectedRelay : undefined,
           deliveryAddress: deliveryChannel === "home" ? deliveryAddress : undefined,
           deliveryInstructions: deliveryChannel === "home" ? instructionsSaved.trim() : undefined,
+          coursierSlotKey:
+            deliveryChannel === "home" && homeSpeed === "uber_direct" && selectedCoursierSlotKey.trim()
+              ? selectedCoursierSlotKey.trim()
+              : undefined,
           sendcloudOutboundSelection: sendcloudOutboundSelection ?? undefined,
           acceptRentalTerms: true,
           borrowDurationDays:
-            missingExchangeMods > 0
+            guestCashRental && cartTotalMods > 0
               ? borrowDurationDays
-              : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
+              : missingExchangeMods > 0
+                ? borrowDurationDays
+                : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
         }),
       });
       const j = (await res.json()) as { url?: string; message?: string };
@@ -1082,6 +1171,8 @@ export function CartPaymentScreen({
     selectedOutboundOptionCode,
     sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
+    selectedCoursierSlotKey,
+    coursierOffers.length,
     borrowDurationDays,
     missingExchangeMods,
     borrowCheckoutOptions,
@@ -1541,7 +1632,7 @@ export function CartPaymentScreen({
                     onClick={() => persistHomeSpeed("uber_direct")}
                     className="flex w-full items-start gap-3 px-3 py-3 text-left"
                   >
-                    <UberWordmarkIcon className="mt-0.5 h-5 w-5 shrink-0 text-zinc-900" />
+                    <ExpressDeliveryOptionIcon className="mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-[15px] font-semibold leading-tight text-zinc-900">
@@ -1570,11 +1661,20 @@ export function CartPaymentScreen({
                           )}
                         </span>
                       </div>
-                      {uberArrivalLine ? (
-                        <p className="mt-0.5 text-[13px] text-zinc-500">{uberArrivalLine}</p>
+                      {homeSpeed !== "uber_direct" && selectedCoursierSlotLabel ? (
+                        <p className="mt-0.5 text-[13px] text-zinc-500">{selectedCoursierSlotLabel}</p>
                       ) : null}
                     </div>
                   </button>
+                  {homeSpeed === "uber_direct" && uberQuoteFetch === "ok" && coursierOffers.length > 0 ? (
+                    <div className="flex flex-col items-center px-3 pb-2.5 pt-0">
+                      <CoursierSlotPicker
+                        offers={coursierOffers}
+                        selectedKey={selectedCoursierSlotKey}
+                        onConfirm={selectCoursierSlot}
+                      />
+                    </div>
+                  ) : null}
                   {showUberQuoteBelowCard ? (
                     <div className="px-3 pb-3 pl-[calc(1.25rem+0.75rem)]">
                       <UberDirectQuotePanel
@@ -1650,15 +1750,23 @@ export function CartPaymentScreen({
             />
           )}
           <div className="mt-4 flex items-center justify-between gap-3 pt-2">
-            <span className="text-[16px] font-bold text-zinc-900">Total échangé</span>
-            <SegnaPointsUnitDisplay
-              points={cartTotalMods}
-              creditKind={walletCreditKind}
-              unitDisplay="icon"
-              numberClassName="text-[17px] font-bold text-zinc-900"
-            />
+            <span className="text-[16px] font-bold text-zinc-900">
+              {guestCashRental ? "Prix de location" : "Total échangé"}
+            </span>
+            {guestCashRental ? (
+              <span className="text-[17px] font-bold tabular-nums text-zinc-900">
+                {euros(exchangeCreditsChargeEuros)}
+              </span>
+            ) : (
+              <SegnaPointsUnitDisplay
+                points={cartTotalMods}
+                creditKind={walletCreditKind}
+                unitDisplay="icon"
+                numberClassName="text-[17px] font-bold text-zinc-900"
+              />
+            )}
           </div>
-          {complementMods > 0 ? (
+          {!guestCashRental && complementMods > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">Complément d&apos;échange</span>
@@ -1672,6 +1780,12 @@ export function CartPaymentScreen({
                   />
                 </span>
               </div>
+            </div>
+          ) : null}
+          {guestCashRental && cartTotalMods > 0 ? (
+            <div className="mt-3 flex items-baseline justify-between gap-3 text-[15px] leading-snug text-zinc-700">
+              <span className="min-w-0 pr-2">Durée</span>
+              <span className="shrink-0 tabular-nums font-medium text-zinc-900">{borrowDurationDays} j</span>
             </div>
           ) : null}
         </section>
@@ -1697,7 +1811,9 @@ export function CartPaymentScreen({
           </h2>
           <div className="space-y-2.5 text-[15px] leading-snug">
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-              <span className="min-w-0 pr-2">Complément d&apos;échange (TTC)</span>
+              <span className="min-w-0 pr-2">
+                {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+              </span>
               <span className="shrink-0 tabular-nums font-medium text-zinc-900">{euros(exchangeCreditsChargeEuros)}</span>
             </div>
             {shippingFeesSplit && !showIncludedFeeReductionLines ? (
@@ -1832,7 +1948,7 @@ export function CartPaymentScreen({
                       ? `Aller-retour point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : paliers poids par quantité, +1,00 € par article au-delà de 3 (base HT, TVA comprise dans le montant TTC).`
                       : deliveryChannel === "home"
                         ? homeSpeed === "uber_direct" && uberOutboundCentsFromQuote != null
-                          ? `Prestation complète : enlèvement express à domicile (devis Uber) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
+                          ? `Prestation complète : enlèvement express à domicile (devis Coursier.fr) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
                           : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
                         : null}
                   {showIncludedFeeReductionLines ? (

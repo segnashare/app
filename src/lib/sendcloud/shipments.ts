@@ -255,3 +255,79 @@ export async function findSendcloudShipmentIdsByOrderNumber(
   }
   return ids;
 }
+
+function isLikelyCartReturnParcelTracking(trackingNumber: string): boolean {
+  const tn = trackingNumber.trim();
+  if (!tn) return false;
+  return /^\d{8}$/.test(tn) || /^XT/i.test(tn);
+}
+
+/** Expédition panel aller à utiliser pour le portail retour (évite le colis factice). */
+export async function pickOutboundPanelShipmentIdForReturnPortal(
+  env: SendcloudEnv,
+  params: {
+    outboundOrderNumber: string;
+    outboundDestMeta?: Record<string, unknown> | null;
+    outboundTrackingNumber?: string | null;
+    excludeShipmentIds?: string[];
+  },
+): Promise<string | null> {
+  const meta = params.outboundDestMeta && typeof params.outboundDestMeta === "object" ? params.outboundDestMeta : {};
+  const exclude = new Set((params.excludeShipmentIds ?? []).map((x) => x.trim()).filter(Boolean));
+
+  const fromMeta = String(meta.sendcloud_panel_shipment_id ?? "").trim();
+  if (fromMeta && !exclude.has(fromMeta)) return fromMeta;
+
+  const outboundParcelIdRaw = meta.sendcloud_parcel_id;
+  const outboundParcelId =
+    typeof outboundParcelIdRaw === "number"
+      ? outboundParcelIdRaw
+      : typeof outboundParcelIdRaw === "string"
+        ? parseInt(outboundParcelIdRaw, 10)
+        : NaN;
+  if (Number.isFinite(outboundParcelId) && outboundParcelId > 0) {
+    const byParcel = await listSendcloudShipments(env, { parcelIds: [outboundParcelId], pageSize: 10 });
+    if (byParcel.ok) {
+      for (const shipment of byParcel.shipments) {
+        const id = String(shipment.id ?? "").trim();
+        if (id && !exclude.has(id)) return id;
+      }
+    }
+  }
+
+  const on = params.outboundOrderNumber.trim();
+  if (!on) return null;
+
+  const listed = await listSendcloudShipments(env, { orderNumber: on, pageSize: 40 });
+  if (!listed.ok || listed.shipments.length === 0) return null;
+
+  const outboundTn = String(params.outboundTrackingNumber ?? "").trim();
+  const dummyId = String(meta.sc_cart_return_dummy_shipment_id ?? "").trim();
+  if (dummyId) exclude.add(dummyId);
+
+  type Candidate = { id: string; score: number };
+  const candidates: Candidate[] = [];
+
+  for (const shipment of listed.shipments) {
+    const id = String(shipment.id ?? "").trim();
+    if (!id || exclude.has(id)) continue;
+
+    const parcels = (shipment.parcels ?? []).filter((p) => !isSendcloudParcelCancelled(p));
+    if (parcels.length === 0) continue;
+
+    let score = 0;
+    if (Number.isFinite(outboundParcelId) && parcels.some((p) => p.id === outboundParcelId)) score += 100;
+    if (outboundTn && parcels.some((p) => String(p.tracking_number ?? "").trim() === outboundTn)) score += 90;
+
+    const returnOnly = parcels.every((p) => isLikelyCartReturnParcelTracking(String(p.tracking_number ?? "")));
+    if (returnOnly) score -= 80;
+
+    if (!returnOnly) score += 20;
+
+    candidates.push({ id, score });
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.id ?? null;
+}

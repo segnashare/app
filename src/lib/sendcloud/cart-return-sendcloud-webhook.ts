@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { stripOutboundSendcloudProvisionMetaForReturnBootstrap, ensureCartReturnShipmentForPortal } from "@/lib/cart/cart-return-shipment";
 import { isIntakeMemberReturnTrackingNumber } from "@/lib/items/intake-shipping-metadata";
 import type { SendcloudEnv } from "@/lib/sendcloud/config";
 import { buildSendcloudOrderNumber, parseSendcloudParcelIdFromLabelUrl } from "@/lib/sendcloud/parcel-sync";
@@ -49,6 +50,33 @@ export async function findCartIdBySendcloudOutboundOrderNumber(
     const ship = (row as { shipments?: { cart_id?: string } }).shipments;
     const cartId = ship?.cart_id ? String(ship.cart_id) : "";
     if (cartId) return cartId;
+  }
+
+  const { data: returnDestRows } = await admin
+    .from("shipment_destinations")
+    .select("shipments!inner(cart_id, context, deleted_at)")
+    .eq("metadata->>sendcloud_order_number", on)
+    .eq("shipments.context", "cart_return")
+    .is("shipments.deleted_at", null)
+    .limit(3);
+
+  for (const row of returnDestRows ?? []) {
+    const ship = (row as { shipments?: { cart_id?: string } }).shipments;
+    const cartId = ship?.cart_id ? String(ship.cart_id) : "";
+    if (cartId) return cartId;
+  }
+
+  const cart8Match = on.toLowerCase().match(/^segna-([a-f0-9]{8})-/);
+  if (cart8Match?.[1]) {
+    const { data: carts } = await admin
+      .from("carts")
+      .select("id")
+      .ilike("id", `${cart8Match[1]}%`)
+      .is("deleted_at", null)
+      .limit(2);
+    if (carts?.length === 1 && carts[0]?.id) {
+      return String(carts[0].id);
+    }
   }
 
   return null;
@@ -142,7 +170,7 @@ async function outboundShipmentHasLabel(admin: SupabaseClient, outboundShipmentI
 }
 
 /** Lie le colis Sendcloud aller en metadata dès le 1er webhook (évite de créer un faux retour). */
-async function linkOutboundSendcloudParcelIdIfMissing(
+export async function linkOutboundSendcloudParcelIdIfMissing(
   admin: SupabaseClient,
   cartId: string,
   parcelId: number,
@@ -304,7 +332,10 @@ async function ensureCartReturnDestination(
     city: t?.city ?? null,
     postal_code: t?.postal_code ?? null,
     phone: t?.phone ?? null,
-    metadata: { ...(t?.metadata ?? {}), ...metaPatch },
+    metadata: {
+      ...stripOutboundSendcloudProvisionMetaForReturnBootstrap(t?.metadata),
+      ...metaPatch,
+    },
   });
 }
 
@@ -325,21 +356,23 @@ export async function ensureCartReturnShipmentFromSendcloudWebhook(
   | { ok: false; error: string }
 > {
   const cartId = params.cartId.trim();
-  let returnShip = await findCartReturnShipment(admin, cartId);
-  let created = false;
-
-  if (!returnShip) {
-    const { data: inserted, error: insErr } = await admin
-      .from("shipments")
-      .insert({ cart_id: cartId, context: "cart_return", status: "pending" })
-      .select("id, status, context, tracking_number, member_tracking_url")
-      .single();
-    if (insErr || !inserted?.id) {
-      return { ok: false, error: insErr?.message ?? "Création shipment retour impossible." };
-    }
-    returnShip = inserted as ResolvedWebhookShipment;
-    created = true;
+  const ensured = await ensureCartReturnShipmentForPortal(admin, cartId, "", {
+    assignSendcloudProvider: false,
+  });
+  if (!ensured.ok) {
+    return { ok: false, error: ensured.error };
   }
+
+  const { data: shipRow } = await admin
+    .from("shipments")
+    .select("id, status, context, tracking_number, member_tracking_url")
+    .eq("id", ensured.shipmentId)
+    .maybeSingle();
+  if (!shipRow?.id) {
+    return { ok: false, error: "Shipment retour introuvable après ensure." };
+  }
+  let returnShip = shipRow as ResolvedWebhookShipment;
+  const created = !ensured.reused;
 
   const parcelId = params.parcelId;
   const orderNumber = params.orderNumber.trim();
@@ -629,6 +662,7 @@ export async function resolveShipmentForSendcloudWebhook(
         if (parcelId != null && outboundParcelId == null) {
           await linkOutboundSendcloudParcelIdIfMissing(admin, cartId, parcelId);
         }
+
         const existingReturn = await findCartReturnShipment(admin, cartId);
         if (
           existingReturn &&

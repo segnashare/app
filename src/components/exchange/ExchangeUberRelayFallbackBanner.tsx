@@ -30,7 +30,7 @@ export function ExchangeUberRelayFallbackBanner() {
         Livraison à domicile non confirmée
       </h2>
       <p className="mt-1.5 text-[13px] font-medium leading-snug text-amber-950/90">
-        Ta commande est bien enregistrée. Uber n’a pas pu réserver l’aller automatiquement. L’équipe Segna te proposera
+        Ta commande est bien enregistrée. Coursier.fr n’a pas pu réserver l’aller automatiquement. L’équipe Segna te proposera
         une livraison en <strong className="font-semibold">point relais Mondial Relay</strong> (ou une alternative) —
         écris-nous en indiquant ton numéro de commande.
       </p>

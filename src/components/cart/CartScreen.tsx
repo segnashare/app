@@ -10,6 +10,7 @@ import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
 import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplementCheckoutBlock";
+import { GuestRentalCheckoutBlock } from "@/components/cart/GuestRentalCheckoutBlock";
 import { CartComplementShippingIncentive } from "@/components/cart/CartComplementShippingIncentive";
 import { BorrowLocationInfoContent } from "@/components/cart/BorrowLocationInfoContent";
 import { CartPanierLineRows } from "@/components/cart/CartPanierLineRows";
@@ -22,6 +23,10 @@ import {
   formatBorrowCheckoutDurationLabel,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
+import {
+  computeGuestCartRentalEuroCents,
+  isGuestCashRentalMode,
+} from "@/lib/billing/guest-rental-pricing";
 import {
   clearCheckoutBorrowDurationDays,
   defaultCheckoutBorrowDurationDays,
@@ -164,8 +169,11 @@ export function CartScreen({
   borrowCheckoutOptions = [],
 }: CartScreenProps) {
   const router = useRouter();
-  const offerOnboardingActive = useOnboardingOfferActive(welcomeGiftOfferEligible);
-  const showOfferOnboardingUi = useOnboardingOfferActive(showOfferOnboarding);
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
+  const offerOnboardingActiveRaw = useOnboardingOfferActive(welcomeGiftOfferEligible);
+  const showOfferOnboardingUiRaw = useOnboardingOfferActive(showOfferOnboarding);
+  const offerOnboardingActive = guestCashRental ? false : offerOnboardingActiveRaw;
+  const showOfferOnboardingUi = guestCashRental ? false : showOfferOnboardingUiRaw;
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
@@ -258,9 +266,15 @@ export function CartScreen({
     };
   }, [competitionItemIdsKey, supabase]);
   const activeCartCostPointsForUi = lines.length === 0 ? null : cartTotalPoints;
-  /** Panier total > capacité d’emprunt (wallet). */
-  const cartExceedsWallet = activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
-  const missingExchangeMods = cartExceedsWallet ? Math.max(0, cartTotalPoints - availablePoints) : 0;
+  /** Panier total > capacité d’emprunt (wallet) — Guest : toujours location € si panier non vide. */
+  const cartExceedsWallet = guestCashRental
+    ? activeCartCostPointsForUi != null && cartTotalPoints > 0
+    : activeCartCostPointsForUi != null && cartTotalPoints > availablePoints;
+  const missingExchangeMods = guestCashRental
+    ? cartTotalPoints
+    : cartExceedsWallet
+      ? Math.max(0, cartTotalPoints - availablePoints)
+      : 0;
   const defaultBorrowDurationDays = useMemo(
     () => defaultCheckoutBorrowDurationDays(borrowCheckoutOptions),
     [borrowCheckoutOptions],
@@ -272,7 +286,7 @@ export function CartScreen({
 
   useEffect(() => {
     if (!cartExceedsWallet) {
-      clearCheckoutBorrowDurationDays();
+      if (!guestCashRental) clearCheckoutBorrowDurationDays();
       return;
     }
     const resolved = resolveCheckoutBorrowDurationDays(
@@ -281,7 +295,7 @@ export function CartScreen({
     );
     setBorrowDurationDays(resolved);
     writeCheckoutBorrowDurationDays(resolved);
-  }, [borrowCheckoutOptions, cartExceedsWallet]);
+  }, [borrowCheckoutOptions, cartExceedsWallet, guestCashRental]);
 
   const handleBorrowDurationChange = useCallback((durationDays: number) => {
     setBorrowDurationDays(durationDays);
@@ -291,7 +305,9 @@ export function CartScreen({
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
 
   const exchangeCreditsEuroCents = cartExceedsWallet
-    ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
+    ? guestCashRental
+      ? computeGuestCartRentalEuroCents(cartTotalPoints, borrowDurationDays, borrowCheckoutOptions)
+      : computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
     : 0;
   /** Complément € si le panier dépasse le wallet. */
   const subtotalCashFees = useMemo(() => {
@@ -458,7 +474,10 @@ export function CartScreen({
               onWalletPanelOpenChange={setWalletPanelOpen}
               className={cn(
                 "relative z-20 min-w-0 max-w-[min(100%,14.5rem)] shrink overflow-hidden",
-                welcomeGiftOfferEligible && offerOnboardingActive && "segna-guidance-shimmer-active segna-guidance-shimmer-target",
+                !guestCashRental &&
+                  welcomeGiftOfferEligible &&
+                  offerOnboardingActive &&
+                  "segna-guidance-shimmer-active segna-guidance-shimmer-target",
               )}
             />
           </div>
@@ -508,6 +527,7 @@ export function CartScreen({
                     lines={orderedLines}
                     membershipLabel={membershipLabel}
                     availablePoints={availablePoints}
+                    borrowCheckoutOptions={borrowCheckoutOptions}
                     removingLineId={removingLineId}
                     lineRemoveError={lineRemoveError}
                     onRemoveLine={(id) => void removeLine(id)}
@@ -554,14 +574,23 @@ export function CartScreen({
                   <div className="mt-4">
                     <div className="space-y-3">
                       {cartExceedsWallet && borrowCheckoutOptions.length > 0 ? (
-                        <BorrowComplementCheckoutBlock
-                          options={borrowCheckoutOptions}
-                          durationDays={borrowDurationDays}
-                          onDurationChange={handleBorrowDurationChange}
-                          cartTotalPoints={cartTotalPoints}
-                          availablePoints={availablePoints}
-                          missingPoints={missingExchangeMods}
-                        />
+                        guestCashRental ? (
+                          <GuestRentalCheckoutBlock
+                            options={borrowCheckoutOptions}
+                            durationDays={borrowDurationDays}
+                            onDurationChange={handleBorrowDurationChange}
+                            cartTotalPoints={cartTotalPoints}
+                          />
+                        ) : (
+                          <BorrowComplementCheckoutBlock
+                            options={borrowCheckoutOptions}
+                            durationDays={borrowDurationDays}
+                            onDurationChange={handleBorrowDurationChange}
+                            cartTotalPoints={cartTotalPoints}
+                            availablePoints={availablePoints}
+                            missingPoints={missingExchangeMods}
+                          />
+                        )
                       ) : (
                         <div className="flex items-baseline justify-between gap-4 leading-snug">
                           <span className="text-[15px] font-semibold text-zinc-900">Durée de location</span>
@@ -576,7 +605,7 @@ export function CartScreen({
                       <div className="flex w-full items-baseline justify-between gap-3">
                         <span className="text-[20px] font-extrabold leading-tight text-zinc-950">Sous-total</span>
                         <div className="flex flex-col items-end gap-0.5">
-                          {!cartExceedsWallet && cartTotalPoints > 0 ? (
+                          {!guestCashRental && !cartExceedsWallet && cartTotalPoints > 0 ? (
                             <span className="inline-flex items-baseline gap-0.5">
                               <span
                                 className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950"
@@ -596,7 +625,7 @@ export function CartScreen({
                           <span
                             className={cn(
                               "font-extrabold tabular-nums leading-tight text-zinc-950",
-                              !cartExceedsWallet && cartTotalPoints > 0
+                              !guestCashRental && !cartExceedsWallet && cartTotalPoints > 0
                                 ? "text-[13px] font-semibold text-zinc-500"
                                 : "text-[20px]",
                             )}
@@ -781,17 +810,19 @@ export function CartScreen({
         </h2>
         <div className="mt-5 space-y-4">
           <BorrowLocationInfoContent />
-          <p className={segnaDialogBodyClass()}>
-            Pour réduire le complément,{" "}
-            <Link
-              href="/items/new"
-              className="font-semibold text-zinc-900 underline underline-offset-2"
-              onClick={() => setExchangeCreditsModalOpen(false)}
-            >
-              prête des pièces
-            </Link>
-            .
-          </p>
+          {!guestCashRental ? (
+            <p className={segnaDialogBodyClass()}>
+              Pour réduire le complément,{" "}
+              <Link
+                href="/items/new"
+                className="font-semibold text-zinc-900 underline underline-offset-2"
+                onClick={() => setExchangeCreditsModalOpen(false)}
+              >
+                prête des pièces
+              </Link>
+              .
+            </p>
+          ) : null}
         </div>
         <button
           type="button"

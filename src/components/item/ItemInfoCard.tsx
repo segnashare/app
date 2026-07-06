@@ -5,6 +5,7 @@ import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
 import { formatItemSizeLabel } from "@/lib/items/formatItemSizeLabel";
 import { cn } from "@/lib/utils/cn";
 
@@ -62,9 +63,10 @@ export type ItemInfoCardData = {
 type ItemInfoCardProps = {
   data: ItemInfoCardData;
   className?: string;
+  guestCashRental?: boolean;
 };
 
-export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
+export function ItemInfoCard({ data, className, guestCashRental = false }: ItemInfoCardProps) {
   const exchangeCount = Math.max(0, Math.floor(Number(data.exchangeCount ?? 0)));
   const itemRatingAverage =
     typeof data.itemRatingAverage === "number" && Number.isFinite(data.itemRatingAverage)
@@ -80,13 +82,20 @@ export function ItemInfoCard({ data, className }: ItemInfoCardProps) {
     content: (
       <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
         {data.pricePoints != null ? (
-          <SegnaPointsUnitDisplay
-            points={data.pricePoints}
-            creditKind="consumption"
-            unitDisplay="icon"
-            className="gap-x-1.5"
-            numberClassName={cn(montserrat.className, "font-bold text-zinc-900")}
-          />
+          guestCashRental ? (
+            <ItemWeeklyRentalPriceDisplay
+              pricePoints={data.pricePoints}
+              priceClassName={cn(montserrat.className, "font-bold text-zinc-900")}
+            />
+          ) : (
+            <SegnaPointsUnitDisplay
+              points={data.pricePoints}
+              creditKind="consumption"
+              unitDisplay="icon"
+              className="gap-x-1.5"
+              numberClassName={cn(montserrat.className, "font-bold text-zinc-900")}
+            />
+          )
         ) : (
           "En cours d’évaluation"
         )}

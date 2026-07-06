@@ -67,6 +67,20 @@ export async function getSendcloudParcelTracking(
   return { ok: true, tracking: normalizeTrackingPayload(res.data) };
 }
 
+/** Résout l’id colis Sendcloud v3 à partir du n° de suivi transporteur. */
+export async function resolveSendcloudParcelIdFromTracking(
+  env: SendcloudEnv,
+  trackingNumber: string,
+): Promise<number | null> {
+  const tn = trackingNumber.trim();
+  if (!tn) return null;
+  const tr = await getSendcloudParcelTracking(env, tn);
+  if (!tr.ok) return null;
+  const raw = tr.tracking.source_id;
+  const id = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 export function latestTrackingStatusCode(tracking: ParcelTrackingResponse): string {
   const events = tracking.events ?? [];
   if (events.length === 0) return "";

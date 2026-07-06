@@ -342,6 +342,10 @@ export async function provisionCartOutboundSendcloudOrder(
   const existing = await findSendcloudOrderByNumber(env, orderNumber, integrationId);
   if (existing) {
     const panelId = String(existing.id ?? "").trim() || null;
+    await admin.rpc("set_shipment_provider", {
+      p_shipment_id: shipmentId,
+      p_provider_code: "sendcloud",
+    });
     await mergeDestinationSendcloudProvisionMeta(
       admin,
       shipmentId,
@@ -380,6 +384,11 @@ export async function provisionCartOutboundSendcloudOrder(
     String(created?.id ?? "").trim() ||
     (await findSendcloudOrderByNumber(env, orderNumber, integrationId))?.id?.toString() ||
     null;
+
+  await admin.rpc("set_shipment_provider", {
+    p_shipment_id: shipmentId,
+    p_provider_code: "sendcloud",
+  });
 
   await mergeDestinationSendcloudProvisionMeta(
     admin,

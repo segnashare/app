@@ -23,6 +23,7 @@ import {
   filterCartOfferFramesForWelcomeGiftEligibility,
 } from "@/lib/cms/welcome-gift-offer-visibility";
 import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { parseItemPhotosLayout, type ItemPhotoLayout } from "@/lib/items/item-photo-layout";
 import { MainContent } from "@/components/layout/MainContent";
@@ -1074,13 +1075,13 @@ export default async function ExchangePage() {
   const showCartInAppOnboarding =
     exchangeOnboardingRow.onboarding_process === "panier" ||
     (!KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc");
-  const showOfferInAppOnboarding = canShowWelcomeGiftOffer(
-    onboardingProcessForOffer,
-    includedCreditsClaimed,
-  );
-  const includedCreditsActivationContent = showOfferInAppOnboarding
-    ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
-    : null;
+  const showOfferInAppOnboarding =
+    !isGuestCashRentalMode(membershipLabel) &&
+    canShowWelcomeGiftOffer(onboardingProcessForOffer, includedCreditsClaimed);
+  const includedCreditsActivationContent =
+    showOfferInAppOnboarding
+      ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
+      : null;
   const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
   emptyCartCms.frames = filterCartOfferFramesForWelcomeGiftEligibility(
     emptyCartCms.frames,
@@ -1224,6 +1225,7 @@ export default async function ExchangePage() {
                   />
                 );
               case "exchange_system_lends":
+                if (membershipLabel === "Guest") return null;
                 return (
                   <ExchangeLendsSection
                     key={sectionKey}
