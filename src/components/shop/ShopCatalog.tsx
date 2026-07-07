@@ -26,6 +26,10 @@ import {
   takeShopCatalogStrictRemountFallback,
   type ShopCatalogSessionSnapshot,
 } from "@/lib/shop/shop-catalog-session";
+import {
+  applyStableShuffledCatalogOrder,
+  orderCatalogItemsByServerIndex,
+} from "@/lib/shop/shuffle-catalog-items";
 import { CmsShopHubFramesProvider, type CmsShopHubFramesEnv } from "@/components/cms/CmsShopHubFramesContext";
 import {
   CMS_SHOP_HUB_FRAME_OUTER_CLASS,
@@ -861,6 +865,8 @@ export function ShopCatalog({
 
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
+  /** Tri choisi dans la feuille « En savoir plus » (Nouveautés / prix). */
+  const [sortExplicitlyChosen, setSortExplicitlyChosen] = useState(false);
   const [heartsOnly, setHeartsOnly] = useState(false);
   const [disponiblesOnly, setDisponiblesOnly] = useState(false);
   const [filters, setFilters] = useState<ShopFilters>(emptyShopCatalogFilters);
@@ -878,6 +884,8 @@ export function ShopCatalog({
   const [modalSizeBrowseCategory, setModalSizeBrowseCategory] = useState<SizeFilterCategory | null>(null);
   const [availableVisibleCount, setAvailableVisibleCount] = useState(40);
   const [gridVisibleCount, setGridVisibleCount] = useState(SHOP_GRID_INITIAL_VISIBLE_COUNT);
+  const availableHubShuffleOrderRef = useRef<string[] | null>(null);
+  const disponiblesGridShuffleOrderRef = useRef<string[] | null>(null);
 
   const [likedSet, setLikedSet] = useState(() => new Set(initialLikedItemIds));
   const [localCartItemIds, setLocalCartItemIds] = useState<Set<string>>(() => new Set());
@@ -956,9 +964,17 @@ export function ShopCatalog({
     });
   }, [mode, initialItems, search, heartsOnly, disponiblesOnly, filters, likedSet, categories]);
 
+  const isDisponiblesCatalogView =
+    disponiblesOnly || (mode === "section" && sectionPageTitle === "Disponibles");
+
+  useEffect(() => {
+    if (!isDisponiblesCatalogView) {
+      disponiblesGridShuffleOrderRef.current = null;
+    }
+  }, [isDisponiblesCatalogView]);
+
   const sortedFilteredItems = useMemo(() => {
     const list = [...filteredItems];
-    if (sortMode === "recent") return list;
     if (sortMode === "price_asc") {
       return list.sort((a, b) => {
         const pa = a.price_points;
@@ -969,15 +985,21 @@ export function ShopCatalog({
         return pa - pb;
       });
     }
-    return list.sort((a, b) => {
-      const pa = a.price_points;
-      const pb = b.price_points;
-      if (pa == null && pb == null) return 0;
-      if (pa == null) return 1;
-      if (pb == null) return -1;
-      return pb - pa;
-    });
-  }, [filteredItems, sortMode]);
+    if (sortMode === "price_desc") {
+      return list.sort((a, b) => {
+        const pa = a.price_points;
+        const pb = b.price_points;
+        if (pa == null && pb == null) return 0;
+        if (pa == null) return 1;
+        if (pb == null) return -1;
+        return pb - pa;
+      });
+    }
+    if (isDisponiblesCatalogView && !sortExplicitlyChosen) {
+      return applyStableShuffledCatalogOrder(list, disponiblesGridShuffleOrderRef);
+    }
+    return orderCatalogItemsByServerIndex(list, initialItems);
+  }, [filteredItems, sortMode, isDisponiblesCatalogView, sortExplicitlyChosen, initialItems]);
 
   const sortedFilteredItemsRef = useRef(sortedFilteredItems);
   sortedFilteredItemsRef.current = sortedFilteredItems;
@@ -1044,7 +1066,10 @@ export function ShopCatalog({
 
     /* Restauration session au retour router.back() : appliquer avant le premier paint sans flash. */
     setSearch(snap.search);
-    setSortMode(snap.sortMode === "price_asc" || snap.sortMode === "price_desc" ? snap.sortMode : "recent");
+    const restoredSort =
+      snap.sortMode === "price_asc" || snap.sortMode === "price_desc" ? snap.sortMode : "recent";
+    setSortMode(restoredSort);
+    setSortExplicitlyChosen(restoredSort !== "recent");
     setHeartsOnly(Boolean(snap.heartsOnly));
     setDisponiblesOnly(Boolean(snap.disponiblesOnly));
     setFilters({ ...emptyShopCatalogFilters, ...parseShopCatalogFilters(snap.filters) });
@@ -1466,6 +1491,7 @@ export function ShopCatalog({
 
   const applyFilterDetailSheet = useCallback(() => {
     if (filterDetailSheet === "sort") {
+      setSortExplicitlyChosen(true);
       setSortMode(sortSheetDraft);
     } else if (filterDetailSheet) {
       setFilters({ ...filterSheetDraft });
@@ -1733,10 +1759,10 @@ export function ShopCatalog({
     [sortedFilteredItems, gridVisibleCount],
   );
 
-  const availableCatalogItems = useMemo(
-    () => initialItems.filter((item) => item.status === "available" || item.status === "in_cart"),
-    [initialItems],
-  );
+  const availableCatalogItems = useMemo(() => {
+    const filtered = initialItems.filter((item) => item.status === "available" || item.status === "in_cart");
+    return applyStableShuffledCatalogOrder(filtered, availableHubShuffleOrderRef);
+  }, [initialItems]);
   const visibleAvailableCatalogItems = useMemo(
     () => availableCatalogItems.slice(0, availableVisibleCount),
     [availableCatalogItems, availableVisibleCount],
