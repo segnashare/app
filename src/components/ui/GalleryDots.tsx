@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils/cn";
 type GalleryDotsProps = {
   count: number;
   activeIndex: number;
-  variant?: "inline" | "fullscreen";
+  variant?: "inline" | "fullscreen" | "light";
   className?: string;
 };
 
@@ -30,12 +30,14 @@ export function GalleryDots({
           className={cn(
             "rounded-full transition-all duration-200",
             i === activeIndex
-              ? variant === "fullscreen"
-                ? "h-1.5 w-7 rounded-full bg-white"
-                : "h-1.5 w-6 rounded-sm bg-zinc-900"
-              : variant === "fullscreen"
-                ? "h-1.5 w-1.5 rounded-full bg-white/45"
-                : "h-1.5 w-1.5 bg-zinc-900/30",
+              ? variant === "inline"
+                ? "h-1.5 w-6 rounded-sm bg-zinc-900"
+                : variant === "fullscreen"
+                  ? "h-1.5 w-7 rounded-full bg-white"
+                  : "h-1.5 w-6 rounded-full bg-white"
+              : variant === "inline"
+                ? "h-1.5 w-1.5 bg-zinc-900/30"
+                : "h-1.5 w-1.5 rounded-full bg-white/45",
           )}
         />
       ))}

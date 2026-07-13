@@ -1,6 +1,5 @@
 "use client";
 
-import { Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { InspirationCoverPhoto } from "@/components/community/InspirationCoverPhoto";
@@ -26,7 +25,6 @@ type InspirationMediaViewerProps = {
   /** `detail` : plein écran fiche look / item (sans coins arrondis, RemoteCoverThumb). */
   variant?: "detail";
   className?: string;
-  autoplayVideo?: boolean;
   priority?: boolean;
   shimmerDurationSec?: number;
   onLoadStateChange?: (state: RemoteCoverLoadState) => void;
@@ -137,7 +135,6 @@ export function InspirationMediaViewer({
   coverTransform = null,
   variant,
   className,
-  autoplayVideo = false,
   priority = false,
   shimmerDurationSec,
   onLoadStateChange,
@@ -149,7 +146,6 @@ export function InspirationMediaViewer({
   const internalDumpIndex = useSwipeCarouselIndex(dumpScrollRef, mediaUrls.length);
   const dumpIndex = selectedSlideIndex ?? internalDumpIndex;
   const isMultiSlide = mediaUrls.length > 1;
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const [coverLoadState, setCoverLoadState] = useState<RemoteCoverLoadState>(() =>
     mediaUrls.length === 0 ? "ready" : "loading",
@@ -183,43 +179,9 @@ export function InspirationMediaViewer({
 
   useEffect(() => {
     if (mediaType !== "video") return;
-    if (isDetail) {
-      setVideoReady(false);
-      notifyCoverLoadState("loading");
-      return;
-    }
     setVideoReady(false);
-    const previewUrl = posterUrl ?? mediaUrls[0] ?? null;
-    if (!previewUrl) {
-      notifyCoverLoadState("ready");
-      return;
-    }
-
-    let cancelled = false;
-    const image = new Image();
-    image.onload = () => {
-      void (async () => {
-        try {
-          if (typeof image.decode === "function") await image.decode();
-        } catch {
-          /* ignore */
-        }
-        if (!cancelled) {
-          setVideoReady(true);
-          notifyCoverLoadState("ready");
-        }
-      })();
-    };
-    image.onerror = () => {
-      if (!cancelled) notifyCoverLoadState("failed");
-    };
-    image.src = previewUrl;
     notifyCoverLoadState("loading");
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isDetail, mediaType, mediaUrls, notifyCoverLoadState, posterUrl]);
+  }, [mediaType, mediaUrls, notifyCoverLoadState]);
 
   useEffect(() => {
     const el = dumpScrollRef.current;
@@ -251,12 +213,6 @@ export function InspirationMediaViewer({
     return () => el.removeEventListener("scroll", syncIndex);
   }, [mediaUrls.length]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || mediaType !== "video" || isDetail || !autoplayVideo) return;
-    void video.play().catch(() => undefined);
-  }, [autoplayVideo, isDetail, mediaType, mediaUrls]);
-
   if (mediaUrls.length === 0) {
     return (
       <div
@@ -267,32 +223,6 @@ export function InspirationMediaViewer({
   }
 
   if (mediaType === "video") {
-    if (isDetail) {
-      return (
-        <div
-          className={cn("relative w-full overflow-hidden bg-zinc-200", aspectClass, className)}
-        >
-          {!videoReady ? (
-            <SegnaSkeletonBlock
-              className="pointer-events-none absolute inset-0 z-[2]"
-              rounded="rounded-none"
-              shimmerDurationSec={shimmerDurationSec}
-            />
-          ) : null}
-          <DetailMediaClickTarget index={0} onMediaClick={onMediaClick} className="relative z-[1] h-full w-full">
-            <DetailAmbientVideo
-              src={mediaUrls[0]}
-              className={cn("h-full w-full", !videoReady && "opacity-0")}
-              onReady={() => {
-                setVideoReady(true);
-                notifyCoverLoadState("ready");
-              }}
-            />
-          </DetailMediaClickTarget>
-        </div>
-      );
-    }
-
     return (
       <div
         className={cn(
@@ -309,24 +239,20 @@ export function InspirationMediaViewer({
             shimmerDurationSec={shimmerDurationSec}
           />
         ) : null}
-        <video
-          ref={videoRef}
-          src={mediaUrls[0]}
-          poster={posterUrl ?? undefined}
-          className={cn("relative z-[1] h-full w-full object-cover", !videoReady && "opacity-0")}
-          controls
-          playsInline
-          muted={autoplayVideo}
-          loop
-          preload="metadata"
-        />
-        {!autoplayVideo && videoReady ? (
-          <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm">
-              <Play className="h-6 w-6 fill-current" aria-hidden />
-            </span>
-          </div>
-        ) : null}
+        <DetailMediaClickTarget
+          index={0}
+          onMediaClick={isDetail ? onMediaClick : undefined}
+          className="relative z-[1] h-full w-full"
+        >
+          <DetailAmbientVideo
+            src={mediaUrls[0]}
+            className={cn("h-full w-full", !videoReady && "opacity-0")}
+            onReady={() => {
+              setVideoReady(true);
+              notifyCoverLoadState("ready");
+            }}
+          />
+        </DetailMediaClickTarget>
       </div>
     );
   }
@@ -353,22 +279,12 @@ export function InspirationMediaViewer({
               className="relative h-full min-w-full flex-[0_0_100%] snap-center snap-always"
             >
               {isVideoMediaUrl(url) ? (
-                isDetail ? (
-                  <DetailAmbientVideo
-                    src={url}
-                    active={dumpIndex === index}
-                    className="h-full w-full"
-                    onReady={index === 0 ? () => notifyCoverLoadState("ready") : undefined}
-                  />
-                ) : (
-                  <video
-                    src={url}
-                    className="h-full w-full object-cover"
-                    controls
-                    playsInline
-                    preload="metadata"
-                  />
-                )
+                <DetailAmbientVideo
+                  src={url}
+                  active={dumpIndex === index}
+                  className="h-full w-full"
+                  onReady={index === 0 ? () => notifyCoverLoadState("ready") : undefined}
+                />
               ) : isDetail ? (
                 <LookMediaPhoto
                   url={url}
@@ -397,7 +313,7 @@ export function InspirationMediaViewer({
           <GalleryDots
             count={mediaUrls.length}
             activeIndex={dumpIndex}
-            variant={isDetail ? "fullscreen" : "inline"}
+            variant={isDetail ? "fullscreen" : "light"}
           />
         ) : null}
       </div>
