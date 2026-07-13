@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { parseFranceCoursierAddress } from "@/lib/coursier/addresses";
 import { readCoursierConfig } from "@/lib/coursier/config";
+import { isCoursierCheckoutEnabled } from "@/lib/coursier/coursier-checkout-enabled";
 import {
   buildCoursierExpressQuoteFromGetpriceOffers,
   fetchCoursierGetPriceOffers,
@@ -64,6 +65,10 @@ function friendlyCoursierQuoteMessageFromDetail(detail: string): string {
  * Authentifié — ne expose pas les secrets ; renvoie le devis express normalisé.
  */
 export async function POST(request: Request) {
+  if (!isCoursierCheckoutEnabled()) {
+    return NextResponse.json({ ok: false, message: "Livraison express Coursier.fr désactivée." }, { status: 404 });
+  }
+
   let quoteDebug: ReturnType<typeof buildCoursierQuoteDebugSummary> | null = null;
   try {
     const config = readCoursierConfig();

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartPaymentScreen } from "@/components/cart/CartPaymentScreen";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
+import { isCoursierCheckoutEnabled } from "@/lib/coursier/coursier-checkout-enabled";
 import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
 import { mergeCompetitionIntoCartLines } from "@/lib/cart/merge-cart-competition";
@@ -199,6 +200,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         postStripeSyncError={postStripeSyncError}
         initialProfileDeliveryAddress={profileDeliveryAddress}
         initialSendcloudFeatures={initialSendcloudFeatures}
+        coursierCheckoutEnabled={isCoursierCheckoutEnabled()}
       />
     </main>
   );

@@ -173,6 +173,8 @@ type CartPaymentScreenProps = {
     checkoutLivePricing: boolean;
     checkoutConfigured: boolean;
   };
+  /** Frame Coursier « Aller express - Retour relais » (SSR, `COURSIER_CHECKOUT_ENABLED`). */
+  coursierCheckoutEnabled?: boolean;
 };
 
 function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
@@ -206,6 +208,7 @@ function CartPaymentScreenContent({
   postStripeSyncError = null,
   initialProfileDeliveryAddress = null,
   initialSendcloudFeatures,
+  coursierCheckoutEnabled = true,
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const { isPurchaseMode } = useCartCatalogMode();
@@ -356,8 +359,8 @@ function CartPaymentScreenContent({
     const ch = readCheckoutDeliveryChannel();
     const sp = readCheckoutHomeSpeed();
     if (ch === "relay" || ch === "home") setDeliveryChannel(ch);
-    if (sp === "standard" || sp === "uber_direct") setHomeSpeed(sp);
-  }, []);
+    if (sp === "standard" || (sp === "uber_direct" && coursierCheckoutEnabled)) setHomeSpeed(sp);
+  }, [coursierCheckoutEnabled]);
 
   const persistDeliveryChannel = useCallback((ch: DeliveryChannel) => {
     setDeliveryChannel(ch);
@@ -368,6 +371,14 @@ function CartPaymentScreenContent({
     setHomeSpeed(sp);
     writeCheckoutHomeSpeed(sp);
   }, []);
+
+  useEffect(() => {
+    if (!coursierCheckoutEnabled && homeSpeed === "uber_direct") {
+      persistHomeSpeed("standard");
+      setSelectedCoursierSlotKey("");
+      writeCheckoutCoursierSlotKey(null);
+    }
+  }, [coursierCheckoutEnabled, homeSpeed, persistHomeSpeed]);
 
   const selectHomeSendcloudPlan = useCallback((plan: CheckoutHomeMethodOption) => {
     persistHomeSpeed("standard");
@@ -395,8 +406,17 @@ function CartPaymentScreenContent({
     };
   }, [refreshCheckoutLocalState]);
 
-  /** Devis Uber : dès qu’une adresse existe (tous onglets), pour affichage instantané en « Uber Direct ». */
+  /** Devis Coursier : dès qu’une adresse existe, si l’option express est activée. */
   useEffect(() => {
+    if (!coursierCheckoutEnabled) {
+      setUberQuote(null);
+      setUberQuoteError(null);
+      setUberQuoteErrorCode(null);
+      setUberQuoteErrorDetail(null);
+      setUberQuoteFetch("idle");
+      return;
+    }
+
     if (uberQuoteDebounceRef.current != null) {
       clearTimeout(uberQuoteDebounceRef.current);
       uberQuoteDebounceRef.current = null;
@@ -500,7 +520,7 @@ function CartPaymentScreenContent({
         uberQuoteDebounceRef.current = null;
       }
     };
-  }, [deliveryAddressKey, initialLines.length]);
+  }, [coursierCheckoutEnabled, deliveryAddressKey, initialLines.length]);
 
   const coursierOffers = useMemo((): CoursierGetPriceOffer[] => {
     if (!uberQuote || !Array.isArray(uberQuote.offers)) return [];
@@ -555,8 +575,8 @@ function CartPaymentScreenContent({
     return "loading";
   }, [deliveryAddress, deliveryChannel, homeSpeed, uberQuote, uberQuoteFetch]);
 
-  /** L’offre Uber reste visible même sans devis, pour garder l’option express explicite. */
-  const uberDeliveryOfferVisible = deliveryChannel === "home";
+  /** L’offre Coursier reste visible si activée, même sans devis (option express explicite). */
+  const uberDeliveryOfferVisible = deliveryChannel === "home" && coursierCheckoutEnabled;
 
   useEffect(() => {
     if (deliveryChannel !== "home" || uberQuoteFetch !== "error") return;
@@ -657,7 +677,9 @@ function CartPaymentScreenContent({
   const homeDeliveryOptionsPending =
     deliveryChannel === "home" &&
     (homeSendcloudPricing.loading ||
-      (deliveryAddress != null && (uberQuoteFetch === "loading" || uberQuoteFetch === "idle")));
+      (coursierCheckoutEnabled &&
+        deliveryAddress != null &&
+        (uberQuoteFetch === "loading" || uberQuoteFetch === "idle")));
 
   const homeDeliveryOptionsVisible =
     uberDeliveryOfferVisible || homeSendcloudPlans.length > 0;
@@ -708,10 +730,11 @@ function CartPaymentScreenContent({
     if (homeSendcloudPlans.length > 0) return;
     setHomeOutboundOptionCode(null);
     writeCheckoutSendcloudOutboundOption("home", null);
-    if (uberQuoteFetch !== "error") {
+    if (coursierCheckoutEnabled && uberQuoteFetch !== "error") {
       persistHomeSpeed("uber_direct");
     }
   }, [
+    coursierCheckoutEnabled,
     deliveryChannel,
     homeSendcloudPlans.length,
     homeSendcloudPricing.loading,
@@ -738,8 +761,11 @@ function CartPaymentScreenContent({
     if (homeSendcloudPlans.some((p) => p.optionCode === homeOutboundOptionCode)) return;
     setHomeOutboundOptionCode(null);
     writeCheckoutSendcloudOutboundOption("home", null);
-    if (homeSpeed === "standard" && uberQuoteFetch !== "error") persistHomeSpeed("uber_direct");
+    if (coursierCheckoutEnabled && homeSpeed === "standard" && uberQuoteFetch !== "error") {
+      persistHomeSpeed("uber_direct");
+    }
   }, [
+    coursierCheckoutEnabled,
     deliveryChannel,
     homeOutboundOptionCode,
     homeSendcloudPlans,
@@ -1508,9 +1534,6 @@ function CartPaymentScreenContent({
                   <Store className="mt-0.5 h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold text-zinc-900">Livraison point relais</p>
-                    <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">
-                      Choisis ton point relais sur la carte (Chronopost ou Mondial Relay).
-                    </p>
                   </div>
                 </div>
                 <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">

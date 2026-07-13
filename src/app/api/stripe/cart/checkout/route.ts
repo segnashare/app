@@ -43,6 +43,7 @@ import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checko
 import { getStripeConfig } from "@/lib/social/stripe";
 import { parseFranceCoursierAddress } from "@/lib/coursier/addresses";
 import { readCoursierConfig } from "@/lib/coursier/config";
+import { isCoursierCheckoutEnabled } from "@/lib/coursier/coursier-checkout-enabled";
 import { fetchCoursierExpressQuote } from "@/lib/coursier/getprice-api";
 import { buildDefaultCoursierPackages } from "@/lib/coursier/packages";
 import { coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
@@ -432,6 +433,12 @@ export async function POST(request: Request) {
       deliveryEndDate: string;
     } | null = null;
     if (needsExpressQuote) {
+      if (!isCoursierCheckoutEnabled()) {
+        return NextResponse.json(
+          { message: "Livraison express Coursier.fr désactivée sur cet environnement." },
+          { status: 400 },
+        );
+      }
       if (!deliveryAddress) {
         return NextResponse.json(
           { message: "Adresse de livraison requise pour la livraison express." },
