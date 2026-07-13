@@ -27,6 +27,7 @@ import {
   readSocialHandlesFromProfileData,
 } from "@/lib/profile/social-handles";
 import { createInspirationHref } from "@/lib/community/create-inspiration-href";
+import { capitalizeFirstLetter } from "@/lib/strings/capitalizeFirstLetter";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
