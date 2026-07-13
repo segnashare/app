@@ -85,13 +85,7 @@ export function setItemInfoDraft(draft: ItemInfoDraft): void {
 }
 
 export function mergeItemInfoDraft(partial: Partial<ItemInfoDraft>): void {
-  const current = getItemInfoDraft();
-  const merged: ItemInfoDraft = { ...current };
-  for (const key of Object.keys(partial) as (keyof ItemInfoDraft)[]) {
-    const v = partial[key];
-    if (v !== undefined) merged[key] = v;
-  }
-  setItemInfoDraft(merged);
+  setItemInfoDraft({ ...getItemInfoDraft(), ...partial });
 }
 
 export function clearItemInfoDraft(): void {
