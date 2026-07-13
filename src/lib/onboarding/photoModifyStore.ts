@@ -124,6 +124,20 @@ export const fileToDataUrl = (file: File) =>
     }),
   );
 
+/** Convertit une URL blob éphémère en data URL persistable (sessionStorage / reload). */
+export async function toPersistableDataUrl(src: string): Promise<string> {
+  if (src.startsWith("data:image/")) return src;
+  if (!src.startsWith("blob:")) return src;
+  const response = await fetch(src);
+  const blob = await response.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Unable to read blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function preparePhotoModifyImage(file: File, options?: { forItemDraft?: boolean }) {
   const normalizeOpts: ImageNormalizeOptions | undefined = options?.forItemDraft
     ? { maxSide: ITEM_DRAFT_MAX_IMAGE_SIDE, quality: ITEM_DRAFT_JPEG_QUALITY }

@@ -59,6 +59,8 @@ export function InspirationDetailClient({
         mediaType={detail.media_type}
         mediaUrls={mediaUrls}
         posterUrl={detail.poster_url}
+        coverAspect={detail.cover_aspect}
+        coverTransform={detail.cover_transform}
         priority
       />
 

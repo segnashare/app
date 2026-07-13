@@ -7,6 +7,7 @@ const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
 import { AppViewport } from "@/components/layout/AppViewport";
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { OnboardingStepTracker } from "@/components/onboarding/OnboardingStepTracker";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -39,7 +40,7 @@ export default function OnboardingEndPage() {
 
     void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 
-    router.push("/shop");
+    router.push(MEMBER_HOME_HREF);
   };
 
   return (

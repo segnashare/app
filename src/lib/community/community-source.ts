@@ -1,4 +1,5 @@
 import type { InspirationSource, InspirationUrlSource } from "@/lib/community/types";
+import { styleLookHref } from "@/lib/looks/style-look-href";
 
 export function urlSourceToDbSource(urlSource: string): InspirationSource | null {
   if (urlSource === "segna") return "segna_style";
@@ -10,6 +11,6 @@ export function dbSourceToUrlSource(source: InspirationSource): InspirationUrlSo
   return source === "segna_style" ? "segna" : "member";
 }
 
-export function inspirationHref(source: InspirationSource, id: string): string {
-  return `/community/inspi/${dbSourceToUrlSource(source)}/${id}`;
+export function inspirationHref(_source: InspirationSource, id: string): string {
+  return styleLookHref(id);
 }

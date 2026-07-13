@@ -6,7 +6,7 @@ import {
   type StorageSignClient,
 } from "@/lib/supabase/storage-resolve-signed-url";
 import { fetchCartCheckoutPaymentDetail } from "@/lib/stripe/fetch-cart-checkout-payment-detail";
-import { cartOrderStripeInvoiceJsonToEuroDetail } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
+import { cartOrderStripeInvoiceJsonToEuroDetail, guestPurchaseStripeInvoiceHostedUrlFromJson, guestPurchaseStripeInvoiceIdFromJson } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import { hasPreprintedCartReturnLabel } from "@/lib/cart/cart-return-provision-meta";
@@ -129,6 +129,10 @@ export type MemberCartOrderDetail = {
   borrowReturnDueAt: string | null;
   /** Durée d'emprunt choisie au checkout (`carts.checkout_borrow_duration_days`). */
   checkoutBorrowDurationDays: number | null;
+  /** Commande passée en mode achat Guest. */
+  isPurchaseOrder: boolean;
+  /** URL Stripe pour consulter / télécharger la facture achat. */
+  stripeInvoiceDownloadUrl: string | null;
   createdAtIso: string;
   lines: MemberCartOrderLine[];
   totalPoints: number;
@@ -206,7 +210,7 @@ export async function fetchMemberCartOrderDetail(
 ): Promise<MemberCartOrderDetail | null> {
   const cartRes = await supabase
     .from("carts")
-    .select("id,status,created_at,updated_at,user_id,borrow_return_due_at,member_receipt_confirmed_at,checkout_borrow_duration_days")
+    .select("id,status,created_at,updated_at,user_id,borrow_return_due_at,member_receipt_confirmed_at,checkout_borrow_duration_days,checkout_purchase_mode")
     .eq("id", cartId)
     .eq("user_id", userId)
     .is("deleted_at", null)
@@ -222,6 +226,7 @@ export async function fetchMemberCartOrderDetail(
         borrow_return_due_at?: string | null;
         member_receipt_confirmed_at?: string | null;
         checkout_borrow_duration_days?: number | null;
+        checkout_purchase_mode?: boolean | null;
       }
     | null;
 
@@ -466,9 +471,10 @@ export async function fetchMemberCartOrderDetail(
         }
       : null;
 
-  let euroDetail = cartOrderStripeInvoiceJsonToEuroDetail(
-    stripeInvoiceRes.error ? null : stripeInvoiceRes.data,
-  );
+  const stripeInvoicePayload = stripeInvoiceRes.error ? null : stripeInvoiceRes.data;
+  let euroDetail = cartOrderStripeInvoiceJsonToEuroDetail(stripeInvoicePayload);
+  const stripeInvoiceDownloadUrl = guestPurchaseStripeInvoiceHostedUrlFromJson(stripeInvoicePayload);
+  const guestPurchaseStripeInvoiceId = guestPurchaseStripeInvoiceIdFromJson(stripeInvoicePayload);
 
   if (!euroDetail) {
     const sessionId =
@@ -530,6 +536,14 @@ export async function fetchMemberCartOrderDetail(
     disabledReason: cancellationReason,
   };
 
+  const purchaseFromCart = cart.checkout_purchase_mode === true;
+  const purchaseFromWallet = debitRows.some((debitRow) => {
+    const raw = debitRow.metadata?.purchase_mode;
+    return raw === true || raw === "true";
+  });
+  const isPurchaseOrder =
+    purchaseFromCart || purchaseFromWallet || guestPurchaseStripeInvoiceId != null;
+
   return {
     cartId: cart.id,
     orderNumberCompact: formatOrderNumberCompact(cart.id),
@@ -548,6 +562,8 @@ export async function fetchMemberCartOrderDetail(
       Number(cart.checkout_borrow_duration_days) >= 1
         ? Math.trunc(Number(cart.checkout_borrow_duration_days))
         : null,
+    isPurchaseOrder,
+    stripeInvoiceDownloadUrl,
     createdAtIso: cart.created_at,
     lines,
     totalPoints,

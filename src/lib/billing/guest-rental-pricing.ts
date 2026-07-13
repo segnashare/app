@@ -1,6 +1,7 @@
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import {
   BORROW_CHECKOUT_OPTIONS_FALLBACK,
+  centsPerMissingCreditForDuration,
   computeItemRentalEuroCents,
   computeMissingCreditsCashCents,
   formatEuroPerCredit,
@@ -20,6 +21,25 @@ export function computeItemWeeklyRentalEuroCents(
 ): number {
   const base = shortestBorrowCheckoutOption(options);
   return computeItemRentalEuroCents(pricePoints, base.durationDays, options);
+}
+
+/** Prix achat catalogue (placeholder : 1 € / crédit jusqu’au checkout achat dédié). */
+export function computeItemPurchaseEuroCents(pricePoints: number | null | undefined): number {
+  const points =
+    typeof pricePoints === "number" && !Number.isNaN(pricePoints) ? Math.max(0, Math.trunc(pricePoints)) : 0;
+  return points * 100;
+}
+
+export function computeGuestCartPurchaseEuroCents(cartTotalPoints: number): number {
+  return computeItemPurchaseEuroCents(cartTotalPoints);
+}
+
+/** % du prix retail (1 crédit = 1 € ; tarif location = X centimes / crédit). */
+export function guestRentalPercentOfRetail(
+  durationDays: number,
+  options: ReadonlyArray<BorrowCheckoutOption> = BORROW_CHECKOUT_OPTIONS_FALLBACK,
+): number {
+  return centsPerMissingCreditForDuration(options, durationDays);
 }
 
 export function formatWeeklyRentalPrice(
@@ -85,4 +105,11 @@ export function resolveGuestOrderRentalEuros(
       ? detail.checkoutBorrowDurationDays
       : shortestBorrowCheckoutOption(options).durationDays;
   return computeGuestCartRentalEuroCents(detail.totalPoints, durationDays, options) / 100;
+}
+
+/** Prix d'achat TTC affiché sur une commande Guest achat (€ facturés ou recalcul). */
+export function resolveGuestOrderPurchaseEuros(detail: GuestCashRentalOrderDisplayInput): number {
+  const fromInvoice = detail.paymentBreakdown?.euroDetail?.complementCreditsEuros;
+  if (fromInvoice != null && fromInvoice > 0.005) return fromInvoice;
+  return computeGuestCartPurchaseEuroCents(detail.totalPoints) / 100;
 }

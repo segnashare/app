@@ -10,14 +10,20 @@ type InspirationMasonryGridProps = {
   cards: InspirationFeedCard[];
   className?: string;
   onImpression?: (card: InspirationFeedCard) => void;
+  onLikeChange?: (card: InspirationFeedCard, liked: boolean) => void;
   compact?: boolean;
+  shimmerDurationSec?: number;
+  likeMode?: "button" | "count";
 };
 
 export function InspirationMasonryGrid({
   cards,
   className,
   onImpression,
+  onLikeChange,
   compact = false,
+  shimmerDurationSec,
+  likeMode = "button",
 }: InspirationMasonryGridProps) {
   const seenRef = useRef(new Set<string>());
 
@@ -46,8 +52,15 @@ export function InspirationMasonryGrid({
   return (
     <div className={cn("columns-2 gap-3 [column-fill:balance]", className)}>
       {cards.map((card) => (
-        <div key={`${card.source}:${card.id}`} className="mb-3">
-          <InspirationCard card={card} onImpression={handleImpression} compact={compact} />
+        <div key={`${card.source}:${card.id}`} className="mb-3 break-inside-avoid">
+          <InspirationCard
+            card={card}
+            onImpression={handleImpression}
+            onLikeChange={onLikeChange ? (liked) => onLikeChange(card, liked) : undefined}
+            compact={compact}
+            shimmerDurationSec={shimmerDurationSec}
+            likeMode={likeMode}
+          />
         </div>
       ))}
     </div>

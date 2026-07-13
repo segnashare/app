@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type OnboardingStepTrackerProps = {
@@ -60,7 +61,7 @@ export function OnboardingStepTracker({ currentStep }: OnboardingStepTrackerProp
         .maybeSingle();
 
       if (row?.status === "completed") {
-        router.replace("/shop");
+        router.replace(MEMBER_HOME_HREF);
         return;
       }
 

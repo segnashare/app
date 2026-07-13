@@ -1,4 +1,9 @@
 import { normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
+import {
+  getFirstLookPhotoPath,
+  parseUserProfilePhotoPath,
+  parseUserProfilePhotoPublicUrl,
+} from "@/lib/profile/parse-profile-photo-path";
 
 /** Même critère que l’onboarding profil : 1 photo + infos essentielles (pas 100 %). */
 export type OnboardingProfileRequirements = {
@@ -91,8 +96,15 @@ export async function fetchOnboardingProfileRequirements(
 
   const sizes = Array.isArray(sizeRows) ? sizeRows : [];
 
-  const photoPaths = getLooksPhotoPaths(profile);
-  const hasPhoto = await resolveHasProfilePhoto(supabase, photoPaths);
+  const photoPaths = [
+    parseUserProfilePhotoPath(profile),
+    getFirstLookPhotoPath(profile),
+    ...getLooksPhotoPaths(profile),
+  ].filter((path): path is string => Boolean(path));
+  const uniquePhotoPaths = [...new Set(photoPaths)];
+  const hasPhoto =
+    parseUserProfilePhotoPublicUrl(profile.photos) != null ||
+    (uniquePhotoPaths.length > 0 && (await resolveHasProfilePhoto(supabase, uniquePhotoPaths)));
   const user = userRow as { first_name?: string | null } | null;
 
   return {

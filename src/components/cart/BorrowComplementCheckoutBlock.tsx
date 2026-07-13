@@ -21,6 +21,7 @@ type BorrowComplementCheckoutBlockProps = {
   /** Panier : prix unitaire sous la durée. Frais facturés : masqué. */
   showDailyPrice?: boolean;
   className?: string;
+  hideDurationSelector?: boolean;
 };
 
 function optionIndex(options: ReadonlyArray<BorrowCheckoutOption>, durationDays: number): number {
@@ -97,6 +98,7 @@ export function BorrowComplementCheckoutBlock({
   missingPoints,
   showDailyPrice = true,
   className,
+  hideDurationSelector = false,
 }: BorrowComplementCheckoutBlockProps) {
   if (options.length === 0) return null;
 
@@ -121,6 +123,7 @@ export function BorrowComplementCheckoutBlock({
         />
       </div>
 
+      {hideDurationSelector ? null : (
       <div className="flex items-start justify-between gap-3 border-t border-zinc-200 pt-5">
         <span className="pt-1.5 text-[15px] font-semibold text-zinc-900">Durée</span>
         <div className="flex flex-col items-end gap-1.5">
@@ -163,6 +166,7 @@ export function BorrowComplementCheckoutBlock({
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }

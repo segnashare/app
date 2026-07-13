@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isGuestPurchaseCartOrder } from "@/lib/cart/guest-purchase-order";
 import { cartOrderPaidEmailBlocks, walletCreditsEmailBlocks } from "@/lib/notifications/email-html";
 import {
   claimNotificationSend,
@@ -85,7 +86,7 @@ function buildCartOrderCookingSms(itemLabels: string[]): string {
  */
 export async function notifyCartOrderPaidAfterConfirmation(
   admin: SupabaseClient,
-  input: { userId: string; cartId: string },
+  input: { userId: string; cartId: string; skipMemberNotification?: boolean },
 ): Promise<void> {
   try {
     await declareCartOrderToN8n(admin, input);
@@ -93,6 +94,10 @@ export async function notifyCartOrderPaidAfterConfirmation(
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[notifications] declareCartOrderToN8n failed", msg);
   }
+
+  const skipMember =
+    input.skipMemberNotification === true || (await isGuestPurchaseCartOrder(admin, input.cartId));
+  if (skipMember) return;
 
   const idempotencyKey = `txn:cart_order_paid:${input.cartId}`;
   const claimed = await claimNotificationSend(admin, {

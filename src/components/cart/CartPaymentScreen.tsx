@@ -31,10 +31,12 @@ import {
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
+  computeGuestCartPurchaseEuroCents,
   computeGuestCartRentalEuroCents,
   isGuestCashRentalMode,
 } from "@/lib/billing/guest-rental-pricing";
-import { complementQualifiesForFreeRelay, CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR } from "@/lib/cart/cart-complement-relay-offer";
+import { CartCatalogModeProvider, useCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
+import { complementQualifiesForFreeRelay, cartRelayFreeOfferUnlockedSubtext } from "@/lib/cart/cart-complement-relay-offer";
 import {
   clearCheckoutBorrowDurationDays,
   defaultCheckoutBorrowDurationDays,
@@ -43,7 +45,14 @@ import {
   writeCheckoutBorrowDurationDays,
 } from "@/lib/cart/checkout-borrow-duration-storage";
 import { checkoutHomePlanEtaSubtitle } from "@/lib/cart/checkout-home-plan-display";
-import { BORROW_OVERDUE_CG_LOCATION_HREF } from "@/lib/cart/format-borrow-overdue-copy";
+import {
+  CHECKOUT_HOME_SENDCLOUD_LOADING_PLACEHOLDERS,
+  checkoutHomePlanEtaSubtitleForMethodKey,
+} from "@/lib/cart/checkout-home-sendcloud-plan-placeholders";
+import {
+  GUEST_CG_LOCATION_HREF,
+  GUEST_CG_SALE_HREF,
+} from "@/lib/cart/guest-cart-legal-links";
 import { CART_CHECKOUT_VAT_LABEL, htToVatAndTtcCents } from "@/lib/cart/cart-checkout-vat";
 import {
   computeCartCheckoutIncludedFeeReductions,
@@ -173,7 +182,15 @@ function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | 
   return source.match(/\b\d{5}\b/)?.[0] ?? "";
 }
 
-export function CartPaymentScreen({
+export function CartPaymentScreen(props: CartPaymentScreenProps) {
+  return (
+    <CartCatalogModeProvider>
+      <CartPaymentScreenContent {...props} />
+    </CartCatalogModeProvider>
+  );
+}
+
+function CartPaymentScreenContent({
   initialLines,
   walletCreditKind,
   missingExchangeMods,
@@ -191,7 +208,9 @@ export function CartPaymentScreen({
   initialSendcloudFeatures,
 }: CartPaymentScreenProps) {
   const router = useRouter();
+  const { isPurchaseMode } = useCartCatalogMode();
   const guestCashRental = isGuestCashRentalMode(membershipLabel);
+  const purchaseOutboundOnly = guestCashRental && isPurchaseMode;
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
   const [homeSpeed, setHomeSpeed] = useState<HomeDeliverySpeed>("standard");
   const checkoutUiPrefsRestoredRef = useRef(false);
@@ -283,18 +302,24 @@ export function CartPaymentScreen({
     () =>
       guestCashRental
         ? cartTotalMods > 0
-          ? computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
+          ? isPurchaseMode
+            ? computeGuestCartPurchaseEuroCents(cartTotalMods)
+            : computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
           : 0
         : missingExchangeMods > 0
           ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
           : 0,
-    [borrowCheckoutOptions, borrowDurationDays, cartTotalMods, guestCashRental, missingExchangeMods],
+    [borrowCheckoutOptions, borrowDurationDays, cartTotalMods, guestCashRental, isPurchaseMode, missingExchangeMods],
   );
   const exchangeCreditsChargeEuros = exchangeCreditsEuroCents / 100;
 
   const complementRelayFree = useMemo(
-    () => complementQualifiesForFreeRelay(exchangeCreditsChargeEuros),
-    [exchangeCreditsChargeEuros],
+    () =>
+      complementQualifiesForFreeRelay(
+        exchangeCreditsChargeEuros,
+        purchaseOutboundOnly ? "achat" : "location",
+      ),
+    [exchangeCreditsChargeEuros, purchaseOutboundOnly],
   );
 
   useEffect(() => {
@@ -841,14 +866,19 @@ export function CartPaymentScreen({
         relayRoundTrip,
         currentRoundTrip: roundTripForBilling,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
+        outboundOnly: purchaseOutboundOnly,
       });
     } catch {
       if (deliveryChannel === "home" && homeSpeed === "uber_direct") {
         return uberOutboundCentsFromQuote != null
-          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
-          : exchangeShipping.subtotalCents;
+          ? purchaseOutboundOnly
+            ? uberOutboundCentsFromQuote
+            : uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+          : purchaseOutboundOnly
+            ? exchangeShipping.outboundCents
+            : exchangeShipping.subtotalCents;
       }
-      return exchangeShipping.subtotalCents;
+      return purchaseOutboundOnly ? roundTripForBilling.outboundCents : roundTripForBilling.subtotalCents;
     }
   }, [
     deliveryChannel,
@@ -857,6 +887,7 @@ export function CartPaymentScreen({
     includedExchangeShipping,
     complementRelayFree,
     itemCount,
+    purchaseOutboundOnly,
     relayRoundTrip,
     selectedRelayCarrierRoundTrip,
     homeSendcloudPlanSelected,
@@ -886,15 +917,21 @@ export function CartPaymentScreen({
         relayRoundTrip,
         currentRoundTrip: standardHomeRoundTrip,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
+        outboundOnly: purchaseOutboundOnly,
       });
     } catch {
       return uberOutboundCentsFromQuote != null
-        ? uberOutboundCentsFromQuote + standardHomeRoundTrip.returnRelayCents
-        : standardHomeRoundTrip.subtotalCents;
+        ? purchaseOutboundOnly
+          ? uberOutboundCentsFromQuote
+          : uberOutboundCentsFromQuote + standardHomeRoundTrip.returnRelayCents
+        : purchaseOutboundOnly
+          ? standardHomeRoundTrip.outboundCents
+          : standardHomeRoundTrip.subtotalCents;
     }
   }, [
     includedExchangeShipping,
     itemCount,
+    purchaseOutboundOnly,
     relayRoundTrip,
     standardHomeRoundTrip,
     uberOutboundCentsFromQuote,
@@ -928,20 +965,26 @@ export function CartPaymentScreen({
         relayRoundTrip,
         currentRoundTrip: roundTripForBilling,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
+        outboundOnly: purchaseOutboundOnly,
       });
     } catch {
       if (deliveryChannel === "home" && homeSpeed === "uber_direct") {
         return uberOutboundCentsFromQuote != null
-          ? uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
-          : exchangeShipping.subtotalCents;
+          ? purchaseOutboundOnly
+            ? uberOutboundCentsFromQuote
+            : uberOutboundCentsFromQuote + exchangeShipping.returnRelayCents
+          : purchaseOutboundOnly
+            ? exchangeShipping.outboundCents
+            : exchangeShipping.subtotalCents;
       }
-      return exchangeShipping.subtotalCents;
+      return purchaseOutboundOnly ? roundTripForBilling.outboundCents : exchangeShipping.subtotalCents;
     }
   }, [
     deliveryChannel,
     exchangeShipping,
     homeSpeed,
     itemCount,
+    purchaseOutboundOnly,
     relayRoundTrip,
     selectedRelayCarrierRoundTrip,
     homeSendcloudPlanSelected,
@@ -983,6 +1026,7 @@ export function CartPaymentScreen({
   const includedShippingReductionEuros = centsToEuros(includedFeeReductions.shippingTtcCents);
 
   const shippingFeesSplit = useMemo((): { outboundEuros: number; returnEuros: number } | null => {
+    if (purchaseOutboundOnly) return null;
     if (relayInboundShowsZero || homeDeliveryShowsFullIncluded) return null;
 
     if (deliveryChannel === "relay" && sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
@@ -1023,10 +1067,14 @@ export function CartPaymentScreen({
     selectedHomeSendcloudPlan,
     sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
+    purchaseOutboundOnly,
   ]);
   const relayHeaderShippingTtcEuros = useMemo(() => {
     if (deliveryChannel !== "relay" || relayInboundShowsZero) return shippingTtcEuros;
     if (sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
+      if (purchaseOutboundOnly) {
+        return centsToEuros(relaySendcloudPricing.pricing.outboundTtcCents);
+      }
       return centsToEuros(relaySendcloudPricing.pricing.bundledRoundTripTtcCents);
     }
     return shippingTtcEuros;
@@ -1036,6 +1084,7 @@ export function CartPaymentScreen({
     relaySendcloudPricing.pricing,
     sendcloudRelayCheckoutActive,
     shippingTtcEuros,
+    purchaseOutboundOnly,
   ]);
 
   const expressOptionShippingTtcEuros = centsToEuros(
@@ -1081,7 +1130,11 @@ export function CartPaymentScreen({
       return;
     }
     if (!rentalTermsAccepted) {
-      setStripeCheckoutError("Tu dois confirmer avoir lu les conditions générales de location pour continuer.");
+      setStripeCheckoutError(
+        isPurchaseMode
+          ? "Tu dois confirmer avoir lu les conditions générales de vente pour continuer."
+          : "Tu dois confirmer avoir lu les conditions générales de location pour continuer.",
+      );
       return;
     }
     if (
@@ -1134,6 +1187,7 @@ export function CartPaymentScreen({
               : undefined,
           sendcloudOutboundSelection: sendcloudOutboundSelection ?? undefined,
           acceptRentalTerms: true,
+          purchaseMode: purchaseOutboundOnly,
           borrowDurationDays:
             guestCashRental && cartTotalMods > 0
               ? borrowDurationDays
@@ -1176,6 +1230,9 @@ export function CartPaymentScreen({
     borrowDurationDays,
     missingExchangeMods,
     borrowCheckoutOptions,
+    purchaseOutboundOnly,
+    guestCashRental,
+    isPurchaseMode,
   ]);
 
   const searchRelayPoints = useCallback(async () => {
@@ -1480,34 +1537,30 @@ export function CartPaymentScreen({
                 <div className="mt-4 h-12 animate-pulse rounded-xl bg-zinc-100" aria-hidden />
               ) : sendcloudSpp ? (
                 <div className="mt-4 space-y-3">
-                  {(!sendcloudRelayCheckoutActive || relaySendcloudPricing.pricing) &&
-                  !relaySendcloudPricing.loading ? (
-                    <>
-                      <SendcloudServicePointPicker
-                        postalCode={relayMapCenterPostalCode}
-                        onSelect={(r) => onSelectRelay(r)}
-                      />
-                      {selectedRelay ? (
-                        <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 px-3 py-3 text-left">
-                          <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
-                            Point relais sélectionné
-                          </p>
-                          <p className="mt-1 text-[14px] font-medium leading-snug text-zinc-900">
-                            {formatCheckoutRelayDisplayLabel(selectedRelay.label)}
-                          </p>
-                          <p className="mt-0.5 text-[13px] text-zinc-600">
-                            {[selectedRelay.postalCode, selectedRelay.city].filter(Boolean).join(" · ")}
-                          </p>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : (
+                  <SendcloudServicePointPicker
+                    postalCode={relayMapCenterPostalCode}
+                    onSelect={(r) => onSelectRelay(r)}
+                  />
+                  {selectedRelay ? (
+                    <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 px-3 py-3 text-left">
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Point relais sélectionné
+                      </p>
+                      <p className="mt-1 text-[14px] font-medium leading-snug text-zinc-900">
+                        {formatCheckoutRelayDisplayLabel(selectedRelay.label)}
+                      </p>
+                      <p className="mt-0.5 text-[13px] text-zinc-600">
+                        {[selectedRelay.postalCode, selectedRelay.city].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                  ) : null}
+                  {sendcloudRelayCheckoutActive &&
+                  !relaySendcloudPricing.loading &&
+                  !relaySendcloudPricing.pricing ? (
                     <p className="text-[13px] text-zinc-500">
-                      {relaySendcloudPricing.loading
-                        ? "Calcul du tarif relais…"
-                        : "Tarif relais indisponible — vérifie la méthode Sendcloud « Livraison en Relais »."}
+                      Tarif relais indisponible — vérifie la méthode Sendcloud « Livraison en Relais ».
                     </p>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <>
@@ -1686,11 +1739,37 @@ export function CartPaymentScreen({
                   ) : null}
                 </div>
                 ) : null}
+                {homeSendcloudPricingEnabled &&
+                homeSendcloudPricing.loading &&
+                homeSendcloudPlans.length === 0
+                  ? CHECKOUT_HOME_SENDCLOUD_LOADING_PLACEHOLDERS.map((placeholder) => (
+                      <div
+                        key={placeholder.optionCode}
+                        className="flex w-full items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-left"
+                        aria-busy="true"
+                        aria-label={`${placeholder.title}, calcul du tarif`}
+                      >
+                        <CheckoutHomePlanCarrierIcon methodKey={placeholder.methodKey} className="mt-0.5" />
+                        <div className="min-w-0 flex-1 pr-1">
+                          <p className="text-[15px] font-semibold leading-tight text-zinc-900">{placeholder.title}</p>
+                          <p className="mt-0.5 text-[13px] text-zinc-500">
+                            {checkoutHomePlanEtaSubtitleForMethodKey(placeholder.methodKey)}
+                          </p>
+                        </div>
+                        <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-medium text-zinc-500">
+                          …
+                        </span>
+                      </div>
+                    ))
+                  : null}
                 {homeSendcloudPlans.map((plan) => {
                   const planSelected =
                     homeSpeed === "standard" && homeOutboundOptionCode === plan.optionCode;
+                  const planBillableHtCents = purchaseOutboundOnly
+                    ? plan.outboundHtCents
+                    : plan.bundledRoundTripHtCents;
                   const planShippingTtcEuros = centsToEuros(
-                    computeCartCheckoutShippingFees(plan.bundledRoundTripHtCents).shippingTtcCents,
+                    computeCartCheckoutShippingFees(planBillableHtCents).shippingTtcCents,
                   );
                   return (
                     <button
@@ -1747,11 +1826,13 @@ export function CartPaymentScreen({
               creditKind={walletCreditKind}
               itemHrefSuffix="?from=cart"
               pointsUnitDisplay="icon"
+              guestCashRental={guestCashRental}
+              borrowCheckoutOptions={borrowCheckoutOptions}
             />
           )}
           <div className="mt-4 flex items-center justify-between gap-3 pt-2">
             <span className="text-[16px] font-bold text-zinc-900">
-              {guestCashRental ? "Prix de location" : "Total échangé"}
+              {guestCashRental ? (isPurchaseMode ? "Prix d'achat" : "Prix de location") : "Total échangé"}
             </span>
             {guestCashRental ? (
               <span className="text-[17px] font-bold tabular-nums text-zinc-900">
@@ -1782,7 +1863,7 @@ export function CartPaymentScreen({
               </div>
             </div>
           ) : null}
-          {guestCashRental && cartTotalMods > 0 ? (
+          {guestCashRental && !isPurchaseMode && cartTotalMods > 0 ? (
             <div className="mt-3 flex items-baseline justify-between gap-3 text-[15px] leading-snug text-zinc-700">
               <span className="min-w-0 pr-2">Durée</span>
               <span className="shrink-0 tabular-nums font-medium text-zinc-900">{borrowDurationDays} j</span>
@@ -1800,6 +1881,7 @@ export function CartPaymentScreen({
             )}
           >
             <span className="min-w-0">Frais facturés</span>
+            {!purchaseOutboundOnly ? (
             <button
               type="button"
               onClick={() => setFeesModalOpen(true)}
@@ -1808,11 +1890,16 @@ export function CartPaymentScreen({
             >
               i
             </button>
+            ) : null}
           </h2>
           <div className="space-y-2.5 text-[15px] leading-snug">
             <div className="flex items-baseline justify-between gap-3 text-zinc-700">
               <span className="min-w-0 pr-2">
-                {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+                {guestCashRental
+                  ? isPurchaseMode
+                    ? "Prix d'achat (TTC)"
+                    : "Prix de location (TTC)"
+                  : "Complément d&apos;échange (TTC)"}
               </span>
               <span className="shrink-0 tabular-nums font-medium text-zinc-900">{euros(exchangeCreditsChargeEuros)}</span>
             </div>
@@ -1843,7 +1930,7 @@ export function CartPaymentScreen({
                 amountEuros={includedShippingReductionEuros}
               />
             ) : null}
-            {feesVatEuros > 0 ? (
+            {!purchaseOutboundOnly && feesVatEuros > 0 ? (
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                 <span className="min-w-0 pr-2">dont TVA (frais)</span>
                 <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(feesVatEuros)}</span>
@@ -1866,12 +1953,12 @@ export function CartPaymentScreen({
               <p className="text-[14px] font-normal leading-snug text-zinc-600">
                 Je confirme avoir pris connaissance des{" "}
                 <a
-                  href={BORROW_OVERDUE_CG_LOCATION_HREF}
+                  href={isPurchaseMode ? GUEST_CG_SALE_HREF : GUEST_CG_LOCATION_HREF}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-semibold text-zinc-800 underline underline-offset-2"
                 >
-                  conditions générales de location
+                  {isPurchaseMode ? "conditions générales de vente" : "conditions générales de location"}
                 </a>{" "}
                 de Segna.
               </p>
@@ -1885,7 +1972,11 @@ export function CartPaymentScreen({
                   if (e.target.checked) setStripeCheckoutError(null);
                 }}
                 className="peer sr-only"
-                aria-label="Je confirme avoir pris connaissance des conditions générales de location"
+                aria-label={
+                  isPurchaseMode
+                    ? "Je confirme avoir pris connaissance des conditions générales de vente"
+                    : "Je confirme avoir pris connaissance des conditions générales de location"
+                }
               />
               <span
                 className={cn(
@@ -1928,9 +2019,11 @@ export function CartPaymentScreen({
               <div>
                 <div className="flex items-baseline justify-between">
                   <span className="min-w-0 flex-1 pr-2 text-[15px] font-semibold leading-snug text-zinc-900">
-                    {deliveryChannel === "home" && homeSpeed === "uber_direct"
-                      ? "Aller express - Retour relais (TTC)"
-                      : "Livraison (TTC)"}
+                    {purchaseOutboundOnly
+                      ? "Livraison (TTC)"
+                      : deliveryChannel === "home" && homeSpeed === "uber_direct"
+                        ? "Aller express - Retour relais (TTC)"
+                        : "Livraison (TTC)"}
                   </span>
                   <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
                 </div>
@@ -1941,6 +2034,8 @@ export function CartPaymentScreen({
                     className="mt-1.5"
                   />
                 ) : null}
+                {purchaseOutboundOnly ? null : (
+                <>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
                   {sendcloudPricingActive
                     ? `Aller + retour en point relais (${itemCount} article${itemCount > 1 ? "s" : ""}) : tarifs transporteurs via Sendcloud (TTC). Le retour est toujours en point relais vers notre centre logistique.`
@@ -1962,7 +2057,7 @@ export function CartPaymentScreen({
                           .
                         </>
                       ) : complementRelayFree && deliveryChannel === "relay" ? (
-                        <>Livraison point relais offerte dès {CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR}&nbsp;€ de complément.</>
+                        <>{cartRelayFreeOfferUnlockedSubtext()}</>
                       ) : null}
                     </span>
                   ) : null}
@@ -1970,7 +2065,11 @@ export function CartPaymentScreen({
                 <p className="mt-2 border-t border-zinc-100 pt-2 text-[11px] leading-snug text-zinc-500">
                   Le détail par ligne (dont frais de livraison) est repris dans la section « Frais facturés » au-dessus.
                 </p>
+                </>
+                )}
               </div>
+              {!purchaseOutboundOnly ? (
+              <>
               <div className="flex items-baseline justify-between border-t border-zinc-200 pt-3">
                 <span className="text-[12px] font-medium text-zinc-500">Base HT (réf. facturation)</span>
                 <span className="text-[12px] font-medium tabular-nums text-zinc-600">{euros(feesHtEuros)}</span>
@@ -1979,6 +2078,8 @@ export function CartPaymentScreen({
                 <span className="text-[15px] font-bold text-zinc-900">{CART_CHECKOUT_VAT_LABEL}</span>
                 <span className="text-[15px] font-bold tabular-nums text-zinc-900">{euros(feesVatEuros)}</span>
               </div>
+              </>
+              ) : null}
               <div className="flex items-baseline justify-between pt-1">
                 <span className="text-[16px] font-bold text-zinc-900">Total frais TTC</span>
                 <span className="text-[16px] font-bold tabular-nums text-zinc-900">{euros(feesTtcEuros)}</span>

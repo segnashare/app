@@ -1,6 +1,7 @@
 const BUCKET_ITEMS = "bucket_items";
 const BUCKET_FOCUS = "bucket_focus";
 const BUCKET_CMS_APP = "bucket_cms_app";
+const BUCKET_COMMUNITY = "bucket_community";
 
 /** Chemins d’upload : `ModifyPageClient` / `items/new` (items → bucket_items, looks & profil → bucket_focus). */
 
@@ -10,6 +11,7 @@ export function normalizeStorageObjectPath(raw: string): string {
   if (lower.startsWith(`${BUCKET_ITEMS}/`)) p = p.slice(BUCKET_ITEMS.length + 1);
   else if (lower.startsWith(`${BUCKET_FOCUS}/`)) p = p.slice(BUCKET_FOCUS.length + 1);
   else if (lower.startsWith(`${BUCKET_CMS_APP}/`)) p = p.slice(BUCKET_CMS_APP.length + 1);
+  else if (lower.startsWith(`${BUCKET_COMMUNITY}/`)) p = p.slice(BUCKET_COMMUNITY.length + 1);
   return p;
 }
 
@@ -20,6 +22,7 @@ export function orderedBucketsForStoragePath(normalizedPath: string): readonly s
   const pl = normalizedPath.toLowerCase();
   // Uploads BO : `cms-app/<id>/<file>` (pas de segment avant « cms-app »).
   if (pl.startsWith("cms-app/") || pl.includes("/cms-app/")) return [BUCKET_CMS_APP];
+  if (pl.includes("/inspirations/")) return [BUCKET_COMMUNITY];
   if (pl.includes("/items/")) return [BUCKET_ITEMS];
   if (pl.includes("/looks/") || pl.includes("/profile/")) return [BUCKET_FOCUS];
   return [BUCKET_ITEMS, BUCKET_FOCUS];
@@ -27,7 +30,7 @@ export function orderedBucketsForStoragePath(normalizedPath: string): readonly s
 
 function normalizeExplicitBucket(v: string | null | undefined): string | null {
   const t = (v ?? "").trim();
-  if (t === BUCKET_ITEMS || t === BUCKET_FOCUS || t === BUCKET_CMS_APP) return t;
+  if (t === BUCKET_ITEMS || t === BUCKET_FOCUS || t === BUCKET_CMS_APP || t === BUCKET_COMMUNITY) return t;
   return null;
 }
 

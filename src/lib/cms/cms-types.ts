@@ -25,7 +25,9 @@ export type CmsFrameType =
   /** Page abonnement SegnaX (`/package?plan=x` ou alias `plan=credits`) : textes, offre mise en avant, CTA Stripe. */
   | "subscription_plan_landing"
   /** Page cadeau de bienvenue (`/package?plan=credits` onboarding) : montant crédits offerts et textes. */
-  | "welcome_gift_landing";
+  | "welcome_gift_landing"
+  /** Hero plein écran page d’accueil : logo + image + titre + lien. */
+  | "home_hero";
 
 /** Config publiée d’une section hub catalogue (titre, flèche, lien « voir plus »). */
 export type CmsCatalogSectionConfig = {

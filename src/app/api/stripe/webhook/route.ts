@@ -11,6 +11,8 @@ import {
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeWebhookConfig } from "@/lib/social/stripe";
 import { processBorrowNonRestitutionStripeInvoiceEvent } from "@/lib/stripe/borrow-non-restitution-invoice-webhook";
+import { processGuestPurchaseStripeInvoiceEvent } from "@/lib/stripe/guest-purchase-invoice-webhook";
+import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -94,7 +96,11 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
         const cartId = session.metadata?.cart_id?.trim();
         if (cartId) {
           try {
-            await notifyCartOrderPaidAfterConfirmation(admin, { userId, cartId });
+            await notifyCartOrderPaidAfterConfirmation(admin, {
+              userId,
+              cartId,
+              skipMemberNotification: checkoutSessionIsGuestPurchase(session),
+            });
           } catch (e) {
             console.error("[stripe/webhook] notifyCartOrderPaidAfterConfirmation", e);
           }
@@ -180,6 +186,8 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
     case "invoice.marked_uncollectible":
     case "invoice.finalized": {
       const invoice = event.data.object as Stripe.Invoice;
+      const guestPurchase = await processGuestPurchaseStripeInvoiceEvent(admin, invoice, event.type);
+      if (guestPurchase === "processed") return "processed";
       return processBorrowNonRestitutionStripeInvoiceEvent(admin, invoice, event.type);
     }
 

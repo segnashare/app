@@ -3,12 +3,19 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 
+import { createInspirationHref } from "@/lib/community/create-inspiration-href";
 import { cn } from "@/lib/utils/cn";
 
-export function CommunityCreateButton({ className }: { className?: string }) {
+export function CommunityCreateButton({
+  className,
+  returnTo = "/community",
+}: {
+  className?: string;
+  returnTo?: string;
+}) {
   return (
     <Link
-      href="/community/create"
+      href={createInspirationHref(returnTo)}
       aria-label="Créer une inspi"
       className={cn(
         "group inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-900 text-white shadow-sm",

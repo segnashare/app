@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { shouldSkipSendcloudReturnForLegacyUberMr } from "@/lib/cart/coursier-checkout-meta";
+import { isGuestPurchaseCartOrder } from "@/lib/cart/guest-purchase-order";
 import {
   ensureCartReturnShipmentForPortal,
   isCartReturnProvisionedForCart,
@@ -164,6 +165,10 @@ export async function provisionCartReturnSendcloudOrder(
   }
 
   const cartId = params.cartId.trim();
+
+  if (!params.force && (await isGuestPurchaseCartOrder(admin, cartId))) {
+    return { ok: true, skipped: true, reason: "guest_purchase" };
+  }
 
   if (!params.force && (await isCartReturnProvisionedForCart(admin, cartId))) {
     return { ok: true, skipped: true, reason: "already_provisioned" };

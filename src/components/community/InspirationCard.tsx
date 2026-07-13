@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Heart, Play } from "lucide-react";
+import { Copy, Heart } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { InspirationFeedCardLikeButton } from "@/components/community/InspirationFeedCardLikeButton";
 import { InspirationMediaViewer } from "@/components/community/InspirationMediaViewer";
 import { inspirationHref } from "@/lib/community/community-source";
+import { inspirationMemberTag } from "@/lib/community/inspiration-member-tag";
+import { inspirationCoverAspectClass } from "@/lib/community/inspiration-cover-aspect";
 import type { InspirationFeedCard } from "@/lib/community/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -13,10 +16,76 @@ type InspirationCardProps = {
   card: InspirationFeedCard;
   className?: string;
   onImpression?: (card: InspirationFeedCard) => void;
+  onLikeChange?: (liked: boolean) => void;
   compact?: boolean;
+  shimmerDurationSec?: number;
+  /** Sur le profil perso : afficher le total de likes au lieu du bouton like. */
+  likeMode?: "button" | "count";
 };
 
-export function InspirationCard({ card, className, onImpression, compact = false }: InspirationCardProps) {
+function InspirationCardLikeCount({ count }: { count: number }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
+      <Heart className="h-4 w-4 fill-white" strokeWidth={2} aria-hidden />
+      {count}
+    </span>
+  );
+}
+
+function InspirationCardPhotoOverlays({
+  card,
+  onLikeChange,
+  showLike,
+  likeMode = "button",
+}: {
+  card: InspirationFeedCard;
+  onLikeChange?: (liked: boolean) => void;
+  showLike?: boolean;
+  likeMode?: "button" | "count";
+}) {
+  const memberTag = inspirationMemberTag(card.author_display_name, card.author_instagram_username);
+  const multiPhoto = card.media_type === "dump" || (card.media_paths?.length ?? 0) > 1;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
+      {multiPhoto ? (
+        <Copy
+          className="absolute right-2.5 top-2.5 h-4 w-4 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
+          strokeWidth={2.25}
+          aria-hidden
+        />
+      ) : null}
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2.5">
+        <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
+          {memberTag}
+        </span>
+        {showLike ? (
+          likeMode === "count" ? (
+            <InspirationCardLikeCount count={card.like_count} />
+          ) : (
+            <InspirationFeedCardLikeButton
+              source={card.source}
+              inspirationId={card.id}
+              initialLiked={card.is_liked}
+              onLikeChange={onLikeChange}
+            />
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function InspirationCard({
+  card,
+  className,
+  onImpression,
+  onLikeChange,
+  compact = false,
+  shimmerDurationSec,
+  likeMode = "button",
+}: InspirationCardProps) {
   const href = inspirationHref(card.source, card.id);
   const mediaUrls = card.media_urls ?? [];
   const coverUrl =
@@ -37,34 +106,52 @@ export function InspirationCard({ card, className, onImpression, compact = false
       {coverUrl ? (
         <div className="relative">
           <InspirationMediaViewer
-            mediaType="photo"
-            mediaUrls={[coverUrl]}
+            key={`${card.source}:${card.id}`}
+            mediaType={card.media_type}
+            mediaUrls={mediaUrls.length > 0 ? mediaUrls : coverUrl ? [coverUrl] : []}
             posterUrl={card.poster_url}
+            coverAspect={card.cover_aspect}
+            coverTransform={card.cover_transform}
             className="rounded-none"
+            shimmerDurationSec={shimmerDurationSec}
           />
-          {card.media_type === "video" ? (
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white">
-                <Play className="h-5 w-5 fill-current" aria-hidden />
-              </span>
-            </span>
-          ) : null}
-          {card.media_type === "dump" && card.media_paths.length > 1 ? (
-            <span className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white">
-              Dump
-            </span>
+          {compact ? (
+            <InspirationCardPhotoOverlays
+              card={card}
+              onLikeChange={onLikeChange}
+              showLike
+              likeMode={likeMode}
+            />
           ) : null}
         </div>
       ) : (
-        <div className="aspect-[3/4] w-full bg-zinc-100" />
+        <div className={cn("relative w-full bg-zinc-200", inspirationCoverAspectClass(card.cover_aspect))}>
+          {compact ? (
+            <InspirationCardPhotoOverlays
+              card={card}
+              onLikeChange={onLikeChange}
+              showLike
+              likeMode={likeMode}
+            />
+          ) : null}
+        </div>
       )}
       {!compact ? (
         <div className="space-y-1.5 p-3">
           <p className="line-clamp-2 text-[13px] font-medium leading-snug text-zinc-900">{card.title}</p>
           <div className="flex items-center justify-between gap-2 text-[12px] text-zinc-500">
-            <span className="truncate">{card.author_display_name}</span>
-            <span className="inline-flex shrink-0 items-center gap-1">
-              <Heart className={cn("h-3.5 w-3.5", card.is_liked && "fill-rose-500 text-rose-500")} aria-hidden />
+            <span className="truncate">
+              {inspirationMemberTag(card.author_display_name, card.author_instagram_username)}
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-zinc-500">
+              <Heart
+                className={cn(
+                  "h-3.5 w-3.5",
+                  card.is_liked ? "fill-zinc-900 text-zinc-900" : "fill-none text-zinc-500",
+                )}
+                strokeWidth={2}
+                aria-hidden
+              />
               {card.like_count}
             </span>
           </div>

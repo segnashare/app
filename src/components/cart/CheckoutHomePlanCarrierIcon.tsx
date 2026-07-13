@@ -16,12 +16,17 @@ function isChronopostPlan(plan: CheckoutHomeMethodOption): boolean {
 }
 
 type Props = {
-  plan: CheckoutHomeMethodOption;
+  plan?: CheckoutHomeMethodOption;
+  methodKey?: CheckoutHomeMethodOption["methodKey"];
   className?: string;
 };
 
-export function CheckoutHomePlanCarrierIcon({ plan, className }: Props) {
-  const logoSrc = isChronopostPlan(plan) ? CHRONOPOST_ICON_SRC : plan.carrierLogoUrl?.trim() || null;
+export function CheckoutHomePlanCarrierIcon({ plan, methodKey, className }: Props) {
+  const resolvedMethodKey = plan?.methodKey ?? methodKey;
+  const logoSrc =
+    resolvedMethodKey === "chronopost" || (plan != null && isChronopostPlan(plan))
+      ? CHRONOPOST_ICON_SRC
+      : plan?.carrierLogoUrl?.trim() || null;
 
   if (logoSrc) {
     return (

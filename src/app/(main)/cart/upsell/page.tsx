@@ -6,6 +6,7 @@ import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-
 import { fetchCartOutfitSuggestions } from "@/lib/shop/fetch-cart-outfit-suggestions";
 import { fetchCartUpsellSuggestions } from "@/lib/shop/fetch-cart-upsell-suggestions";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
+import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
@@ -64,6 +65,7 @@ export default async function CartUpsellPage() {
   }
 
   const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(supabase, upsellItems);
+  const membershipLabel = await resolveMembershipLabel(supabase as never, userId);
 
   return (
     <main className="flex w-full flex-col bg-white">
@@ -71,6 +73,7 @@ export default async function CartUpsellPage() {
         items={upsellItems}
         initialCoverUrlById={initialCoverUrlById}
         borrowCheckoutOptions={borrowCheckoutOptions}
+        membershipLabel={membershipLabel}
       />
     </main>
   );

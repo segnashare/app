@@ -32,6 +32,7 @@ import { fetchMemberBorrowReturnJjAlerts } from "@/lib/cart/fetch-member-borrow-
 import { formatBorrowOverdueDaysLabelFr } from "@/lib/cart/format-borrow-overdue-copy";
 import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
+import { memberOrderTypeLabel, resolveMemberOrderKindFromCart } from "@/lib/cart/member-order-kind";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
@@ -287,7 +288,9 @@ export default async function ExchangePage() {
     perf.measure("orders.ongoing", () =>
     supabase
       .from("carts")
-      .select("id,status,created_at,updated_at")
+      .select(
+        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id)",
+      )
       .eq("user_id", userId)
       .is("deleted_at", null)
       .eq("status", "confirmed")
@@ -297,7 +300,9 @@ export default async function ExchangePage() {
     perf.measure("orders.history", () =>
     supabase
       .from("carts")
-      .select("id,status,created_at,updated_at")
+      .select(
+        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id)",
+      )
       .eq("user_id", userId)
       .is("deleted_at", null)
       .in("status", ["archived", "canceled"])
@@ -349,7 +354,19 @@ export default async function ExchangePage() {
   const activeCart = activeCartRes.data as { id: string; status: string } | null;
   const activeCartId = activeCart?.id ?? null;
 
-  type CartOrderListRow = { id: string; status: string; created_at?: string | null; updated_at: string };
+  type CartOrderListRow = {
+    id: string;
+    status: string;
+    created_at?: string | null;
+    updated_at: string;
+    checkout_borrow_duration_days?: number | null;
+    checkout_purchase_mode?: boolean | null;
+    guest_purchase_stripe_invoice_id?: string | null;
+    cart_order_stripe_invoices?:
+      | { guest_purchase_stripe_invoice_id?: string | null }
+      | { guest_purchase_stripe_invoice_id?: string | null }[]
+      | null;
+  };
   const ongoingCartRows = (ongoingRes.data ?? []) as CartOrderListRow[];
   const historyCartRows = (historyRes.data ?? []) as CartOrderListRow[];
   const orderCardCartIds = [...new Set([...ongoingCartRows, ...historyCartRows].map((r) => r.id))];
@@ -858,10 +875,14 @@ export default async function ExchangePage() {
     thumbs: string[],
     opts: { historyFallback: boolean },
   ) {
+    const orderKind = resolveMemberOrderKindFromCart(order);
+    const orderTypeLabel = memberOrderTypeLabel(orderKind, order.checkout_borrow_duration_days);
+    const orderNumberCompact = formatOrderNumberCompact(order.id);
+    const orderBase = { id: order.id, orderKind, orderTypeLabel, orderNumberCompact };
+
     if ((order.status ?? "").toLowerCase() === "canceled") {
       return {
-        id: order.id,
-        orderNumberCompact: formatOrderNumberCompact(order.id),
+        ...orderBase,
         statusLabel: "Commande annulée",
         deliveryLabel: null as string | null,
         itemThumbUrls: thumbs,
@@ -871,8 +892,7 @@ export default async function ExchangePage() {
     if (ret && isReturnExchangeFinishedForMemberList(ret.status)) {
       const phase = getMemberReturnShipmentPhaseCopy(ret.status);
       return {
-        id: order.id,
-        orderNumberCompact: formatOrderNumberCompact(order.id),
+        ...orderBase,
         statusLabel: phase.title,
         deliveryLabel:
           getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate) ?? phase.detail,
@@ -913,8 +933,7 @@ export default async function ExchangePage() {
       const phase = getMemberReturnShipmentPhaseCopy(ret.status);
       const deliveryLabel = borrowOverdueSubtitle ?? getReturnShipmentSubtitle(ret.status, ret.updated_at, fmtOrderDate);
       return {
-        id: order.id,
-        orderNumberCompact: formatOrderNumberCompact(order.id),
+        ...orderBase,
         statusLabel: borrowReturnOverdue ? "En retard" : phase.title,
         deliveryLabel,
         itemThumbUrls: thumbs,
@@ -927,8 +946,7 @@ export default async function ExchangePage() {
 
     if (!ship) {
       return {
-        id: order.id,
-        orderNumberCompact: formatOrderNumberCompact(order.id),
+        ...orderBase,
         statusLabel: opts.historyFallback ? "Commande archivée" : "Suivi non disponible",
         deliveryLabel: null as string | null,
         itemThumbUrls: thumbs,
@@ -956,8 +974,7 @@ export default async function ExchangePage() {
         : undefined;
     const deliveredBorrowUrgent = st === "delivered" && borrowReturnUrgent;
     return {
-      id: order.id,
-      orderNumberCompact: formatOrderNumberCompact(order.id),
+      ...orderBase,
       statusLabel: borrowReturnOverdue ? "En retard" : deliveredBorrowUrgent ? "Retour" : phase.title,
       deliveryLabel: borrowOverdueSubtitle ?? deliveryLabel,
       itemThumbUrls: thumbs,

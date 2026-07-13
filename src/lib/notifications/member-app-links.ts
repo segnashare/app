@@ -28,6 +28,14 @@ export function memberAppShopUrl(): string {
   return `${resolveMemberAppPublicOrigin()}/shop`;
 }
 
+/** Page commande membre (`/commande/[cartId]`). */
+export function memberAppCommandeUrl(cartId: string): string {
+  const id = cartId.trim();
+  const origin = resolveMemberAppPublicOrigin();
+  if (!id) return `${origin}/shop`;
+  return `${origin}/commande/${id}`;
+}
+
 const SMS_MAX_LEN = 320;
 
 /** Ajoute un lien https en fin de SMS en respectant la limite Twilio (320 car.). */

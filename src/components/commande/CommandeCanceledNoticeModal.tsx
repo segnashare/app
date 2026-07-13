@@ -70,14 +70,15 @@ export function CommandeCanceledNoticeModal({ cartId, hasStripeRefund }: Props) 
           Commande annulée
         </h2>
         <p className={cn(segnaDialogBodyClass(), "mt-3 font-medium text-zinc-800")}>
-          Cette commande a été annulée. Les crédits prélevés ont été recrédités sur ton wallet
+          Cette commande a été annulée.
           {hasStripeRefund ? (
             <>
-              , le paiement carte remboursé après retenue de 20&nbsp;% (frais d&apos;annulation sur le montant
-              encaissé par carte)
+              {" "}
+              Le remboursement sur ton moyen de paiement est en cours, après retenue de 20&nbsp;% (frais
+              d&apos;annulation).
             </>
-          ) : null}
-          , et les pièces sont de nouveau disponibles à l&apos;achat.
+          ) : null}{" "}
+          Les pièces sont de nouveau disponibles à l&apos;achat.
         </p>
         <div className={cn(segnaDialogMontserrat.className, "mt-5")}>
           <button

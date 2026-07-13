@@ -14,6 +14,11 @@ export type ItemInfoDraft = {
   customBrandLabel?: string | null;
   sizeId?: string | null;
   size?: string | null;
+  recommendedSizeId?: string | null;
+  recommendedSize?: string | null;
+  photographedOnMannequin?: boolean;
+  mannequinId?: string | null;
+  mannequinFirstName?: string | null;
   condition?: string | null;
   conditionDetails?: string | null;
   conditionDefectPhotoCount?: string | null;
@@ -39,6 +44,12 @@ function safeParse(raw: string | null): ItemInfoDraft {
       customBrandLabel: stringOrNull(parsed.customBrandLabel),
       sizeId: stringOrNull(parsed.sizeId),
       size: stringOrNull(parsed.size),
+      recommendedSizeId: stringOrNull(parsed.recommendedSizeId),
+      recommendedSize: stringOrNull(parsed.recommendedSize),
+      photographedOnMannequin:
+        parsed.photographedOnMannequin === true || parsed.photographedOnMannequin === "true",
+      mannequinId: stringOrNull(parsed.mannequinId),
+      mannequinFirstName: stringOrNull(parsed.mannequinFirstName),
       condition: stringOrNull(parsed.condition),
       conditionDetails: stringOrNull(parsed.conditionDetails),
       conditionDefectPhotoCount: stringOrNull(parsed.conditionDefectPhotoCount),

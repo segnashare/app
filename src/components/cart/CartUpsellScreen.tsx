@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { useToggleCartItem } from "@/hooks/useToggleCartItem";
 import {
@@ -14,6 +15,8 @@ import {
   formatEuroPerCredit,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
+import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
+import { CartCatalogModeProvider } from "@/components/cart/CartCatalogModeContext";
 import {
   readCheckoutBorrowDurationDays,
   resolveCheckoutBorrowDurationDays,
@@ -34,6 +37,7 @@ type CartUpsellScreenProps = {
   /** Afficher les pièces déjà au panier (bouton ×). */
   allowInCartItems?: boolean;
   borrowCheckoutOptions: BorrowCheckoutOption[];
+  membershipLabel?: "Guest" | "Membre +" | "Membre X";
 };
 
 function upsellCardSizeLine(sizeLabel: string | null | undefined): string {
@@ -50,6 +54,7 @@ function UpsellGridCard({
   allowInCartItems = false,
   borrowDurationDays,
   borrowCheckoutOptions,
+  guestCashRental = false,
 }: {
   item: ShopCatalogItem;
   cover?: string;
@@ -59,6 +64,7 @@ function UpsellGridCard({
   allowInCartItems?: boolean;
   borrowDurationDays: number;
   borrowCheckoutOptions: BorrowCheckoutOption[];
+  guestCashRental?: boolean;
 }) {
   const canAdd = allowInCartItems
     ? item.status === "available" || item.status === "in_cart"
@@ -146,35 +152,53 @@ function UpsellGridCard({
           )}
         >
           {typeof item.price_points === "number" && !Number.isNaN(item.price_points) ? (
-            <SegnaPointsUnitDisplay
-              points={item.price_points}
-              creditKind="consumption"
-              unitDisplay="icon"
-              iconColor="fixed"
-              className="shrink-0 gap-x-0.5"
-              numberClassName={cn(segnaMontserrat.className, "tabular-nums")}
-            />
+            guestCashRental ? (
+              <ItemCatalogModePriceDisplay
+                pricePoints={item.price_points}
+                borrowCheckoutOptions={borrowCheckoutOptions}
+                priceClassName={cn(segnaMontserrat.className, "font-semibold text-zinc-900")}
+              />
+            ) : (
+              <>
+                <SegnaPointsUnitDisplay
+                  points={item.price_points}
+                  creditKind="consumption"
+                  unitDisplay="icon"
+                  iconColor="fixed"
+                  className="shrink-0 gap-x-0.5"
+                  numberClassName={cn(segnaMontserrat.className, "tabular-nums")}
+                />
+                {rentalEuroLabel ? (
+                  <>
+                    <span className="shrink-0 text-zinc-400" aria-hidden>
+                      |
+                    </span>
+                    <span className="shrink-0 tabular-nums text-zinc-600">
+                      {rentalEuroLabel}{" "}
+                      <span className="text-zinc-500">({borrowDurationDays}j)</span>
+                    </span>
+                  </>
+                ) : null}
+              </>
+            )
           ) : (
             <span className={cn(segnaMontserrat.className, "tabular-nums text-zinc-500")}>—</span>
           )}
-          {rentalEuroLabel ? (
-            <>
-              <span className="shrink-0 text-zinc-400" aria-hidden>
-                |
-              </span>
-              <span className="shrink-0 tabular-nums text-zinc-600">
-                {rentalEuroLabel}{" "}
-                <span className="text-zinc-500">({borrowDurationDays}j)</span>
-              </span>
-            </>
-          ) : null}
         </p>
       </div>
     </article>
   );
 }
 
-export function CartUpsellScreen({
+export function CartUpsellScreen(props: CartUpsellScreenProps) {
+  return (
+    <CartCatalogModeProvider>
+      <CartUpsellScreenContent {...props} />
+    </CartCatalogModeProvider>
+  );
+}
+
+function CartUpsellScreenContent({
   title = "Terminez votre commande",
   skipHref = "/cart/payment",
   backHref = "/cart",
@@ -182,7 +206,9 @@ export function CartUpsellScreen({
   initialCoverUrlById = {},
   allowInCartItems = false,
   borrowCheckoutOptions,
+  membershipLabel = "Guest",
 }: CartUpsellScreenProps) {
+  const guestCashRental = isGuestCashRentalMode(membershipLabel);
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { cartItemIds, cartBusyIds, toggleCart } = useToggleCartItem();
@@ -279,6 +305,7 @@ export function CartUpsellScreen({
               allowInCartItems={allowInCartItems}
               borrowDurationDays={borrowDurationDays}
               borrowCheckoutOptions={borrowCheckoutOptions}
+              guestCashRental={guestCashRental}
             />
           ))}
         </div>

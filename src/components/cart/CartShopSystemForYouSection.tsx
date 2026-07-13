@@ -93,6 +93,7 @@ export function CartShopSystemForYouSection({ catalogItems }: CartShopSystemForY
         itemFromQuery="cart"
         skipCatalogNavigationPersist
         sectionInsetScroll
+        squarePhotoFrame
       />
     </div>
   );

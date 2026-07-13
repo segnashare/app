@@ -66,7 +66,7 @@ const EXCHANGE_SYSTEM_CART_KEY = "exchange_system_cart";
 const EXCHANGE_SYSTEM_HISTORY_KEY = "exchange_system_history";
 
 /**
- * Quand il y a des commandes confirmées « en cours », place le bloc Échanges
+ * Quand il y a des commandes confirmées « en cours », place le bloc Commandes
  * (`exchange_system_history`) juste au-dessus du panier (`exchange_system_cart`).
  */
 export function prioritizeExchangeHistoryAboveCart(sectionOrder: string[], hasOngoingExchanges: boolean): string[] {

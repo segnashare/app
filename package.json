@@ -13,6 +13,8 @@
     "supabase:stop": "npx supabase stop",
     "supabase:status": "npx supabase status",
     "supabase:db:reset": "npx supabase db reset",
+    "supabase:db:push": "npx supabase db push",
+    "supabase:db:push:dry-run": "npx supabase db push --dry-run",
     "supabase:gen:types": "npx supabase gen types typescript --local > src/lib/supabase/types.ts",
     "supabase:functions:serve": "npx supabase functions serve",
     "cron:dev:borrow-reminders": "node scripts/dev-invoke-cron.mjs member-borrow-return-reminders",

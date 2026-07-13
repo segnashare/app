@@ -1,3 +1,9 @@
+import { segnaDialogBodyClass } from "@/components/ui/SegnaAppDialog";
+import {
+  cartLegalInfoLinkClassName,
+  GUEST_CG_LOCATION_HREF,
+  GUEST_CG_LOCATION_LABEL_FR,
+} from "@/lib/cart/guest-cart-legal-links";
 import { cn } from "@/lib/utils/cn";
 
 type BorrowLocationInfoContentProps = {
@@ -6,14 +12,19 @@ type BorrowLocationInfoContentProps = {
 
 export function BorrowLocationInfoContent({ className }: BorrowLocationInfoContentProps) {
   return (
-    <div className={cn("space-y-3 text-[15px] leading-snug text-zinc-700", className)}>
+    <div className={cn(segnaDialogBodyClass(), "space-y-3.5", className)}>
+      <p>Le montant affiché correspond à la durée de location sélectionnée.</p>
       <p>
-        Segna utilise d&apos;abord tes <strong className="font-semibold text-zinc-950">crédits</strong> pour louer. Ils
-        te sont rendus au retour de la pièce.
-      </p>
-      <p>
-        S&apos;il en manque, un <strong className="font-semibold text-zinc-950">complément en euros</strong> permet de
-        finaliser la location. Ce n&apos;est pas un achat de crédits.
+        En cas de retard ou de non-restitution, des frais complémentaires peuvent être appliqués conformément aux{" "}
+        <a
+          href={GUEST_CG_LOCATION_HREF}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cartLegalInfoLinkClassName}
+        >
+          {GUEST_CG_LOCATION_LABEL_FR}
+        </a>
+        .
       </p>
     </div>
   );

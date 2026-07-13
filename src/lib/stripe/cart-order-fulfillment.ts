@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import StripeLib from "stripe";
 
 import { sendcloudOutboundMetaFromSelection } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
@@ -9,7 +10,13 @@ import { finalizeCoursierExpressHomeAfterConfirm } from "@/lib/cart/coursier-che
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
-import { upsertCartOrderStripeInvoiceFromSession } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
+import { upsertCartOrderStripeInvoiceFromSession, upsertCartOrderStripeInvoiceFromStripeInvoice } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
+import { getStripeConfig } from "@/lib/social/stripe";
+import {
+  issueGuestPurchaseStripeInvoiceAfterCheckoutPayment,
+  checkoutSessionIsGuestPurchase,
+  resolveGuestPurchaseCheckoutSession,
+} from "@/lib/stripe/guest-purchase-stripe-invoice";
 
 /** Même valeur en metadata expédition que pour un paiement 100 % wallet (pas de session Checkout). */
 export const CART_ORDER_WALLET_ONLY_CHECKOUT_SESSION_ID = "wallet_only";
@@ -40,6 +47,9 @@ type AdminClientWithTable = AdminClient & {
       values: Record<string, unknown>,
       options?: { onConflict?: string },
     ) => Promise<{ error: { message: string } | null }>;
+    update: (values: Record<string, unknown>) => {
+      eq: (column: string, value: unknown) => Promise<{ error: { message: string } | null }>;
+    };
   };
 };
 
@@ -254,6 +264,106 @@ export async function confirmCartPaidWalletOnly(
   });
 }
 
+export function cartOrderStripeInvoiceCheckoutSessionId(invoiceId: string): string {
+  return `inv_${invoiceId.trim()}`;
+}
+
+function resolvePaymentIntentIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
+  const pi = session.payment_intent;
+  if (typeof pi === "string") return pi;
+  if (pi && typeof pi === "object" && "id" in pi) return String((pi as { id: string }).id);
+  return null;
+}
+
+function resolvePaymentIntentIdFromStripeInvoice(invoice: Stripe.Invoice): string | null {
+  const legacy = (invoice as Stripe.Invoice & { payment_intent?: string | { id: string } | null })
+    .payment_intent;
+  if (typeof legacy === "string") return legacy;
+  if (legacy && typeof legacy === "object" && "id" in legacy) return String(legacy.id);
+  return null;
+}
+
+async function confirmCartPaidFromCheckoutMetadata(
+  admin: AdminClientWithTable,
+  params: {
+    userId: string;
+    cartId: string;
+    checkoutSessionId: string;
+    paymentIntentId: string | null;
+    stripeCustomerId: string | null;
+    metadata: Stripe.Metadata | null | undefined;
+  },
+): Promise<{ alreadyConfirmed?: boolean }> {
+  const meta = params.metadata;
+  const isPurchase = meta?.purchase_mode === "true";
+  const deliveryChannel = meta?.delivery_channel === "home" ? "home" : "relay";
+  const relayPointId = (meta?.relay_code ?? "").trim();
+  const deliveryLine1 = (meta?.delivery_line1 ?? "").trim();
+  const returnRelayPointId = isPurchase ? "" : (meta?.return_relay_code ?? "").trim();
+  const returnRelayLabel = isPurchase ? "" : (meta?.return_relay_label ?? "").trim();
+  const returnRelaySearchPostalCode = isPurchase ? "" : (meta?.return_relay_search_postal_code ?? "").trim();
+  const creditsKind = meta?.exchange_credits_kind ?? null;
+  const missingRaw = Number(meta?.missing_exchange_mods ?? 0);
+  const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
+  const usedIncludedOrder = meta?.used_included_order === "true";
+
+  const { alreadyConfirmed } = await finalizeCartOrderCheckout(admin, {
+    userId: params.userId,
+    cartId: params.cartId,
+    checkoutSessionId: params.checkoutSessionId,
+    walletIdempotencyKey: cartOrderWalletDebitIdempotencyKey(params.cartId),
+    walletMetadata: {
+      exchange_credits_kind: creditsKind,
+      stripe_wallet_comp_points: stripeCompPoints,
+      stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
+      stripe_customer_id: params.stripeCustomerId,
+      stripe_checkout_session_id: params.checkoutSessionId,
+      stripe_payment_intent_id: params.paymentIntentId,
+      used_included_order: usedIncludedOrder,
+      purchase_mode: isPurchase,
+    },
+    deliveryChannel,
+    relayPointId,
+    deliveryLine1,
+    returnRelay:
+      returnRelayPointId || returnRelayLabel || returnRelaySearchPostalCode
+        ? {
+            returnRelayPointId,
+            returnRelayLabel,
+            returnRelaySearchPostalCode,
+          }
+        : undefined,
+  });
+
+  if (isPurchase) {
+    try {
+      await admin
+        .from("carts")
+        .update({ checkout_purchase_mode: true })
+        .eq("id", params.cartId);
+    } catch (e) {
+      console.error("[cart-order] checkout_purchase_mode update failed", params.cartId, e);
+    }
+  }
+
+  const homeSpeed = (meta?.home_speed ?? "").trim() || null;
+  await finalizeCartOutboundSendcloudAfterConfirm(admin, {
+    cartId: params.cartId,
+    deliveryChannel,
+    homeSpeed,
+    sendcloudOutbound: sendcloudOutboundFromStripeMetadata(meta),
+  });
+
+  await finalizeCoursierExpressHomeAfterConfirm(admin as unknown as SupabaseClient, {
+    cartId: params.cartId,
+    stripeMetadata: meta,
+    deliveryChannel,
+    homeSpeed,
+  });
+
+  return { alreadyConfirmed };
+}
+
 /**
  * Panier payé sur Stripe : confirmation + expédition (RPC `confirm_cart_paid_from_stripe`).
  * Idempotent si le panier est déjà `confirmed`.
@@ -276,64 +386,76 @@ export async function confirmCartPaidFromStripeSession(
     throw new Error("cart_order: metadata cart_id manquant");
   }
 
-  const deliveryChannel = session.metadata?.delivery_channel === "home" ? "home" : "relay";
-  const relayPointId = (session.metadata?.relay_code ?? "").trim();
-  const deliveryLine1 = (session.metadata?.delivery_line1 ?? "").trim();
-  const returnRelayPointId = (session.metadata?.return_relay_code ?? "").trim();
-  const returnRelayLabel = (session.metadata?.return_relay_label ?? "").trim();
-  const returnRelaySearchPostalCode = (session.metadata?.return_relay_search_postal_code ?? "").trim();
-  const creditsKind = session.metadata?.exchange_credits_kind ?? null;
-  const missingRaw = Number(session.metadata?.missing_exchange_mods ?? 0);
-  const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
-  const usedIncludedOrder = session.metadata?.used_included_order === "true";
+  const stripe = new StripeLib(getStripeConfig().secretKey);
+  const resolvedSession = await resolveGuestPurchaseCheckoutSession(stripe, session);
 
-  const { alreadyConfirmed } = await finalizeCartOrderCheckout(admin, {
+  const { alreadyConfirmed } = await confirmCartPaidFromCheckoutMetadata(admin, {
     userId,
     cartId,
-    checkoutSessionId: session.id,
-    walletIdempotencyKey: cartOrderWalletDebitIdempotencyKey(cartId),
-    walletMetadata: {
-      exchange_credits_kind: creditsKind,
-      stripe_wallet_comp_points: stripeCompPoints,
-      stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
-      stripe_customer_id: typeof session.customer === "string" ? session.customer : null,
-      stripe_checkout_session_id: session.id,
-      used_included_order: usedIncludedOrder,
-    },
-    deliveryChannel,
-    relayPointId,
-    deliveryLine1,
-    returnRelay:
-      returnRelayPointId || returnRelayLabel || returnRelaySearchPostalCode
-        ? {
-            returnRelayPointId,
-            returnRelayLabel,
-            returnRelaySearchPostalCode,
-          }
-        : undefined,
+    checkoutSessionId: resolvedSession.id,
+    paymentIntentId: resolvePaymentIntentIdFromCheckoutSession(resolvedSession),
+    stripeCustomerId: typeof resolvedSession.customer === "string" ? resolvedSession.customer : null,
+    metadata: resolvedSession.metadata,
   });
 
   try {
-    await upsertCartOrderStripeInvoiceFromSession(admin, session, userId);
+    await upsertCartOrderStripeInvoiceFromSession(admin, resolvedSession, userId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     console.error("[cart-order] cart_order_stripe_invoices upsert failed", msg);
   }
 
-  const homeSpeed = (session.metadata?.home_speed ?? "").trim() || null;
-  await finalizeCartOutboundSendcloudAfterConfirm(admin, {
+  if (checkoutSessionIsGuestPurchase(resolvedSession)) {
+    try {
+      await issueGuestPurchaseStripeInvoiceAfterCheckoutPayment(
+        admin as unknown as Parameters<typeof issueGuestPurchaseStripeInvoiceAfterCheckoutPayment>[0],
+        resolvedSession,
+        userId,
+      );
+    } catch (e) {
+      console.error("[cart-order] issueGuestPurchaseStripeInvoiceAfterCheckoutPayment", e);
+    }
+  }
+
+  return { ok: true, alreadyConfirmed };
+}
+
+/** Achat Guest : confirmation après facture Stripe Billing payée. */
+export async function confirmCartPaidFromStripeInvoice(
+  admin: AdminClientWithTable,
+  invoice: Stripe.Invoice,
+  userId: string,
+): Promise<{ ok: boolean; alreadyConfirmed?: boolean; skipped?: boolean }> {
+  if (invoice.metadata?.source !== "guest_purchase") {
+    return { ok: true, skipped: true };
+  }
+  if (invoice.metadata?.checkout_kind !== "cart_order") {
+    return { ok: true, skipped: true };
+  }
+  if (invoice.status !== "paid") {
+    return { ok: true, skipped: true };
+  }
+
+  const cartId = invoice.metadata?.cart_id?.trim();
+  if (!cartId) {
+    throw new Error("guest_purchase: metadata cart_id manquant");
+  }
+
+  const { alreadyConfirmed } = await confirmCartPaidFromCheckoutMetadata(admin, {
+    userId,
     cartId,
-    deliveryChannel,
-    homeSpeed,
-    sendcloudOutbound: sendcloudOutboundFromStripeMetadata(session.metadata),
+    checkoutSessionId: cartOrderStripeInvoiceCheckoutSessionId(invoice.id),
+    paymentIntentId: resolvePaymentIntentIdFromStripeInvoice(invoice),
+    stripeCustomerId: typeof invoice.customer === "string" ? invoice.customer : null,
+    metadata: invoice.metadata,
   });
 
-  await finalizeCoursierExpressHomeAfterConfirm(admin as unknown as SupabaseClient, {
-    cartId,
-    stripeMetadata: session.metadata,
-    deliveryChannel,
-    homeSpeed,
-  });
+  try {
+    await upsertCartOrderStripeInvoiceFromStripeInvoice(admin, invoice, userId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown";
+    console.error("[cart-order] cart_order_stripe_invoices upsert (invoice) failed", msg);
+  }
 
   return { ok: true, alreadyConfirmed };
 }

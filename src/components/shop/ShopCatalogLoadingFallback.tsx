@@ -33,13 +33,13 @@ function ShopLoadingSplitPieceRail() {
   );
 }
 
-/** Rail « Pièces likées » : vignettes carrées côte à côte. */
-function ShopLoadingSquarePieceRail() {
+/** Rail pièces boutique : vignettes portrait 3:4 (défaut layout). */
+function ShopLoadingPieceRail() {
   return (
     <div className="flex w-full min-w-0 max-w-full flex-nowrap gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div className="w-3 shrink-0" aria-hidden />
       {[0, 1].map((i) => (
-        <SegnaSkeletonBlock key={i} className="aspect-square w-[48%] min-w-[170px] shrink-0" />
+        <SegnaSkeletonBlock key={i} className="aspect-[3/4] w-[48%] min-w-[170px] shrink-0" />
       ))}
       <div className="w-3 shrink-0" aria-hidden />
     </div>
@@ -61,12 +61,12 @@ function ShopLoadingLinkCardRail({ count = 3 }: { count?: number }) {
   );
 }
 
-/** Grille « Disponibles » : cartes carrées 2 colonnes. */
+/** Grille « Disponibles » : cartes portrait 2 colonnes. */
 function ShopLoadingAvailableGrid() {
   return (
     <div className="grid grid-cols-2 gap-3">
       {Array.from({ length: 4 }).map((_, i) => (
-        <SegnaSkeletonBlock key={i} className="aspect-square w-full" />
+        <SegnaSkeletonBlock key={i} className="aspect-[3/4] w-full" />
       ))}
     </div>
   );
@@ -89,7 +89,7 @@ export function ShopHubSectionSkeleton({ sectionKey }: { sectionKey: string }) {
       return (
         <section className="space-y-3">
           <ShopLoadingSectionTitle />
-          <ShopLoadingSquarePieceRail />
+          <ShopLoadingPieceRail />
         </section>
       );
     case "shop_section_categories":
@@ -124,7 +124,7 @@ export function ShopHubSectionSkeleton({ sectionKey }: { sectionKey: string }) {
       return (
         <section className="space-y-3">
           <ShopLoadingSectionTitle />
-          <ShopLoadingSquarePieceRail />
+          <ShopLoadingPieceRail />
         </section>
       );
   }
@@ -149,37 +149,36 @@ export function ShopCatalogLoadingFallback() {
               ))}
             </div>
           </div>
-          <SegnaSkeletonBlock className="mx-4 mb-3 mt-1 h-4 w-[min(100%,16rem)] rounded" rounded="rounded" />
         </div>
       </div>
 
-      <div className="min-w-0 bg-white pb-28 pt-4">
-        <div className="divide-y divide-zinc-200">
-          <div className="min-w-0 px-0 pb-5 pt-2">
+      <div className="min-w-0 bg-white pb-28">
+        <div className="flex flex-col">
+          <div className="min-w-0 bg-white px-0 py-4">
             <section className="space-y-3">
               <ShopLoadingSectionTitle />
               <ShopLoadingSplitPieceRail />
             </section>
           </div>
-          <div className="min-w-0 px-0 py-5">
+          <div className="min-w-0 border-t border-zinc-100 bg-white px-0 py-4">
             <section className="space-y-3">
               <ShopLoadingSectionTitle />
-              <ShopLoadingSquarePieceRail />
+              <ShopLoadingPieceRail />
             </section>
           </div>
-          <div className="min-w-0 px-0 py-5">
+          <div className="min-w-0 border-t border-zinc-100 bg-white px-0 py-4">
             <section className="space-y-3">
               <ShopLoadingSectionTitle />
               <ShopLoadingLinkCardRail />
             </section>
           </div>
-          <div className="min-w-0 px-0 py-5">
+          <div className="min-w-0 border-t border-zinc-100 bg-white px-0 py-4">
             <section className="space-y-3">
               <ShopLoadingSectionTitle showAction={false} />
               <ShopLoadingLinkCardRail count={2} />
             </section>
           </div>
-          <div className="min-w-0 px-3 py-5">
+          <div className="min-w-0 border-t border-zinc-100 bg-white px-3 py-4">
             <section className="space-y-3">
               <ShopLoadingSectionTitle />
               <ShopLoadingAvailableGrid />
@@ -194,15 +193,15 @@ export function ShopCatalogLoadingFallback() {
 /** Squelette page section `/shop/[slug]` (grille filtrée). */
 export function ShopSectionCatalogLoadingFallback() {
   return (
-    <div className="min-h-0 bg-white px-3 pb-28 pt-4" aria-busy aria-label="Chargement de la sélection">
-      <div className="mb-4 border-b border-zinc-200 pb-4">
-        <div className="relative flex min-h-[52px] items-center justify-center">
-          <SegnaSkeletonBlock className="absolute left-0 top-1/2 h-8 w-8 -translate-y-1/2 rounded-lg" rounded="rounded-lg" />
-          <SegnaSkeletonBlock className="mx-12 h-7 w-40 max-w-[60%] rounded-md" rounded="rounded-md" />
-          <SegnaSkeletonBlock
-            className="absolute right-0 top-1/2 h-9 w-9 -translate-y-1/2 rounded-full"
-            rounded="rounded-full"
-          />
+    <div className="min-h-0 bg-white px-3 pb-28 pt-3" aria-busy aria-label="Chargement de la sélection">
+      <div className="mb-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="grid min-h-[52px] grid-cols-[2.5rem_1fr_auto] items-center gap-2">
+          <SegnaSkeletonBlock className="h-8 w-8 rounded-lg" rounded="rounded-lg" />
+          <SegnaSkeletonBlock className="mx-auto h-7 w-40 max-w-full rounded-md" rounded="rounded-md" />
+          <div className="flex items-center gap-1.5">
+            <SegnaSkeletonBlock className="h-9 w-9 rounded-full" rounded="rounded-full" />
+            <SegnaSkeletonBlock className="h-11 w-11 rounded-full" rounded="rounded-full" />
+          </div>
         </div>
       </div>
       <ShopLoadingAvailableGrid />

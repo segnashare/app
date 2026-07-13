@@ -9,11 +9,12 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import {
-  CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR,
+  cartRelayFreeOfferUnlockedSubtext,
   complementQualifiesForFreeRelay,
   complementRelayOfferMissingEuros,
   complementRelayOfferProgressRatio,
   formatCartComplementMissingEuros,
+  type CartRelayFreeOfferMode,
 } from "@/lib/cart/cart-complement-relay-offer";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -24,6 +25,7 @@ type CartComplementShippingIncentiveProps = {
   complementEuros: number;
   suggestionItems?: ShopCatalogItem[];
   cartItemIds?: string[];
+  offerMode?: CartRelayFreeOfferMode;
 };
 
 function pickSuggestionItems(
@@ -102,6 +104,7 @@ export function CartComplementShippingIncentive({
   complementEuros,
   suggestionItems = [],
   cartItemIds = [],
+  offerMode = "location",
 }: CartComplementShippingIncentiveProps) {
   const shopHub = useCartShopHubUiOptional();
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -121,11 +124,11 @@ export function CartComplementShippingIncentive({
 
   const activeSuggestion = suggestions.length > 0 ? suggestions[suggestionIndex % suggestions.length]! : null;
 
-  const qualifies = complementQualifiesForFreeRelay(complementEuros);
+  const qualifies = complementQualifiesForFreeRelay(complementEuros, offerMode);
 
   if (!qualifies) {
-    const missingEuros = complementRelayOfferMissingEuros(complementEuros);
-    const progressPct = Math.round(complementRelayOfferProgressRatio(complementEuros) * 100);
+    const missingEuros = complementRelayOfferMissingEuros(complementEuros, offerMode);
+    const progressPct = Math.round(complementRelayOfferProgressRatio(complementEuros, offerMode) * 100);
 
     return (
       <div
@@ -206,9 +209,7 @@ export function CartComplementShippingIncentive({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-semibold leading-snug text-zinc-900">Livraison point relais offerte</p>
-        <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">
-          Débloquée dès {CART_COMPLEMENT_RELAY_FREE_THRESHOLD_EUR}&nbsp;€ de complément.
-        </p>
+        <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">{cartRelayFreeOfferUnlockedSubtext(offerMode)}</p>
       </div>
     </div>
   );

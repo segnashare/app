@@ -35,6 +35,7 @@ import {
 import { buildMondialRelayTrackingUrl } from "@/lib/shipping/mondial-relay-tracking-url";
 import {
   isGuestCashRentalOrderDisplay,
+  resolveGuestOrderPurchaseEuros,
   resolveGuestOrderRentalEuros,
 } from "@/lib/billing/guest-rental-pricing";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
@@ -165,7 +166,9 @@ export function CommandeDetailView({
       ? uberTrackingHref
       : mondialTrackingUrl;
   const isDelivered = shipSt === "delivered";
-  const showReceptionExchange = isDelivered && detail.cartStatus !== "canceled";
+  const isPurchaseOrder = detail.isPurchaseOrder;
+  const showReceptionExchange =
+    isDelivered && detail.cartStatus !== "canceled" && !isPurchaseOrder;
   const statusTitle = showReceptionExchange ? "Contenu de la box" : commandeStatusTitle(detail);
   const receiptConfirmed = Boolean(detail.memberReceiptConfirmedAt?.trim());
   const receiptAnchor = memberReceiptAnchorFromOrderShipment(detail.shipment);
@@ -179,7 +182,8 @@ export function CommandeDetailView({
     membershipLabel,
   );
   const guestCashRental = isGuestCashRentalOrderDisplay(membershipLabel, detail);
-  const guestRentalEuros = guestCashRental ? resolveGuestOrderRentalEuros(detail) : 0;
+  const guestRentalEuros = guestCashRental && !isPurchaseOrder ? resolveGuestOrderRentalEuros(detail) : 0;
+  const guestPurchaseEuros = guestCashRental && isPurchaseOrder ? resolveGuestOrderPurchaseEuros(detail) : 0;
 
   const euro = detail.paymentBreakdown?.euroDetail ?? null;
   const showFraisFactures =
@@ -262,15 +266,20 @@ export function CommandeDetailView({
               creditKind={creditKind}
               pointsUnitDisplay="icon"
               guestCashRental={guestCashRental}
+              guestPurchaseMode={isPurchaseOrder}
             />
           )}
           <div className="mt-4 flex items-center justify-between gap-3 pt-2">
             <span className="text-[16px] font-bold text-zinc-900">
-              {guestCashRental ? "Prix de location" : "Total échangé"}
+              {guestCashRental
+                ? isPurchaseOrder
+                  ? "Prix d'achat"
+                  : "Prix de location"
+                : "Total échangé"}
             </span>
             {guestCashRental ? (
               <span className="text-[17px] font-bold tabular-nums text-zinc-900">
-                {formatEuros(guestRentalEuros)}
+                {formatEuros(isPurchaseOrder ? guestPurchaseEuros : guestRentalEuros)}
               </span>
             ) : (
               <SegnaPointsUnitDisplay
@@ -310,7 +319,11 @@ export function CommandeDetailView({
               {euro.complementCreditsEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                   <span className="min-w-0 pr-2">
-                    {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+                    {guestCashRental
+                      ? isPurchaseOrder
+                        ? "Prix d'achat (TTC)"
+                        : "Prix de location (TTC)"
+                      : "Complément d&apos;échange (TTC)"}
                   </span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
                     {formatEuros(euro.complementCreditsEuros)}
@@ -340,11 +353,23 @@ export function CommandeDetailView({
                 </div>
               ) : null}
               <div className="mt-4 flex items-baseline justify-between gap-3 border-t border-zinc-200 pt-4">
-                <span className="text-[17px] font-bold text-zinc-900">Sous-total facturé</span>
+                <span className="text-[17px] font-bold text-zinc-900">Sous-total (TTC)</span>
                 <span className="text-[18px] font-bold tabular-nums text-zinc-900">
                   {formatEuros(euro.totalPaidEuros)}
                 </span>
               </div>
+              {detail.stripeInvoiceDownloadUrl ? (
+                <p className="mt-4 text-center">
+                  <a
+                    href={detail.stripeInvoiceDownloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[15px] font-semibold text-blue-600 underline underline-offset-2"
+                  >
+                    Télécharger la facture (PDF)
+                  </a>
+                </p>
+              ) : null}
             </div>
           </section>
         ) : null}

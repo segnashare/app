@@ -1,45 +1,37 @@
 "use client";
 
-import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
-import { useGuestCashRentalCatalog } from "@/components/shop/GuestCashRentalCatalogContext";
+import { useOptionalCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
 import { cn } from "@/lib/utils/cn";
 
 type PieceCardPriceDisplayProps = {
   pricePoints: number | null;
   numberClassName?: string;
+  /** Conservé pour compatibilité API cartes CMS (couleur du jeton crédit). */
   iconColor?: "fixed" | "current";
 };
 
 export function PieceCardPriceDisplay({
   pricePoints,
   numberClassName,
-  iconColor = "fixed",
 }: PieceCardPriceDisplayProps) {
-  const guestCashRental = useGuestCashRentalCatalog();
+  const catalogMode = useOptionalCartCatalogMode();
 
   if (typeof pricePoints !== "number" || Number.isNaN(pricePoints)) {
     return <span className={cn("tabular-nums", numberClassName)}>—</span>;
   }
 
-  if (guestCashRental) {
-    return (
-      <ItemWeeklyRentalPriceDisplay
-        pricePoints={pricePoints}
-        priceClassName={cn("text-[11px] font-medium text-zinc-600 min-[380px]:text-[12px]", numberClassName)}
-        suffixClassName="text-[10px] min-[380px]:text-[11px]"
-      />
-    );
-  }
+  const PriceDisplay = catalogMode ? ItemCatalogModePriceDisplay : ItemWeeklyRentalPriceDisplay;
 
   return (
-    <SegnaPointsUnitDisplay
-      points={pricePoints}
-      creditKind="consumption"
-      unitDisplay="icon"
-      iconColor={iconColor}
-      className="shrink-0 gap-x-0.5"
-      numberClassName={cn("tabular-nums", numberClassName)}
+    <PriceDisplay
+      pricePoints={pricePoints}
+      priceClassName={cn(
+        "text-[11px] font-medium text-inherit min-[380px]:text-[12px]",
+        numberClassName,
+      )}
+      suffixClassName="text-[0.92em] text-inherit min-[380px]:text-[11px]"
     />
   );
 }

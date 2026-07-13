@@ -11,12 +11,18 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronLeft, Heart, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { CART_STATUSES_OPEN } from "@/lib/cart/cart-lifecycle";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, getBrowserAuthUser } from "@/lib/supabase/client";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSignedUrlForStoragePath, createSignedUrlsForStoragePaths, normalizeStorageObjectPath } from "@/lib/supabase/storage-resolve-signed-url";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
+import {
+  itemPhotoSlotAspectClass,
+  itemSquareListThumbCoverProps,
+  parseItemPhotosLayout,
+} from "@/lib/items/item-photo-layout";
+import { resolveItemPhotoData } from "@/lib/cart/fetch-active-cart-lines";
 import {
   consumeShopCatalogRestoreFromStorage,
   parseShopCatalogFilters,
@@ -52,8 +58,15 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { ShopHubSectionSkeleton } from "@/components/shop/ShopCatalogLoadingFallback";
-import { GuestCashRentalCatalogProvider } from "@/components/shop/GuestCashRentalCatalogContext";
+import { GuestCashRentalCatalogProvider, useGuestCashRentalCatalog } from "@/components/shop/GuestCashRentalCatalogContext";
+import { ShopCartCatalogModeButton } from "@/components/shop/ShopCartCatalogModeButton";
+import { CartCatalogModeProvider } from "@/components/cart/CartCatalogModeContext";
 import { PieceCardPriceDisplay } from "@/components/shop/PieceCardPriceDisplay";
+import {
+  CatalogPieceCardActionButtons,
+  CATALOG_PIECE_LIKE_BTN_CLASS,
+  catalogPieceCartBtnClass,
+} from "@/components/shop/CatalogPieceCardActionButtons";
 import { useActiveCartItemIds } from "@/hooks/useActiveCartItemIds";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
@@ -341,6 +354,43 @@ function pieceCardPricePoints(
   );
 }
 
+function PieceCardPriceSizeRows({
+  sizeLine,
+  pricePoints,
+  className,
+  sizeClassName,
+  separatorClassName,
+  priceIconColor = "fixed",
+}: {
+  sizeLine: string;
+  pricePoints: number | null;
+  className?: string;
+  sizeClassName?: string;
+  separatorClassName?: string;
+  priceIconColor?: "fixed" | "current";
+}) {
+  const guestCashRental = useGuestCashRentalCatalog();
+
+  if (guestCashRental) {
+    return (
+      <div className={cn("flex flex-col items-start gap-0.5 text-left", className)}>
+        <span className={cn("truncate", sizeClassName)}>{sizeLine}</span>
+        {pieceCardPricePoints(pricePoints, { iconColor: priceIconColor })}
+      </div>
+    );
+  }
+
+  return (
+    <p className={cn("flex flex-wrap items-center gap-x-1", className)}>
+      {pieceCardPricePoints(pricePoints, { iconColor: priceIconColor })}
+      <span className={cn("text-zinc-400", separatorClassName)} aria-hidden>
+        |
+      </span>
+      <span className={cn("max-w-[40%] truncate", sizeClassName)}>{sizeLine}</span>
+    </p>
+  );
+}
+
 /** Style panneau gauche pour pièces mises en avant via CMS (À découvrir, bons coups, À la une…). */
 export type ShopCmsPieceSpotlight = { bgHex: string; textColor: "white" | "black" };
 
@@ -368,7 +418,7 @@ export function itemSpotlightPhotoPositionFromPayload(payload: CmsFramePayload):
   return img.position;
 }
 
-/** Grille + rails catalogue automatiques : photo carrée, méta en dessous. */
+/** Grille + rails catalogue : photo rectangulaire (shop) ou carrée (panier / checkout). */
 type ShopPieceSquareCatalogCardProps = {
   item: ShopCatalogItem;
   cover: string | undefined;
@@ -381,6 +431,8 @@ type ShopPieceSquareCatalogCardProps = {
   onToggleLike: (itemId: string) => Promise<void>;
   onToggleCart: (itemId: string) => Promise<void>;
   hideMetaUntilReady: boolean;
+  /** Vignette carrée (panier, suggestions checkout) — défaut shop = cadre catalogue 3:4 / 4:3. */
+  squarePhotoFrame?: boolean;
   /** Frames CMS (`shop_item_ref`) : pas de contour sur la carte. */
   hideFrameBorder?: boolean;
   /** Masque le bouton cœur (ex. rail « Complétez votre tenue » panier). */
@@ -404,6 +456,7 @@ function ShopPieceSquareCatalogCard({
   hideFrameBorder = false,
   hideLikeAction = false,
   compactCard = false,
+  squarePhotoFrame = false,
 }: ShopPieceSquareCatalogCardProps) {
   const cmsHideChrome = useCmsFrameHideChrome();
   const noFrameChrome = hideFrameBorder || cmsHideChrome;
@@ -418,18 +471,33 @@ function ShopPieceSquareCatalogCard({
   const brandName = (item.brand_label ?? "").trim();
   const sizeLine = pieceCardSizeLine(item.size_label);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
-
-  const actionBtnClass =
-    "bg-white/95 text-zinc-900 shadow-sm ring-1 ring-black/10 backdrop-blur-[2px]";
-  const cartToggleBtnClass = inCart
-    ? "bg-zinc-950 text-white shadow-sm ring-1 ring-black/20"
-    : actionBtnClass;
+  const photosLayout = parseItemPhotosLayout(item.photos);
+  const catalogPhotoPosition = resolveItemPhotoData(item.photos).position;
+  const catalogSquareThumbProps = itemSquareListThumbCoverProps({
+    photosLayout,
+    photoPosition: catalogPhotoPosition,
+  });
+  const photoFrameClass = squarePhotoFrame ? "aspect-square" : itemPhotoSlotAspectClass(photosLayout);
+  const catalogThumbRenderProps = squarePhotoFrame
+    ? catalogSquareThumbProps.coverStyle
+      ? { coverStyle: catalogSquareThumbProps.coverStyle }
+      : {
+          photoPosition: catalogSquareThumbProps.photoPosition ?? catalogPhotoPosition,
+          photoCoverFill: true,
+          photosLayout,
+        }
+    : {
+        photoPosition: catalogPhotoPosition,
+        photoCoverFill: true,
+        photosLayout,
+      };
 
   return (
     <div className="w-full">
       <div
         className={cn(
-          "relative aspect-square w-full overflow-hidden rounded-2xl",
+          "relative w-full overflow-hidden rounded-2xl",
+          photoFrameClass,
           noFrameChrome ? "bg-white" : "bg-zinc-100 ring-1 ring-black/[0.06]",
         )}
       >
@@ -438,11 +506,7 @@ function ShopPieceSquareCatalogCard({
             photoUrl={cover}
             frameClassName={cn("absolute inset-0 h-full w-full", noFrameChrome && "bg-white")}
             className="h-full w-full"
-            coverStyle={{
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-              backgroundRepeat: "no-repeat",
-            }}
+            {...catalogThumbRenderProps}
             onLoadStateChange={setLoadState}
           />
         ) : hasPhotoPath ? (
@@ -450,58 +514,18 @@ function ShopPieceSquareCatalogCard({
         ) : (
           <div className="h-full w-full bg-zinc-200" aria-hidden />
         )}
-        <div
-          className={cn(
-            "absolute right-2 z-10 flex gap-1.5",
-            compactCard ? "bottom-1.5" : "bottom-2",
-          )}
-        >
-          {hideLikeAction ? null : (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void onToggleLike(item.id);
-              }}
-              disabled={likeBusyIds.has(item.id)}
-              className={cn(
-                "inline-flex shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-                compactCard ? "h-7 w-7" : "h-9 w-9",
-                actionBtnClass,
-              )}
-              title="Ajouter aux favoris"
-            >
-              <Heart className={cn(compactCard ? "h-3.5 w-3.5" : "h-4 w-4", liked && "fill-current")} aria-hidden />
-            </button>
-          )}
-          {canAddToCart ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void onToggleCart(item.id);
-              }}
-              disabled={cartBusyIds.has(item.id)}
-              className={cn(
-                "segna-guidance-shimmer-target inline-flex shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-                compactCard ? "h-7 w-7" : "h-9 w-9",
-                cartToggleBtnClass,
-              )}
-              title="Ajouter au panier"
-            >
-              <Plus
-                className={cn(
-                  compactCard ? "h-3.5 w-3.5" : "h-4 w-4",
-                  "transition-transform duration-200",
-                  inCart && "rotate-45",
-                )}
-                aria-hidden
-              />
-            </button>
-          ) : null}
-        </div>
+        <CatalogPieceCardActionButtons
+          className={cn("absolute right-2 z-10", compactCard ? "bottom-1.5" : "bottom-2")}
+          compact={compactCard}
+          showLike={!hideLikeAction}
+          liked={liked}
+          likeBusy={likeBusyIds.has(item.id)}
+          onToggleLike={() => void onToggleLike(item.id)}
+          showCart={canAddToCart}
+          inCart={inCart}
+          cartBusy={cartBusyIds.has(item.id)}
+          onToggleCart={() => void onToggleCart(item.id)}
+        />
       </div>
       <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>
         <div className="relative min-w-0">
@@ -533,18 +557,15 @@ function ShopPieceSquareCatalogCard({
             {brandName}
           </p>
         ) : null}
-        <p
+        <PieceCardPriceSizeRows
+          sizeLine={sizeLine}
+          pricePoints={item.price_points}
           className={cn(
             montserratPieceMedium.className,
-            "flex flex-wrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug text-zinc-600",
+            "text-left text-[11px] font-medium leading-snug text-zinc-600",
           )}
-        >
-          {pieceCardPricePoints(item.price_points)}
-          <span className="text-zinc-400" aria-hidden>
-            |
-          </span>
-          <span className="max-w-[40%] truncate">{sizeLine}</span>
-        </p>
+          sizeClassName="max-w-full"
+        />
       </div>
     </div>
   );
@@ -642,59 +663,32 @@ function ShopPieceSplitCard({
           {brandName}
         </p>
       ) : null}
-      <p
+      <PieceCardPriceSizeRows
+        sizeLine={sizeLine}
+        pricePoints={item.price_points}
         className={cn(
           montserratPieceMedium.className,
-          "flex flex-nowrap items-center gap-x-1 text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
+          "text-left text-[11px] font-medium leading-snug min-[380px]:text-[12px]",
           textMeta,
         )}
-      >
-        {pieceCardPricePoints(item.price_points, { iconColor: "current" })}
-        <span className={cn("shrink-0", sepClass)} aria-hidden>
-          |
-        </span>
-        <span className="min-w-0 shrink truncate">{sizeLine}</span>
-      </p>
+        sizeClassName="min-w-0 shrink truncate max-w-full"
+        separatorClassName={sepClass}
+        priceIconColor="current"
+      />
     </div>
   );
 
   const actionRow = (
-    <div className="mt-1.5 flex shrink-0 gap-2 self-start">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          void onToggleLike(item.id);
-        }}
-        disabled={likeBusyIds.has(item.id)}
-        className={cn(
-          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-          actionBtnClass,
-        )}
-        title="Ajouter aux favoris"
-      >
-        <Heart className={cn("h-4 w-4", liked && "fill-current")} aria-hidden />
-      </button>
-      {canAddToCart ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void onToggleCart(item.id);
-          }}
-          disabled={cartBusyIds.has(item.id)}
-          className={cn(
-            "segna-guidance-shimmer-target inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-50",
-            actionBtnClass,
-          )}
-          title="Ajouter au panier"
-        >
-          <Plus className={cn("h-4 w-4 transition-transform duration-200", inCart && "rotate-45")} aria-hidden />
-        </button>
-      ) : null}
-    </div>
+    <CatalogPieceCardActionButtons
+      className="mt-1.5 shrink-0 self-start"
+      liked={liked}
+      likeBusy={likeBusyIds.has(item.id)}
+      onToggleLike={() => void onToggleLike(item.id)}
+      showCart={canAddToCart}
+      inCart={inCart}
+      cartBusy={cartBusyIds.has(item.id)}
+      onToggleCart={() => void onToggleCart(item.id)}
+    />
   );
 
   return (
@@ -803,6 +797,42 @@ function ToggleChip({
       )}
     >
       {label}
+    </button>
+  );
+}
+
+function CatalogSortButton({
+  onClick,
+  active,
+  sortActive,
+  className,
+}: {
+  onClick: () => void;
+  active: boolean;
+  sortActive: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Trier les résultats"
+      aria-expanded={active}
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
+        "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
+        sortActive && "text-[#5E3023]",
+        active && "bg-zinc-100 text-[#5E3023]",
+        className,
+      )}
+    >
+      <svg className="h-[22px] w-[22px] shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+        <path
+          fill="currentColor"
+          d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
+        />
+      </svg>
     </button>
   );
 }
@@ -1169,17 +1199,21 @@ export function ShopCatalog({
   useEffect(() => {
     let cancelled = false;
     async function syncLikes() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
-      const { data } = await supabase
-        .from("item_favorites")
-        .select("item_id")
-        .eq("user_id", user.id)
-        .is("deleted_at", null);
-      if (!cancelled && data) {
-        setLikedSet(new Set(data.map((r: { item_id: string }) => r.item_id)));
+      try {
+        const {
+          data: { user },
+        } = await getBrowserAuthUser(supabase);
+        if (!user || cancelled) return;
+        const { data } = await supabase
+          .from("item_favorites")
+          .select("item_id")
+          .eq("user_id", user.id)
+          .is("deleted_at", null);
+        if (!cancelled && data) {
+          setLikedSet(new Set(data.map((r: { item_id: string }) => r.item_id)));
+        }
+      } catch {
+        /* verrou auth GoTrue (Strict Mode) : likes non chargés, pas bloquant */
       }
     }
     void syncLikes();
@@ -1240,7 +1274,7 @@ export function ShopCatalog({
     await withLikeBusy(itemId, async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await getBrowserAuthUser(supabase);
       if (!user) return;
 
       const likedNow = likedSet.has(itemId);
@@ -1287,7 +1321,7 @@ export function ShopCatalog({
     await withCartBusy(itemId, async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await getBrowserAuthUser(supabase);
       if (!user) return;
 
       const inCartNow = localCartItemIds.has(itemId);
@@ -2585,6 +2619,7 @@ export function ShopCatalog({
   }
 
   return (
+    <CartCatalogModeProvider>
     <GuestCashRentalCatalogProvider guestCashRental={guestCashRental}>
     <OnboardingIncludedCreditsProvider
       active={offerOnboardingActive && !guestCashRental}
@@ -2596,96 +2631,78 @@ export function ShopCatalog({
       <header className="px-4 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-8">
         <div className="w-full">
           {mode === "section" && sectionPageTitle ? (
-            <div className="border-b border-zinc-200 pb-4">
-              <div className="relative flex min-h-[52px] items-center justify-center">
+            <div className="pb-1">
+              <div className="grid min-h-[52px] grid-cols-[2.5rem_1fr_auto] items-center gap-2">
                 <Link
                   href="/shop"
-                  className="absolute left-0 top-1/2 z-10 -translate-y-1/2 rounded-lg p-1 text-zinc-700 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
+                  className="rounded-lg p-1 text-zinc-700 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
                   aria-label="Retour à la boutique"
                 >
                   <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
                 </Link>
                 <h1
-                                    className={cn(
+                  className={cn(
                     segnaPlayfairDisplay.className,
-                    "mx-12 max-w-[min(100%,280px)] truncate text-center text-[20px] font-extrabold italic text-zinc-900 sm:max-w-[min(100%,340px)]",
-                                    )}
-                                  >
+                    "min-w-0 truncate text-center text-[20px] font-extrabold italic text-zinc-900",
+                  )}
+                >
                   {sectionPageTitle}
                 </h1>
-                                    <button
-                                      type="button"
-                  onClick={toggleSortSheet}
-                  aria-label="Trier les résultats"
-                  aria-expanded={filterDetailSheet === "sort"}
-                                      className={cn(
-                    "absolute right-0 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
-                    "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
-                    sortMode !== "recent" && "text-[#5E3023]",
-                    filterDetailSheet === "sort" && "bg-zinc-100 text-[#5E3023]",
-                  )}
-                >
-                  <svg
-                    className="h-[22px] w-[22px] shrink-0"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                  >
-                    <path
-                      fill="currentColor"
-                      d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
-                    />
-                  </svg>
-                                    </button>
-                                </div>
-                              </div>
+                <div className="flex items-center gap-1.5">
+                  <CatalogSortButton
+                    onClick={toggleSortSheet}
+                    active={filterDetailSheet === "sort"}
+                    sortActive={sortMode !== "recent"}
+                  />
+                  {guestCashRental ? <ShopCartCatalogModeButton /> : null}
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-3 pb-3">
-              <div className="relative w-full">
-                <label className="relative block">
-                  <span className="sr-only">Recherche catalogue</span>
-                  <Search
-                    className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400"
-                    aria-hidden
-                  />
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                    }}
-                    placeholder="Recherchez sur Segna"
-                    className="w-full rounded-full border border-zinc-200 bg-white py-3.5 pl-12 pr-12 text-[15px] text-zinc-800 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.08),0_1px_3px_-2px_rgba(0,0,0,0.05)] placeholder:text-zinc-400 focus:border-[#8B6A54]/45 focus:outline-none focus:ring-2 focus:ring-[#8B6A54]/20 focus:shadow-[0_4px_14px_-4px_rgba(91,48,35,0.1),0_2px_6px_-3px_rgba(0,0,0,0.06)]"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={toggleSortSheet}
-                  aria-label="Trier les résultats"
-                  aria-expanded={filterDetailSheet === "sort"}
-                                    className={cn(
-                    "absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
-                    "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35",
-                    sortMode !== "recent" && "text-[#5E3023]",
-                    filterDetailSheet === "sort" && "bg-zinc-100 text-[#5E3023]",
-                  )}
-                >
-                  <svg
-                    className="h-[22px] w-[22px] shrink-0"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                  >
-                    <path
-                      fill="currentColor"
-                      d="M20 7H4a1 1 0 0 1 0-2h16a1 1 0 0 1 0 2zm-2 5a1 1 0 0 0-1-1H7a1 1 0 0 0 0 2h10a1 1 0 0 0 1-1zm-3 6a1 1 0 0 0-1-1h-4a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1z"
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <label className="relative block">
+                    <span className="sr-only">Recherche catalogue</span>
+                    <Search
+                      className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400"
+                      aria-hidden
                     />
-                  </svg>
-                </button>
-                                </div>
-                                </div>
+                    <input
+                      type="text"
+                      inputMode="search"
+                      enterKeyHint="search"
+                      role="searchbox"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                      }}
+                      placeholder="Recherchez sur Segna"
+                      className={cn(
+                        "w-full rounded-full border border-zinc-200 bg-white py-3.5 pl-12 text-[15px] text-zinc-800 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.08),0_1px_3px_-2px_rgba(0,0,0,0.05)] placeholder:text-zinc-400 focus:outline-none",
+                        search.trim() ? "pr-12" : "pr-4",
+                      )}
+                    />
+                  </label>
+                  {search.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      aria-label="Effacer la recherche"
+                      className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
+                    >
+                      <X className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+                <CatalogSortButton
+                  onClick={toggleSortSheet}
+                  active={filterDetailSheet === "sort"}
+                  sortActive={sortMode !== "recent"}
+                />
+                {guestCashRental ? <ShopCartCatalogModeButton /> : null}
+              </div>
+            </div>
           )}
                               </div>
       </header>
@@ -2712,11 +2729,6 @@ export function ShopCatalog({
                 active={disponiblesOnly}
                 onClick={() => setDisponiblesOnly((v) => !v)}
               />
-              <ToggleChip
-                label="Coups de cœurs"
-                active={heartsOnly}
-                onClick={() => setHeartsOnly((v) => !v)}
-              />
               {(Object.keys(MENU_LABELS) as MenuKey[]).map((key) => (
                 <FilterChipButton
                   key={key}
@@ -2731,24 +2743,14 @@ export function ShopCatalog({
               ))}
             </div>
           </div>
-          <p className="px-4 pb-3 pt-1 text-sm text-zinc-500">
-            Découvrez comment les résultats sont classés.{" "}
-            <button
-              type="button"
-              className="underline underline-offset-2"
-              onClick={toggleSortSheet}
-            >
-              En savoir plus
-            </button>
-          </p>
         </div>
       </div>
 
         {/* Contenu principal : hub sections (par défaut) ou grille filtrée */}
-        <div className={cn("min-w-0 bg-white pb-28 pt-4", showHub ? "px-0" : "px-3")}>
+        <div className={cn("min-w-0 bg-white pb-28", showHub ? "px-0" : "px-3 pt-3")}>
           {showHub ? (
-            <div className="divide-y-[1px] divide-zinc-200">
-              {boutiqueHubSectionOrder.map((sectionKey, index) => {
+            <div className="flex flex-col">
+              {boutiqueHubSectionOrder.map((sectionKey, sectionIndex) => {
                 const sectionReady = !readyHubSectionKeySet || readyHubSectionKeySet.has(sectionKey);
                 const inner = sectionReady
                   ? renderBoutiqueHubSection(sectionKey)
@@ -2759,9 +2761,9 @@ export function ShopCatalog({
                   <div
                     key={sectionKey}
                     className={cn(
-                      "min-w-0",
+                      "min-w-0 bg-white py-4",
+                      sectionIndex > 0 && "border-t border-zinc-100",
                       padGridDisponibles ? "px-3" : "px-0",
-                      index === 0 ? "pb-5 pt-2" : "py-5",
                     )}
                   >
                     {inner}
@@ -3121,6 +3123,7 @@ export function ShopCatalog({
     </div>
     </OnboardingIncludedCreditsProvider>
     </GuestCashRentalCatalogProvider>
+    </CartCatalogModeProvider>
   );
 }
 
@@ -3149,7 +3152,7 @@ function FilterModalRowChip({
 }
 
 /** Grille boutique : carte carrée (hors frames CMS mises en avant). */
-function ShopCatalogGridItemCard({
+export function ShopCatalogGridItemCard({
   item,
   cover,
   shimmerDurationSec,
@@ -3161,6 +3164,7 @@ function ShopCatalogGridItemCard({
   onToggleLike,
   onToggleCart,
   onNavigate,
+  itemFromQuery = "shop",
 }: {
   item: ShopCatalogItem;
   cover: string | undefined;
@@ -3173,9 +3177,10 @@ function ShopCatalogGridItemCard({
   onToggleLike: (itemId: string) => Promise<void>;
   onToggleCart: (itemId: string) => Promise<void>;
   onNavigate: () => void;
+  itemFromQuery?: string;
 }) {
   return (
-    <Link href={`/items/${item.id}?from=shop`} className="block" onClick={onNavigate}>
+    <Link href={`/items/${item.id}?from=${encodeURIComponent(itemFromQuery)}`} className="block" onClick={onNavigate}>
       <ShopPieceSquareCatalogCard
         item={item}
         cover={cover}
@@ -3208,6 +3213,7 @@ function ItemRailTwoUpCard({
   skipCatalogNavigationPersist = false,
   hideLikeAction = false,
   compactCard = false,
+  squarePhotoFrame = false,
 }: {
   item: ShopCatalogItem;
   cover: string | undefined;
@@ -3229,6 +3235,7 @@ function ItemRailTwoUpCard({
   skipCatalogNavigationPersist?: boolean;
   hideLikeAction?: boolean;
   compactCard?: boolean;
+  squarePhotoFrame?: boolean;
 }) {
   const inCart = cartItemIds.has(item.id);
   const liked = likedSet.has(item.id);
@@ -3238,7 +3245,7 @@ function ItemRailTwoUpCard({
     <Link
       href={`/items/${item.id}?from=${encodeURIComponent(itemFromQuery)}`}
       className={cn(
-        "shrink-0",
+        "shrink-0 snap-start",
         compactCard ? "w-[34%] min-w-[119px]" : "w-[48%] min-w-[170px]",
       )}
       onClick={() => {
@@ -3266,10 +3273,14 @@ function ItemRailTwoUpCard({
         hideMetaUntilReady
         hideLikeAction={hideLikeAction}
         compactCard={compactCard}
+        squarePhotoFrame={squarePhotoFrame}
       />
     </Link>
   );
 }
+
+/** Évite que le ring des vignettes pièce soit rogné en haut dans un rail horizontal (`overflow-x-auto`). */
+const ITEM_RAIL_SCROLL_EDGE_INSET_CLASS = "pt-0.5 pb-1";
 
 /** Rail 2 colonnes (ex. « Susceptibles de vous plaire ») — réutilisable sur le panier via `itemFromQuery` / `skipCatalogNavigationPersist`. */
 export function ItemRailTwoUp({
@@ -3291,6 +3302,7 @@ export function ItemRailTwoUp({
   hideLikeAction = false,
   compactCard = false,
   sectionInsetScroll = false,
+  squarePhotoFrame = false,
 }: {
   title: string;
   items: ShopCatalogItem[];
@@ -3316,6 +3328,7 @@ export function ItemRailTwoUp({
   hideLikeAction?: boolean;
   compactCard?: boolean;
   sectionInsetScroll?: boolean;
+  squarePhotoFrame?: boolean;
 }) {
   const railItems = items.length > 0 ? items : [];
   if (railItems.length === 0) return null;
@@ -3331,11 +3344,15 @@ export function ItemRailTwoUp({
       )}
       <div
         className={cn(
-          "flex w-full min-w-0 flex-nowrap gap-3 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-          sectionInsetScroll && "pl-5",
+          sectionInsetScroll
+            ? "flex w-full min-w-0 flex-nowrap gap-3 overflow-x-auto overscroll-x-contain touch-pan-x pl-5 pt-0.5 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            : cn(
+                "flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                ITEM_RAIL_SCROLL_EDGE_INSET_CLASS,
+              ),
         )}
       >
-        {!sectionInsetScroll ? <div className="w-3 shrink-0" aria-hidden /> : null}
+        {!sectionInsetScroll ? <div className="w-3 shrink-0 snap-start" aria-hidden /> : null}
         {railItems.map((item, index) => (
           <ItemRailTwoUpCard
             key={`${title}-${item.id}-${index}`}
@@ -3353,9 +3370,10 @@ export function ItemRailTwoUp({
             skipCatalogNavigationPersist={skipCatalogNavigationPersist}
             hideLikeAction={hideLikeAction}
             compactCard={compactCard}
+            squarePhotoFrame={squarePhotoFrame}
           />
         ))}
-        {!sectionInsetScroll ? <div className="w-3 shrink-0" aria-hidden /> : null}
+        {!sectionInsetScroll ? <div className="w-3 shrink-0 snap-start" aria-hidden /> : null}
       </div>
     </section>
   );
@@ -3426,6 +3444,7 @@ export function ShopCapsuleItemRefFrame({
     onToggleCart,
     hideMetaUntilReady: true as const,
     hideFrameBorder: true as const,
+    squarePhotoFrame: itemFromQuery === "cart",
   };
 
   const itemRefLinkClassName =
@@ -3518,7 +3537,7 @@ function HubRail({
   return (
     <section className="space-y-3">
       {!hideSectionTitle ? <SectionHeader title={title} sectionHref={sectionHref} /> : null}
-      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className={cn("flex w-full min-w-0 max-w-full flex-nowrap items-start snap-x snap-mandatory scroll-pl-3 gap-3 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", ITEM_RAIL_SCROLL_EDGE_INSET_CLASS)}>
         <div className="w-3 shrink-0 snap-start" aria-hidden />
         {railItems.map((item, index) => {
           const inCart = cartItemIds.has(item.id);
@@ -3600,9 +3619,9 @@ function SectionHeader({
         <Link
           href={sectionHref}
           aria-label={`Voir la sélection : ${title}`}
-          className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-800 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
+          className="mt-1 inline-flex shrink-0 items-center justify-center text-zinc-800 transition hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
         >
-          <ArrowRight className="h-5 w-5" aria-hidden />
+          <ArrowRight className="h-5 w-5" strokeWidth={2.2} aria-hidden />
         </Link>
       ) : null}
     </div>

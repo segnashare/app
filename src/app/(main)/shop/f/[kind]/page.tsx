@@ -17,6 +17,7 @@ import {
 import { loadShopCatalogFilterItems } from "@/lib/shop/load-shop-section-items";
 import { mapCategoryFilterRows, mapFilterRows, mapSizeFilterRows } from "@/lib/shop/shop-filter-options";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
+import { resolveShopGuestCashRental } from "@/lib/shop/resolve-shop-guest-cash-rental";
 import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type PageProps = {
@@ -44,6 +45,7 @@ export default async function ShopCatalogFilterPage({ params, searchParams }: Pa
   }
   const userState = await getCurrentUserAppState(user.id);
   const isDemoMode = userState.onboarding_mode === "demo";
+  const guestCashRental = await resolveShopGuestCashRental(supabase, user.id);
 
   const [facetPack, favRes] = await Promise.all([
     loadShopBoutiqueFilterFacetResponses(isDemoMode, supabase),
@@ -113,6 +115,7 @@ export default async function ShopCatalogFilterPage({ params, searchParams }: Pa
         featuredLenders={[]}
         featuredLenderSectionItemIds={[]}
         guideCartOnboarding={userState.onboarding_process === "panier"}
+        guestCashRental={guestCashRental}
       />
     </MainContent>
   );

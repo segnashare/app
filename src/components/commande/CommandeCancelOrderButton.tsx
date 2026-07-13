@@ -148,7 +148,7 @@ export function CommandeCancelOrderButton({ cartId, cancellation, stripeEuroLine
               Annuler cette commande ?
             </h2>
             <p className="mt-2 text-[14px] leading-relaxed text-zinc-600">
-              Tes crédits seront recrédités sur ton wallet et les pièces remises en vente.
+              Ta commande sera annulée et les pièces remises en vente.
             </p>
             {stripeEuroLines && stripeFeePreview ? (
               <p className="mt-2 text-[14px] leading-relaxed text-zinc-600">

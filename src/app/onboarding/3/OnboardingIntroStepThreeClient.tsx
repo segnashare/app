@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { OnboardingIntroCmsStepShell } from "@/components/onboarding/OnboardingIntroCmsStepShell";
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
@@ -69,7 +70,7 @@ export function OnboardingIntroStepThreeClient({ initialCmsFrames }: OnboardingI
 
     void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 
-    router.push("/shop");
+    router.push(MEMBER_HOME_HREF);
   };
 
   return (

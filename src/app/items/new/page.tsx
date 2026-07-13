@@ -89,6 +89,17 @@ const INFO_LINKS = [
   { key: "materials", label: "Matériaux", href: "/items/new/materials" },
 ] as const;
 
+function formatSizeLinkValue(draft: ItemInfoDraft): string {
+  const label = draft.size ? normalizeItemSizeDisplay(draft.size) : "-";
+  const reco = draft.recommendedSize ? normalizeItemSizeDisplay(draft.recommendedSize) : null;
+  const chunks = [label];
+  if (reco && reco !== label) chunks.push(`reco ${reco}`);
+  if (draft.photographedOnMannequin && draft.mannequinFirstName?.trim()) {
+    chunks.push(`mannequin ${draft.mannequinFirstName.trim()}`);
+  }
+  return chunks.join(" · ");
+}
+
 type ItemPhotoSlot = {
   dataUrl: string;
   fileName: string;
@@ -372,12 +383,15 @@ export default function NewItemPage() {
   const infoValues = {
     category: infoDraft.category ?? "-",
     brand: formattedCustomBrand ?? infoDraft.brand ?? "-",
-    size: infoDraft.size ? normalizeItemSizeDisplay(infoDraft.size) : "-",
+    size: formatSizeLinkValue(infoDraft),
     condition: infoDraft.condition ?? "-",
     materials: infoDraft.materials ?? "-",
     color: infoDraft.color ?? "-",
   };
   const sizeId = infoDraft.sizeId?.trim() || null;
+  const recommendedSizeId = infoDraft.recommendedSizeId?.trim() || null;
+  const photographedOnMannequin = Boolean(infoDraft.photographedOnMannequin);
+  const mannequinId = infoDraft.mannequinId?.trim() || null;
   const materialsId = infoDraft.materialsId?.trim() || null;
   const colorId = infoDraft.colorId?.trim() || null;
   const [categorySizeScope, setCategorySizeScope] = useState<string | null>(null);
@@ -405,7 +419,11 @@ export default function NewItemPage() {
   const hasMinPhotos = filledPhotosCount >= effectiveMinPhotos;
   const hasCondition = Boolean(infoDraft.condition?.trim());
   const sizeStepOk =
-    Boolean(categoryId) && (!showSizeLink || Boolean(sizeId));
+    Boolean(categoryId) &&
+    (!showSizeLink ||
+      (Boolean(sizeId) &&
+        Boolean(recommendedSizeId) &&
+        (!photographedOnMannequin || Boolean(mannequinId))));
   const requiredChecks = isRelaxedCreate
     ? [itemTitle.trim().length > 0]
     : [
@@ -426,6 +444,9 @@ export default function NewItemPage() {
     ...(brandId ? { item_brand_id: brandId } : {}),
     item_custom_brand_label: brandNeedsCustomLabel ? formattedCustomBrand : null,
     ...(sizeId ? { item_size_id: sizeId } : {}),
+    ...(recommendedSizeId ? { item_recommended_size_id: recommendedSizeId } : {}),
+    photographed_on_mannequin: photographedOnMannequin,
+    item_mannequin_id: photographedOnMannequin && mannequinId ? mannequinId : null,
     ...(materialsId ? { item_materiaux_id: materialsId } : {}),
     ...(colorId ? { item_couleur_id: colorId } : {}),
   };
@@ -575,7 +596,7 @@ export default function NewItemPage() {
         const { data: itemData, error: itemError } = await supabase
           .from("items")
           .select(
-            "id,title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id,price_points,status, item_intake(listing_stage)",
+            "id,title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id,price_points,status, item_intake(listing_stage)",
           )
           .eq("id", requestedItemId)
           .eq("owner_user_id", user.id)
@@ -697,6 +718,38 @@ export default function NewItemPage() {
             nextInfo.size = s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
           }
         }
+        const recommendedSizeIdFromDb = (itemData as { item_recommended_size_id?: string | null }).item_recommended_size_id;
+        if (recommendedSizeIdFromDb) {
+          const { data: recommendedSizeRow } = await supabase
+            .from("sizes")
+            .select("code,label")
+            .eq("id", recommendedSizeIdFromDb)
+            .maybeSingle();
+          if (isUnmounted) return;
+          if (recommendedSizeRow) {
+            const s = recommendedSizeRow as { code?: string; label?: string | null };
+            nextInfo.recommendedSizeId = recommendedSizeIdFromDb;
+            nextInfo.recommendedSize =
+              s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
+          }
+        }
+        const photographedOnMannequinFromDb = Boolean(
+          (itemData as { photographed_on_mannequin?: boolean | null }).photographed_on_mannequin,
+        );
+        nextInfo.photographedOnMannequin = photographedOnMannequinFromDb;
+        const mannequinIdFromDb = (itemData as { item_mannequin_id?: string | null }).item_mannequin_id;
+        if (photographedOnMannequinFromDb && mannequinIdFromDb) {
+          const { data: mannequinRow } = await supabase
+            .from("mannequins")
+            .select("id,first_name,size_description")
+            .eq("id", mannequinIdFromDb)
+            .maybeSingle();
+          if (isUnmounted) return;
+          if (mannequinRow) {
+            nextInfo.mannequinId = mannequinIdFromDb;
+            nextInfo.mannequinFirstName = (mannequinRow as { first_name?: string }).first_name ?? null;
+          }
+        }
         if ((itemData as { item_materiaux_id?: string | null }).item_materiaux_id) {
           const matId = (itemData as { item_materiaux_id: string }).item_materiaux_id;
           const { data: matRow } = await supabase.from("item_materiaux").select("label").eq("id", matId).maybeSingle();
@@ -792,7 +845,7 @@ export default function NewItemPage() {
         setDraftItemId(existingDraftId);
         const { data: existingItemData } = await supabase
           .from("items")
-          .select("title,description,price_points,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id")
+          .select("title,description,price_points,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id")
           .eq("id", existingDraftId)
           .eq("owner_user_id", user.id)
           .is("deleted_at", null)
@@ -828,6 +881,9 @@ export default function NewItemPage() {
             item_category_id?: string | null;
             item_brand_id?: string | null;
             item_size_id?: string | null;
+            item_recommended_size_id?: string | null;
+            photographed_on_mannequin?: boolean | null;
+            item_mannequin_id?: string | null;
             item_materiaux_id?: string | null;
             item_couleur_id?: string | null;
           };
@@ -864,6 +920,31 @@ export default function NewItemPage() {
               const s = sizeRow as { code?: string; label?: string | null };
               nextInfo.sizeId = d.item_size_id;
               nextInfo.size = s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
+            }
+          }
+          if (d.item_recommended_size_id) {
+            const { data: recommendedSizeRow } = await supabase
+              .from("sizes")
+              .select("code,label")
+              .eq("id", d.item_recommended_size_id)
+              .maybeSingle();
+            if (recommendedSizeRow) {
+              const s = recommendedSizeRow as { code?: string; label?: string | null };
+              nextInfo.recommendedSizeId = d.item_recommended_size_id;
+              nextInfo.recommendedSize =
+                s.label ?? (s.code?.includes(":") ? s.code.split(":")[1] ?? s.code : s.code ?? "");
+            }
+          }
+          nextInfo.photographedOnMannequin = Boolean(d.photographed_on_mannequin);
+          if (d.photographed_on_mannequin && d.item_mannequin_id) {
+            const { data: mannequinRow } = await supabase
+              .from("mannequins")
+              .select("id,first_name,size_description")
+              .eq("id", d.item_mannequin_id)
+              .maybeSingle();
+            if (mannequinRow) {
+              nextInfo.mannequinId = d.item_mannequin_id;
+              nextInfo.mannequinFirstName = (mannequinRow as { first_name?: string }).first_name ?? null;
             }
           }
           if (d.item_materiaux_id) {
@@ -1298,7 +1379,7 @@ export default function NewItemPage() {
         supabase
           .from("items")
           .select(
-            "title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id,pre_subscribe_proposal,status",
+            "title,description,photos,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id,pre_subscribe_proposal,status",
           )
           .eq("id", draftItemId)
           .eq("owner_user_id", user.id)
@@ -1334,6 +1415,13 @@ export default function NewItemPage() {
         (currentItem as { item_custom_brand_label?: string | null }).item_custom_brand_label,
       ),
       item_size_id: normalizeStringValue((currentItem as { item_size_id?: string | null }).item_size_id),
+      item_recommended_size_id: normalizeStringValue(
+        (currentItem as { item_recommended_size_id?: string | null }).item_recommended_size_id,
+      ),
+      photographed_on_mannequin: Boolean(
+        (currentItem as { photographed_on_mannequin?: boolean | null }).photographed_on_mannequin,
+      ),
+      item_mannequin_id: normalizeStringValue((currentItem as { item_mannequin_id?: string | null }).item_mannequin_id),
       item_materiaux_id: normalizeStringValue((currentItem as { item_materiaux_id?: string | null }).item_materiaux_id),
       item_couleur_id: normalizeStringValue((currentItem as { item_couleur_id?: string | null }).item_couleur_id),
       pre_subscribe_proposal: Boolean(
@@ -1352,6 +1440,9 @@ export default function NewItemPage() {
       item_brand_id: normalizeStringValue(nextItemPayload.item_brand_id),
       item_custom_brand_label: normalizeStringValue(nextItemPayload.item_custom_brand_label ?? null),
       item_size_id: normalizeStringValue(nextItemPayload.item_size_id),
+      item_recommended_size_id: normalizeStringValue(nextItemPayload.item_recommended_size_id),
+      photographed_on_mannequin: Boolean(nextItemPayload.photographed_on_mannequin),
+      item_mannequin_id: normalizeStringValue(nextItemPayload.item_mannequin_id),
       item_materiaux_id: normalizeStringValue(nextItemPayload.item_materiaux_id),
       item_couleur_id: normalizeStringValue(nextItemPayload.item_couleur_id),
       pre_subscribe_proposal: Boolean(nextItemPayload.pre_subscribe_proposal),
@@ -1792,11 +1883,19 @@ export default function NewItemPage() {
               pricePoints: itemPricePoints,
               ratingValue: "5.0",
               ratingStars: 5,
-              size: infoValues.size,
+              size: infoDraft.size ? normalizeItemSizeDisplay(infoDraft.size) : "-",
+              recommendedSize: infoDraft.recommendedSize
+                ? normalizeItemSizeDisplay(infoDraft.recommendedSize)
+                : undefined,
+              categoryLabel: infoDraft.category ?? null,
               materials: infoValues.materials,
               color: infoValues.color,
               brand: infoValues.brand,
               condition: infoValues.condition,
+              sizeDescription:
+                photographedOnMannequin && infoDraft.mannequinFirstName?.trim()
+                  ? `Mannequin ${infoDraft.mannequinFirstName.trim()}`
+                  : undefined,
             }}
           />
         ) : (

@@ -47,6 +47,8 @@ export async function publishCommunityInspiration(
     mediaBucket?: string;
     mediaPaths: string[];
     videoPosterPath?: string | null;
+    coverAspect?: "landscape" | "portrait" | "square";
+    coverTransform?: { offset: { x: number; y: number }; zoom: number } | null;
     itemIds: string[];
     roleLabels?: string[];
   },
@@ -62,6 +64,8 @@ export async function publishCommunityInspiration(
     p_video_poster_path: payload.videoPosterPath ?? null,
     p_item_ids: payload.itemIds,
     p_role_labels: payload.roleLabels ?? [],
+    p_cover_aspect: payload.coverAspect ?? "portrait",
+    p_cover_transform: payload.coverTransform ?? null,
   });
 
   if (error || !data || typeof data !== "object") {
@@ -73,6 +77,24 @@ export async function publishCommunityInspiration(
 
   const id = (data as Record<string, unknown>).id;
   return typeof id === "string" ? { id } : null;
+}
+
+export async function deleteCommunityInspiration(supabase: unknown, inspirationId: string): Promise<boolean> {
+  const client = supabase as {
+    from: (table: string) => {
+      update: (values: Record<string, unknown>) => {
+        eq: (column: string, value: string) => PromiseLike<{ error: { message?: string } | null }>;
+      };
+    };
+  };
+  const { error } = await client
+    .from("community_inspirations")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", inspirationId);
+  if (error && process.env.NODE_ENV === "development") {
+    console.info("[Community] delete_community_inspiration:", error.message);
+  }
+  return !error;
 }
 
 export async function reportCommunityInspiration(

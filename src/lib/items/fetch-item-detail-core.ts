@@ -127,7 +127,7 @@ export async function fetchItemDetailPayloadForUser(
   const { data: itemRow, error: itemError } = await supabase
     .from("items")
     .select(
-      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_materiaux_id,item_couleur_id",
+      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,item_size_description,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id",
     )
     .eq("id", trimmed)
     .is("deleted_at", null)
@@ -140,15 +140,28 @@ export async function fetchItemDetailPayloadForUser(
   const isOwner = ownerUserId === userId;
   const brandId = row.item_brand_id as string | null;
   const sizeId = row.item_size_id as string | null;
+  const recommendedSizeId = row.item_recommended_size_id as string | null;
+  const categoryId = row.item_category_id as string | null;
   const materialsId = row.item_materiaux_id as string | null;
   const colorId = row.item_couleur_id as string | null;
+  const sizeDescriptionRaw =
+    typeof row.item_size_description === "string" ? row.item_size_description.trim() : "";
+  const photographedOnMannequin = Boolean(row.photographed_on_mannequin);
+  const mannequinId = row.item_mannequin_id as string | null;
 
-  const [brandRes, sizeRes, materialsRes, colorRes, conditionRes, likesRes, exchangeCount, itemRatingSummary, itemFeedbacks, wornPhotos] =
+  const [brandRes, sizeRes, recommendedSizeRes, categoryRes, materialsRes, colorRes, mannequinRes, conditionRes, likesRes, exchangeCount, itemRatingSummary, itemFeedbacks, wornPhotos] =
     await Promise.all([
     brandId ? supabase.from("item_brands").select("label,slug").eq("id", brandId).maybeSingle() : { data: null },
     sizeId ? supabase.from("sizes").select("label").eq("id", sizeId).maybeSingle() : { data: null },
+    recommendedSizeId
+      ? supabase.from("sizes").select("label").eq("id", recommendedSizeId).maybeSingle()
+      : { data: null },
+    categoryId ? supabase.from("item_categories").select("name").eq("id", categoryId).maybeSingle() : { data: null },
     materialsId ? supabase.from("item_materiaux").select("label").eq("id", materialsId).maybeSingle() : { data: null },
     colorId ? supabase.from("item_couleurs").select("label").eq("id", colorId).maybeSingle() : { data: null },
+    photographedOnMannequin && mannequinId
+      ? supabase.from("mannequins").select("first_name,size_description").eq("id", mannequinId).maybeSingle()
+      : { data: null },
     supabase
       .from("item_condition_history")
       .select("condition_score")
@@ -187,8 +200,22 @@ export async function fetchItemDetailPayloadForUser(
       : brandFallback;
   const rawSizeLabel = (sizeRes.data as { label?: string } | null)?.label?.trim();
   const sizeLabel = rawSizeLabel ? rawSizeLabel : "";
+  const rawRecommendedSizeLabel = (recommendedSizeRes.data as { label?: string } | null)?.label?.trim();
+  const recommendedSizeLabel = rawRecommendedSizeLabel ? rawRecommendedSizeLabel : "";
+  const categoryLabel = (categoryRes.data as { name?: string } | null)?.name?.trim() ?? null;
   const materialsLabel = (materialsRes.data as { label?: string } | null)?.label ?? "—";
   const colorLabel = (colorRes.data as { label?: string } | null)?.label ?? "—";
+  const mannequinRow = mannequinRes.data as { first_name?: string; size_description?: string | null } | null;
+  const mannequinHint =
+    photographedOnMannequin && mannequinRow
+      ? [
+          mannequinRow.first_name?.trim() ? `Mannequin ${mannequinRow.first_name.trim()}` : "Mannequin",
+          mannequinRow.size_description?.trim() ?? "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+  const sizeDescription = [sizeDescriptionRaw, mannequinHint].filter(Boolean).join(" · ");
 
   const photoEntries = getPhotoEntriesFromJson(row.photos).slice(0, 6);
   const photosLayout = parseItemPhotosLayout(row.photos);
@@ -267,6 +294,9 @@ export async function fetchItemDetailPayloadForUser(
         color: colorLabel,
         brand: brandLabel,
         condition: conditionLabel,
+        recommendedSize: recommendedSizeLabel,
+        sizeDescription,
+        categoryLabel,
       },
       itemFeedbacks,
       wornPhotos,

@@ -21,6 +21,7 @@ const FRAME_TYPES: CmsFrameType[] = [
   "shop_brand_ref",
   "shop_link_card",
   "profile_plus_hero",
+  "home_hero",
 ];
 const PLAN_CODES: CmsPlanCode[] = ["guest", "segna_plus", "segna_x"];
 

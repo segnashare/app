@@ -1,17 +1,17 @@
 "use client";
 
-import { GripVertical, Image as ImageIcon, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, TouchEvent } from "react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
-const montserratItalic = segnaMontserrat;
-const montserratExtraBoldItalic = segnaMontserrat;
 
-import { VisibilityToggleEye } from "@/components/onboarding/VisibilityToggleEye";
-import { ImageCoverWithSkeleton } from "@/components/ui/ImageCoverWithSkeleton";
+import { InspirationMasonryGrid } from "@/components/community/InspirationMasonryGrid";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
+import { fetchMemberInspirations } from "@/lib/community/fetch-related-inspirations";
+import { resolveInspirationCardsMediaUrls } from "@/lib/community/resolve-inspiration-media-urls";
+import type { InspirationFeedCard } from "@/lib/community/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   preparePhotoModifyImage,
@@ -20,27 +20,15 @@ import {
   registerPhotoModifyRuntimeFile,
   savePhotoModifyDraft,
 } from "@/lib/onboarding/photoModifyStore";
-import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { computeProfileCompletionPreviewPercent } from "@/lib/profile/profile-completion-score";
-import { formatReseauxSummary } from "@/lib/profile/social-handles";
+import {
+  isValidInstagramHandle,
+  normalizeInstagramHandleInput,
+  readSocialHandlesFromProfileData,
+} from "@/lib/profile/social-handles";
+import { createInspirationHref } from "@/lib/community/create-inspiration-href";
+import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
-
-
-
-
-
-
-
-type AnswerSlotProps = {
-  prompt: string;
-  response: string;
-  placeholder: string;
-  onChangeResponse: (value: string) => void;
-  onOpenPrompt: () => void;
-  onClearPrompt: () => void;
-  canClearPrompt?: boolean;
-  hasError?: boolean;
-};
 
 type LookSlot = {
   dataUrl: string;
@@ -197,12 +185,12 @@ function isProfileRequirementValueFilled(value: unknown): boolean {
 const ESSENTIAL_ONBOARDING_INFO_IDS = ["first_name", "age", "location", "work", "sizes"] as const;
 
 function collectMissingOnboardingRequirementTargets(
-  looksSlots: Array<LookSlot | null>,
+  profilePhoto: LookSlot | null,
   infoItems: ProfileRowItem[],
 ): Set<string> {
   const targets = new Set<string>();
-  if (!looksSlots.some(Boolean)) {
-    targets.add("look-0");
+  if (!profilePhoto) {
+    targets.add("profile-photo");
   }
   for (const id of ESSENTIAL_ONBOARDING_INFO_IDS) {
     const value = infoItems.find((item) => item.id === id)?.value;
@@ -347,98 +335,6 @@ function compactInsightSlots(slots: ModifyInsightSlot[]) {
   return compacted.slice(0, 3);
 }
 
-function resolveInsightPickerSlot(requestedSlot: 0 | 1 | 2, slots: ModifyInsightSlot[]): 0 | 1 | 2 {
-  const requested = slots[requestedSlot];
-  const requestedHasContent = requested.prompt.trim().length > 0 || requested.response.trim().length > 0;
-  if (requestedHasContent) return requestedSlot;
-  const firstEmptyIndex = slots.findIndex((slot) => slot.prompt.trim().length === 0 && slot.response.trim().length === 0);
-  if (firstEmptyIndex === -1) return requestedSlot;
-  return (Math.max(0, Math.min(2, firstEmptyIndex)) as 0 | 1 | 2);
-}
-
-function AnswerSlot({
-  prompt,
-  response,
-  placeholder,
-  onChangeResponse,
-  onOpenPrompt,
-  onClearPrompt,
-  canClearPrompt = false,
-  hasError = false,
-}: AnswerSlotProps) {
-  const hasPrompt = prompt.trim().length > 0;
-  const [supportsHover, setSupportsHover] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mediaQuery = window.matchMedia("(hover: hover)");
-    const update = () => setSupportsHover(mediaQuery.matches);
-    update();
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", update);
-      return () => mediaQuery.removeEventListener("change", update);
-    }
-    mediaQuery.addListener(update);
-    return () => mediaQuery.removeListener(update);
-  }, []);
-
-  const showClearButton = canClearPrompt && (!supportsHover || isHovered);
-
-  return (
-    <div
-      className={cn("group relative w-full rounded-[11px] border-2 border-dashed bg-transparent px-4 pb-2 pt-2 text-left", hasError ? "border-[#d56a61]" : "border-[#c6c6c6]")}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onFocusCapture={() => setIsHovered(true)}
-      onBlurCapture={() => setIsHovered(false)}
-    >
-      <button
-        type="button"
-        onClick={onOpenPrompt}
-        className={cn(
-          montserratExtraBoldItalic.className,
-          "min-h-[34px] w-full bg-transparent pr-10 text-left text-[20px] font-extrabold italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none",
-        )}
-      >
-        {hasPrompt ? prompt : <span className="text-zinc-500">Choisis une question</span>}
-      </button>
-      <textarea
-        value={response}
-        onChange={(event) => onChangeResponse(event.target.value)}
-        rows={2}
-        placeholder={hasPrompt ? placeholder : "Choisis d'abord une question"}
-        disabled={!hasPrompt}
-        className={cn(
-          montserratItalic.className,
-          "mt-1 min-h-[34px] w-full resize-none overflow-hidden bg-transparent pr-10 text-[18px] italic leading-[1.08] tracking-[0.01em] text-zinc-900 outline-none placeholder:text-[#c2c2c2] disabled:cursor-not-allowed disabled:text-zinc-400",
-        )}
-      />
-      <button
-        type="button"
-        onClick={onOpenPrompt}
-        className="absolute right-[7px] top-[7px] inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-zinc-900 text-white"
-        aria-label="Choisir un prompt"
-      >
-        <Plus size={16} strokeWidth={3} />
-      </button>
-      {canClearPrompt ? (
-        <button
-          type="button"
-          onClick={onClearPrompt}
-          className={cn(
-            "absolute -left-[7px] -top-[7px] inline-flex h-[19px] w-[19px] items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 transition-opacity",
-            showClearButton ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
-          )}
-          aria-label="Supprimer la question"
-        >
-          <X size={11} strokeWidth={2.8} />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 type ProfileCompleteModifyCoreProps = {
   onInsightsValidityChange?: (isComplete: boolean) => void;
   showInsightsValidationError?: boolean;
@@ -465,10 +361,12 @@ export function ProfileCompleteModifyCore({
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
 
   const profileInputRef = useRef<HTMLInputElement | null>(null);
-  const looksInputRef = useRef<HTMLInputElement | null>(null);
-  const activeLookSlotRef = useRef<number>(0);
   const processedModifyIdRef = useRef<string | null>(null);
   const lastSavedAnswersRef = useRef<string>("");
+  const lastSavedFirstNameRef = useRef<string>("");
+  const lastSavedWorkRef = useRef<string>("");
+  const lastSavedAgeRef = useRef<string>("");
+  const lastSavedInstagramRef = useRef<string>("");
   const [cacheBootstrapDone, setCacheBootstrapDone] = useState(false);
   const [hasCachedBootstrap, setHasCachedBootstrap] = useState(false);
 
@@ -478,7 +376,15 @@ export function ProfileCompleteModifyCore({
 
   const [profilePhoto, setProfilePhoto] = useState<LookSlot | null>(null);
   const [looksSlots, setLooksSlots] = useState<Array<LookSlot | null>>([null, null, null]);
+  const [postedLooks, setPostedLooks] = useState<InspirationFeedCard[]>([]);
+  const [isLoadingPostedLooks, setIsLoadingPostedLooks] = useState(true);
   const [shakingTargets, setShakingTargets] = useState<Set<string>>(() => new Set());
+
+  const [inlineFirstName, setInlineFirstName] = useState("");
+  const [inlineAge, setInlineAge] = useState("");
+  const [inlineWork, setInlineWork] = useState("");
+  const [inlineInstagram, setInlineInstagram] = useState("");
+  const [instagramError, setInstagramError] = useState<string | null>(null);
 
   const [prompt0, setPrompt0] = useState("");
   const [prompt1, setPrompt1] = useState("");
@@ -492,27 +398,6 @@ export function ProfileCompleteModifyCore({
   /** Dernier `profile_data` chargé : pour que le % prévisualisé utilise la même règle « réseaux » que `user_profiles.score`. */
   const [completionPreviewProfileData, setCompletionPreviewProfileData] = useState<Record<string, unknown> | null>(null);
   const [infoVisibilityMap, setInfoVisibilityMap] = useState<Record<string, boolean>>({});
-  const [supportsHover, setSupportsHover] = useState(true);
-  const [hoveredLookIndex, setHoveredLookIndex] = useState<number | null>(null);
-  const [draggingLookIndex, setDraggingLookIndex] = useState<number | null>(null);
-  const [dragOverLookIndex, setDragOverLookIndex] = useState<number | null>(null);
-  const [dragLookPreview, setDragLookPreview] = useState<{ url: string; x: number; y: number } | null>(null);
-  const longPressLookTimerRef = useRef<number | null>(null);
-  const touchStartLookRef = useRef<{ x: number; y: number; index: number } | null>(null);
-  const suppressNextClickLookRef = useRef(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mediaQuery = window.matchMedia("(hover: hover)");
-    const update = () => setSupportsHover(mediaQuery.matches);
-    update();
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", update);
-      return () => mediaQuery.removeEventListener("change", update);
-    }
-    mediaQuery.addListener(update);
-    return () => mediaQuery.removeListener(update);
-  }, []);
 
   const resolveStoragePaths = useCallback(
     async (paths: string[]) => {
@@ -727,6 +612,19 @@ export function ProfileCompleteModifyCore({
     const firstNameValue = toDisplayValue(
       typeof usersRow.first_name === "string" && usersRow.first_name.trim().length > 0 ? usersRow.first_name : profileRow.display_name,
     );
+    const ageValue = toDisplayValue(profileRow.age);
+    const workValue = toDisplayValue(profileData.work);
+    const instagramHandle = readSocialHandlesFromProfileData(profileData).instagram;
+
+    setInlineFirstName(firstNameValue === "À compléter" ? "" : firstNameValue);
+    setInlineAge(ageValue === "À compléter" ? "" : ageValue);
+    setInlineWork(workValue === "À compléter" ? "" : workValue);
+    setInlineInstagram(instagramHandle);
+    lastSavedFirstNameRef.current = firstNameValue === "À compléter" ? "" : firstNameValue;
+    lastSavedWorkRef.current = workValue === "À compléter" ? "" : workValue;
+    lastSavedAgeRef.current = ageValue === "À compléter" ? "" : ageValue;
+    lastSavedInstagramRef.current = instagramHandle;
+
     const infoVisibilityRaw = (profileData.info_visibility ?? {}) as Record<string, unknown>;
     const nextInfoVisibilityMap: Record<string, boolean> = {
       age: typeof infoVisibilityRaw.age === "boolean" ? infoVisibilityRaw.age : true,
@@ -736,6 +634,12 @@ export function ProfileCompleteModifyCore({
       reseaux: typeof infoVisibilityRaw.reseaux === "boolean" ? infoVisibilityRaw.reseaux : true,
     };
     setInfoVisibilityMap(nextInfoVisibilityMap);
+
+    const locationData = profileData.location as Record<string, unknown> | undefined;
+    const locationExactLabel =
+      typeof locationData?.label === "string" && locationData.label.trim().length > 0
+        ? locationData.label.trim()
+        : null;
 
     setInfoItems([
       {
@@ -755,8 +659,8 @@ export function ProfileCompleteModifyCore({
       },
       {
         id: "location",
-        label: "Position",
-        value: toDisplayValue(profileRow.city ?? (profileData.location as Record<string, unknown> | undefined)?.label),
+        label: "Adresse",
+        value: toDisplayValue(locationExactLabel ?? profileRow.city),
         visibility: nextInfoVisibilityMap.location ? "visible" : "hidden",
         visibilityMode: "profileData",
         visibilityKey: "location",
@@ -776,14 +680,6 @@ export function ProfileCompleteModifyCore({
         visibility: nextInfoVisibilityMap.sizes ? "visible" : "hidden",
         visibilityMode: "profileData",
         visibilityKey: "sizes",
-      },
-      {
-        id: "reseaux",
-        label: "Réseaux sociaux",
-        value: formatReseauxSummary(profileData),
-        visibility: nextInfoVisibilityMap.reseaux ? "visible" : "hidden",
-        visibilityMode: "profileData",
-        visibilityKey: "reseaux",
       },
     ]);
 
@@ -815,6 +711,23 @@ export function ProfileCompleteModifyCore({
       };
     });
     setPreferenceItems(prefRows);
+
+    setIsLoadingPostedLooks(true);
+    const memberLooks = await fetchMemberInspirations(supabase, user.id, 50);
+    const authorDisplayName =
+      firstNameValue && firstNameValue !== "À compléter" ? firstNameValue : undefined;
+    const enrichedLooks = memberLooks.map((card) => ({
+      ...card,
+      author_user_id: card.author_user_id ?? user.id,
+      author_display_name:
+        card.author_display_name && card.author_display_name !== "Membre Segna"
+          ? card.author_display_name
+          : authorDisplayName ?? card.author_display_name,
+      author_instagram_username: card.author_instagram_username ?? instagramHandle ?? null,
+    }));
+    const resolvedLooks = await resolveInspirationCardsMediaUrls(supabase, enrichedLooks);
+    setPostedLooks(resolvedLooks);
+    setIsLoadingPostedLooks(false);
 
     setIsHydrating(false);
   }, [resolveStoragePaths, searchParams, supabase]);
@@ -955,141 +868,6 @@ export function ProfileCompleteModifyCore({
       isRemoteSource: false,
     });
   };
-
-  const onPickLookPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("Le fichier doit être une image.");
-      return;
-    }
-    const slot = activeLookSlotRef.current;
-    const prepared = await preparePhotoModifyImage(file);
-    openModifyPage({
-      source: "looks",
-      slot,
-      fileName: prepared.fileName,
-      mimeType: prepared.mimeType,
-      dataUrl: prepared.previewUrl,
-      file: prepared.file,
-      originalStoragePath: looksSlots[slot]?.storagePath,
-      offset: { x: 0, y: 0 },
-      zoom: 1,
-      isRemoteSource: false,
-    });
-  };
-
-  const setInsightStateFromSlots = useCallback((slots: ModifyInsightSlot[]) => {
-    const [s0, s1, s2] = compactInsightSlots(slots);
-    setPrompt0(s0.prompt);
-    setResponse0(s0.response);
-    setPrompt1(s1.prompt);
-    setResponse1(s1.response);
-    setPrompt2(s2.prompt);
-    setResponse2(s2.response);
-  }, []);
-
-  const clearInsightSlot = useCallback(
-    (slotIndex: number) => {
-      const safeSlot = Math.max(0, Math.min(2, slotIndex));
-      const current: ModifyInsightSlot[] = [
-        { prompt: prompt0, response: response0 },
-        { prompt: prompt1, response: response1 },
-        { prompt: prompt2, response: response2 },
-      ];
-      current[safeSlot] = { prompt: "", response: "" };
-      setInsightStateFromSlots(current);
-    },
-    [prompt0, prompt1, prompt2, response0, response1, response2, setInsightStateFromSlots],
-  );
-
-  const clearLookSlot = useCallback(
-    async (slotIndex: number) => {
-      const safeSlot = Math.max(0, Math.min(2, slotIndex));
-      const previousLooks = [...looksSlots];
-      const nextLooks = [...previousLooks];
-      nextLooks[safeSlot] = null;
-      const compactedLooks = compactLooksSlots(nextLooks);
-      setLooksSlots(compactedLooks);
-      setErrorMessage(null);
-
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-      if (userError || !user) {
-        setErrorMessage("Session invalide.");
-        setLooksSlots(previousLooks);
-        return;
-      }
-
-      const { error } = await supabase.rpc("update_user_profile_public", {
-        p_profile_json: {
-          looks: buildLooksPayload(compactedLooks),
-        },
-        p_request_id: crypto.randomUUID(),
-      });
-
-      if (error) {
-        setErrorMessage(error.message);
-        setLooksSlots(previousLooks);
-      } else {
-        clearProfileHeaderCache();
-      }
-    },
-    [looksSlots, supabase],
-  );
-
-  const moveLookSlot = useCallback((fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    setLooksSlots((prev) => {
-      const next = [...prev];
-      const temp = next[toIndex];
-      next[toIndex] = next[fromIndex];
-      next[fromIndex] = temp;
-      return next;
-    });
-  }, []);
-
-  const onDropLookSlot = useCallback(
-    (dropIndex: number) => {
-      if (draggingLookIndex !== null) {
-        moveLookSlot(draggingLookIndex, dropIndex);
-      }
-      setDraggingLookIndex(null);
-      setDragOverLookIndex(null);
-    },
-    [draggingLookIndex, moveLookSlot],
-  );
-
-  const onTouchMoveLookSlot = useCallback((event: TouchEvent<HTMLButtonElement>) => {
-    const touch = event.touches[0];
-    if (!touch) return;
-    if (draggingLookIndex === null) return;
-    setDragLookPreview((prev) => (prev ? { ...prev, x: touch.clientX, y: touch.clientY } : prev));
-    const hovered = document.elementFromPoint(touch.clientX, touch.clientY)?.closest("[data-look-slot-index]");
-    const rawIndex = hovered?.getAttribute("data-look-slot-index");
-    const nextIndex = rawIndex ? Number(rawIndex) : null;
-    setDragOverLookIndex(Number.isInteger(nextIndex) ? (nextIndex as number) : null);
-  }, [draggingLookIndex]);
-
-  const onTouchEndLookSlot = useCallback(() => {
-    if (longPressLookTimerRef.current !== null) {
-      window.clearTimeout(longPressLookTimerRef.current);
-      longPressLookTimerRef.current = null;
-    }
-    touchStartLookRef.current = null;
-    if (draggingLookIndex !== null && dragOverLookIndex !== null) {
-      moveLookSlot(draggingLookIndex, dragOverLookIndex);
-    }
-    if (draggingLookIndex !== null) {
-      suppressNextClickLookRef.current = true;
-    }
-    setDraggingLookIndex(null);
-    setDragOverLookIndex(null);
-    setDragLookPreview(null);
-  }, [draggingLookIndex, dragOverLookIndex, moveLookSlot]);
 
   useEffect(() => {
     const modifiedId = searchParams.get("photoModifyId");
@@ -1271,8 +1049,7 @@ export function ProfileCompleteModifyCore({
     if (!onOnboardingProfileRequirementsChange || isHydrating) return;
     const getInfo = (id: string) => infoItems.find((item) => item.id === id)?.value ?? "";
     onOnboardingProfileRequirementsChange({
-      // Dans l’onboarding, la photo de profil correspond à la première photo ajoutée.
-      hasPhoto: looksSlots.some(Boolean),
+      hasPhoto: Boolean(profilePhoto),
       hasEssentialInfos:
         isProfileRequirementValueFilled(getInfo("first_name")) &&
         isProfileRequirementValueFilled(getInfo("age")) &&
@@ -1280,14 +1057,14 @@ export function ProfileCompleteModifyCore({
         isProfileRequirementValueFilled(getInfo("work")) &&
         isProfileRequirementValueFilled(getInfo("sizes")),
     });
-  }, [infoItems, isHydrating, looksSlots, onOnboardingProfileRequirementsChange]);
+  }, [infoItems, isHydrating, profilePhoto, onOnboardingProfileRequirementsChange]);
 
   useEffect(() => {
     if (requirementShakeKey == null || requirementShakeKey === 0 || isHydrating) return;
-    const targets = collectMissingOnboardingRequirementTargets(looksSlots, infoItems);
+    const targets = collectMissingOnboardingRequirementTargets(profilePhoto, infoItems);
     if (targets.size === 0) return;
     setShakingTargets(targets);
-    const scrollTargetId = targets.has("look-0") ? "look-0" : [...targets][0];
+    const scrollTargetId = targets.has("profile-photo") ? "profile-photo" : [...targets][0];
     requestAnimationFrame(() => {
       document.querySelector(`[data-profile-shake="${scrollTargetId}"]`)?.scrollIntoView({
         behavior: "smooth",
@@ -1296,7 +1073,7 @@ export function ProfileCompleteModifyCore({
     });
     const timeoutId = window.setTimeout(() => setShakingTargets(new Set()), 560);
     return () => window.clearTimeout(timeoutId);
-  }, [requirementShakeKey, isHydrating, looksSlots, infoItems]);
+  }, [requirementShakeKey, isHydrating, profilePhoto, infoItems]);
 
   useEffect(() => {
     if (isHydrating) return;
@@ -1324,25 +1101,6 @@ export function ProfileCompleteModifyCore({
 
     return () => window.clearTimeout(timeout);
   }, [answersForSave, isHydrating, supabase]);
-
-  const openPromptPicker = (slot: 0 | 1 | 2) => {
-    const insightSlots: ModifyInsightSlot[] = [
-      { prompt: prompt0, response: response0 },
-      { prompt: prompt1, response: response1 },
-      { prompt: prompt2, response: response2 },
-    ];
-    const targetSlot = resolveInsightPickerSlot(slot, insightSlots);
-    const params = new URLSearchParams();
-    params.set("slot", String(targetSlot));
-    params.set("returnPath", buildProfileCompleteReturnPath(pathname, searchParams));
-    if (prompt0.trim()) params.set("p0", prompt0.trim());
-    if (prompt1.trim()) params.set("p1", prompt1.trim());
-    if (prompt2.trim()) params.set("p2", prompt2.trim());
-    if (response0.trim()) params.set("r0", response0.trim());
-    if (response1.trim()) params.set("r1", response1.trim());
-    if (response2.trim()) params.set("r2", response2.trim());
-    router.push(`/profile/insights/prompts?${params.toString()}`);
-  };
 
   const syncPreferenceVisibility = (section: VisibilitySectionId, isVisible: boolean) => {
     setStyleItems((previous) => previous.map((item) => (item.visibilitySection === section ? { ...item, visibility: isVisible ? "visible" : "hidden" } : item)));
@@ -1393,213 +1151,316 @@ export function ProfileCompleteModifyCore({
 
   const currentReturnPath = buildProfileCompleteReturnPath(pathname, searchParams);
   const getEditPath = (field: string) => `/profile/edit?field=${encodeURIComponent(field)}&returnPath=${encodeURIComponent(currentReturnPath)}`;
-  const getReseauxPath = () => `/profile/reseaux?returnPath=${encodeURIComponent(currentReturnPath)}`;
 
-  const renderProfileRows = (items: ProfileRowItem[]) => (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-      {items.map((item, index) => (
+  const syncInfoItemValue = useCallback((id: string, value: string) => {
+    setInfoItems((previous) =>
+      previous.map((item) => (item.id === id ? { ...item, value: value.trim().length > 0 ? value.trim() : "À compléter" } : item)),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (isHydrating) return;
+    const normalized = inlineFirstName.trim();
+    if (normalized === lastSavedFirstNameRef.current) return;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        if (normalized.length < 2) return;
+        const settingsResult = await (supabase.rpc as unknown as (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => Promise<{ error?: { message?: string } | null }>)("update_user_account_settings", {
+          p_locale: null,
+          p_timezone: null,
+          p_first_name: capitalizeFirstLetter(normalized),
+          p_last_name: null,
+          p_request_id: crypto.randomUUID(),
+        });
+        if (settingsResult?.error) {
+          setErrorMessage(settingsResult.error.message ?? "Impossible d'enregistrer le prénom.");
+          return;
+        }
+        lastSavedFirstNameRef.current = normalized;
+        syncInfoItemValue("first_name", normalized);
+        clearProfileHeaderCache();
+      })();
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [inlineFirstName, isHydrating, supabase, syncInfoItemValue]);
+
+  useEffect(() => {
+    if (isHydrating) return;
+    const normalized = inlineWork.trim();
+    if (normalized === lastSavedWorkRef.current) return;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        if (normalized.length < 2) return;
+        const { error } = await supabase.rpc("update_user_profile_public", {
+          p_profile_json: { profile_data: { work: normalized } },
+          p_request_id: crypto.randomUUID(),
+        });
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        lastSavedWorkRef.current = normalized;
+        syncInfoItemValue("work", normalized);
+      })();
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [inlineWork, isHydrating, supabase, syncInfoItemValue]);
+
+  useEffect(() => {
+    if (isHydrating) return;
+    const normalized = inlineAge.trim();
+    if (normalized === lastSavedAgeRef.current) return;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        const ageNumber = Number(normalized);
+        if (!Number.isFinite(ageNumber) || ageNumber < 16 || ageNumber > 120) return;
+        const { error } = await supabase.rpc("update_user_profile_public", {
+          p_profile_json: { age: ageNumber },
+          p_request_id: crypto.randomUUID(),
+        });
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        lastSavedAgeRef.current = normalized;
+        syncInfoItemValue("age", normalized);
+      })();
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [inlineAge, isHydrating, supabase, syncInfoItemValue]);
+
+  useEffect(() => {
+    if (isHydrating) return;
+    const normalized = normalizeInstagramHandleInput(inlineInstagram);
+    if (normalized === lastSavedInstagramRef.current) return;
+    if (normalized && !isValidInstagramHandle(normalized)) {
+      setInstagramError("Pseudo Instagram invalide.");
+      return;
+    }
+    setInstagramError(null);
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        const { error } = await supabase.rpc("update_user_profile_public", {
+          p_profile_json: {
+            profile_data: {
+              instagram_username: normalized || null,
+              tiktok_username: null,
+              pinterest_username: null,
+              threads_username: null,
+            },
+          },
+          p_request_id: crypto.randomUUID(),
+        });
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        lastSavedInstagramRef.current = normalized;
+        setCompletionPreviewProfileData((previous) => ({
+          ...(previous ?? {}),
+          instagram_username: normalized || null,
+        }));
+        clearProfileHeaderCache();
+      })();
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [inlineInstagram, isHydrating, supabase]);
+
+  const inlineInfoItems = infoItems.filter((item) => item.id !== "location" && item.id !== "sizes");
+  const navigationInfoItems = infoItems.filter((item) => item.id === "location" || item.id === "sizes");
+
+  const infoValueClassName = "text-right text-[15px] text-zinc-600";
+
+  const renderInfoRows = () => (
+    <div className={cn(montserrat.className, "divide-y divide-zinc-100")}>
+      {inlineInfoItems.map((item) => (
         <div
           key={item.id}
           data-profile-shake={`info-${item.id}`}
           className={cn(
-            "flex items-center justify-between px-4 py-3",
-            index < items.length - 1 ? "border-b border-zinc-200" : "",
+            "flex items-center gap-3 py-3.5",
             shakingTargets.has(`info-${item.id}`) ? "profile-requirement-vibrate" : "",
           )}
         >
-          <button
-            type="button"
-            onClick={() => router.push(item.id === "reseaux" ? getReseauxPath() : getEditPath(item.id))}
-            className="min-w-0 flex-1 text-left"
-          >
-            <p className="text-[18px] font-semibold leading-none text-zinc-900">{item.label}</p>
-            <p className="mt-1 truncate text-[14px] leading-none text-zinc-400">{item.value}</p>
-          </button>
-          <div className="ml-3 inline-flex items-center gap-2 text-zinc-400">
-            {item.visibilityMode !== "locked" ? (
-              <VisibilityToggleEye
-                visible={item.visibility === "visible"}
-                onVisibilityChange={(nextVisible) => {
-                  void toggleItemVisibility(item, nextVisible);
-                }}
-                className="h-6 w-6"
-                iconClassName="h-5 w-5 opacity-60 grayscale"
-                ariaLabel={`Visibilité ${item.label}`}
+          <span className="w-[110px] shrink-0 text-[15px] font-semibold text-zinc-900">{item.label}</span>
+          <div className="min-w-0 flex-1">
+            {item.id === "first_name" ? (
+              <input
+                type="text"
+                value={inlineFirstName}
+                onChange={(event) => setInlineFirstName(event.target.value)}
+                placeholder="Prénom"
+                className={cn("w-full bg-transparent outline-none placeholder:text-zinc-300", infoValueClassName)}
               />
-            ) : null}
+            ) : item.id === "age" ? (
+              <input
+                type="text"
+                inputMode="numeric"
+                value={inlineAge}
+                onChange={(event) => setInlineAge(event.target.value.replace(/\D/g, "").slice(0, 3))}
+                placeholder="Âge"
+                className={cn("w-full bg-transparent outline-none placeholder:text-zinc-300", infoValueClassName)}
+              />
+            ) : item.id === "work" ? (
+              <input
+                type="text"
+                value={inlineWork}
+                onChange={(event) => setInlineWork(event.target.value)}
+                placeholder="Profession"
+                className={cn("w-full bg-transparent outline-none placeholder:text-zinc-300", infoValueClassName)}
+              />
+            ) : (
+              <span className={cn("block truncate", infoValueClassName)}>{item.value}</span>
+            )}
           </div>
         </div>
+      ))}
+      <div className="flex items-center gap-3 py-3.5">
+        <span className="w-[110px] shrink-0 text-[15px] font-semibold text-zinc-900">Instagram</span>
+        <div className="min-w-0 flex-1">
+          <input
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="ex : segnashare"
+            value={inlineInstagram}
+            onChange={(event) => {
+              setInlineInstagram(event.target.value);
+              setInstagramError(null);
+            }}
+            className={cn("w-full bg-transparent outline-none placeholder:text-zinc-300", infoValueClassName)}
+          />
+        </div>
+      </div>
+      {instagramError ? <p className="py-2 text-[13px] text-[#E44D3E]">{instagramError}</p> : null}
+      {navigationInfoItems.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          data-profile-shake={`info-${item.id}`}
+          onClick={() => router.push(getEditPath(item.id))}
+          className={cn(
+            "flex w-full items-center gap-3 py-3.5 text-left",
+            shakingTargets.has(`info-${item.id}`) ? "profile-requirement-vibrate" : "",
+          )}
+        >
+          <span className="w-[110px] shrink-0 text-[15px] font-semibold text-zinc-900">{item.label}</span>
+          <span className={cn("min-w-0 flex-1 truncate", infoValueClassName)}>{item.value}</span>
+        </button>
       ))}
     </div>
   );
 
   return (
-    <div className="space-y-8">
+    <div className="-mx-4 flex flex-col space-y-[4.5px] bg-zinc-100">
       <input ref={profileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickProfilePhoto} />
-      <input ref={looksInputRef} type="file" accept="image/*" className="hidden" onChange={onPickLookPhoto} />
 
-      <section className="space-y-3">
-        <p className="text-[18px] font-semibold text-zinc-400">Mes looks</p>
-        <div className="grid grid-cols-3 gap-2">
-          {looksSlots.map((slot, index) => (
-            <button
-              key={`look-slot-${index}`}
-              data-look-slot-index={index}
-              data-profile-shake={index === 0 ? "look-0" : undefined}
-              type="button"
-              draggable={Boolean(slot)}
-              onDragStart={(event: DragEvent<HTMLButtonElement>) => {
-                setDraggingLookIndex(index);
-                if (slot) {
-                  setDragLookPreview({ url: slot.dataUrl, x: event.clientX, y: event.clientY });
-                }
-                if (event.dataTransfer) {
-                  const transparentPixel = new Image();
-                  transparentPixel.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
-                  event.dataTransfer.setDragImage(transparentPixel, 0, 0);
-                }
-              }}
-              onDrag={(event: DragEvent<HTMLButtonElement>) => {
-                if (!slot) return;
-                if (event.clientX === 0 && event.clientY === 0) return;
-                setDragLookPreview({ url: slot.dataUrl, x: event.clientX, y: event.clientY });
-              }}
-              onDragEnd={() => {
-                setDraggingLookIndex(null);
-                setDragOverLookIndex(null);
-                setDragLookPreview(null);
-              }}
-              onDragOver={(event: DragEvent<HTMLButtonElement>) => event.preventDefault()}
-              onDragEnter={() => setDragOverLookIndex(index)}
-              onDragLeave={() => setDragOverLookIndex((prev) => (prev === index ? null : prev))}
-              onDrop={() => onDropLookSlot(index)}
-              onTouchStart={(event) => {
-                if (slot) {
-                  const touch = event.touches[0];
-                  if (!touch) return;
-                  touchStartLookRef.current = { x: touch.clientX, y: touch.clientY, index };
-                  if (longPressLookTimerRef.current !== null) {
-                    window.clearTimeout(longPressLookTimerRef.current);
-                  }
-                  longPressLookTimerRef.current = window.setTimeout(() => {
-                    setDraggingLookIndex(index);
-                    setDragOverLookIndex(index);
-                    setDragLookPreview({ url: slot.dataUrl, x: touch.clientX, y: touch.clientY });
-                    longPressLookTimerRef.current = null;
-                  }, 220);
-                }
-              }}
-              onTouchMove={onTouchMoveLookSlot}
-              onTouchEnd={onTouchEndLookSlot}
-              onTouchCancel={onTouchEndLookSlot}
-              onClick={() => {
-                if (suppressNextClickLookRef.current) {
-                  suppressNextClickLookRef.current = false;
-                  return;
-                }
-                if (slot) {
-                  openModifyPage({
-                    source: "looks",
-                    slot: index,
-                    fileName: slot.fileName,
-                    mimeType: slot.mimeType,
-                    dataUrl: slot.dataUrl,
-                    originalStoragePath: slot.storagePath,
-                    offset: slot.offset,
-                    zoom: slot.zoom,
-                  });
-                  return;
-                }
-                const firstEmptyIndex = looksSlots.findIndex((candidate) => !candidate);
-                activeLookSlotRef.current = firstEmptyIndex === -1 ? index : firstEmptyIndex;
-                looksInputRef.current?.click();
-              }}
-              onMouseEnter={() => setHoveredLookIndex(index)}
-              onMouseLeave={() => setHoveredLookIndex((current) => (current === index ? null : current))}
-              onFocus={() => setHoveredLookIndex(index)}
-              onBlur={() => setHoveredLookIndex((current) => (current === index ? null : current))}
-              className={cn(
-                "group relative aspect-[3/4] overflow-visible rounded-2xl border-2 border-dashed transition",
-                "border-zinc-400/55 bg-zinc-50",
-                dragOverLookIndex === index ? "border-zinc-700 bg-zinc-100" : "",
-                slot ? "cursor-grab touch-none active:cursor-grabbing" : "",
-                draggingLookIndex === index ? "opacity-30" : "",
-                index === 0 && shakingTargets.has("look-0") ? "profile-requirement-vibrate" : "",
-              )}
-            >
-              <div className="absolute inset-0 overflow-hidden rounded-[14px]">
-                {slot ? (
-                  <>
-                    <RemoteCoverThumb
-                      photoUrl={slot.dataUrl}
-                      frameClassName="h-full w-full"
-                      coverStyle={{
-                        backgroundSize: `${Math.max(100, 100 * (slot.imageRatio / LOOK_STAGE_RATIO)) * slot.zoom}%`,
-                        backgroundPosition: `calc(50% + ${slot.offset.x}%) calc(50% + ${slot.offset.y}%)`,
-                        backgroundRepeat: "no-repeat",
-                      }}
-                    />
-                    <span className="pointer-events-none absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/92 text-zinc-600 shadow-sm opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      <GripVertical size={13} />
-                    </span>
-                  </>
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <div className="relative inline-flex items-center justify-center">
-                      <ImageIcon size={32} className="text-zinc-400" />
-                      <span className="absolute -bottom-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-zinc-900 text-white">
-                        <Plus size={14} strokeWidth={3} />
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              {slot ? (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void clearLookSlot(index);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void clearLookSlot(index);
-                  }}
-                  className={cn(
-                    "absolute -left-[7px] -top-[7px] z-20 inline-flex h-[19px] w-[19px] items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 shadow-sm transition-opacity",
-                    !supportsHover || hoveredLookIndex === index ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
-                  )}
-                  aria-label={`Supprimer le look ${index + 1}`}
-                >
-                  <X size={11} strokeWidth={2.8} />
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-        <p className={cn(montserrat.className, "text-[14px] italic text-zinc-400")}>Fais glisser pour réorganiser</p>
-        <p className={cn(montserrat.className, "text-[14px] font-semibold leading-none text-zinc-600")}>Ajoute 1 à 3 photos</p>
-      </section>
-
-      <section className="space-y-2">
-        <p className="text-[18px] font-semibold text-zinc-400">Mes infos</p>
-        {renderProfileRows(infoItems)}
-      </section>
-
-      {isHydrating ? <p className={cn(montserrat.className, "text-[13px] text-zinc-500")}>Chargement du profil...</p> : null}
-      {errorMessage ? <p className="text-[14px] text-[#E44D3E]">{errorMessage}</p> : null}
-      {dragLookPreview ? (
-        <div
-          className="pointer-events-none fixed z-[90] h-24 w-24 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-white/70 shadow-[0_10px_24px_rgba(0,0,0,0.25)]"
-          style={{ left: dragLookPreview.x, top: dragLookPreview.y }}
-          aria-hidden
+      <section
+        data-profile-shake="profile-photo"
+        className={cn(
+          "flex flex-col items-center bg-white px-5 py-5",
+          shakingTargets.has("profile-photo") ? "profile-requirement-vibrate" : "",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            if (profilePhoto) {
+              openModifyPage({
+                source: "profile",
+                fileName: profilePhoto.fileName,
+                mimeType: profilePhoto.mimeType,
+                dataUrl: profilePhoto.dataUrl,
+                originalStoragePath: profilePhoto.storagePath,
+                offset: profilePhoto.offset,
+                zoom: profilePhoto.zoom,
+                isRemoteSource: true,
+              });
+              return;
+            }
+            profileInputRef.current?.click();
+          }}
+          aria-label="Modifier la photo de profil"
+          className="relative h-36 w-36 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
         >
-          <ImageCoverWithSkeleton src={dragLookPreview.url} alt="" className="h-full w-full" loading="eager" />
+          {profilePhoto ? (
+            <RemoteCoverThumb
+              photoUrl={profilePhoto.dataUrl}
+              frameClassName="h-full w-full rounded-full"
+              coverStyle={{
+                backgroundSize: `${Math.max(100, 100 * (profilePhoto.imageRatio / 1)) * profilePhoto.zoom}%`,
+                backgroundPosition: `calc(50% + ${profilePhoto.offset.x}%) calc(50% + ${profilePhoto.offset.y}%)`,
+                backgroundRepeat: "no-repeat",
+              }}
+              className="rounded-full"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-zinc-200 text-4xl font-semibold text-zinc-500">+</div>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (profilePhoto) {
+              openModifyPage({
+                source: "profile",
+                fileName: profilePhoto.fileName,
+                mimeType: profilePhoto.mimeType,
+                dataUrl: profilePhoto.dataUrl,
+                originalStoragePath: profilePhoto.storagePath,
+                offset: profilePhoto.offset,
+                zoom: profilePhoto.zoom,
+                isRemoteSource: true,
+              });
+              return;
+            }
+            profileInputRef.current?.click();
+          }}
+          className="mt-4 text-[17px] font-semibold text-zinc-900"
+        >
+          Modifier la photo de profil
+        </button>
+      </section>
+
+      <section className="bg-white px-5 py-4">
+        <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME, "pb-3")}>Infos</h2>
+        {renderInfoRows()}
+      </section>
+
+      <section className="bg-white px-5 py-4 pb-[max(1.5rem,calc(env(safe-area-inset-bottom,0px)+1rem))]">
+        <div className="flex min-h-11 items-center justify-between gap-3 pb-3">
+          <h2 className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME, "min-w-0")}>Looks</h2>
+          <Link
+            href={createInspirationHref(currentReturnPath)}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-zinc-100 px-3 text-[14px] font-bold text-zinc-900 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6A54]/35"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+            <span>Nouveau look</span>
+          </Link>
         </div>
+        {isLoadingPostedLooks ? (
+          <p className={cn(montserrat.className, "text-[13px] text-zinc-500")}>Chargement des looks...</p>
+        ) : postedLooks.length === 0 ? (
+          <Link
+            href={createInspirationHref(currentReturnPath)}
+            aria-label="Ajouter un look"
+            className="flex aspect-[3/4] w-full items-center justify-center rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 transition hover:border-zinc-400 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+          >
+            <Plus className="h-10 w-10 text-zinc-400" strokeWidth={2} aria-hidden />
+          </Link>
+        ) : (
+          <InspirationMasonryGrid cards={postedLooks} compact likeMode="count" />
+        )}
+      </section>
+
+      {isHydrating || errorMessage ? (
+        <section className="bg-white px-5 py-4">
+          {isHydrating ? <p className={cn(montserrat.className, "text-[13px] text-zinc-500")}>Chargement du profil...</p> : null}
+          {errorMessage ? <p className="text-[14px] text-[#E44D3E]">{errorMessage}</p> : null}
+        </section>
       ) : null}
     </div>
   );

@@ -18,6 +18,7 @@ import {
   fetchBorrowCheckoutOptions,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
+  computeGuestCartPurchaseEuroCents,
   computeGuestCartRentalEuroCents,
   guestStripeCompPoints,
   isGuestCashRentalMode,
@@ -34,6 +35,7 @@ import {
   finalizeCartOutboundSendcloudAfterConfirm,
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
+import { buildGuestPurchaseCheckoutLineItems } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { exchangeOrderSuccessUrl, orderCheckoutEconomicsDirect, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
@@ -219,8 +221,13 @@ export async function POST(request: Request) {
     const returnRelayFields = checkoutReturnRelayFields(returnHubResolved.selection);
 
     if (body.acceptRentalTerms !== true) {
+      const purchaseTerms = body.purchaseMode === true;
       return NextResponse.json(
-        { message: "Tu dois confirmer avoir lu les conditions générales de location pour continuer." },
+        {
+          message: purchaseTerms
+            ? "Tu dois confirmer avoir lu les conditions générales de vente pour continuer."
+            : "Tu dois confirmer avoir lu les conditions générales de location pour continuer.",
+        },
         { status: 400 },
       );
     }
@@ -295,6 +302,8 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     const guestCashRental = isGuestCashRentalMode(membershipLabel);
+    const purchaseMode = guestCashRental && body.purchaseMode === true;
+    const outboundOnly = purchaseMode;
     const availableWalletMods = guestCashRental
       ? 0
       : parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
@@ -307,28 +316,41 @@ export async function POST(request: Request) {
 
     const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
     const allowedBorrowDurations = new Set(borrowCheckoutOptions.map((o) => o.durationDays));
-    const needsBorrowDuration = guestCashRental ? cartTotalMods > 0 : missingExchangeMods > 0;
+    const needsBorrowDuration = guestCashRental && !purchaseMode ? cartTotalMods > 0 : missingExchangeMods > 0;
     const borrowDurationDays = needsBorrowDuration
       ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
       : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
-    if (borrowDurationDays == null) {
+    if (needsBorrowDuration && borrowDurationDays == null) {
       return NextResponse.json({ message: "Choisis une durée d'emprunt valide." }, { status: 400 });
     }
 
-    const centsPerMissingCredit = centsPerMissingCreditForDuration(borrowCheckoutOptions, borrowDurationDays);
-    const creditsCents = guestCashRental
-      ? computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
-      : missingExchangeMods > 0
-        ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
-        : 0;
-    const complementRelayFree = complementQualifiesForFreeRelay(creditsCents / 100);
+    const resolvedBorrowDurationDays =
+      borrowDurationDays ?? defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
 
-    try {
-      await persistCartCheckoutBorrowDurationDays(admin, activeCart.cartId, userId, borrowDurationDays);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "borrow_duration_persist_failed";
-      console.error("[stripe/cart/checkout] checkout_borrow_duration_days", msg);
-      return NextResponse.json({ message: "Impossible d'enregistrer la durée d'emprunt." }, { status: 500 });
+    const centsPerMissingCredit = centsPerMissingCreditForDuration(
+      borrowCheckoutOptions,
+      resolvedBorrowDurationDays,
+    );
+    const creditsCents = guestCashRental
+      ? purchaseMode
+        ? computeGuestCartPurchaseEuroCents(cartTotalMods)
+        : computeGuestCartRentalEuroCents(cartTotalMods, resolvedBorrowDurationDays, borrowCheckoutOptions)
+      : missingExchangeMods > 0
+        ? computeMissingCreditsCashCents(missingExchangeMods, resolvedBorrowDurationDays, borrowCheckoutOptions)
+        : 0;
+    const complementRelayFree = complementQualifiesForFreeRelay(
+      creditsCents / 100,
+      purchaseMode ? "achat" : "location",
+    );
+
+    if (needsBorrowDuration && borrowDurationDays != null) {
+      try {
+        await persistCartCheckoutBorrowDurationDays(admin, activeCart.cartId, userId, borrowDurationDays);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "borrow_duration_persist_failed";
+        console.error("[stripe/cart/checkout] checkout_borrow_duration_days", msg);
+        return NextResponse.json({ message: "Impossible d'enregistrer la durée d'emprunt." }, { status: 500 });
+      }
     }
 
     const memberPostalCode = memberPostalCodeForCheckoutShipping({
@@ -491,6 +513,7 @@ export async function POST(request: Request) {
         relayRoundTrip,
         currentRoundTrip,
         uberOutboundHtCents: expressOutboundHtCents,
+        outboundOnly,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "shipping_ht_failed";
@@ -516,7 +539,11 @@ export async function POST(request: Request) {
     if (totalCents === 0) {
       if (guestCashRental && cartTotalMods > 0) {
         return NextResponse.json(
-          { message: "Le prix de location est requis pour finaliser la commande." },
+          {
+            message: purchaseMode
+              ? "Le prix d'achat est requis pour finaliser la commande."
+              : "Le prix de location est requis pour finaliser la commande.",
+          },
           { status: 400 },
         );
       }
@@ -540,7 +567,7 @@ export async function POST(request: Request) {
         returnRelayFields,
         missingExchangeMods,
         cartTotalMods,
-        borrowDurationDays,
+        borrowDurationDays: resolvedBorrowDurationDays,
         centsPerMissingCredit,
         exchangeCreditsKind: creditsKind,
         creditsCents,
@@ -642,7 +669,11 @@ export async function POST(request: Request) {
       }
 
       try {
-        await notifyCartOrderPaidAfterConfirmation(admin, { userId, cartId: activeCart.cartId });
+        await notifyCartOrderPaidAfterConfirmation(admin, {
+          userId,
+          cartId: activeCart.cartId,
+          skipMemberNotification: purchaseMode,
+        });
       } catch (e) {
         console.error("[stripe/cart/checkout] notifyCartOrderPaidAfterConfirmation", e);
       }
@@ -656,7 +687,7 @@ export async function POST(request: Request) {
           cartTotalMods,
           cashPaidCents: 0,
           missingExchangeMods,
-          borrowDurationDays,
+          borrowDurationDays: resolvedBorrowDurationDays,
         }),
       });
       await flushServerAnalytics();
@@ -698,46 +729,107 @@ export async function POST(request: Request) {
     }
 
     const stripeWalletTopupKind = walletCreditKindForBillingSubscription(null, null);
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
+    const deliveryLine1Meta =
+      deliveryChannel === "home" && deliveryAddress != null
+        ? deliveryAddress.label.trim().slice(0, 450)
+        : "";
+    const checkoutMetadata = buildCartOrderCheckoutMetadata({
+      checkoutKind: "cart_order",
+      userId,
+      cartId: activeCart.cartId,
+      itemCount,
+      deliveryChannel,
+      homeSpeedBilling,
+      deliveryAddress,
+      deliveryInstructions,
+      relayMeta,
+      deliveryLine1Meta,
+      returnRelayFields,
+      missingExchangeMods,
+      cartTotalMods,
+      borrowDurationDays: resolvedBorrowDurationDays,
+      centsPerMissingCredit,
+      exchangeCreditsKind: stripeWalletTopupKind,
+      creditsCents,
+      shippingHtCents,
+      serviceHtCents,
+      fees,
+      billedRoundTripHtCents,
+      remainingIncludedOrders,
+      usedIncludedOrder,
+      includedExchangeShipping,
+      priorityCents,
+      sendcloudOutboundSelection,
+      coursierSelection,
+      guestCashRental,
+      purchaseMode,
+    });
 
-    if (creditsCents > 0) {
+    let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+
+    if (purchaseMode) {
+      const shippingDescription =
+        deliveryChannel === "relay"
+          ? relaySelection
+            ? `Livraison point relais — ${relaySelection.label}`
+            : "Livraison point relais (TTC)"
+          : homeSpeedBilling === "uber_direct"
+            ? "Livraison à domicile express (Coursier.fr, TTC)"
+            : "Livraison à domicile (aller, TTC)";
+      lineItems = await buildGuestPurchaseCheckoutLineItems(admin, {
+        cartId: activeCart.cartId,
+        itemsCents: creditsCents,
+        shippingTtcCents: fees.shippingTtcCents,
+        shippingDescription,
+        serviceTtcCents: fees.serviceTtcCents,
+      });
+    } else if (creditsCents > 0) {
       lineItems.push({
         quantity: 1,
         price_data: {
           currency: "eur",
           unit_amount: creditsCents,
           product_data: {
-            name: guestCashRental ? "Prix de location" : "Complément crédits Segna",
+            name: guestCashRental
+              ? purchaseMode
+                ? "Prix d'achat"
+                : "Prix de location"
+              : "Complément crédits Segna",
             description: guestCashRental
-              ? `Location · ${borrowDurationDays} j`
-              : `${missingExchangeMods} crédit(s) manquant(s) · ${borrowDurationDays} j`,
+              ? purchaseMode
+                ? "Achat définitif"
+                : `Location · ${resolvedBorrowDurationDays} j`
+              : `${missingExchangeMods} crédit(s) manquant(s) · ${resolvedBorrowDurationDays} j`,
           },
         },
       });
     }
 
-    if (fees.shippingTtcCents > 0) {
+    if (!purchaseMode && fees.shippingTtcCents > 0) {
       lineItems.push({
         quantity: 1,
         price_data: {
           currency: "eur",
           unit_amount: fees.shippingTtcCents,
           product_data: {
-            name: "Livraison échange (aller-retour, TTC)",
+            name: purchaseMode ? "Livraison (aller, TTC)" : "Livraison échange (aller-retour, TTC)",
             description:
               deliveryChannel === "relay"
                 ? relaySelection
                   ? `Point relais — ${relaySelection.label}`
                   : "Point relais"
                 : homeSpeedBilling === "uber_direct"
-                  ? "Livraison à domicile (Coursier.fr + retour relais)"
+                  ? purchaseMode
+                    ? "Livraison à domicile (Coursier.fr)"
+                    : "Livraison à domicile (Coursier.fr + retour relais)"
                   : "Livraison à domicile",
           },
         },
       });
     }
 
-    if (fees.serviceTtcCents > 0) {
+    if (!purchaseMode && fees.serviceTtcCents > 0) {
       lineItems.push({
         quantity: 1,
         price_data: {
@@ -750,11 +842,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
-    const deliveryLine1Meta =
-      deliveryChannel === "home" && deliveryAddress != null
-        ? deliveryAddress.label.trim().slice(0, 450)
-        : "";
+    if (lineItems.length === 0) {
+      return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
+    }
+
     const successUrl = `${config.returnUrlBase}/api/stripe/cart/sync?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${config.returnUrlBase}/cart/payment?checkout=cancelled`;
 
@@ -769,36 +860,7 @@ export async function POST(request: Request) {
       cancel_url: cancelUrl,
       allow_promotion_codes: true,
       client_reference_id: userId,
-      metadata: buildCartOrderCheckoutMetadata({
-        checkoutKind: "cart_order",
-        userId,
-        cartId: activeCart.cartId,
-        itemCount,
-        deliveryChannel,
-        homeSpeedBilling,
-        deliveryAddress,
-        deliveryInstructions,
-        relayMeta,
-        deliveryLine1Meta,
-        returnRelayFields,
-        missingExchangeMods,
-        cartTotalMods,
-        borrowDurationDays,
-        centsPerMissingCredit,
-        exchangeCreditsKind: stripeWalletTopupKind,
-        creditsCents,
-        shippingHtCents,
-        serviceHtCents,
-        fees,
-        billedRoundTripHtCents,
-        remainingIncludedOrders,
-        usedIncludedOrder,
-        includedExchangeShipping,
-        priorityCents,
-        sendcloudOutboundSelection,
-        coursierSelection,
-        guestCashRental,
-      }),
+      metadata: checkoutMetadata,
     });
 
     if (!session.url) {

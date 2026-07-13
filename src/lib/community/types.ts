@@ -1,6 +1,13 @@
+import type {
+  InspirationCoverAspect,
+  InspirationCoverTransform,
+} from "@/lib/community/inspiration-cover-aspect";
+
 export type InspirationSource = "segna_style" | "member";
 export type InspirationMediaType = "photo" | "video" | "dump";
 export type CommunityFeedMode = "explorer" | "pour_toi";
+
+export type { InspirationCoverAspect, InspirationCoverTransform };
 
 /** URL segment: segna | member */
 export type InspirationUrlSource = "segna" | "member";
@@ -13,10 +20,13 @@ export type InspirationFeedCard = {
   media_type: InspirationMediaType;
   media_bucket: string;
   media_paths: string[];
+  cover_aspect: InspirationCoverAspect;
+  cover_transform: InspirationCoverTransform | null;
   video_poster_path: string | null;
   author_user_id: string | null;
   author_display_name: string;
   author_avatar_path: string | null;
+  author_instagram_username?: string | null;
   like_count: number;
   is_liked: boolean;
   linked_item_count: number;
@@ -50,10 +60,13 @@ export type InspirationDetail = {
   media_type: InspirationMediaType;
   media_bucket: string;
   media_paths: string[];
+  cover_aspect: InspirationCoverAspect;
+  cover_transform: InspirationCoverTransform | null;
   video_poster_path: string | null;
   author_user_id: string | null;
   author_display_name: string;
   author_avatar_path: string | null;
+  author_instagram_username?: string | null;
   like_count: number;
   is_liked: boolean;
   is_following_author: boolean;

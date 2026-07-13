@@ -11,6 +11,7 @@ import {
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
+import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -84,7 +85,11 @@ export async function GET(request: Request) {
     const cartIdForNotify = session.metadata?.cart_id?.trim();
     if (cartIdForNotify) {
       try {
-        await notifyCartOrderPaidAfterConfirmation(admin, { userId: user.id, cartId: cartIdForNotify });
+        await notifyCartOrderPaidAfterConfirmation(admin, {
+          userId: user.id,
+          cartId: cartIdForNotify,
+          skipMemberNotification: checkoutSessionIsGuestPurchase(session),
+        });
       } catch (e) {
         console.error("[stripe/cart/sync] notifyCartOrderPaidAfterConfirmation", e);
       }

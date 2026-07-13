@@ -58,15 +58,23 @@ export type ItemInfoCardData = {
   color: string;
   brand: string;
   condition: string;
+  /** Taille Segna recommandée (libellé affiché). */
+  recommendedSize?: string;
+  /** Précisions fit / taille. */
+  sizeDescription?: string;
+  /** Libellé catégorie pour audience Femme / Homme. */
+  categoryLabel?: string | null;
 };
 
 type ItemInfoCardProps = {
   data: ItemInfoCardData;
   className?: string;
   guestCashRental?: boolean;
+  /** Masque la ligne prix (affichée ailleurs, ex. sous le titre produit). */
+  hidePrice?: boolean;
 };
 
-export function ItemInfoCard({ data, className, guestCashRental = false }: ItemInfoCardProps) {
+export function ItemInfoCard({ data, className, guestCashRental = false, hidePrice = false }: ItemInfoCardProps) {
   const exchangeCount = Math.max(0, Math.floor(Number(data.exchangeCount ?? 0)));
   const itemRatingAverage =
     typeof data.itemRatingAverage === "number" && Number.isFinite(data.itemRatingAverage)
@@ -76,32 +84,33 @@ export function ItemInfoCard({ data, className, guestCashRental = false }: ItemI
 
   const firstLineItems: Array<{ key: string; content: React.ReactNode }> = [];
 
-  // 1. Prix en points + icône crédit Segna
-  firstLineItems.push({
-    key: "price",
-    content: (
-      <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
-        {data.pricePoints != null ? (
-          guestCashRental ? (
-            <ItemWeeklyRentalPriceDisplay
-              pricePoints={data.pricePoints}
-              priceClassName={cn(montserrat.className, "font-bold text-zinc-900")}
-            />
+  if (!hidePrice) {
+    firstLineItems.push({
+      key: "price",
+      content: (
+        <span className={cn(montserrat.className, "flex items-center gap-1.5 font-bold text-zinc-900")}>
+          {data.pricePoints != null ? (
+            guestCashRental ? (
+              <ItemWeeklyRentalPriceDisplay
+                pricePoints={data.pricePoints}
+                priceClassName={cn(montserrat.className, "font-bold text-zinc-900")}
+              />
+            ) : (
+              <SegnaPointsUnitDisplay
+                points={data.pricePoints}
+                creditKind="consumption"
+                unitDisplay="icon"
+                className="gap-x-1.5"
+                numberClassName={cn(montserrat.className, "font-bold text-zinc-900")}
+              />
+            )
           ) : (
-            <SegnaPointsUnitDisplay
-              points={data.pricePoints}
-              creditKind="consumption"
-              unitDisplay="icon"
-              className="gap-x-1.5"
-              numberClassName={cn(montserrat.className, "font-bold text-zinc-900")}
-            />
-          )
-        ) : (
-          "En cours d’évaluation"
-        )}
-      </span>
-    ),
-  });
+            "En cours d’évaluation"
+          )}
+        </span>
+      ),
+    });
+  }
 
   // 2. Taille (« Taille M » ou « Taille unique » si absent)
   {

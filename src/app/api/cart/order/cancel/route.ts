@@ -3,9 +3,11 @@ import Stripe from "stripe";
 
 import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
 import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
+import { cartOrderCancelNotificationCopy } from "@/lib/notifications/cart-order-cancel-notification-copy";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
+import { ensureCartOrderStripeInvoiceForCancel } from "@/lib/stripe/ensure-cart-order-stripe-invoice-for-cancel";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -62,12 +64,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Lecture paiement impossible. Réessaie." }, { status: 500 });
   }
 
+  const admin = createSupabaseAdminClient();
+
   const invoice =
     invoiceRaw != null && typeof invoiceRaw === "object" && !Array.isArray(invoiceRaw)
       ? (invoiceRaw as Record<string, unknown>)
       : null;
-
-  const admin = createSupabaseAdminClient();
+  const invoiceForRefund =
+    (await ensureCartOrderStripeInvoiceForCancel(admin, cartId, user.id)) ?? invoice;
 
   try {
     const scCancel = await cancelCartSendcloudOrdersForCart(admin, cartId);
@@ -142,7 +146,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Annulation impossible pour le moment. Réessaie ou contacte le support." }, { status: 500 });
   }
 
-  const cents = Math.trunc(Number(invoice?.amount_total_cents ?? 0));
+  const cents = Math.trunc(Number(invoiceForRefund?.amount_total_cents ?? 0));
   if (cents > 0) {
     const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
     if (!secretKey) {
@@ -153,7 +157,7 @@ export async function POST(request: Request) {
     const refundRes = await refundCartOrderStripePaymentIfNeeded({
       stripe,
       cartId,
-      invoice,
+      invoice: invoiceForRefund,
     });
     if (!refundRes.ok) {
       return NextResponse.json({ error: refundRes.error }, { status: 502 });
@@ -164,40 +168,24 @@ export async function POST(request: Request) {
 
   const hadStripePayment = cents > 0;
   const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);
-  const stripeRefundLine = hadStripePayment
-    ? `Le complément payé par carte sera remboursé sur ton moyen de paiement, sous réserve d’une retenue de ${feePct} % au titre des frais d’annulation.`
-    : null;
-  const stripeRefundHtml = hadStripePayment
-    ? `<p>Le complément payé par carte sera <strong>remboursé</strong> sur ton moyen de paiement, sous réserve d’une retenue de <strong>${feePct} %</strong> au titre des frais d’annulation.</p>`
-    : "";
+  const notifyCopy = cartOrderCancelNotificationCopy({
+    source: "member",
+    hadStripePayment,
+    feePct,
+  });
 
   const idempotencyKey = `txn:${NotificationKind.cartOrderCanceledMember}:${cartId}`;
-  const smsBody = hadStripePayment
-    ? `Segna : tu as bien annulé ta commande avant expédition. Remboursement des points en cours ; complément carte remboursé (retenue ${feePct} % frais d’annulation).`
-    : "Segna : tu as bien annulé ta commande avant expédition. Le remboursement de tes points est en cours.";
 
   await sendMemberOutreachNotification(admin, {
     userId: user.id,
     kind: NotificationKind.cartOrderCanceledMember,
     idempotencyKey,
     metadata: { cart_id: cartId, source: "member_cancel_pending_or_ready" },
-    subject: "Ta commande Segna a bien été annulée",
-    text: [
-      "Bonjour,",
-      "",
-      "Tu as annulé ta commande Segna alors qu’elle était encore en préparation ou prête à l’expédition, avant prise en charge par le transporteur.",
-      "Le remboursement de tes points est en cours.",
-      ...(stripeRefundLine ? ["", stripeRefundLine] : []),
-      "",
-      "L’équipe Segna",
-    ].join("\n"),
-    html: `<p>Bonjour,</p>
-<p>Tu as <strong>annulé</strong> ta commande Segna alors qu’elle était encore <strong>en préparation ou prête à l’expédition</strong>, avant prise en charge par le transporteur.</p>
-<p>Le remboursement de tes points est <strong>en cours</strong>.</p>
-${stripeRefundHtml}
-<p>L’équipe Segna</p>`,
+    subject: notifyCopy.subject,
+    text: notifyCopy.text,
+    html: notifyCopy.html,
     channels: "email+phone",
-    smsBody,
+    smsBody: notifyCopy.smsBody,
     transactionalSms: true,
   });
 

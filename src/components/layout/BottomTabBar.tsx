@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
-import { isShopTabActive, MAIN_TABS, shouldShowTabBar } from "@/components/layout/navigation";
+import { isHomeTabActive, isLookDetailRoute, isShopTabActive, MAIN_TABS, MEMBER_HOME_HREF, shouldShowTabBar } from "@/components/layout/navigation";
 import { TabBarItem } from "@/components/layout/TabBarItem";
 import { cn } from "@/lib/utils/cn";
 
@@ -91,7 +91,13 @@ export function BottomTabBar() {
           <TabBarItem
             key={tab.id}
             tab={tab}
-            isActive={tab.href === "/shop" ? isShopTabActive(pathname) : pathname === tab.href}
+            isActive={
+              tab.href === MEMBER_HOME_HREF
+                ? isHomeTabActive(pathname) || isLookDetailRoute(pathname)
+                : tab.href === "/shop"
+                  ? isShopTabActive(pathname)
+                  : pathname === tab.href
+            }
           />
         ))}
       </nav>

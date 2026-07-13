@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { NotificationKind } from "@/lib/notifications/kinds";
+import { cartOrderCancelNotificationCopy } from "@/lib/notifications/cart-order-cancel-notification-copy";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
+import { ensureCartOrderStripeInvoiceForCancel } from "@/lib/stripe/ensure-cart-order-stripe-invoice-for-cancel";
 import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
+import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -116,21 +119,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: invRow, error: invErr } = await admin
-    .from("cart_order_stripe_invoices")
-    .select(
-      "amount_total_cents, payment_intent_id, checkout_session_id, credits_line_cents, service_ttc_cents, shipping_ttc_cents, fees_ttc_cents, fees_vat_cents, currency, created_at",
-    )
-    .eq("cart_id", cartId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (invErr) {
-    console.error("[internal/backoffice-cancel-cart-order-pending] invoice", invErr.message);
-    return NextResponse.json({ ok: false as const, error: "invoice_read_failed" }, { status: 500 });
-  }
-
-  const invoice = invRow as Record<string, unknown> | null;
+  const invoice = await ensureCartOrderStripeInvoiceForCancel(admin, cartId, userId);
 
   try {
     const scCancel = await cancelCartSendcloudOrdersForCart(admin, cartId);
@@ -181,33 +170,26 @@ export async function POST(request: Request) {
 
   await archiveCartShipmentsAfterCancel(admin, cartId);
 
+  const hadStripePayment = cents > 0;
+  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);
+  const notifyCopy = cartOrderCancelNotificationCopy({
+    source: "backoffice",
+    hadStripePayment,
+    feePct,
+  });
+
   const idempotencyKey = `txn:${NotificationKind.cartOrderCanceledBackofficePrep}:${cartId}`;
-  const smsBody =
-    "Segna : ta commande en préparation a été annulée avant expédition. Le remboursement (points + complément carte le cas échéant) est en cours. Toutes nos excuses pour la gêne.";
 
   await sendMemberOutreachNotification(admin, {
     userId,
     kind: NotificationKind.cartOrderCanceledBackofficePrep,
     idempotencyKey,
     metadata: { cart_id: cartId, source: "backoffice_cancel_pending_preparation" },
-    subject: "Annulation de ta commande Segna",
-    text: [
-      "Bonjour,",
-      "",
-      "Ta commande Segna a dû être annulée alors qu’elle était encore en préparation, avant expédition.",
-      "Le remboursement de tes points et, le cas échéant, du complément payé par carte est en cours.",
-      "",
-      "Toutes nos excuses pour ce désagrément.",
-      "",
-      "L’équipe Segna",
-    ].join("\n"),
-    html: `<p>Bonjour,</p>
-<p>Ta commande Segna a dû être <strong>annulée</strong> alors qu’elle était encore <strong>en préparation</strong>, avant expédition.</p>
-<p>Le remboursement de tes points et, le cas échéant, du complément payé par carte est <strong>en cours</strong>.</p>
-<p>Toutes nos excuses pour ce désagrément.</p>
-<p>L’équipe Segna</p>`,
+    subject: notifyCopy.subject,
+    text: notifyCopy.text,
+    html: notifyCopy.html,
     channels: "email+phone",
-    smsBody,
+    smsBody: notifyCopy.smsBody,
     transactionalSms: true,
   });
 

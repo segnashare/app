@@ -8,6 +8,9 @@ type AdminLike = {
       values: Record<string, unknown>,
       options?: { onConflict?: string },
     ) => Promise<{ error: { message: string } | null }>;
+    update: (values: Record<string, unknown>) => {
+      eq: (column: string, value: unknown) => Promise<{ error: { message: string } | null }>;
+    };
   };
 };
 
@@ -80,6 +83,114 @@ export async function upsertCartOrderStripeInvoiceFromSession(
   const { error } = await admin.from("cart_order_stripe_invoices").upsert(row, { onConflict: "cart_id" });
   if (error) throw new Error(error.message);
   return { ok: true };
+}
+
+export function stripeInvoiceRowFromGuestPurchaseStripeInvoice(
+  invoice: Stripe.Invoice,
+  userId: string,
+): Record<string, unknown> | null {
+  if (invoice.metadata?.source !== "guest_purchase") return null;
+  if (invoice.metadata?.checkout_kind !== "cart_order") return null;
+  if (invoice.status !== "paid") return null;
+
+  const cartId = invoice.metadata?.cart_id?.trim();
+  if (!cartId) return null;
+
+  const md = invoice.metadata;
+  const amountTotal =
+    typeof invoice.amount_paid === "number"
+      ? Math.trunc(invoice.amount_paid)
+      : typeof invoice.total === "number"
+        ? Math.trunc(invoice.total)
+        : 0;
+  const feesTtc = metaCents(md, "fees_ttc_cents");
+  const feesVat = metaCents(md, "fees_vat_cents");
+  const deliveryCh = typeof md?.delivery_channel === "string" ? md.delivery_channel.trim().toLowerCase() : "";
+  const homeSp = typeof md?.home_speed === "string" ? md.home_speed.trim().toLowerCase() : "";
+
+  return {
+    cart_id: cartId,
+    user_id: userId,
+    checkout_session_id: `inv_${invoice.id}`,
+    payment_intent_id: resolvePaymentIntentIdFromInvoice(invoice),
+    amount_total_cents: amountTotal,
+    credits_line_cents: metaCents(md, "credits_line_cents"),
+    service_ttc_cents: metaCents(md, "service_ttc_cents"),
+    shipping_ttc_cents: metaCents(md, "shipping_ttc_cents"),
+    fees_ttc_cents: feesTtc > 0 ? feesTtc : null,
+    fees_vat_cents: feesVat > 0 ? feesVat : null,
+    currency: (invoice.currency ?? "eur").toLowerCase(),
+    checkout_delivery_channel: deliveryCh || null,
+    checkout_home_speed: homeSp || null,
+  };
+}
+
+function resolvePaymentIntentIdFromInvoice(invoice: Stripe.Invoice): string | null {
+  const legacy = (invoice as Stripe.Invoice & { payment_intent?: string | { id: string } | null })
+    .payment_intent;
+  if (typeof legacy === "string") return legacy;
+  if (legacy && typeof legacy === "object" && "id" in legacy) return String(legacy.id);
+  return null;
+}
+
+export async function upsertCartOrderStripeInvoiceFromStripeInvoice(
+  admin: AdminLike,
+  invoice: Stripe.Invoice,
+  userId: string,
+): Promise<{ ok: boolean; skipped?: boolean }> {
+  const row = stripeInvoiceRowFromGuestPurchaseStripeInvoice(invoice, userId);
+  if (!row) return { ok: true, skipped: true };
+
+  const { error } = await admin.from("cart_order_stripe_invoices").upsert(row, { onConflict: "cart_id" });
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
+/** URL directe PDF ou page hébergée Stripe pour télécharger la facture achat. */
+export function guestPurchaseInvoiceDownloadUrlFromStripeInvoice(
+  invoice: Stripe.Invoice,
+): string | null {
+  const pdf = invoice.invoice_pdf?.trim();
+  if (pdf) return pdf;
+  const hosted = invoice.hosted_invoice_url?.trim();
+  return hosted || null;
+}
+
+/** Met à jour l’URL facture achat Guest sur le snapshot checkout existant. */
+export async function upsertGuestPurchaseStripeInvoiceRecord(
+  admin: AdminLike,
+  params: {
+    cartId: string;
+    userId: string;
+    stripeInvoiceId: string;
+    hostedUrl: string | null;
+  },
+): Promise<void> {
+  const { error } = await admin
+    .from("cart_order_stripe_invoices")
+    .update({
+      guest_purchase_stripe_invoice_id: params.stripeInvoiceId,
+      guest_purchase_stripe_invoice_hosted_url: params.hostedUrl,
+    })
+    .eq("cart_id", params.cartId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/** ID facture achat Guest depuis le JSON RPC. */
+export function guestPurchaseStripeInvoiceIdFromJson(data: unknown): string | null {
+  if (data == null || typeof data !== "object") return null;
+  const id = (data as Record<string, unknown>).guest_purchase_stripe_invoice_id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+/** URL facture achat Guest depuis le JSON RPC. */
+export function guestPurchaseStripeInvoiceHostedUrlFromJson(data: unknown): string | null {
+  if (data == null || typeof data !== "object") return null;
+  const url = (data as Record<string, unknown>).guest_purchase_stripe_invoice_hosted_url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
 /** Parse le JSON renvoyé par `get_member_cart_order_stripe_invoice`. */

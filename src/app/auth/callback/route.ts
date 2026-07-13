@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { REFERRAL_COOKIE_NAME } from "@/lib/referral/referralInviteConstants";
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OAuthIntent = "signup" | "member";
@@ -43,7 +44,7 @@ async function resolvePostAuthPath(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (onboardingData?.status === "completed") return "/shop";
+  if (onboardingData?.status === "completed") return MEMBER_HOME_HREF;
   if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
 
   const { data: profileRow } = await supabase
@@ -59,7 +60,7 @@ async function resolvePostAuthPath(
     profileData.score ??
     profileData.progress_score;
   const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
-  if (Number.isFinite(numericScore) && numericScore >= 100) return "/shop";
+  if (Number.isFinite(numericScore) && numericScore >= 100) return MEMBER_HOME_HREF;
 
   return "/onboarding/1";
 }

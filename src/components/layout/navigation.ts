@@ -1,17 +1,19 @@
 import type { LucideIcon } from "lucide-react";
-import { Store, Repeat2, Users, UserRound } from "lucide-react";
+import { Home, Repeat2, Search, UserRound } from "lucide-react";
+
+export const MEMBER_HOME_HREF = "/home" as const;
 
 export type MainTab = {
-  id: "shop" | "exchange" | "community" | "profile";
+  id: "home" | "shop" | "exchange" | "profile";
   label: string;
-  href: "/shop" | "/exchange" | "/community" | "/profile";
+  href: typeof MEMBER_HOME_HREF | "/shop" | "/exchange" | "/profile";
   icon: LucideIcon;
 };
 
 export const MAIN_TABS: MainTab[] = [
-  { id: "shop", label: "Shop", href: "/shop", icon: Store },
+  { id: "home", label: "Segna", href: MEMBER_HOME_HREF, icon: Home },
+  { id: "shop", label: "Catalogue", href: "/shop", icon: Search },
   { id: "exchange", label: "Exchange", href: "/exchange", icon: Repeat2 },
-  { id: "community", label: "Community", href: "/community", icon: Users },
   { id: "profile", label: "Profile", href: "/profile", icon: UserRound },
 ];
 
@@ -33,7 +35,13 @@ export function shouldShowTabBar(pathname: string): boolean {
   if (!segments.length) return false;
   if (segments.some((segment) => TASK_SEGMENTS.has(segment.toLowerCase()))) return false;
   if (pathname === "/cart" || pathname.startsWith("/cart/")) return false;
-  return isMainTabRoute(pathname) || isItemDetailRoute(pathname);
+  return isMainTabRoute(pathname) || isItemDetailRoute(pathname) || isLookDetailRoute(pathname);
+}
+
+/** Fiche look éditorial Segna : `/look/{id}`. */
+export function isLookDetailRoute(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  return segments[0] === "look" && segments.length === 2;
 }
 
 /** Fiche pièce membre / catalogue : `/items/{id}` (hors flux new, shipping, etc.). */
@@ -43,15 +51,20 @@ export function isItemDetailRoute(pathname: string): boolean {
   return !ITEM_FLOW_SEGMENTS.has(segments[1].toLowerCase());
 }
 
-/** Bouton flottant « Voir le panier » : onglets principaux + fiches pièce. */
+/** Bouton flottant « Voir le panier » : onglets principaux uniquement (pas fiche pièce). */
 export function shouldShowFloatingCartButton(pathname: string): boolean {
-  return isMainTabRoute(pathname) || isItemDetailRoute(pathname);
+  if (isItemDetailRoute(pathname)) return false;
+  return isMainTabRoute(pathname);
 }
 
 /** Pastille « aide / signalement » (MainShell, membre connecté). */
 export function shouldShowMemberFeedbackFab(pathname: string): boolean {
   if (pathname === "/cart" || pathname.startsWith("/cart/")) return false;
   return true;
+}
+
+export function isHomeTabActive(pathname: string): boolean {
+  return pathname === MEMBER_HOME_HREF;
 }
 
 export function isShopTabActive(pathname: string): boolean {

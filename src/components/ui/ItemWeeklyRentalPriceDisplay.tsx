@@ -31,9 +31,11 @@ export function ItemWeeklyRentalPriceDisplay({
 
   return (
     <span className={cn("inline-flex shrink-0 items-baseline gap-x-0.5 tabular-nums", className)}>
-      <span className={cn("font-medium text-zinc-950", priceClassName)}>{pricePart}</span>
+      <span className={cn("font-medium", priceClassName ?? "text-zinc-950")}>{pricePart}</span>
       {suffixPart ? (
-        <span className={cn("text-[0.92em] font-normal text-zinc-600", suffixClassName)}>/ {suffixPart}</span>
+        <span className={cn("text-[0.92em] font-normal", suffixClassName ?? "text-zinc-600")}>
+          / <span className="italic">{suffixPart}</span>
+        </span>
       ) : null}
     </span>
   );

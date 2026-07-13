@@ -6,6 +6,8 @@ import { getCurrentAuthUser } from "@/lib/auth/current-user-server";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { fetchItemDetailPayloadForUser, type FetchItemDetailResult } from "@/lib/items/fetch-item-detail-core";
 import { fetchItemOutfitLook, type ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
+import { fetchItemMoreCatalogPieces } from "@/lib/items/fetch-item-more-catalog-pieces";
+import { fetchItemStyleLooks, type ItemStyleLookSummary } from "@/lib/items/fetch-item-style-looks";
 import { fetchDefaultIntakeShippingGroupIds } from "@/lib/items/intake-cart-return-piggyback";
 import { buildOuttakeTransferIdByItemId } from "@/lib/items/member-outtake-groups";
 import { buildOuttakeShippingPageHref } from "@/lib/items/outtake-shipping-metadata";
@@ -32,20 +34,30 @@ export default async function ItemDetailsPage({ params }: PageProps) {
   let initialOutfitLook: ItemOutfitLookPayload | null = null;
   let initialOutfitCompanionItems: ShopCatalogItem[] = [];
   let initialOutfitCompanionCoverUrlById: Record<string, string> = {};
+  let initialStyleLooks: ItemStyleLookSummary[] = [];
+  let initialMoreCatalogItems: ShopCatalogItem[] = [];
+  let initialMoreCatalogCoverUrlById: Record<string, string> = {};
   let initialGuestCashRental = false;
 
   if (user) {
     const membershipLabel = await resolveMembershipLabel(supabase, user.id);
     initialGuestCashRental = isGuestCashRentalMode(membershipLabel);
 
-    const [cmsFrames, detailRes, outfitLook] = await Promise.all([
+    const [cmsFrames, detailRes, outfitLook, styleLooks, moreCatalogItems] = await Promise.all([
       fetchCmsSectionFramesResolved(supabase, "segna_stock_property"),
       fetchItemDetailPayloadForUser(supabase, user.id, id),
       fetchItemOutfitLook(supabase, id),
+      fetchItemStyleLooks(supabase, id),
+      fetchItemMoreCatalogPieces(supabase, id),
     ]);
     initialSegnaStockPropertyCmsFrames = cmsFrames;
     initialDetailResult = detailRes;
     initialOutfitLook = outfitLook;
+    initialStyleLooks = styleLooks;
+    initialMoreCatalogItems = moreCatalogItems;
+    if (moreCatalogItems.length > 0) {
+      initialMoreCatalogCoverUrlById = await resolveShopCatalogCoverUrlsServer(supabase, moreCatalogItems);
+    }
 
     if (outfitLook && outfitLook.companions.length > 0) {
       const companionIds = outfitLook.companions.map((c) => c.item_id);
@@ -78,6 +90,9 @@ export default async function ItemDetailsPage({ params }: PageProps) {
         initialOutfitLook={initialOutfitLook}
         initialOutfitCompanionItems={initialOutfitCompanionItems}
         initialOutfitCompanionCoverUrlById={initialOutfitCompanionCoverUrlById}
+        initialStyleLooks={initialStyleLooks}
+        initialMoreCatalogItems={initialMoreCatalogItems}
+        initialMoreCatalogCoverUrlById={initialMoreCatalogCoverUrlById}
         initialGuestCashRental={initialGuestCashRental}
       />
     </Suspense>

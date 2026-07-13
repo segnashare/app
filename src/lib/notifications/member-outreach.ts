@@ -9,7 +9,10 @@ import {
 } from "@/lib/notifications/idempotency";
 import { shouldSendMemberCronSms } from "@/lib/notifications/member-sms-daily-cap";
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
-import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
+import {
+  sendTransactionalEmail,
+  type TransactionalEmailAttachment,
+} from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
 import { loadUserContact } from "@/lib/notifications/member-outreach-contact";
@@ -50,6 +53,7 @@ export async function sendMemberOutreachNotification(
     /** Dev / re-test : ignore le plafond SMS journalier. */
     skipCronSmsDailyCap?: boolean;
     cronSmsNowMs?: number;
+    emailAttachments?: TransactionalEmailAttachment[];
   },
 ): Promise<void> {
   const smsRequested = isMemberOutreachSmsRequested({
@@ -96,6 +100,7 @@ export async function sendMemberOutreachNotification(
       text: input.text,
       html: input.html,
       idempotencyKey: input.idempotencyKey,
+      attachments: input.emailAttachments,
     });
     if (!sent) {
       await releaseNotificationSend(admin, input.idempotencyKey);

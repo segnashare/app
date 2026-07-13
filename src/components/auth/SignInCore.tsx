@@ -12,6 +12,7 @@ import { segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 const playfairDisplay = segnaPlayfairDisplay;
 
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { Input } from "@/components/ui/Input";
 import { signInSchema } from "@/features/auth/lib/schemas";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -61,7 +62,7 @@ export function SignInCore({
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (onboardingData?.status === "completed") return "/shop";
+      if (onboardingData?.status === "completed") return MEMBER_HOME_HREF;
       if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
 
       const { data: profileRow } = await supabase
@@ -72,7 +73,7 @@ export function SignInCore({
       const profileData = (profileRow?.profile_data ?? {}) as Record<string, unknown>;
       const rawScore = profileRow?.score ?? profileData.completion_score ?? profileData.profile_completion ?? profileData.score ?? profileData.progress_score;
       const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
-      if (Number.isFinite(numericScore) && numericScore >= 100) return "/shop";
+      if (Number.isFinite(numericScore) && numericScore >= 100) return MEMBER_HOME_HREF;
 
       return "/onboarding/1";
     },
@@ -219,7 +220,7 @@ export function SignInCore({
       router.replace("/onboarding");
       return;
     }
-    const targetPath = memberEntry ? "/shop" : await resolvePostSignInPath(user.id);
+    const targetPath = memberEntry ? MEMBER_HOME_HREF : await resolvePostSignInPath(user.id);
     router.replace(targetPath);
   });
 
@@ -229,7 +230,7 @@ export function SignInCore({
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) return;
-    router.replace("/shop");
+    router.replace(MEMBER_HOME_HREF);
   };
 
   const handleSignOutMemberEntry = async () => {

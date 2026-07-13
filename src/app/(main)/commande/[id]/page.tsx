@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { CommandeDetailView } from "@/components/commande/CommandeDetailView";
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
+import { ensureGuestPurchaseStripeInvoiceForCartOrder } from "@/lib/stripe/guest-purchase-stripe-invoice";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   ensureMemberReceiptAutoConfirmed,
   isMemberReceiptValidated,
@@ -34,6 +36,14 @@ export default async function CommandeDetailPage({ params }: PageProps) {
 
   const userId = user.id as string;
   const membershipLabel = await resolveMembershipLabel(supabase, userId);
+
+  try {
+    const admin = createSupabaseAdminClient();
+    await ensureGuestPurchaseStripeInvoiceForCartOrder(admin, userId, cartId);
+  } catch (e) {
+    console.error("[commande] ensureGuestPurchaseStripeInvoiceForCartOrder", cartId, e);
+  }
+
   const detail = await fetchMemberCartOrderDetail(
     supabase,
     userId,
@@ -47,7 +57,7 @@ export default async function CommandeDetailPage({ params }: PageProps) {
   const shipSt = detail.shipment?.status?.toLowerCase() ?? "";
 
   const receiptAnchor = memberReceiptAnchorFromOrderShipment(detail.shipment);
-  if (shipSt === "delivered" && receiptAnchor) {
+  if (shipSt === "delivered" && receiptAnchor && !detail.isPurchaseOrder) {
     const confirmedAt = await ensureMemberReceiptAutoConfirmed(supabase, {
       cartId,
       userId,

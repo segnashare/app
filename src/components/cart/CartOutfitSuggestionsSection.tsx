@@ -137,6 +137,7 @@ export function CartOutfitSuggestionsSection({
           hideLikeAction
           compactCard
           sectionInsetScroll
+          squarePhotoFrame
         />
       </div>
     </div>

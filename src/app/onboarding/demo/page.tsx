@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
+
 export default function OnboardingDemoPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -17,7 +19,7 @@ export default function OnboardingDemoPage() {
       if (!response.ok) {
         throw new Error("Impossible d'initialiser la démo");
       }
-      router.push("/shop");
+      router.push(MEMBER_HOME_HREF);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur inattendue");
     } finally {

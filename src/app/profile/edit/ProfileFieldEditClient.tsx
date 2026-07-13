@@ -60,7 +60,7 @@ type FieldConfig = {
 const FIELD_CONFIG: Record<FieldId, FieldConfig> = {
   first_name: { id: "first_name", label: "Prénom", kind: "name" },
   age: { id: "age", label: "Âge", kind: "birth" },
-  location: { id: "location", label: "Position", kind: "location" },
+  location: { id: "location", label: "Adresse", kind: "location" },
   work: { id: "work", label: "Profession", kind: "work" },
   sizes: { id: "sizes", label: "Tailles", kind: "sizes" },
   brands: { id: "brands", label: "Marques", kind: "brands" },

@@ -44,6 +44,7 @@ export type BuildCartOrderCheckoutMetadataInput = {
     deliveryEndDate: string;
   } | null;
   guestCashRental?: boolean;
+  purchaseMode?: boolean;
 };
 
 export function buildCartOrderCheckoutMetadata(
@@ -110,5 +111,6 @@ export function buildCartOrderCheckoutMetadata(
         }
       : {}),
     ...(input.guestCashRental ? { guest_cash_rental: "true" } : {}),
+    ...(input.purchaseMode ? { purchase_mode: "true" } : {}),
   };
 }

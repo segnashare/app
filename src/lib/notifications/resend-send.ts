@@ -42,6 +42,13 @@ function segnaEmailLogoInlineAttachment():
   }
 }
 
+export type TransactionalEmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+  contentId?: string;
+};
+
 /** @returns true si un envoi a été tenté avec succès auprès de Resend. */
 export async function sendTransactionalEmail(input: {
   to: string;
@@ -50,6 +57,7 @@ export async function sendTransactionalEmail(input: {
   /** HTML optionnel (clients mail : prévoir toujours `text` en repli). */
   html?: string;
   idempotencyKey: string;
+  attachments?: TransactionalEmailAttachment[];
 }): Promise<boolean> {
   const { RESEND_API_KEY, RESEND_FROM_EMAIL } = getServerEnv();
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
@@ -60,6 +68,8 @@ export async function sendTransactionalEmail(input: {
   const logoCid = `cid:${SEGNA_EMAIL_LOGO_CONTENT_ID}`;
   const needsLogo = Boolean(input.html?.includes(logoCid));
   const logoAttachment = needsLogo ? segnaEmailLogoInlineAttachment() : undefined;
+  const extraAttachments = input.attachments ?? [];
+  const attachments = [...extraAttachments, ...(logoAttachment ? [logoAttachment] : [])];
 
   const resend = new Resend(RESEND_API_KEY);
   const { error } = await resend.emails.send(
@@ -69,7 +79,7 @@ export async function sendTransactionalEmail(input: {
       subject: input.subject,
       text: input.text,
       ...(input.html ? { html: input.html } : {}),
-      ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
     },
     { idempotencyKey: input.idempotencyKey },
   );

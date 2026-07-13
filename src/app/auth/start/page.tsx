@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type AuthStartPageProps = {
@@ -23,5 +24,5 @@ export default async function AuthStartPage({ searchParams }: AuthStartPageProps
     redirect("/auth/login?from=member");
   }
 
-  redirect("/shop");
+  redirect(MEMBER_HOME_HREF);
 }

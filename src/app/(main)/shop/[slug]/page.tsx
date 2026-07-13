@@ -5,6 +5,7 @@ import { ShopCatalog, type ShopCatalogItem } from "@/components/shop/ShopCatalog
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadShopCatalogItemsByTagPageSlug } from "@/lib/shop/load-shop-tag-page";
 import { resolveShopPageSlug } from "@/lib/shop/resolve-shop-page-slug";
 import {
   loadShopBoutiqueFilterFacetResponses,
@@ -17,6 +18,7 @@ import {
   type ShopSectionSlug,
 } from "@/lib/shop/load-shop-section-items";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
+import { resolveShopGuestCashRental } from "@/lib/shop/resolve-shop-guest-cash-rental";
 import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type PageProps = {
@@ -25,6 +27,8 @@ type PageProps = {
 
 export default async function ShopSectionPage({ params }: PageProps) {
   const { slug: raw } = await params;
+  const rawSlug = raw.trim();
+  if (!rawSlug) notFound();
 
   const supabase = await createSupabaseServerClient();
   const anySb = supabase as unknown as {
@@ -49,6 +53,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
   }
   const userState = await getCurrentUserAppState(user.id);
   const isDemoMode = userState.onboarding_mode === "demo";
+  const guestCashRental = await resolveShopGuestCashRental(supabase, user.id);
 
   const [lendersRes, profileRes, facetPack, favRes] = await Promise.all([
     anySb.rpc("get_shop_featured_lenders", { p_limit: 9 }),
@@ -66,9 +71,44 @@ export default async function ShopSectionPage({ params }: PageProps) {
     facetPack;
 
   const materials = mapFilterRows(matRes.data);
-  const pageSlug = resolveShopPageSlug(raw, materials);
+  const categoryRows = mapCategoryFilterRows(catRes.data);
+  const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
+  const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
+
+  const pageSlug = resolveShopPageSlug(rawSlug, materials);
   if (!pageSlug) {
-    notFound();
+    const tagPack = await loadShopCatalogItemsByTagPageSlug(
+      supabase as unknown as Parameters<typeof loadShopCatalogItemsByTagPageSlug>[0],
+      rawSlug,
+    );
+    if (!tagPack.tag) notFound();
+
+    const initialItems: ShopCatalogItem[] = tagPack.items;
+    const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(
+      supabase as unknown as StorageSignClient,
+      initialItems,
+    );
+
+    return (
+      <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
+        <ShopCatalog
+          mode="section"
+          sectionPageTitle={tagPack.tag.label}
+          initialItems={initialItems}
+          initialCoverUrlById={initialCoverUrlById}
+          initialLikedItemIds={initialLikedItemIds}
+          categories={categoryRows}
+          sizes={mapSizeFilterRows(sizeRes.data)}
+          brands={mapFilterRows(brandRes.data)}
+          colors={mapFilterRows(colRes.data)}
+          materials={materials}
+          featuredLenders={[]}
+          featuredLenderSectionItemIds={[]}
+          guideCartOnboarding={userState.onboarding_process === "panier"}
+          guestCashRental={guestCashRental}
+        />
+      </MainContent>
+    );
   }
 
   const profileId = (profileRes.data as { id?: string } | null)?.id ?? null;
@@ -104,7 +144,6 @@ export default async function ShopSectionPage({ params }: PageProps) {
       .filter((id): id is string => typeof id === "string");
   }
 
-  const categoryRows = mapCategoryFilterRows(catRes.data);
   let sectionCatalogClient: unknown = supabase;
   if (pageSlug.kind === "section" && pageSlug.slug === "collection-segna") {
     try {
@@ -132,9 +171,6 @@ export default async function ShopSectionPage({ params }: PageProps) {
     initialItems,
   );
 
-  const likedRows = (favRes.data ?? []) as Array<{ item_id?: string }>;
-  const initialLikedItemIds = likedRows.map((r) => r.item_id).filter((id): id is string => typeof id === "string");
-
   return (
     <MainContent className="!space-y-0 !px-0 !pb-28 !pt-0">
       <ShopCatalog
@@ -151,6 +187,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
         featuredLenders={[]}
         featuredLenderSectionItemIds={[]}
         guideCartOnboarding={userState.onboarding_process === "panier"}
+        guestCashRental={guestCashRental}
       />
     </MainContent>
   );

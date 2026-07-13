@@ -1,3 +1,7 @@
+import {
+  parseInspirationCoverAspect,
+  parseInspirationCoverTransform,
+} from "@/lib/community/inspiration-cover-aspect";
 import type {
   CommunityFeedCursor,
   CommunityFeedPayload,
@@ -37,10 +41,14 @@ export function parseInspirationFeedCard(raw: unknown): InspirationFeedCard | nu
     media_type: parseMediaType(row.media_type),
     media_bucket: typeof row.media_bucket === "string" ? row.media_bucket : "bucket_community",
     media_paths: parseMediaPaths(row.media_paths),
+    cover_aspect: parseInspirationCoverAspect(row.cover_aspect),
+    cover_transform: parseInspirationCoverTransform(row.cover_transform),
     video_poster_path: typeof row.video_poster_path === "string" ? row.video_poster_path : null,
     author_user_id: typeof row.author_user_id === "string" ? row.author_user_id : null,
     author_display_name: typeof row.author_display_name === "string" ? row.author_display_name : "Membre Segna",
     author_avatar_path: typeof row.author_avatar_path === "string" ? row.author_avatar_path : null,
+    author_instagram_username:
+      typeof row.author_instagram_username === "string" ? row.author_instagram_username : null,
     like_count: typeof row.like_count === "number" ? row.like_count : 0,
     is_liked: row.is_liked === true,
     linked_item_count: typeof row.linked_item_count === "number" ? row.linked_item_count : 0,
@@ -118,10 +126,14 @@ export function parseInspirationDetail(data: unknown): InspirationDetail | null 
     media_type: parseMediaType(row.media_type),
     media_bucket: typeof row.media_bucket === "string" ? row.media_bucket : "bucket_community",
     media_paths: parseMediaPaths(row.media_paths),
+    cover_aspect: parseInspirationCoverAspect(row.cover_aspect),
+    cover_transform: parseInspirationCoverTransform(row.cover_transform),
     video_poster_path: typeof row.video_poster_path === "string" ? row.video_poster_path : null,
     author_user_id: typeof row.author_user_id === "string" ? row.author_user_id : null,
     author_display_name: typeof row.author_display_name === "string" ? row.author_display_name : "Membre Segna",
     author_avatar_path: typeof row.author_avatar_path === "string" ? row.author_avatar_path : null,
+    author_instagram_username:
+      typeof row.author_instagram_username === "string" ? row.author_instagram_username : null,
     like_count: typeof row.like_count === "number" ? row.like_count : 0,
     is_liked: row.is_liked === true,
     is_following_author: row.is_following_author === true,

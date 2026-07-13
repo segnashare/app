@@ -105,6 +105,7 @@ export function ShopCatalogProgressiveShell({ critical }: ShopCatalogProgressive
       boutiqueHubSectionOrder={payload.boutiqueHubSectionOrder}
       guideCartOnboarding={payload.guideCartOnboarding}
       readyHubSectionKeys={payload.readyHubSectionKeys}
+      guestCashRental={payload.guestCashRental}
     />
   );
 }

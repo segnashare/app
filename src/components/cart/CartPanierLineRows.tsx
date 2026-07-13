@@ -12,7 +12,7 @@ import {
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
-import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
+import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import type { BorrowCheckoutOption } from "@/lib/billing/fetch-borrow-checkout-options";
 import { BORROW_CHECKOUT_OPTIONS_FALLBACK } from "@/lib/billing/fetch-borrow-checkout-options";
@@ -86,6 +86,8 @@ export type CartPanierLineRowsProps = {
   exchangeUiCalm?: boolean;
   /** Onboarding panier : attire l'oeil vers l'ajout d'articles. */
   guideAddArticlesLink?: boolean;
+  /** Page panier : masquer les pastilles « Réservé », etc. */
+  hideLineStatusBadges?: boolean;
 };
 
 /**
@@ -103,6 +105,7 @@ export function CartPanierLineRows({
   showAddArticlesLink = true,
   exchangeUiCalm = false,
   guideAddArticlesLink = false,
+  hideLineStatusBadges = false,
 }: CartPanierLineRowsProps) {
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
   const guestCashRental = isGuestCashRentalMode(membershipLabel);
@@ -187,7 +190,7 @@ export function CartPanierLineRows({
                     ) : null}
                     <p className="mt-1 text-[15px] tracking-tight text-zinc-900">
                       {guestCashRental ? (
-                        <ItemWeeklyRentalPriceDisplay
+                        <ItemCatalogModePriceDisplay
                           pricePoints={line.pricePoints}
                           borrowCheckoutOptions={borrowCheckoutOptions}
                           priceClassName="text-[15px] font-semibold text-zinc-900"
@@ -203,7 +206,7 @@ export function CartPanierLineRows({
                     {!guestCashRental && otherMembersHint ? (
                       <p className="mt-0.5 text-[12px] italic leading-snug text-zinc-500">{otherMembersHint}</p>
                     ) : null}
-                    {line.status !== "disponible" && !line.reservedByOther ? (
+                    {!hideLineStatusBadges && line.status !== "disponible" && !line.reservedByOther ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <span
                           className={cn(

@@ -8,12 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CmsFrameItem, CmsLinkCardCtaToneProvider } from "@/components/cms/CmsSectionBlocks";
 import { CardBase } from "@/components/layout/CardBase";
-import { CommunityBadgesGrid } from "@/components/community/CommunityBadgesGrid";
 import { CommunityShareActions } from "@/components/community/CommunityShareActions";
 import { GoogleReviewCta } from "@/components/reviews/GoogleReviewCta";
 import { TrustpilotReviewCta } from "@/components/reviews/TrustpilotReviewCta";
 import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySummary";
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
+import { ProfileSavedSection } from "@/components/profile/ProfileSavedSection";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
@@ -49,27 +49,6 @@ type ProfileTabsProps = {
   initialReferralCode?: string | null;
 };
 
-type BadgeProgressItem = {
-  badge_code: string;
-  label: string;
-  description: string | null;
-  icon: string | null;
-  current_value: number;
-  target_value: number;
-  is_completed: boolean;
-};
-
-type ProfileGamificationData = {
-  dayStreak: number;
-  totalXp: number;
-  currentLevelNo: number;
-  currentRank: string;
-  nextRank: string | null;
-  remainingToNext: number;
-  progressPercent: number;
-  badges: BadgeProgressItem[];
-};
-
 const DEFAULT_HEADER_DATA: ProfileHeaderData = {
   displayName: "Profil",
   completionScore: 0,
@@ -81,23 +60,6 @@ const DEFAULT_HEADER_DATA: ProfileHeaderData = {
   },
   kycStatus: "unknown",
 };
-
-const DEFAULT_GAMIFICATION_DATA: ProfileGamificationData = {
-  dayStreak: 0,
-  totalXp: 0,
-  currentLevelNo: 1,
-  currentRank: "Nouvelle",
-  nextRank: null,
-  remainingToNext: 0,
-  progressPercent: 0,
-  badges: [],
-};
-
-/**
- * Streak, confiance et grille de badges (onglet « Obtenir plus »). Les données gamification
- * continuent d’être chargées en arrière-plan ; passer à `true` pour réafficher avant refonte.
- */
-const PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS = false;
 
 const TAB_SET = new Set<ProfileTabId>(PROFILE_TABS.map((tab) => tab.id));
 const PROFILE_HEADER_CACHE_KEY = "segna:profile:header:v3";
@@ -291,8 +253,6 @@ export function ProfileTabs({
   const [isLoadingHeader, setIsLoadingHeader] = useState(() => !initialHeaderData);
   const [headerError, setHeaderError] = useState<string | null>(null);
   const hasWarmHeaderDataRef = useRef(Boolean(initialHeaderData));
-  const [gamificationData, setGamificationData] = useState<ProfileGamificationData>(DEFAULT_GAMIFICATION_DATA);
-  const [isLoadingGamification, setIsLoadingGamification] = useState(true);
   const [onboardingProcess, setOnboardingProcess] = useState<string | null>(null);
   const shouldGuideProfileCompletion = onboardingProcess === "profile";
   useEffect(() => {
@@ -423,106 +383,6 @@ export function ProfileTabs({
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchHeaderData]);
-
-  const fetchGamificationData = useCallback(async () => {
-    setIsLoadingGamification(true);
-    const supabase = createSupabaseBrowserClient() as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      setGamificationData(DEFAULT_GAMIFICATION_DATA);
-      setIsLoadingGamification(false);
-      return;
-    }
-
-    const [levelsRes, badgesRes, stateRes, progressRpc, streakRes] = await Promise.all([
-      supabase.from("xp_levels").select("level_no,xp_required,rank_name").order("level_no", { ascending: true }),
-      supabase.from("xp_badges").select("badge_code,label,description,icon,metadata").eq("is_active", true).order("created_at", { ascending: true }),
-      supabase.from("xp_user_state").select("total_xp,current_level").eq("user_id", user.id).maybeSingle(),
-      supabase.rpc("xp_get_badges_progress"),
-      supabase.from("xp_streak").select("current_streak_days").eq("user_id", user.id).maybeSingle(),
-    ]);
-
-    const totalXp = Number(stateRes.data?.total_xp ?? 0) || 0;
-    const currentLevelNoFromState = Number(stateRes.data?.current_level ?? 1) || 1;
-    const dayStreak = Number(streakRes.data?.current_streak_days ?? 0) || 0;
-
-    const levels = (levelsRes.data ?? []) as Array<{ level_no: number; xp_required: number; rank_name: string }>;
-    const badges = (badgesRes.data ?? []) as Array<{ badge_code: string; label: string; description: string | null; icon: string | null; metadata?: { threshold?: number | string } | null }>;
-
-    const defaultBadges: BadgeProgressItem[] = badges.map((badge) => {
-      const threshold = Math.max(1, Number(badge.metadata?.threshold ?? 1) || 1);
-      return {
-        badge_code: badge.badge_code,
-        label: badge.label,
-        description: badge.description,
-        icon: badge.icon,
-        current_value: 0,
-        target_value: threshold,
-        is_completed: false,
-      };
-    });
-
-    const progressRows = (progressRpc.data ?? []) as Array<Record<string, unknown>>;
-    const badgeProgress: BadgeProgressItem[] =
-      progressRows.length > 0
-        ? progressRows.map((row) => ({
-            badge_code: String(row.badge_code ?? ""),
-            label: String(row.label ?? ""),
-            description: typeof row.description === "string" ? row.description : null,
-            icon: typeof row.icon === "string" ? row.icon : null,
-            current_value: Number(row.current_value ?? 0) || 0,
-            target_value: Math.max(1, Number(row.target_value ?? 1) || 1),
-            is_completed: Boolean(row.is_completed),
-          }))
-        : defaultBadges;
-
-    let currentLevelNo = 1;
-    let currentRank = "Nouvelle";
-    let nextRank: string | null = null;
-    let remainingToNext = 0;
-    let progressPercent = 0;
-
-    if (levels.length > 0) {
-      const fallbackIndex = levels.findIndex((level) => level.level_no === currentLevelNoFromState);
-      const derivedIndex = levels.findLastIndex((level) => totalXp >= level.xp_required);
-      const currentIndex = fallbackIndex >= 0 ? fallbackIndex : Math.max(0, derivedIndex);
-      const currentLevel = levels[currentIndex] ?? levels[0];
-      const nextLevel = levels[currentIndex + 1] ?? null;
-
-      currentLevelNo = currentLevel.level_no;
-      currentRank = currentLevel.rank_name;
-      nextRank = nextLevel?.rank_name ?? null;
-
-      if (nextLevel) {
-        const span = Math.max(1, nextLevel.xp_required - currentLevel.xp_required);
-        const progressed = Math.max(0, totalXp - currentLevel.xp_required);
-        progressPercent = Math.max(0, Math.min(100, (progressed / span) * 100));
-        remainingToNext = Math.max(0, nextLevel.xp_required - totalXp);
-      } else {
-        progressPercent = 100;
-      }
-    }
-
-    setGamificationData({
-      dayStreak,
-      totalXp,
-      currentLevelNo,
-      currentRank,
-      nextRank,
-      remainingToNext,
-      progressPercent,
-      badges: badgeProgress,
-    });
-    setIsLoadingGamification(false);
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== "me") return;
-    void fetchGamificationData();
-  }, [activeTab, fetchGamificationData]);
 
   const handleOpenPhotoModify = useCallback(async () => {
     if (!headerData.avatarUrl) {
@@ -673,8 +533,6 @@ export function ProfileTabs({
     }
   };
 
-  const subtitle = !isLoadingHeader && headerData.completionScore < 100 ? "Profil incomplet" : "";
-
   const meProfileHeroRows = useMemo(
     () => initialMeTabProfileHeroFrames.filter((row) => row.frame_type === "profile_plus_hero"),
     [initialMeTabProfileHeroFrames],
@@ -726,7 +584,8 @@ export function ProfileTabs({
     }
 
     return (
-      <div className="space-y-3">
+      <div className="-mx-5 flex flex-col space-y-[4.5px] bg-zinc-100">
+        <div className="space-y-3 bg-white px-5 py-4">
         {!isLoadingHeader && headerData.kycStatus !== "verified" ? (
           <Link href="/profile/kyc?tab=me" className="block">
             <CardBase className="flex items-center gap-3">
@@ -824,84 +683,18 @@ export function ProfileTabs({
           </CardBase>
         )}
 
-        {isLoadingGamification ? (
-          <CardBase className="space-y-3 animate-pulse" aria-hidden>
-            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="h-20 rounded-xl bg-zinc-100" />
-                  <div className="h-20 rounded-xl bg-zinc-100" />
-                </div>
-                <div className="h-24 rounded-xl bg-zinc-100" />
-                <div className="h-28 rounded-xl bg-zinc-100" />
-              </>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex justify-between gap-3">
-                  <div className="h-5 w-44 rounded bg-zinc-100" />
-                  <div className="h-4 w-14 shrink-0 rounded bg-zinc-100" />
-                </div>
-                <div className="h-2.5 w-full rounded-full bg-zinc-100" />
-                <div className="h-4 w-full max-w-[92%] rounded bg-zinc-100" />
-              </div>
-            )}
-          </CardBase>
-        ) : (
-          <>
-            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
-              <div className="grid grid-cols-2 gap-3">
-                <CardBase className="space-y-1">
-                  <p className="text-sm text-zinc-500">Day streak</p>
-                  <p className="text-xl font-semibold text-zinc-900">{gamificationData.dayStreak} jours</p>
-                </CardBase>
-                <CardBase className="space-y-1">
-                  <p className="text-sm text-zinc-500">Confiance</p>
-                  <p className="text-xl text-[#D4A017]">★★★★★</p>
-                </CardBase>
-              </div>
-            ) : null}
+        </div>
 
-            <CardBase className="space-y-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="text-base font-semibold text-zinc-900">
-                  Niveau {gamificationData.currentLevelNo} -{" "}
-                  <span className="font-semibold italic">{gamificationData.currentRank}</span>
-                </p>
-                <p className="text-sm font-medium text-zinc-600">{gamificationData.totalXp} XP</p>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200">
-                <div className="h-full rounded-full bg-zinc-900 transition-all" style={{ width: `${gamificationData.progressPercent}%` }} />
-              </div>
-              <p className="text-sm text-zinc-600">
-                {gamificationData.nextRank ? (
-                  <>
-                    {gamificationData.remainingToNext} XP restants pour atteindre{" "}
-                    <span className="italic">{gamificationData.nextRank}</span>.
-                  </>
-                ) : (
-                  "Palier maximum atteint."
-                )}
-              </p>
-            </CardBase>
-
-            {PROFILE_PLUS_SHOW_GAMIFICATION_EXTRAS ? (
-              <CardBase className="space-y-3">
-                <CommunityBadgesGrid badges={gamificationData.badges} />
-              </CardBase>
-            ) : null}
-          </>
-        )}
+        <ProfileSavedSection />
       </div>
     );
   }, [
     activeTab,
-    gamificationData,
     headerData.completionScore,
     headerData.kycStatus,
     initialPlusTabCmsFrames,
     initialReferralCode,
     referralBannerRow,
-    isLoadingGamification,
     isLoadingHeader,
     meProfileHeroRows,
   ]);
@@ -923,14 +716,12 @@ export function ProfileTabs({
 
           {isLoadingHeader ? (
             <div className="mt-5 flex flex-col items-center animate-pulse" aria-hidden>
-              <div className="h-44 w-44 rounded-full bg-zinc-200" />
+              <div className="h-32 w-32 rounded-full bg-zinc-200" />
               <div className="mt-4 h-8 w-44 rounded-md bg-zinc-200" />
-              <div className="mt-2 h-5 w-28 rounded-md bg-zinc-100" />
             </div>
           ) : (
             <div className="mt-5 flex flex-col items-center">
               <ProfileProgressAvatar
-                completionScore={headerData.completionScore}
                 avatarUrl={headerData.avatarUrl}
                 avatarTransform={headerData.avatarTransform}
                 displayName={headerData.displayName}
@@ -938,7 +729,7 @@ export function ProfileTabs({
                 editHref={`/profile/complete?tab=${activeTab}`}
               />
 
-              <ProfileIdentitySummary displayName={headerData.displayName} subtitle={subtitle} kycStatus={headerData.kycStatus} />
+              <ProfileIdentitySummary displayName={headerData.displayName} kycStatus={headerData.kycStatus} />
               {headerError ? (
                 <button
                   type="button"

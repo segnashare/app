@@ -1,12 +1,9 @@
-import { notFound } from "next/navigation";
-
 import { CreateInspirationFlow } from "@/components/community/CreateInspirationFlow";
-import { MainContent } from "@/components/layout/MainContent";
 
 export default function CommunityCreatePage() {
   return (
-    <MainContent>
+    <main className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white">
       <CreateInspirationFlow />
-    </MainContent>
+    </main>
   );
 }

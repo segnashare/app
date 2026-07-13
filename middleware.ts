@@ -1,11 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createPerfTracker } from "@/lib/perf/server-timing";
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import {
   isBorrowRecoveryAuthSuspendAllowedPath,
   parseBorrowRecoveryAuthSuspendRow,
 } from "@/lib/emprunt/borrow-recovery-auth-suspend";
+import { createPerfTracker } from "@/lib/perf/server-timing";
 
 const SESSION_IDLE_COOKIE = "segna_last_seen_at";
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -23,12 +24,14 @@ const PUBLIC_PREFIXES = [
 const PROTECTED_PREFIXES = [
   "/onboarding",
   "/auth/sign-up/password",
+  "/home",
   "/shop",
   "/cart",
   "/exchange",
   "/community",
   "/profile",
   "/items",
+  "/look",
   "/membre",
 ];
 const API_MIDDLEWARE_BYPASS_PREFIXES = [
@@ -407,7 +410,7 @@ export async function middleware(request: NextRequest) {
       !isBridgeOnboardingRoute(pathname)
     ) {
       const url = request.nextUrl.clone();
-      url.pathname = "/shop";
+      url.pathname = MEMBER_HOME_HREF;
       return finalize(NextResponse.redirect(url));
     }
 
@@ -419,7 +422,7 @@ export async function middleware(request: NextRequest) {
 
     if (onboardingMode === "real" && (isDemoOnboardingRoute(pathname) || isBridgeOnboardingRoute(pathname))) {
       const url = request.nextUrl.clone();
-      url.pathname = "/shop";
+      url.pathname = MEMBER_HOME_HREF;
       return finalize(NextResponse.redirect(url));
     }
   }
@@ -428,7 +431,7 @@ export async function middleware(request: NextRequest) {
     const { reachedIndex, status, onboardingMode } = await ensureFullReachedState();
     if (onboardingMode === "demo") {
       const url = request.nextUrl.clone();
-      url.pathname = "/shop";
+      url.pathname = MEMBER_HOME_HREF;
       return finalize(NextResponse.redirect(url));
     }
     if (onboardingMode === "bridge") {
@@ -438,7 +441,7 @@ export async function middleware(request: NextRequest) {
     }
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/shop";
+      url.pathname = MEMBER_HOME_HREF;
       return finalize(NextResponse.redirect(url));
     }
     if (reachedIndex > 0) {
@@ -453,7 +456,7 @@ export async function middleware(request: NextRequest) {
     const { reachedIndex, reachedPath, status } = await ensureFullReachedState();
     if (status === "completed") {
       const url = request.nextUrl.clone();
-      url.pathname = "/shop";
+      url.pathname = MEMBER_HOME_HREF;
       return finalize(NextResponse.redirect(url));
     }
     if (pathname === "/onboarding") {
@@ -488,11 +491,11 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname =
       onboardingMode === "demo"
-        ? "/shop"
+        ? MEMBER_HOME_HREF
         : onboardingMode === "bridge"
           ? BRIDGE_ONBOARDING_ENTRY
           : status === "completed"
-            ? "/shop"
+            ? MEMBER_HOME_HREF
             : getOnboardingPathFromIndex(reachedIndex);
     scrubOnboardingDestinationQuery(url);
     return finalize(NextResponse.redirect(url));

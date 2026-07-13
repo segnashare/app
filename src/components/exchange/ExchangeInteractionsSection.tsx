@@ -6,16 +6,21 @@ import { useState } from "react";
 
 import { CardBase } from "@/components/layout/CardBase";
 import { SectionBlock } from "@/components/layout/SectionBlock";
+import { memberOrderTypeLabel, type MemberOrderKind } from "@/lib/cart/member-order-kind";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
 
 export type ExchangeOrderCard = {
   id: string;
-  /** Identifiant court affiché après « N° commande : ». */
+  /** Location (emprunt / retour) ou achat définitif. */
+  orderKind: MemberOrderKind;
+  /** « Location 7j », « Location 30j », « Achat ». */
+  orderTypeLabel: string;
+  /** Identifiant court affiché dans « Commande XXX ». */
   orderNumberCompact: string;
   /** État lisible (phase logistique, confirmée, archivée…). */
   statusLabel: string;
-  /** Pastille verte (réception) ou rouge léger (retour urgent). */
+  /** Pastille rouge (retour urgent / retard). Les autres états restent neutres. */
   statusPillTone?: "success" | "return";
   /** Sous-texte livraison (en transit / livré) ; absent tant que l’expédition n’y est pas. */
   deliveryLabel: string | null;
@@ -33,7 +38,34 @@ type ExchangeInteractionsSectionProps = {
   recentOrders: ExchangeOrderCard[];
 };
 
-type ExchangeTab = "history" | "ongoing";
+type ExchangeStatusTab = "history" | "ongoing";
+
+function emptyOrdersMessage(statusTab: ExchangeStatusTab): string {
+  return statusTab === "ongoing" ? "Aucune commande en cours." : "Aucune commande dans l'historique.";
+}
+
+function StatusTabButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-11 items-center justify-center rounded-xl border text-sm font-semibold transition",
+        active ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
 
 function OrderStatusPill({
   label,
@@ -46,32 +78,23 @@ function OrderStatusPill({
   tone?: "success" | "return";
   vibrate?: boolean;
 }) {
-  const activeReturn = active && tone === "return";
+  const isUrgent = tone === "return" || label === "En retard";
 
   return (
     <span
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold leading-tight",
         vibrate && "exchange-return-urgent-vibrate",
-        activeReturn
+        isUrgent
           ? "segna-urgent-red-shimmer-active segna-urgent-red-shimmer-target border-red-600 bg-red-600 text-white"
-          : active
-            ? "border-amber-300/90 bg-amber-50 text-amber-950"
-            : tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : tone === "return"
-                ? "segna-urgent-red-shimmer-active segna-urgent-red-shimmer-target border-red-600 bg-red-600 text-white"
-                : "border-zinc-200 bg-zinc-100 text-zinc-800",
+          : "border-zinc-200 bg-zinc-100 text-zinc-800",
       )}
     >
-      {active ? (
-        <span
-          className={cn(
-            "inline-flex h-1.5 w-1.5 shrink-0 rounded-full",
-            activeReturn ? "bg-white" : "bg-amber-500",
-          )}
-          aria-hidden
-        />
+      {active && !isUrgent ? (
+        <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" aria-hidden />
+      ) : null}
+      {active && isUrgent ? (
+        <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-white" aria-hidden />
       ) : null}
       <span className="relative z-[2] truncate">{label}</span>
     </span>
@@ -91,9 +114,12 @@ function OrderCards({ orders }: { orders: ExchangeOrderCard[] }) {
               href={order.detailHref ?? `/commande/${order.id}`}
               className="group flex items-start justify-between gap-2 rounded-lg outline-none ring-zinc-400 focus-visible:ring-2"
             >
-              <p className="min-w-0 text-[16px] font-bold leading-snug tracking-tight text-zinc-900">
-                N° commande : {order.orderNumberCompact}
-              </p>
+              <div className="min-w-0">
+                <p className="text-[16px] font-bold leading-snug tracking-tight text-zinc-900">
+                  Commande {order.orderNumberCompact}
+                </p>
+                <p className="mt-0.5 text-[13px] font-semibold text-zinc-500">{order.orderTypeLabel}</p>
+              </div>
               <ChevronRight
                 className="mt-0.5 h-5 w-5 shrink-0 text-zinc-300 transition group-hover:text-zinc-500"
                 aria-hidden
@@ -136,52 +162,27 @@ function OrderCards({ orders }: { orders: ExchangeOrderCard[] }) {
 }
 
 export function ExchangeInteractionsSection({ ongoingOrders, recentOrders }: ExchangeInteractionsSectionProps) {
-  const [activeTab, setActiveTab] = useState<ExchangeTab>("ongoing");
+  const [statusTab, setStatusTab] = useState<ExchangeStatusTab>("ongoing");
+  const orders = statusTab === "ongoing" ? ongoingOrders : recentOrders;
 
   return (
     <SectionBlock
-      title="Échanges"
+      title="Commandes"
       className="w-full bg-white px-5 py-4"
       titleClassName={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME)}
     >
       <CardBase className="!rounded-none !border-0 !bg-transparent !p-0 !shadow-none space-y-3">
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("ongoing")}
-            className={cn(
-              "inline-flex h-11 items-center justify-center rounded-xl border text-sm font-semibold transition",
-              activeTab === "ongoing" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800",
-            )}
-          >
-            En cours
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("history")}
-            className={cn(
-              "inline-flex h-11 items-center justify-center rounded-xl border text-sm font-semibold transition",
-              activeTab === "history" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800",
-            )}
-          >
-            Historique
-          </button>
+          <StatusTabButton active={statusTab === "ongoing"} label="En cours" onClick={() => setStatusTab("ongoing")} />
+          <StatusTabButton active={statusTab === "history"} label="Historique" onClick={() => setStatusTab("history")} />
         </div>
 
         <div className="space-y-3">
-          {activeTab === "ongoing" ? (
-            ongoingOrders.length > 0 ? (
-              <OrderCards orders={ongoingOrders} />
-            ) : (
-              <p className="rounded-xl border border-dashed border-zinc-200 px-3 py-4 text-center text-sm text-zinc-500">
-                Aucun échange en cours.
-              </p>
-            )
-          ) : recentOrders.length > 0 ? (
-            <OrderCards orders={recentOrders} />
+          {orders.length > 0 ? (
+            <OrderCards orders={orders} />
           ) : (
             <p className="rounded-xl border border-dashed border-zinc-200 px-3 py-4 text-center text-sm text-zinc-500">
-              Aucun échange dans l&apos;historique.
+              {emptyOrdersMessage(statusTab)}
             </p>
           )}
         </div>

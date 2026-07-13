@@ -8,6 +8,7 @@ import {
   formatBorrowOverdueEmailTierNoteLinesFr,
 } from "@/lib/cart/format-borrow-overdue-copy";
 import { escapeHtml, resolvePublicOriginForEmailImages, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
+import { formatDateParis } from "@/lib/datetime/segna-datetime";
 import type { BorrowReturnReminderPhase } from "@/lib/emprunt/borrow-return-reminder-buckets";
 import {
   appendSmsAppLink,
@@ -454,4 +455,72 @@ export function borrowNonRestitutionInvoicedEmail(
     : `Segna : facture non-restitution ${totalLabel} (emprunt ${opts.orderRef}).`;
 
   return { subject, text, html, smsBody };
+}
+
+export function guestPurchaseInvoicedEmail(
+  firstName: string | null,
+  opts: {
+    orderRef: string;
+    orderPlacedAtLabel: string;
+    commandeUrl: string;
+    pdfAttached: boolean;
+  },
+): { subject: string; text: string; html: string } {
+  const prenom = firstNameOrBonjour(firstName);
+  const pEsc = escapeHtml(prenom);
+  const orderRefEsc = escapeHtml(opts.orderRef);
+  const dateEsc = escapeHtml(opts.orderPlacedAtLabel);
+  const commandeUrlEsc = escapeHtml(opts.commandeUrl);
+  const subject = `Commande confirmée : ${opts.orderRef}`;
+  const title = "Commande confirmée";
+
+  const receiptText = opts.pdfAttached
+    ? "Votre reçu de paiement est joint à cet e-mail."
+    : "Votre reçu est disponible sur la page de votre commande.";
+
+  const receiptHtml = opts.pdfAttached
+    ? "Votre <strong>reçu de paiement</strong> est joint à cet e-mail."
+    : "Votre <strong>reçu</strong> est disponible sur la page de votre commande.";
+
+  const invoiceHintText = "Votre facture est disponible sur la page de votre commande.";
+  const invoiceHintHtml =
+    "Votre <strong>facture</strong> est disponible sur la page de votre commande.";
+
+  const text = [
+    `Bonjour ${prenom},`,
+    "",
+    `Commande ${opts.orderRef} confirmée le ${opts.orderPlacedAtLabel}.`,
+    receiptText,
+    invoiceHintText,
+    "",
+    `Voir ma commande : ${opts.commandeUrl}`,
+    "",
+    "L'équipe Segna",
+  ].join("\n");
+
+  const ctaButton = `
+    <table role="presentation" cellspacing="0" cellpadding="0" style="margin:28px auto 8px auto;">
+      <tr>
+        <td align="center" style="border-radius:9999px;background-color:#18181b;">
+          <a href="${commandeUrlEsc}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+            Suivre ma commande
+          </a>
+        </td>
+      </tr>
+    </table>`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Bonjour ${pEsc},</p>
+    <p style="margin:0 0 16px;">Commande <strong>${orderRefEsc}</strong> confirmée le <strong>${dateEsc}</strong>.</p>
+    <p style="margin:0 0 16px;">${receiptHtml}</p>
+    <p style="margin:0 0 16px;">${invoiceHintHtml}</p>
+    ${ctaButton}`;
+
+  const html = segnaTransactionalEmailShell({
+    preheader: `Commande ${opts.orderRef} confirmée`,
+    title,
+    bodyHtml,
+  });
+
+  return { subject, text, html };
 }

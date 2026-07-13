@@ -63,7 +63,7 @@ export type AnalyticsEventProperties = {
   };
   order_confirmed: {
     cart_id: string;
-    checkout_mode?: "stripe" | "wallet_setup" | "wallet_only" | "webhook";
+    checkout_mode?: "stripe" | "wallet_setup" | "wallet_only" | "webhook" | "invoice" | "invoice_webhook";
     used_included_order?: boolean;
     item_count?: number;
     /** Total € encaissé (complément crédits + frais livraison/service), en centimes. 0 si wallet_only. */

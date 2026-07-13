@@ -10,8 +10,12 @@ import {
   itemSquareListThumbCoverProps,
 } from "@/lib/items/item-photo-layout";
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
-import { ItemWeeklyRentalPriceDisplay } from "@/components/ui/ItemWeeklyRentalPriceDisplay";
+import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import {
+  BORROW_CHECKOUT_OPTIONS_FALLBACK,
+  type BorrowCheckoutOption,
+} from "@/lib/billing/fetch-borrow-checkout-options";
 
 /** Lignes affichables comme sur le détail commande (panier checkout inclus). */
 export type CommandeStyleOrderLine = Pick<
@@ -26,8 +30,11 @@ type CommandeOrderLineRowsProps = {
   itemHrefSuffix?: string;
   /** `icon` : montant + picto Segna (détail commande / emprunt / paiement). */
   pointsUnitDisplay?: "label" | "icon";
-  /** Guest location € : prix hebdo par ligne au lieu des crédits. */
+  /** Guest location € : prix selon le mode catalogue (session). */
   guestCashRental?: boolean;
+  /** Guest achat € : prix fixe par pièce (pas de / semaine). */
+  guestPurchaseMode?: boolean;
+  borrowCheckoutOptions?: BorrowCheckoutOption[];
 };
 
 /**
@@ -39,6 +46,8 @@ export function CommandeOrderLineRows({
   itemHrefSuffix = "?from=commande",
   pointsUnitDisplay = "label",
   guestCashRental = false,
+  guestPurchaseMode = false,
+  borrowCheckoutOptions = BORROW_CHECKOUT_OPTIONS_FALLBACK,
 }: CommandeOrderLineRowsProps) {
   if (lines.length === 0) return null;
 
@@ -93,9 +102,11 @@ export function CommandeOrderLineRows({
           <div className="relative z-10 flex items-center justify-end self-stretch pl-1">
             <p className="pointer-events-none text-right tracking-tight text-zinc-900">
               {guestCashRental ? (
-                <ItemWeeklyRentalPriceDisplay
+                <ItemCatalogModePriceDisplay
                   pricePoints={line.pricePoints}
-                  className="text-[15px] font-semibold text-zinc-900"
+                  borrowCheckoutOptions={borrowCheckoutOptions}
+                  forcedMode={guestPurchaseMode ? "achat" : undefined}
+                  priceClassName="text-[15px] font-semibold text-zinc-900"
                 />
               ) : (
                 <SegnaPointsUnitDisplay

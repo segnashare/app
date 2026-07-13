@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isCartReturnProvisionedForCart } from "@/lib/cart/cart-return-shipment";
 import { shouldSkipSendcloudReturnForLegacyUberMr } from "@/lib/cart/coursier-checkout-meta";
+import { isGuestPurchaseCartOrder } from "@/lib/cart/guest-purchase-order";
 import { provisionCartReturnSendcloudOrder } from "@/lib/cart/provision-cart-return-sendcloud-order";
 
 function parsePositiveInt(raw: unknown): number | null {
@@ -98,6 +99,10 @@ export async function triggerCartReturnProvisionAfterOutboundLabel(
   const cartStatus = String((cart as { status?: string } | null)?.status ?? "").toLowerCase();
   if (cartStatus !== "confirmed") {
     return { triggered: false, skipped: "cart_not_confirmed" };
+  }
+
+  if (await isGuestPurchaseCartOrder(admin, trimmedCartId)) {
+    return { triggered: false, skipped: "guest_purchase" };
   }
 
   if (await isCartReturnProvisionedForCart(admin, trimmedCartId)) {

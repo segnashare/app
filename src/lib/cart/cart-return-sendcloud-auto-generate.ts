@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isCartReturnLockedForMemberSetup, normalizeCartReturnShipmentStatus } from "@/lib/cart/cart-return-status";
 import { ensureCartReturnShipmentForPortal, isCartReturnSendcloudOrderProvisioned } from "@/lib/cart/cart-return-shipment";
+import { isGuestPurchaseCartOrder } from "@/lib/cart/guest-purchase-order";
 import { provisionCartReturnSendcloudOrder } from "@/lib/cart/provision-cart-return-sendcloud-order";
 import { transitionShipmentStatus } from "@/lib/shipment/transition-shipment-status";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
@@ -49,6 +50,10 @@ export async function runCartReturnSendcloudAutoGenerate(
   }
   if (cart.status !== "confirmed") {
     return { ok: false, error: "Panier non éligible au retour.", status: 400 };
+  }
+
+  if (await isGuestPurchaseCartOrder(admin, cartId)) {
+    return { ok: false, error: "Cette commande est un achat définitif : pas de retour location.", status: 400 };
   }
 
   const { data: outbound } = await admin

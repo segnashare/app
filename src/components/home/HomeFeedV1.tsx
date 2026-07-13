@@ -566,16 +566,6 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
               photosLayout={parseItemPhotosLayout(currentCard.rawPhotos)}
               infoCard={buildItemInfoCard(currentCard)}
               ownerUserId={currentCard.ownerUserId}
-              onLikeFrame={likedItemIds.has(currentCard.id) ? undefined : handleLikeFromFrame}
-              onFrameAction={
-                likedItemIds.has(currentCard.id) && currentCard.status === "available"
-                  ? () => {
-                      void handleAddToCartFromFrame();
-                    }
-                  : undefined
-              }
-              frameActionVariant={likedItemIds.has(currentCard.id) ? "plus" : "heart"}
-              hideFrameLikeButtons={likedItemIds.has(currentCard.id) && currentCard.status !== "available"}
             />
           </div>
         </div>

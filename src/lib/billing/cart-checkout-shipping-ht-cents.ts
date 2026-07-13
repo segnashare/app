@@ -10,18 +10,22 @@ export type CartCheckoutHomeSpeed = "standard" | "uber_direct";
 /**
  * Part livraison HT (aller-retour échange) alignée panier paiement / session Stripe.
  * @param uberOutboundHtCents — requis si domicile + Uber (sinon erreur).
+ * @param outboundOnly — achat définitif : facturer l’aller uniquement (pas de retour colis).
  */
 export function computeCartCheckoutRoundTripShippingHtCents(args: {
   itemCount: number;
   deliveryChannel: "relay" | "home";
   homeSpeedBilling: CartCheckoutHomeSpeed;
   includedKind: IncludedExchangeShippingKind;
-  /** Livraison relais offerte si complément location ≥ 20 € (hors abonnement). */
+  /** Livraison relais offerte si location ≥ 50 € ou achat ≥ 200 € (hors abonnement). */
   complementRelayFree?: boolean;
   relayRoundTrip: ExchangeRoundTripShipping;
   currentRoundTrip: ExchangeRoundTripShipping;
   uberOutboundHtCents: number | null;
+  outboundOnly?: boolean;
 }): number {
+  const outboundOnly = args.outboundOnly === true;
+
   if (args.includedKind === "member_all_modes") {
     return 0;
   }
@@ -39,22 +43,33 @@ export function computeCartCheckoutRoundTripShippingHtCents(args: {
       if (args.uberOutboundHtCents == null) {
         throw new Error("uber_outbound_ht_required");
       }
-      return Math.max(
-        0,
-        args.uberOutboundHtCents + args.currentRoundTrip.returnRelayCents - args.relayRoundTrip.subtotalCents,
-      );
+      const relayReferenceCents = outboundOnly
+        ? args.relayRoundTrip.outboundCents
+        : args.relayRoundTrip.subtotalCents;
+      const billableHomeCents = outboundOnly
+        ? args.uberOutboundHtCents
+        : args.uberOutboundHtCents + args.currentRoundTrip.returnRelayCents;
+      return Math.max(0, billableHomeCents - relayReferenceCents);
     }
-    return Math.max(0, args.currentRoundTrip.subtotalCents - args.relayRoundTrip.subtotalCents);
+    const currentBillableCents = outboundOnly
+      ? args.currentRoundTrip.outboundCents
+      : args.currentRoundTrip.subtotalCents;
+    const relayReferenceCents = outboundOnly
+      ? args.relayRoundTrip.outboundCents
+      : args.relayRoundTrip.subtotalCents;
+    return Math.max(0, currentBillableCents - relayReferenceCents);
   }
 
   if (args.deliveryChannel === "home" && args.homeSpeedBilling === "uber_direct") {
     if (args.uberOutboundHtCents == null) {
       throw new Error("uber_outbound_ht_required");
     }
-    return args.uberOutboundHtCents + args.currentRoundTrip.returnRelayCents;
+    return outboundOnly
+      ? args.uberOutboundHtCents
+      : args.uberOutboundHtCents + args.currentRoundTrip.returnRelayCents;
   }
 
-  return args.currentRoundTrip.subtotalCents;
+  return outboundOnly ? args.currentRoundTrip.outboundCents : args.currentRoundTrip.subtotalCents;
 }
 
 /** Pré-calcul des barèmes relais / mode courant (évite divergences client / serveur). */

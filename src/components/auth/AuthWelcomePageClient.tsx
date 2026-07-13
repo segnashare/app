@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { AuthLandingCollage } from "@/components/auth/AuthLandingCollage";
 import { AppPageLoading } from "@/components/ui/AppPageLoading";
 import type { AuthCollageFrameRow } from "@/lib/cms/fetch-auth-landing-collage";
@@ -183,7 +184,7 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
     }
 
     setIsContinuing(false);
-    router.replace("/shop");
+    router.replace(MEMBER_HOME_HREF);
   };
 
   const collageFrames = initialCollageFrames;

@@ -125,6 +125,11 @@ export async function finalizeCoursierExpressHomeAfterConfirm(
 ): Promise<void> {
   if (params.deliveryChannel !== "home") return;
   if (!stripeSessionIndicatesCoursierCheckout(params.stripeMetadata)) return;
+  if (params.stripeMetadata?.purchase_mode === "true") {
+    await persistCoursierCheckoutMetaFromStripeSession(admin, params.cartId, params.stripeMetadata);
+    await assignCoursierProviderToOutboundShipment(admin, params.cartId);
+    return;
+  }
 
   await persistCoursierCheckoutMetaFromStripeSession(admin, params.cartId, params.stripeMetadata);
   await assignCoursierProviderToOutboundShipment(admin, params.cartId);
