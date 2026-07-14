@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { GalleryDots } from "@/components/ui/GalleryDots";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import type { CmsFramePayload, CmsFrameRow } from "@/lib/cms/cms-types";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -21,6 +22,15 @@ function heroImageUrl(payload: CmsFramePayload): string | null {
   const img = payload.background.image;
   if (!img) return null;
   const signed = typeof img.signed_url === "string" ? img.signed_url.trim() : "";
+  if (signed) return signed;
+  return null;
+}
+
+function heroVideoUrl(payload: CmsFramePayload): string | null {
+  if (payload.background?.kind !== "video") return null;
+  const video = payload.background.video;
+  if (!video) return null;
+  const signed = typeof video.signed_url === "string" ? video.signed_url.trim() : "";
   if (signed) return signed;
   return null;
 }
@@ -51,20 +61,70 @@ function HeroLogoMark({ logoLabel }: { logoLabel: string }) {
   );
 }
 
-function HomeHeroSlide({ row }: { row: CmsFrameRow }) {
+function HeroAmbientVideo({
+  src,
+  active = true,
+  className,
+  onReady,
+}: {
+  src: string;
+  active?: boolean;
+  className?: string;
+  onReady?: () => void;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    if (active) {
+      void video.play().catch(() => undefined);
+      return;
+    }
+    video.pause();
+    video.currentTime = 0;
+  }, [active, src]);
+
+  return (
+    <video
+      ref={ref}
+      src={src}
+      className={cn("pointer-events-none h-full w-full object-cover", className)}
+      autoPlay
+      playsInline
+      muted
+      loop
+      preload="auto"
+      aria-hidden
+      onLoadedData={() => onReady?.()}
+    />
+  );
+}
+
+function HomeHeroSlide({
+  row,
+  active = true,
+}: {
+  row: CmsFrameRow;
+  active?: boolean;
+}) {
   const payload = row.payload;
   const href = payload.target_url?.trim() || "/shop";
   const title = payload.title?.trim() || "";
   const logoLabel = payload.label?.trim() || "";
   const bgUrl = heroImageUrl(payload);
+  const videoUrl = heroVideoUrl(payload);
+  const hasMedia = Boolean(bgUrl || videoUrl);
 
-  const [coverState, setCoverState] = useState<RemoteCoverLoadState>(() => (bgUrl ? "loading" : "ready"));
+  const [coverState, setCoverState] = useState<RemoteCoverLoadState>(() =>
+    hasMedia ? "loading" : "ready",
+  );
 
   useEffect(() => {
-    setCoverState(bgUrl ? "loading" : "ready");
-  }, [bgUrl]);
+    setCoverState(hasMedia ? "loading" : "ready");
+  }, [bgUrl, hasMedia, videoUrl]);
 
-  const showContent = !bgUrl || coverState === "ready" || coverState === "failed";
+  const showContent = !hasMedia || coverState === "ready" || coverState === "failed";
 
   return (
     <Link
@@ -72,7 +132,19 @@ function HomeHeroSlide({ row }: { row: CmsFrameRow }) {
       className="relative block h-[min(75vh,720px)] w-full shrink-0 snap-center snap-always overflow-hidden bg-zinc-900"
       aria-label={title || logoLabel || "Découvrir"}
     >
-      {bgUrl ? (
+      {videoUrl ? (
+        <div className="pointer-events-none absolute inset-0">
+          {coverState === "loading" ? (
+            <SegnaSkeletonBlock className="absolute inset-0 z-[2] h-full w-full" rounded="rounded-none" />
+          ) : null}
+          <HeroAmbientVideo
+            src={videoUrl}
+            active={active}
+            className={cn("absolute inset-0 h-full w-full", coverState === "loading" && "opacity-0")}
+            onReady={() => setCoverState("ready")}
+          />
+        </div>
+      ) : bgUrl ? (
         <div className="pointer-events-none absolute inset-0">
           <RemoteCoverThumb
             photoUrl={bgUrl}
@@ -239,9 +311,9 @@ export function HomeHeroSection({ frames }: HomeHeroSectionProps) {
               multi && "snap-x snap-mandatory",
             )}
           >
-            {visibleFrames.map((row) => (
+            {visibleFrames.map((row, index) => (
               <div key={row.id} className="w-full min-w-full shrink-0">
-                <HomeHeroSlide row={row} />
+                <HomeHeroSlide row={row} active={index === activeIndex} />
               </div>
             ))}
           </div>

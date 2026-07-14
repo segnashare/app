@@ -200,7 +200,7 @@ export function HomePageSections({
                   </Link>
                 </div>
               ) : null}
-              <InspirationMasonryGrid cards={feedCards} compact />
+              <InspirationMasonryGrid cards={feedCards} compact shimmerDurationSec={SHIMMER_SEC} />
             </section>
           );
         } else if (!HOME_NATIVE_SECTION_KEYS.has(sectionKey)) {

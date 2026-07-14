@@ -43,7 +43,7 @@ export type CmsCatalogSectionConfig = {
   visible_plan_codes?: CmsPlanCode[];
 };
 
-export type CmsBackgroundKind = "none" | "gradient" | "solid" | "image";
+export type CmsBackgroundKind = "none" | "gradient" | "solid" | "image" | "video";
 
 export type CmsImageRef = {
   storage_path: string;
@@ -52,12 +52,19 @@ export type CmsImageRef = {
   position?: CmsPhotoPosition;
 };
 
+export type CmsVideoRef = {
+  storage_path: string;
+  /** Rempli côté serveur après signature Storage */
+  signed_url?: string;
+};
+
 export type CmsBackgroundPayload = {
   kind: CmsBackgroundKind;
   /** Classes Tailwind pour dégradé, ex. from-amber-100 to-orange-50 */
   gradient_classes?: string;
   solid_hex?: string;
   image?: CmsImageRef;
+  video?: CmsVideoRef;
 };
 
 /** Grande carte lien & cartes pièce CMS : couleur du texte sur fond coloré. */

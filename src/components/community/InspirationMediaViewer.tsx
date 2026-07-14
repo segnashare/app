@@ -152,6 +152,7 @@ export function InspirationMediaViewer({
   );
   const aspectClass = inspirationCoverAspectClass(coverAspect);
   const isDetail = variant === "detail";
+  const enableDumpCarousel = isDetail && isMultiSlide;
   const onLoadStateChangeRef = useRef(onLoadStateChange);
   const onSelectedSlideIndexChangeRef = useRef(onSelectedSlideIndexChange);
 
@@ -170,18 +171,20 @@ export function InspirationMediaViewer({
 
   useEffect(() => {
     if (mediaType === "video") return;
-    if (isMultiSlide && mediaUrls[0] && isVideoMediaUrl(mediaUrls[0])) {
-      notifyCoverLoadState("ready");
-      return;
-    }
-    setCoverLoadState(mediaUrls.length === 0 ? "ready" : "loading");
-  }, [isMultiSlide, mediaType, mediaUrls, notifyCoverLoadState]);
+    const nextState: RemoteCoverLoadState = mediaUrls.length === 0 ? "ready" : "loading";
+    setCoverLoadState(nextState);
+    if (mediaUrls.length > 0) notifyCoverLoadState("loading");
+  }, [mediaType, mediaUrls, notifyCoverLoadState]);
 
   useEffect(() => {
-    if (mediaType !== "video") return;
+    const primaryUrl = mediaUrls[0];
+    const usesPrimaryAmbientVideo =
+      mediaType === "video" ||
+      Boolean(primaryUrl && isVideoMediaUrl(primaryUrl) && !(isDetail && isMultiSlide));
+    if (!usesPrimaryAmbientVideo) return;
     setVideoReady(false);
     notifyCoverLoadState("loading");
-  }, [mediaType, mediaUrls, notifyCoverLoadState]);
+  }, [isDetail, isMultiSlide, mediaType, mediaUrls, notifyCoverLoadState]);
 
   useEffect(() => {
     const el = dumpScrollRef.current;
@@ -216,9 +219,15 @@ export function InspirationMediaViewer({
   if (mediaUrls.length === 0) {
     return (
       <div
-        className={cn(aspectClass, "w-full bg-zinc-100", !isDetail && "rounded-2xl", className)}
+        className={cn("relative w-full overflow-hidden", aspectClass, !isDetail && "rounded-2xl", className)}
         aria-hidden
-      />
+      >
+        <SegnaSkeletonBlock
+          className="absolute inset-0 h-full w-full"
+          rounded="rounded-none"
+          shimmerDurationSec={shimmerDurationSec}
+        />
+      </div>
     );
   }
 
@@ -257,7 +266,7 @@ export function InspirationMediaViewer({
     );
   }
 
-  if (isMultiSlide) {
+  if (enableDumpCarousel) {
     return (
       <div
         className={cn(
@@ -267,6 +276,13 @@ export function InspirationMediaViewer({
           className,
         )}
       >
+        {coverLoadState === "loading" ? (
+          <SegnaSkeletonBlock
+            className="pointer-events-none absolute inset-0 z-[3]"
+            rounded="rounded-none"
+            shimmerDurationSec={shimmerDurationSec}
+          />
+        ) : null}
         <div
           ref={dumpScrollRef}
           className="flex h-full w-full snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -293,6 +309,7 @@ export function InspirationMediaViewer({
                   coverTransform={index === 0 ? coverTransform : null}
                   applyCoverCrop={index === 0}
                   priority={priority && index === 0}
+                  shimmerDurationSec={shimmerDurationSec}
                   onLoadStateChange={index === 0 ? notifyCoverLoadState : undefined}
                 />
               ) : (
@@ -331,9 +348,40 @@ export function InspirationMediaViewer({
             coverTransform={coverTransform}
             applyCoverCrop
             priority={priority}
+            shimmerDurationSec={shimmerDurationSec}
             onLoadStateChange={notifyCoverLoadState}
           />
         </DetailMediaClickTarget>
+      </div>
+    );
+  }
+
+  const previewUrl = mediaUrls[0];
+  if (isVideoMediaUrl(previewUrl)) {
+    return (
+      <div
+        className={cn(
+          "relative w-full overflow-hidden bg-zinc-200",
+          aspectClass,
+          "rounded-2xl",
+          className,
+        )}
+      >
+        {!videoReady ? (
+          <SegnaSkeletonBlock
+            className="pointer-events-none absolute inset-0 z-[2]"
+            rounded="rounded-none"
+            shimmerDurationSec={shimmerDurationSec}
+          />
+        ) : null}
+        <DetailAmbientVideo
+          src={previewUrl}
+          className={cn("h-full w-full", !videoReady && "opacity-0")}
+          onReady={() => {
+            setVideoReady(true);
+            notifyCoverLoadState("ready");
+          }}
+        />
       </div>
     );
   }

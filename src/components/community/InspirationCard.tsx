@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 
 import { InspirationFeedCardLikeButton } from "@/components/community/InspirationFeedCardLikeButton";
 import { InspirationMediaViewer } from "@/components/community/InspirationMediaViewer";
+import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { inspirationHref } from "@/lib/community/community-source";
 import { inspirationMemberTag } from "@/lib/community/inspiration-member-tag";
 import { inspirationCoverAspectClass } from "@/lib/community/inspiration-cover-aspect";
@@ -125,7 +126,8 @@ export function InspirationCard({
           ) : null}
         </div>
       ) : (
-        <div className={cn("relative w-full bg-zinc-200", inspirationCoverAspectClass(card.cover_aspect))}>
+        <div className={cn("relative w-full", inspirationCoverAspectClass(card.cover_aspect))}>
+          <SegnaSkeletonBlock className="absolute inset-0 h-full w-full" rounded="rounded-none" shimmerDurationSec={shimmerDurationSec} />
           {compact ? (
             <InspirationCardPhotoOverlays
               card={card}
