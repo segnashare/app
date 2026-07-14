@@ -8,7 +8,6 @@ export const DEFAULT_BOUTIQUE_HUB_SECTION_ORDER = [
   "shop_section_preferred_brands",
   "shop_home_capsules",
   "shop_section_deals",
-  "shop_system_lenders",
   "shop_section_french",
   "shop_system_available",
 ] as const;

@@ -102,17 +102,6 @@ export function ShopHubSectionSkeleton({ sectionKey }: { sectionKey: string }) {
           <ShopLoadingLinkCardRail count={sectionKey === "shop_home_capsules" ? 2 : 3} />
         </section>
       );
-    case "shop_system_lenders":
-      return (
-        <section className="space-y-3">
-          <ShopLoadingSectionTitle />
-          <div className="grid grid-cols-3 gap-3 px-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <SegnaSkeletonBlock key={i} className="mx-auto aspect-square w-20 rounded-full" rounded="rounded-full" />
-            ))}
-          </div>
-        </section>
-      );
     case "shop_system_available":
       return (
         <section className="space-y-3">

@@ -94,7 +94,7 @@ export function fetchCmsSectionPublishedConfigRawCached(sectionKey: string): Pro
 }
 
 export function fetchBoutiqueHubSectionOrderRawCached(): Promise<unknown> {
-  return cachedCmsFetch("cms-boutique-order-v1", "cms-boutique-order", fetchBoutiqueHubSectionOrderRawUncached);
+  return cachedCmsFetch("cms-boutique-order-v2", "cms-boutique-order", fetchBoutiqueHubSectionOrderRawUncached);
 }
 
 export function fetchEchangeSectionOrderRawCached(): Promise<unknown> {

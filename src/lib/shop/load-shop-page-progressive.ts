@@ -1,4 +1,4 @@
-import type { ShopCatalogItem, ShopFeaturedLender } from "@/components/shop/ShopCatalog";
+import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CmsCatalogSectionBundle } from "@/lib/cms/fetch-cms-catalog-section";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import type { CmsSectionPublishedDisplay } from "@/lib/cms/fetch-cms-section-published-config";
@@ -11,11 +11,6 @@ import type {
 export type { ShopCatalogFilterProps, ShopPageCatalogPayload, ShopProgressiveChunk } from "@/lib/shop/shop-page-progressive-shared";
 export { mergeShopProgressivePayload } from "@/lib/shop/shop-page-progressive-shared";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
-import { isShopFeaturedRealMember } from "@/lib/shop/merge-featured-lenders";
-import {
-  fetchShopFeaturedLendersWithProfilePhotos,
-  type FetchShopFeaturedLendersOptions,
-} from "@/lib/shop/resolve-shop-featured-lenders-server";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import {
   fetchBoutiqueHubSectionOrderCached,
@@ -179,40 +174,6 @@ function pickItemsForCoverSigning(
   return out;
 }
 
-async function loadFeaturedLendersBlock(ctx: ShopPageLoadContext): Promise<{
-  featuredLenders: ShopFeaturedLender[];
-  featuredLenderSectionItemIds: string[];
-}> {
-  const featuredLenderDb = ctx.catalogDb as unknown as FetchShopFeaturedLendersOptions["catalogDb"];
-  const realFeaturedLenders = await fetchShopFeaturedLendersWithProfilePhotos({
-    catalogDb: featuredLenderDb,
-    maxMembers: 9,
-    excludeUserId: ctx.userId,
-  }).catch((err) => {
-    console.error("[shop] featuredLenders failed:", err);
-    return [] as ShopFeaturedLender[];
-  });
-
-  const featuredLenders = realFeaturedLenders.slice(0, 9);
-  const featuredLenderUserIds = featuredLenders.filter(isShopFeaturedRealMember).map((l) => l.userId);
-
-  let featuredLenderSectionItemIds: string[] = [];
-  if (featuredLenderUserIds.length > 0) {
-    const { data: itemRows } = await ctx.supabase
-      .from("items")
-      .select("id")
-      .in("owner_user_id", featuredLenderUserIds)
-      .is("deleted_at", null)
-      .in("status", ["available", "in_cart", "reserved"])
-      .limit(80);
-    featuredLenderSectionItemIds = (itemRows ?? [])
-      .map((r) => (r as { id?: string }).id)
-      .filter((id): id is string => typeof id === "string");
-  }
-
-  return { featuredLenders, featuredLenderSectionItemIds };
-}
-
 async function signCoversForNewItems(
   catalogDb: StorageSignClient,
   items: ShopCatalogItem[],
@@ -300,7 +261,7 @@ export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPa
 
   const boutiqueHubSectionOrder = await fetchBoutiqueHubSectionOrderCached();
 
-  const [facetPack, favRes, mostLikedRes, fullCatalogRes, hubPack, lendersBlock] = await Promise.all([
+  const [facetPack, favRes, mostLikedRes, fullCatalogRes, hubPack] = await Promise.all([
     loadShopBoutiqueFilterFacetResponses(ctx.isDemoMode, ctx.supabase),
     ctx.supabase
       .from("item_favorites")
@@ -311,7 +272,6 @@ export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPa
     catalogSb.rpc("get_shop_most_liked_items", { p_limit: 10 }),
     catalogSb.rpc("get_shop_catalog_items", { p_limit: SHOP_FULL_CATALOG_LIMIT }),
     loadHubDataForSectionKeys(boutiqueHubSectionOrder, ctx),
-    loadFeaturedLendersBlock(ctx),
   ]);
 
   const { catResFinal, sizeResFinal, brandResFinal, colResFinal, matResFinal } = facetPack;
@@ -325,7 +285,6 @@ export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPa
   const initialItems = await mergeCatalogWithRefs(ctx.catalogDb, catalogItems, [
     ...hubItemIds,
     ...initialLikedItemIds,
-    ...lendersBlock.featuredLenderSectionItemIds,
   ]);
 
   const initialCoverUrlById = await resolveShopCatalogCoverUrlsServer(ctx.catalogDb, initialItems);
@@ -335,8 +294,8 @@ export async function loadShopPageFull(ctx: ShopPageLoadContext): Promise<ShopPa
     initialLikedItemIds,
     initialMostLikedItems,
     initialCoverUrlById,
-    featuredLenders: lendersBlock.featuredLenders,
-    featuredLenderSectionItemIds: lendersBlock.featuredLenderSectionItemIds,
+    featuredLenders: [],
+    featuredLenderSectionItemIds: [],
     initialCmsShopFrames: hubPack.cmsShopFrames,
     shopHomeCapsulesSectionDisplay: hubPack.shopHomeCapsulesSectionDisplay,
     initialShopHubSections: hubPack.hubSections,
@@ -359,13 +318,6 @@ export async function loadShopPageSectionChunk(
   existingCovers: Record<string, string>,
 ): Promise<ShopProgressiveChunk> {
   const chunk: ShopProgressiveChunk = { sectionKey };
-
-  if (sectionKey === "shop_system_lenders") {
-    const { featuredLenders, featuredLenderSectionItemIds } = await loadFeaturedLendersBlock(ctx);
-    chunk.featuredLenders = featuredLenders;
-    chunk.featuredLenderSectionItemIds = featuredLenderSectionItemIds;
-    return chunk;
-  }
 
   const slug = HUB_SECTION_KEY_TO_SLUG[sectionKey];
   const needsCapsules = sectionKey === "shop_home_capsules";
@@ -465,12 +417,6 @@ export async function loadShopPageRemainder(
     chunk.initialCoverUrlById = coverPatch;
   }
 
-  if (!loadedSectionKeys.has("shop_system_lenders")) {
-    const lenders = await loadFeaturedLendersBlock(ctx);
-    chunk.featuredLenders = lenders.featuredLenders;
-    chunk.featuredLenderSectionItemIds = lenders.featuredLenderSectionItemIds;
-  }
-
   return chunk;
 }
 
@@ -506,12 +452,6 @@ export async function loadShopPagePendingSectionsBatch(
     if (Object.keys(coverPatch).length > 0) {
       chunk.initialCoverUrlById = coverPatch;
     }
-  }
-
-  if (sectionKeys.includes("shop_system_lenders")) {
-    const lenders = await loadFeaturedLendersBlock(ctx);
-    chunk.featuredLenders = lenders.featuredLenders;
-    chunk.featuredLenderSectionItemIds = lenders.featuredLenderSectionItemIds;
   }
 
   return chunk;
