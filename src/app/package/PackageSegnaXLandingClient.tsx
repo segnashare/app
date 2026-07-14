@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -12,10 +12,6 @@ import {
   useOnboardingOfferActive,
 } from "@/lib/onboarding/onboarding-offer-claimed-event";
 import type { WelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
-import {
-  PLAN_ENTITLEMENT_COMPARISON_FALLBACK,
-  type PlanEntitlementComparisonLimits,
-} from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { segnaPlayfairDisplay, SEGNA_SECTION_TITLE_CLASSNAME } from "@/lib/ui/segna-playfair-display";
 import { cn } from "@/lib/utils/cn";
@@ -34,8 +30,6 @@ type PackageSegnaXLandingClientProps = {
   showOfferOnboarding?: boolean;
   /** Contenu CMS cadeau de bienvenue (carte panier `onboarding_offer_only` + `/package?plan=credits`). */
   welcomeGiftContent?: WelcomeGiftLandingContent | null;
-  /** Plafonds affichés dans le comparatif (source `billing_plan_entitlement_limits`, chargé en SSR pour `plan=x`). */
-  planEntitlementComparisonLimits?: PlanEntitlementComparisonLimits;
 };
 
 const KYC_SUBSCRIPTION_HREF = "/profile/kyc?tab=me";
@@ -52,7 +46,6 @@ export function PackageSegnaXLandingClient({
   identityVerifiedForSubscription = true,
   showOfferOnboarding = false,
   welcomeGiftContent = null,
-  planEntitlementComparisonLimits,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
   const offerOnboardingVisible = useOnboardingOfferActive(showOfferOnboarding);
@@ -211,11 +204,7 @@ export function PackageSegnaXLandingClient({
           <IncludedCreditsExplanation content={welcomeGiftContent} />
         ) : null}
 
-        {!isWelcomeGiftPage ? (
-          <SegnaXGuestComparisonTable
-            limits={{ ...PLAN_ENTITLEMENT_COMPARISON_FALLBACK, ...planEntitlementComparisonLimits }}
-          />
-        ) : null}
+        {!isWelcomeGiftPage ? <SegnaXGuestComparisonTable /> : null}
       </div>
 
       <footer className="mx-auto w-full max-w-[430px] shrink-0 border-t border-zinc-200 bg-white">
@@ -247,54 +236,45 @@ export function PackageSegnaXLandingClient({
   );
 }
 
-/** Comparaison Guest vs SegnaX sous les offres (landing abonnement uniquement). Valeurs numériques = `billing_plan_entitlement_limits`. */
-function SegnaXGuestComparisonTable({ limits }: { limits: PlanEntitlementComparisonLimits }) {
-  const rows = useMemo(() => {
-    const go = limits.guestIncludedOrders;
-    const gc = limits.guestMonthlyCredits;
-    const xo = limits.segnaXIncludedOrders;
-    const xc = limits.segnaXMonthlyCredits;
-    const guestExchangesSr = `${go} échange${go !== 1 ? "s" : ""} inclus`;
-    const guestCreditsSr = `${gc} crédit${gc !== 1 ? "s" : ""} mensuel${gc !== 1 ? "s" : ""} inclus`;
+const SEGNA_X_COMPARE_BENEFITS: Array<{
+  label: string;
+  guestSr: string;
+  segnaXSr: string;
+  segnaXText: string;
+}> = [
+  {
+    label: "Pièces",
+    guestSr: "Non inclus",
+    segnaXSr: "6 pièces maximum",
+    segnaXText: "6 pièces max",
+  },
+  {
+    label: "Valeur",
+    guestSr: "Non inclus",
+    segnaXSr: "Jusqu’à 500 euros de valeur",
+    segnaXText: "Jusqu’à 500€ de valeur",
+  },
+  {
+    label: "Échange",
+    guestSr: "Aucun échange inclus",
+    segnaXSr: "1 échange par mois inclus",
+    segnaXText: "1 échange/mois inclus",
+  },
+  {
+    label: "Livraison",
+    guestSr: "Non incluse",
+    segnaXSr: "Relais et domicile compris",
+    segnaXText: "Relais + domicile compris",
+  },
+];
 
-    const numCell = (n: number) => (
-      <span className="text-[17px] font-bold tabular-nums text-white">{n}</span>
-    );
-    const guestNumCell = (n: number) => (
-      <span className="text-[17px] font-semibold tabular-nums text-zinc-600">{n}</span>
-    );
-
-    return [
-      {
-        label: "Échanges inclus",
-        guestSr: guestExchangesSr,
-        guestDisplay: guestNumCell(go),
-        segnaX: numCell(xo),
-        segnaXLabel: `${xo} échange${xo !== 1 ? "s" : ""} inclus`,
-      },
-      {
-        label: "Crédits mensuels",
-        guestSr: guestCreditsSr,
-        guestDisplay: guestNumCell(gc),
-        segnaX: numCell(xc),
-        segnaXLabel: `${xc} crédit${xc !== 1 ? "s" : ""} mensuel${xc !== 1 ? "s" : ""} inclus`,
-      },
-      {
-        label: "Réservation",
-        guestSr: "Non inclus",
-        guestDisplay: null as ReactNode,
-        segnaX: <Check className="mx-auto h-5 w-5 text-white" strokeWidth={2.5} aria-hidden />,
-        segnaXLabel: "Réservation prioritaire incluse",
-      },
-      {
-        label: "Pièces premium",
-        guestSr: "Non inclus",
-        guestDisplay: null as ReactNode,
-        segnaX: <Check className="mx-auto h-5 w-5 text-white" strokeWidth={2.5} aria-hidden />,
-        segnaXLabel: "Accès aux pièces premium",
-      },
-    ];
-  }, [limits]);
+/** Comparaison Guest vs SegnaX sous les offres (landing abonnement uniquement). */
+function SegnaXGuestComparisonTable() {
+  const guestDash = (
+    <span className="text-[15px] font-medium text-zinc-400" aria-hidden>
+      —
+    </span>
+  );
 
   return (
     <section className="mt-8" aria-labelledby="plan-x-compare-heading">
@@ -306,19 +286,19 @@ function SegnaXGuestComparisonTable({ limits }: { limits: PlanEntitlementCompari
           <tr className={cn(montserrat.className, "text-[11px] font-semibold uppercase tracking-wide text-zinc-500")}>
             <th
               scope="col"
-              className="w-[34%] border-b border-zinc-200 bg-white px-3 py-3.5 font-semibold normal-case tracking-normal text-zinc-500"
+              className="w-[32%] border-b border-zinc-200 bg-white px-3 py-3.5 font-semibold normal-case tracking-normal text-zinc-500"
             >
               <span className="sr-only">Critères</span>
             </th>
             <th
               scope="col"
-              className="border-b border-zinc-200 bg-white px-2 py-3.5 text-center text-zinc-950 sm:px-3"
+              className="w-[18%] border-b border-zinc-200 bg-white px-2 py-3.5 text-center text-zinc-950 sm:px-3"
             >
               <span className={cn(montserrat.className, "text-[12px] font-bold uppercase tracking-wide")}>Guest</span>
             </th>
             <th
               scope="col"
-              className="rounded-t-2xl border-l-2 border-r-2 border-t-2 border-zinc-950 bg-zinc-950 px-2 py-2.5 text-center text-white sm:px-3"
+              className="rounded-t-2xl border-l-2 border-r-2 border-t-2 border-zinc-950 bg-zinc-950 px-3 py-3 text-center text-white sm:px-4"
             >
               <img
                 src={SEGNA_X_LOGO_BLANC_SRC}
@@ -329,14 +309,14 @@ function SegnaXGuestComparisonTable({ limits }: { limits: PlanEntitlementCompari
           </tr>
         </thead>
         <tbody className={cn(montserrat.className, "text-[13px] leading-snug sm:text-[14px]")}>
-          {rows.map((row, rowIndex) => {
-            const isLast = rowIndex === rows.length - 1;
+          {SEGNA_X_COMPARE_BENEFITS.map((row, rowIndex) => {
+            const isLast = rowIndex === SEGNA_X_COMPARE_BENEFITS.length - 1;
             return (
               <tr key={row.label}>
                 <th
                   scope="row"
                   className={cn(
-                    "bg-white px-3 py-4 font-semibold text-zinc-950 sm:py-5",
+                    "bg-white px-3 py-4 align-top font-semibold text-zinc-950 sm:py-5",
                     !isLast && "border-b border-zinc-200",
                   )}
                 >
@@ -344,24 +324,33 @@ function SegnaXGuestComparisonTable({ limits }: { limits: PlanEntitlementCompari
                 </th>
                 <td
                   className={cn(
-                    "bg-white px-2 py-4 text-center text-zinc-600 sm:px-3",
+                    "bg-white px-2 py-4 text-center align-middle text-zinc-600 sm:px-3 sm:py-5",
                     !isLast && "border-b border-zinc-200",
                   )}
                 >
                   <span className="sr-only">{row.guestSr}</span>
-                  {row.guestDisplay ? <span aria-hidden>{row.guestDisplay}</span> : null}
+                  {guestDash}
                 </td>
                 <td
                   className={cn(
-                    "border-x-2 border-zinc-950 bg-zinc-950 px-2 py-4 text-center text-white sm:px-3",
+                    "border-x-2 border-zinc-950 bg-zinc-950 px-3 py-4 text-left text-white sm:px-4 sm:py-5",
                     rowIndex === 0 && "border-t-2 border-white",
                     isLast
                       ? "rounded-b-2xl border-b-2 border-zinc-950"
-                      : "border-b border-white/50",
+                      : "border-b border-white/15",
                   )}
                 >
-                  <span className="sr-only">{row.segnaXLabel}</span>
-                  <span aria-hidden>{row.segnaX}</span>
+                  <div className="flex items-start gap-2.5">
+                    <Check
+                      className="mt-0.5 h-4 w-4 shrink-0 text-white"
+                      strokeWidth={2.75}
+                      aria-hidden
+                    />
+                    <span className="sr-only">{row.segnaXSr}</span>
+                    <p aria-hidden className="text-balance text-[13px] font-semibold leading-snug sm:text-[14px]">
+                      {row.segnaXText}
+                    </p>
+                  </div>
                 </td>
               </tr>
             );

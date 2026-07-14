@@ -8,6 +8,7 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { GalleryDots } from "@/components/ui/GalleryDots";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
+import { useHeroMediaWarmUrl } from "@/components/home/HeroMediaWarmContext";
 import type { CmsFramePayload, CmsFrameRow } from "@/lib/cms/cms-types";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -114,7 +115,9 @@ function HomeHeroSlide({
   const logoLabel = payload.label?.trim() || "";
   const bgUrl = heroImageUrl(payload);
   const videoUrl = heroVideoUrl(payload);
-  const hasMedia = Boolean(bgUrl || videoUrl);
+  const displayBgUrl = useHeroMediaWarmUrl(bgUrl);
+  const displayVideoUrl = useHeroMediaWarmUrl(videoUrl);
+  const hasMedia = Boolean(displayBgUrl || displayVideoUrl || bgUrl || videoUrl);
 
   const [coverState, setCoverState] = useState<RemoteCoverLoadState>(() =>
     hasMedia ? "loading" : "ready",
@@ -122,7 +125,7 @@ function HomeHeroSlide({
 
   useEffect(() => {
     setCoverState(hasMedia ? "loading" : "ready");
-  }, [bgUrl, hasMedia, videoUrl]);
+  }, [displayBgUrl, displayVideoUrl, hasMedia, bgUrl, videoUrl]);
 
   const showContent = !hasMedia || coverState === "ready" || coverState === "failed";
 
@@ -132,22 +135,22 @@ function HomeHeroSlide({
       className="relative block h-[min(75vh,720px)] w-full shrink-0 snap-center snap-always overflow-hidden bg-zinc-900"
       aria-label={title || logoLabel || "Découvrir"}
     >
-      {videoUrl ? (
+      {displayVideoUrl || videoUrl ? (
         <div className="pointer-events-none absolute inset-0">
           {coverState === "loading" ? (
             <SegnaSkeletonBlock className="absolute inset-0 z-[2] h-full w-full" rounded="rounded-none" />
           ) : null}
           <HeroAmbientVideo
-            src={videoUrl}
+            src={displayVideoUrl ?? videoUrl!}
             active={active}
             className={cn("absolute inset-0 h-full w-full", coverState === "loading" && "opacity-0")}
             onReady={() => setCoverState("ready")}
           />
         </div>
-      ) : bgUrl ? (
+      ) : displayBgUrl || bgUrl ? (
         <div className="pointer-events-none absolute inset-0">
           <RemoteCoverThumb
-            photoUrl={bgUrl}
+            photoUrl={displayBgUrl ?? bgUrl!}
             frameClassName="absolute inset-0 h-full w-full"
             photoPosition={payload.background?.image?.position ?? null}
             photoCoverFill

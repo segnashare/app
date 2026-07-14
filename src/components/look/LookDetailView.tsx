@@ -350,20 +350,18 @@ export function LookDetailView({
                             aria-pressed={selected}
                             onClick={() => setSelectedItemId(item.id)}
                             className={cn(
-                              "relative shrink-0 rounded-md bg-zinc-100 transition",
+                              "relative shrink-0 box-border overflow-hidden rounded-lg bg-zinc-100 transition",
                               selected
-                                ? "ring-2 ring-inset ring-zinc-900"
-                                : "opacity-85 ring-2 ring-inset ring-transparent hover:opacity-100",
+                                ? "border-2 border-zinc-900"
+                                : "border-2 border-transparent opacity-85 hover:opacity-100",
                             )}
                             style={{ width: PIECE_THUMB_SIZE_PX, height: PIECE_THUMB_SIZE_PX }}
                           >
-                            <div className="h-full w-full overflow-hidden rounded-[5px]">
-                              {coverUrl ? (
-                                <RemoteCoverThumb photoUrl={coverUrl} frameClassName="h-full w-full" photoCoverFill />
-                              ) : (
-                                <div className="h-full w-full bg-zinc-200" />
-                              )}
-                            </div>
+                            {coverUrl ? (
+                              <RemoteCoverThumb photoUrl={coverUrl} frameClassName="h-full w-full" photoCoverFill />
+                            ) : (
+                              <div className="h-full w-full bg-zinc-200" />
+                            )}
                           </button>
                         );
                       })}

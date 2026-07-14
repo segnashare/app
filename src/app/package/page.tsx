@@ -1,6 +1,5 @@
 import PackagePageLegacy from "@/app/package/PackagePageLegacy";
 import { PackageSegnaXLandingClient } from "@/app/package/PackageSegnaXLandingClient";
-import { fetchPlanEntitlementComparisonLimits } from "@/lib/billing/fetch-plan-entitlement-comparison-limits";
 import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frames";
 import { parseSubscriptionPlanLandingPayload } from "@/lib/cms/subscription-plan-landing";
 import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
@@ -55,9 +54,6 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
       }
     }
 
-    const planEntitlementComparisonLimits =
-      plan === "x" ? await fetchPlanEntitlementComparisonLimits() : undefined;
-
     const welcomeGiftContent =
       showOfferOnboarding && plan === "credits" ? await fetchWelcomeGiftLandingContent(supabase) : null;
 
@@ -68,7 +64,6 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
         identityVerifiedForSubscription={identityVerifiedForSubscription}
         showOfferOnboarding={showOfferOnboarding}
         welcomeGiftContent={welcomeGiftContent}
-        planEntitlementComparisonLimits={planEntitlementComparisonLimits}
       />
     );
   }

@@ -188,15 +188,15 @@ const DEFAULTS: Omit<SubscriptionPlanLandingContent, "offerTiers" | "heroImageUr
   valueProps: [
     {
       title: "Plus de pièces",
-      body: "Tu as 2 échanges inclus par mois, avec jusqu’à 5 pièces par échange.",
-    },
-    {
-      title: "Plus de style",
-      body: "Tu reçois 500 crédits bonus à utiliser sur les pièces qui te plaisent le plus.",
+      body: "Accédez jusqu’à 500€ de pièces chaque mois, avec jusqu’à 6 pièces en location.",
     },
     {
       title: "Plus de liberté",
-      body: "Tu es couverte par l’assurance Segna sur les échanges, selon nos conditions.",
+      body: "1 échange mensuel inclus, relais et domicile compris.",
+    },
+    {
+      title: "Sans engagement",
+      body: "49,99€ / mois, résiliable à tout moment.",
     },
   ],
   offerTiers: DEFAULT_TIERS,
