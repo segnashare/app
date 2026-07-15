@@ -135,7 +135,7 @@ export async function fetchWalletOverview(supabaseInput: unknown, userId: string
       .select("id,title,price_points, item_intake(listing_stage, fulfillment_stage, updated_at)")
       .eq("owner_user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["draft", "available", "reserved", "in_cart"])
+      .in("status", ["draft", "available", "reserved", "sold", "in_cart"])
       .order("updated_at", { ascending: false })
       .limit(50),
   ]);

@@ -137,7 +137,7 @@ export default async function ShopSectionPage({ params }: PageProps) {
       .select("id")
       .in("owner_user_id", lenderUserIds)
       .is("deleted_at", null)
-      .in("status", ["available", "in_cart", "reserved"])
+      .in("status", ["available", "in_cart", "reserved", "sold"])
       .limit(80);
     featuredLenderItemIds = (itemRows ?? [])
       .map((r) => (r as { id?: string }).id)

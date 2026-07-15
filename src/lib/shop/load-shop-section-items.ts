@@ -151,7 +151,7 @@ async function loadSegnaCollectionItems(supabase: unknown): Promise<ShopCatalogI
     )
     .eq("owner_user_id", SEGNA_CORPORATE_INVENTORY_USER_ID)
     .is("deleted_at", null)
-    .in("status", ["available", "in_cart", "reserved"])
+    .in("status", ["available", "in_cart", "reserved", "sold"])
     .order("updated_at", { ascending: false })
     .limit(SHOP_SECTION_ITEMS_LIMIT);
 

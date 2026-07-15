@@ -8,7 +8,9 @@ import {
 } from "@/lib/supabase/storage-resolve-signed-url";
 
 function mapCartLineStatus(cartItemStatus: string | null, itemStatus: string | null): CartLineStatus {
-  if (cartItemStatus === "reserved" && itemStatus === "reserved") return "reserve";
+  if (cartItemStatus === "reserved" && (itemStatus === "reserved" || itemStatus === "sold")) {
+    return "reserve";
+  }
   if (cartItemStatus === "reservation_pending" && itemStatus === "available") {
     return "en_attente_wallet";
   }

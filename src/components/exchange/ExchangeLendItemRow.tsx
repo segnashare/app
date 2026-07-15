@@ -147,6 +147,7 @@ function getStatusLabel(
     return "Brouillon";
   }
   if (normalized === "in_cart") return "Disponible";
+  if (normalized === "sold" || normalized === "vendu") return "Vendu";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "Emprunt en cours";
   if (normalized === "available" || normalized === "disponible" || normalized === "listed") return "Disponible";
   return status || "Inconnu";
@@ -203,6 +204,7 @@ function statusPillClassName(
     return "bg-[#E7772C] text-white";
   }
   if (normalized === "in_cart") return "bg-emerald-100 text-emerald-700";
+  if (normalized === "sold" || normalized === "vendu") return "bg-zinc-200 text-zinc-800";
   if (normalized.includes("reserved") || normalized.includes("emprunt")) return "bg-blue-100 text-blue-700";
   if (normalized === "available" || normalized === "disponible" || normalized === "listed") return "bg-emerald-100 text-emerald-700";
   return "bg-zinc-100 text-zinc-700";

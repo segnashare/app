@@ -12,7 +12,7 @@ export type MemberCatalogItemPreview = {
   pricePoints: number | null;
 };
 
-const CATALOG_STATUSES = ["available", "in_cart", "reserved"] as const;
+const CATALOG_STATUSES = ["available", "in_cart", "reserved", "sold"] as const;
 const MAX_PREVIEW_PHOTOS = 3;
 
 function firstRelation<T>(rel: T | T[] | null | undefined): T | null {

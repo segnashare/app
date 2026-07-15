@@ -281,7 +281,7 @@ export default async function ExchangePage() {
       )
       .eq("owner_user_id", userId)
       .is("deleted_at", null)
-      .in("status", ["draft", "draft_deleted", "available", "in_cart", "reserved", "refused", "retired"])
+      .in("status", ["draft", "draft_deleted", "available", "in_cart", "reserved", "sold", "refused", "retired"])
       .order("updated_at", { ascending: false })
       .limit(50),
     ),
@@ -317,7 +317,7 @@ export default async function ExchangePage() {
       )
       .eq("items.owner_user_id", userId)
       .is("items.deleted_at", null)
-      .in("items.status", ["draft", "draft_deleted", "available", "in_cart", "reserved", "refused", "retired"])
+      .in("items.status", ["draft", "draft_deleted", "available", "in_cart", "reserved", "sold", "refused", "retired"])
       .in("listing_stage", ["evaluation", "evaluated", "validation_pending", "refused", "validated"])
       .order("updated_at", { ascending: false })
       .limit(100),
