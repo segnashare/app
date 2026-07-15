@@ -474,24 +474,18 @@ export function guestPurchaseInvoicedEmail(
   const subject = `Commande confirmée : ${opts.orderRef}`;
   const title = "Commande confirmée";
 
-  const receiptText = opts.pdfAttached
-    ? "Votre reçu de paiement est joint à cet e-mail."
-    : "Votre reçu est disponible sur la page de votre commande.";
-
-  const receiptHtml = opts.pdfAttached
-    ? "Votre <strong>reçu de paiement</strong> est joint à cet e-mail."
-    : "Votre <strong>reçu</strong> est disponible sur la page de votre commande.";
-
-  const invoiceHintText = "Votre facture est disponible sur la page de votre commande.";
-  const invoiceHintHtml =
-    "Votre <strong>facture</strong> est disponible sur la page de votre commande.";
+  const invoiceHintText = opts.pdfAttached
+    ? "Votre facture est jointe à cet e-mail au format PDF."
+    : null;
+  const invoiceHintHtml = opts.pdfAttached
+    ? "Votre <strong>facture</strong> est jointe à cet e-mail au format PDF."
+    : null;
 
   const text = [
     `Bonjour ${prenom},`,
     "",
     `Commande ${opts.orderRef} confirmée le ${opts.orderPlacedAtLabel}.`,
-    receiptText,
-    invoiceHintText,
+    ...(invoiceHintText ? ["", invoiceHintText] : []),
     "",
     `Voir ma commande : ${opts.commandeUrl}`,
     "",
@@ -512,8 +506,7 @@ export function guestPurchaseInvoicedEmail(
   const bodyHtml = `
     <p style="margin:0 0 16px;">Bonjour ${pEsc},</p>
     <p style="margin:0 0 16px;">Commande <strong>${orderRefEsc}</strong> confirmée le <strong>${dateEsc}</strong>.</p>
-    <p style="margin:0 0 16px;">${receiptHtml}</p>
-    <p style="margin:0 0 16px;">${invoiceHintHtml}</p>
+    ${invoiceHintHtml ? `<p style="margin:0 0 16px;">${invoiceHintHtml}</p>` : ""}
     ${ctaButton}`;
 
   const html = segnaTransactionalEmailShell({

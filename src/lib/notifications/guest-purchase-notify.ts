@@ -7,65 +7,50 @@ import { sendMemberOutreachNotification } from "@/lib/notifications/member-outre
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { memberAppCommandeUrl } from "@/lib/notifications/member-app-links";
 import type { TransactionalEmailAttachment } from "@/lib/notifications/resend-send";
+import { fetchStripeInvoicePdfBuffer } from "@/lib/stripe/fetch-stripe-invoice-pdf";
 import { getStripeConfig } from "@/lib/social/stripe";
-import {
-  fetchStripeChargeReceiptPdfBufferFromCheckoutSession,
-  fetchStripeChargeReceiptPdfBufferFromPaymentIntent,
-} from "@/lib/stripe/fetch-stripe-charge-receipt-pdf";
 
-function guestPurchaseReceiptPdfFilename(orderRef: string): string {
+function guestPurchaseInvoicePdfFilename(orderRef: string): string {
   const safe = orderRef.trim().replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40);
-  return `recu-segna-${safe || "achat"}.pdf`;
+  return `facture-segna-${safe || "achat"}.pdf`;
 }
 
-async function resolveGuestPurchaseReceiptPdfBuffer(
+async function resolveGuestPurchaseInvoicePdfBuffer(
   stripe: StripeLib,
   admin: SupabaseClient,
-  input: { cartId: string; userId: string; paymentIntentId?: string | null },
+  input: { cartId: string; userId: string; stripeInvoiceId?: string | null },
 ): Promise<Buffer | null> {
-  const piId = input.paymentIntentId?.trim() ?? "";
-  if (piId) {
-    const fromPi = await fetchStripeChargeReceiptPdfBufferFromPaymentIntent(stripe, piId);
-    if (fromPi) return fromPi;
+  let invoiceId = input.stripeInvoiceId?.trim() ?? "";
+  if (!invoiceId) {
+    const { data: invoiceRow } = await admin
+      .from("cart_order_stripe_invoices")
+      .select("guest_purchase_stripe_invoice_id")
+      .eq("cart_id", input.cartId)
+      .eq("user_id", input.userId)
+      .maybeSingle();
+    invoiceId = (
+      (invoiceRow as { guest_purchase_stripe_invoice_id?: string | null } | null)?.guest_purchase_stripe_invoice_id ??
+      ""
+    ).trim();
   }
 
-  const { data: invoiceRow } = await admin
-    .from("cart_order_stripe_invoices")
-    .select("checkout_session_id")
-    .eq("cart_id", input.cartId)
-    .eq("user_id", input.userId)
-    .maybeSingle();
-  const checkoutSessionId = (
-    (invoiceRow as { checkout_session_id?: string | null } | null)?.checkout_session_id ?? ""
-  ).trim();
-  if (checkoutSessionId) {
-    const fromSession = await fetchStripeChargeReceiptPdfBufferFromCheckoutSession(stripe, checkoutSessionId);
-    if (fromSession) return fromSession;
-  }
+  if (!invoiceId || invoiceId.startsWith("dry_run_")) return null;
 
-  const { data: debitRow } = await admin
-    .from("wallet_transactions")
-    .select("metadata")
-    .eq("user_id", input.userId)
-    .eq("kind", "debit")
-    .eq("direction", "debit")
-    .filter("metadata->>source", "eq", "cart_order_stripe")
-    .filter("metadata->>cart_id", "eq", input.cartId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const sessionFromDebit = (
-    (debitRow as { metadata?: { stripe_checkout_session_id?: string | null } | null } | null)?.metadata
-      ?.stripe_checkout_session_id ?? ""
-  ).trim();
-  if (sessionFromDebit && sessionFromDebit !== checkoutSessionId) {
-    return fetchStripeChargeReceiptPdfBufferFromCheckoutSession(stripe, sessionFromDebit);
+  try {
+    const invoice = await stripe.invoices.retrieve(invoiceId);
+    const pdfUrl = invoice.invoice_pdf?.trim() ?? "";
+    if (!pdfUrl) {
+      console.warn("[guest-purchase] invoice_pdf missing", invoiceId);
+      return null;
+    }
+    return fetchStripeInvoicePdfBuffer(pdfUrl);
+  } catch (e) {
+    console.error("[guest-purchase] retrieve invoice pdf", invoiceId, e);
+    return null;
   }
-
-  return null;
 }
 
-/** E-mail confirmation achat Guest (pas de SMS) — reçu PDF joint si disponible. */
+/** E-mail confirmation achat (pas de SMS) — facture PDF jointe si disponible. */
 export async function notifyGuestPurchaseInvoiced(
   admin: SupabaseClient,
   input: {
@@ -92,19 +77,18 @@ export async function notifyGuestPurchaseInvoiced(
     ? formatDateParis(createdAt, { day: "2-digit", month: "2-digit", year: "numeric" })
     : formatDateParis(new Date().toISOString(), { day: "2-digit", month: "2-digit", year: "numeric" });
 
-  const paymentIntentId = input.paymentIntentId?.trim() || null;
   const stripe = new StripeLib(getStripeConfig().secretKey);
-  const pdfBuffer = await resolveGuestPurchaseReceiptPdfBuffer(stripe, admin, {
+  const pdfBuffer = await resolveGuestPurchaseInvoicePdfBuffer(stripe, admin, {
     cartId: input.cartId,
     userId: input.userId,
-    paymentIntentId,
+    stripeInvoiceId: input.stripeInvoiceId,
   });
   const pdfAttached = pdfBuffer != null;
 
   const emailAttachments: TransactionalEmailAttachment[] | undefined = pdfBuffer
     ? [
         {
-          filename: guestPurchaseReceiptPdfFilename(input.orderRef),
+          filename: guestPurchaseInvoicePdfFilename(input.orderRef),
           content: pdfBuffer,
           contentType: "application/pdf",
         },
@@ -127,9 +111,8 @@ export async function notifyGuestPurchaseInvoiced(
       order_ref: input.orderRef,
       total_cents: input.totalCents,
       stripe_invoice_id: input.stripeInvoiceId ?? null,
-      stripe_payment_intent_id: paymentIntentId,
       pdf_attached: pdfAttached,
-      receipt_attached: pdfAttached,
+      invoice_attached: pdfAttached,
     },
     subject,
     text,

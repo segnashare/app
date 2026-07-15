@@ -255,6 +255,12 @@ const SEGNA_X_COMPARE_BENEFITS: Array<{
     segnaXText: "Jusqu’à 500€ de valeur",
   },
   {
+    label: "Achat",
+    guestSr: "Pas de réduction",
+    segnaXSr: "30 pour cent de réduction sur chaque achat",
+    segnaXText: "30% de réduction sur chaque achat",
+  },
+  {
     label: "Échange",
     guestSr: "Aucun échange inclus",
     segnaXSr: "1 échange par mois inclus",
