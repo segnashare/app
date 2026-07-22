@@ -17,6 +17,9 @@ function itemChatInternalSecrets(): string[] {
 export async function POST(request: Request) {
   const candidates = itemChatInternalSecrets();
   if (candidates.length === 0) {
+    console.error(
+      "[item-chat/bind-thread] missing SEGNA_INTERNAL_ITEM_CHAT_SECRET (and N8N_ITEM_CHAT_WEBHOOK_SECRET)",
+    );
     return NextResponse.json(
       { ok: false as const, error: "internal_secret_not_configured" },
       { status: 503 },

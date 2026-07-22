@@ -79,6 +79,17 @@ export function ItemChatBubble() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [panelOpen, view, messages.length]);
 
+  useEffect(() => {
+    if (!panelOpen || !expanded) return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    if (!mq.matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [panelOpen, expanded]);
+
   if (chromeHidden || !showFabChrome) return null;
 
   const baseBottom = hasTabBar && tabBarVisible ? FLOATING_BOTTOM_ABOVE_TAB_BAR : FLOATING_BOTTOM_WITHOUT_TAB_BAR;
@@ -108,7 +119,11 @@ export function ItemChatBubble() {
 
   return (
     <div
-      className="pointer-events-none fixed right-3 z-[48] flex max-w-[430px] flex-col items-end gap-2 md:right-[max(12px,calc((100vw-430px)/2+12px))]"
+      className={cn(
+        "pointer-events-none fixed right-3 z-[48] flex max-w-[430px] flex-col items-end gap-2 md:right-[max(12px,calc((100vw-430px)/2+12px))]",
+        expanded &&
+          "max-md:pointer-events-auto max-md:!inset-0 max-md:z-[100] max-md:h-dvh max-md:max-w-none max-md:items-stretch max-md:gap-0",
+      )}
       style={{
         bottom: baseBottom,
         transition: "bottom 250ms ease-out",
@@ -119,9 +134,11 @@ export function ItemChatBubble() {
           className={cn(
             "pointer-events-auto flex w-[min(100vw-24px,360px)] flex-col overflow-hidden rounded-[18px] border border-zinc-200 bg-white shadow-[0_16px_48px_rgba(0,0,0,0.16)]",
             expanded
-              ? "h-[calc(100dvh*2/3)] max-h-none"
+              ? "h-[calc(100dvh*2/3)] max-h-none max-md:h-full max-md:w-full max-md:rounded-none max-md:border-0 max-md:shadow-none max-md:pt-[env(safe-area-inset-top,0px)] max-md:pb-[env(safe-area-inset-bottom,0px)]"
               : "max-h-[min(70vh,520px)]",
           )}
+          role="dialog"
+          aria-label="Chat Segna"
         >
           {view === "list" ? (
             showEmptyWelcome ? (
@@ -434,7 +451,7 @@ export function ItemChatBubble() {
             setPanelOpen(true);
           }
         }}
-        className={FLOATING_ROUND_ACTION_SHELL_CLASS}
+        className={cn(FLOATING_ROUND_ACTION_SHELL_CLASS, expanded && "max-md:hidden")}
       >
         {panelOpen ? (
           <X className="h-6 w-6" />
