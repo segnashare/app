@@ -53,7 +53,7 @@ type ItemChatContextValue = {
   setPanelOpen: (open: boolean) => void
   view: ItemChatView
   goToList: () => void
-  startNewChat: (opts?: {initialMessage?: string}) => void | Promise<void>
+  startNewChat: (opts?: {initialMessage?: string}) => Promise<void>
   conversations: ItemChatConversation[]
   unreadCount: number
   messages: ItemChatMessage[]
@@ -385,6 +385,8 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
             lastReadAt: null,
             unreadStaffCount: 0,
             hasVisitorMessage: false,
+            usefulnessPromptedAt: null,
+            usefulnessRating: null,
           }
         }
         if (!conv) {
