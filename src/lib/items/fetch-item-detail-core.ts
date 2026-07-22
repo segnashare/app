@@ -127,7 +127,7 @@ export async function fetchItemDetailPayloadForUser(
   const { data: itemRow, error: itemError } = await supabase
     .from("items")
     .select(
-      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,item_size_description,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id",
+      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,item_size_description,item_era,item_fitting,item_dimensions,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id",
     )
     .eq("id", trimmed)
     .is("deleted_at", null)
@@ -297,6 +297,13 @@ export async function fetchItemDetailPayloadForUser(
         recommendedSize: recommendedSizeLabel,
         sizeDescription,
         categoryLabel,
+        era:
+          typeof row.item_era === "string" && row.item_era.trim() ? row.item_era.trim() : null,
+        fitting:
+          typeof row.item_fitting === "string" && row.item_fitting.trim()
+            ? row.item_fitting.trim()
+            : null,
+        dimensions: row.item_dimensions ?? null,
       },
       itemFeedbacks,
       wornPhotos,

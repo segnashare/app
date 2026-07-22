@@ -34,7 +34,7 @@ import {
   isBorrowOverdueGateAllowedPath,
   type MemberBorrowOverdueAppGate,
 } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
-import { openMemberFeedbackModal } from "@/lib/feedback/open-member-feedback-modal";
+import { openItemChatPanel } from "@/lib/item-chat/client-storage";
 import { segnaInlineActionLinkClass } from "@/lib/ui/segna-inline-link";
 import { cn } from "@/lib/utils/cn";
 
@@ -261,7 +261,7 @@ export function BorrowOverdueAppGateModal({ gate }: Props) {
           </Link>
           <button
             type="button"
-            onClick={openMemberFeedbackModal}
+            onClick={openItemChatPanel}
             className={cn(segnaInlineActionLinkClass, "mx-auto block text-[14px] sm:text-[15px]")}
           >
             Contacter l&apos;assistance

@@ -307,6 +307,19 @@ async function confirmCartPaidFromCheckoutMetadata(
   const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
   const usedIncludedOrder = meta?.used_included_order === "true";
 
+  // Avant confirm : le RPC lit `checkout_purchase_mode` pour poser items.status = sold (achat)
+  // vs reserved (location). Ne pas le faire après, sinon la pièce reste reserved.
+  if (isPurchase) {
+    try {
+      await admin
+        .from("carts")
+        .update({ checkout_purchase_mode: true })
+        .eq("id", params.cartId);
+    } catch (e) {
+      console.error("[cart-order] checkout_purchase_mode update failed", params.cartId, e);
+    }
+  }
+
   const { alreadyConfirmed } = await finalizeCartOrderCheckout(admin, {
     userId: params.userId,
     cartId: params.cartId,
@@ -334,17 +347,6 @@ async function confirmCartPaidFromCheckoutMetadata(
           }
         : undefined,
   });
-
-  if (isPurchase) {
-    try {
-      await admin
-        .from("carts")
-        .update({ checkout_purchase_mode: true })
-        .eq("id", params.cartId);
-    } catch (e) {
-      console.error("[cart-order] checkout_purchase_mode update failed", params.cartId, e);
-    }
-  }
 
   const homeSpeed = (meta?.home_speed ?? "").trim() || null;
   await finalizeCartOutboundSendcloudAfterConfirm(admin, {

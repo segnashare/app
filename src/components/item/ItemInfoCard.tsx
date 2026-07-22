@@ -64,6 +64,12 @@ export type ItemInfoCardData = {
   sizeDescription?: string;
   /** Libellé catégorie pour audience Femme / Homme. */
   categoryLabel?: string | null;
+  /** Collection (décennie ou année). */
+  era?: string | null;
+  /** Texte fitting (bulle taille). */
+  fitting?: string | null;
+  /** Dimensions brutes JSON (bulle taille). */
+  dimensions?: unknown;
 };
 
 type ItemInfoCardProps = {

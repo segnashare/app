@@ -50,11 +50,13 @@ const serverEnvSchema = z.object({
   /** Workflow n8n commande panier confirmée (`declareCartOrderToN8n`). */
   N8N_CART_ORDER_WEBHOOK_URL: z.string().url().optional(),
   N8N_CART_ORDER_WEBHOOK_SECRET: z.string().min(1).optional(),
-  /** Workflow n8n signalement membre (`POST /api/member-feedback`). */
-  N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL: z.string().url().optional(),
-  N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET: z.string().min(1).optional(),
-  N8N_MEMBER_FEEDBACK_WEBHOOK_URL: z.string().url().optional(),
-  N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Workflow n8n chat questions pièce (`notifyItemChatN8n`). */
+  N8N_ITEM_CHAT_WEBHOOK_URL: z.string().url().optional(),
+  N8N_ITEM_CHAT_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Auth retour n8n → `POST /api/internal/item-chat/reply`. */
+  SEGNA_INTERNAL_ITEM_CHAT_SECRET: z.string().min(1).optional(),
+  NEXT_PUBLIC_MARKETING_SITE_URL: z.string().optional(),
+  ITEM_CHAT_CORS_ORIGINS: z.string().optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
@@ -108,10 +110,11 @@ export function getServerEnv(): ServerEnv {
     N8N_DISPUTE_WEBHOOK_SECRET: process.env.N8N_DISPUTE_WEBHOOK_SECRET,
     N8N_CART_ORDER_WEBHOOK_URL: process.env.N8N_CART_ORDER_WEBHOOK_URL,
     N8N_CART_ORDER_WEBHOOK_SECRET: process.env.N8N_CART_ORDER_WEBHOOK_SECRET,
-    N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL: process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_URL,
-    N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET: process.env.N8N_ITEM_PROBLEM_REPORT_WEBHOOK_SECRET,
-    N8N_MEMBER_FEEDBACK_WEBHOOK_URL: process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_URL,
-    N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET: process.env.N8N_MEMBER_FEEDBACK_WEBHOOK_SECRET,
+    N8N_ITEM_CHAT_WEBHOOK_URL: process.env.N8N_ITEM_CHAT_WEBHOOK_URL,
+    N8N_ITEM_CHAT_WEBHOOK_SECRET: process.env.N8N_ITEM_CHAT_WEBHOOK_SECRET,
+    SEGNA_INTERNAL_ITEM_CHAT_SECRET: process.env.SEGNA_INTERNAL_ITEM_CHAT_SECRET,
+    NEXT_PUBLIC_MARKETING_SITE_URL: process.env.NEXT_PUBLIC_MARKETING_SITE_URL,
+    ITEM_CHAT_CORS_ORIGINS: process.env.ITEM_CHAT_CORS_ORIGINS,
   });
 
   cachedServerEnv = {

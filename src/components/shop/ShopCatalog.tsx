@@ -361,6 +361,7 @@ function PieceCardPriceSizeRows({
   sizeClassName,
   separatorClassName,
   priceIconColor = "fixed",
+  hidePrice = false,
 }: {
   sizeLine: string;
   pricePoints: number | null;
@@ -368,8 +369,17 @@ function PieceCardPriceSizeRows({
   sizeClassName?: string;
   separatorClassName?: string;
   priceIconColor?: "fixed" | "current";
+  hidePrice?: boolean;
 }) {
   const guestCashRental = useGuestCashRentalCatalog();
+
+  if (hidePrice) {
+    return (
+      <p className={cn("text-left", className)}>
+        <span className={cn("truncate", sizeClassName)}>{sizeLine}</span>
+      </p>
+    );
+  }
 
   if (guestCashRental) {
     return (
@@ -471,6 +481,7 @@ function ShopPieceSquareCatalogCard({
   const brandName = (item.brand_label ?? "").trim();
   const sizeLine = pieceCardSizeLine(item.size_label);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
+  const isSold = item.status === "sold";
   const photosLayout = parseItemPhotosLayout(item.photos);
   const catalogPhotoPosition = resolveItemPhotoData(item.photos).position;
   const catalogSquareThumbProps = itemSquareListThumbCoverProps({
@@ -505,7 +516,7 @@ function ShopPieceSquareCatalogCard({
           <RemoteCoverThumb
             photoUrl={cover}
             frameClassName={cn("absolute inset-0 h-full w-full", noFrameChrome && "bg-white")}
-            className="h-full w-full"
+            className={cn("h-full w-full", isSold && "opacity-[0.72] grayscale-[45%]")}
             {...catalogThumbRenderProps}
             onLoadStateChange={setLoadState}
           />
@@ -526,6 +537,14 @@ function ShopPieceSquareCatalogCard({
           cartBusy={cartBusyIds.has(item.id)}
           onToggleCart={() => void onToggleCart(item.id)}
         />
+        {isSold ? (
+          <span
+            className="pointer-events-none absolute left-2 top-2 z-[3] inline-flex items-center justify-center rounded-md bg-zinc-300 px-2 py-1 text-[11px] font-semibold tracking-wide text-zinc-900"
+            aria-hidden
+          >
+            Sold
+          </span>
+        ) : null}
       </div>
       <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>
         <div className="relative min-w-0">
@@ -560,6 +579,7 @@ function ShopPieceSquareCatalogCard({
         <PieceCardPriceSizeRows
           sizeLine={sizeLine}
           pricePoints={item.price_points}
+          hidePrice={isSold}
           className={cn(
             montserratPieceMedium.className,
             "text-left text-[11px] font-medium leading-snug text-zinc-600",
@@ -1004,8 +1024,16 @@ export function ShopCatalog({
 
   const sortedFilteredItems = useMemo(() => {
     const list = [...filteredItems];
+    const soldRank = (status: string | null | undefined) => (status === "sold" ? 1 : 0);
+    const compareSoldLastThen = (cmp: (a: (typeof list)[number], b: (typeof list)[number]) => number) =>
+      list.sort((a, b) => {
+        const sold = soldRank(a.status) - soldRank(b.status);
+        if (sold !== 0) return sold;
+        return cmp(a, b);
+      });
+
     if (sortMode === "price_asc") {
-      return list.sort((a, b) => {
+      return compareSoldLastThen((a, b) => {
         const pa = a.price_points;
         const pb = b.price_points;
         if (pa == null && pb == null) return 0;
@@ -1015,7 +1043,7 @@ export function ShopCatalog({
       });
     }
     if (sortMode === "price_desc") {
-      return list.sort((a, b) => {
+      return compareSoldLastThen((a, b) => {
         const pa = a.price_points;
         const pb = b.price_points;
         if (pa == null && pb == null) return 0;
@@ -1025,9 +1053,16 @@ export function ShopCatalog({
       });
     }
     if (isDisponiblesCatalogView && !sortExplicitlyChosen) {
-      return applyStableShuffledCatalogOrder(list, disponiblesGridShuffleOrderRef);
+      const shuffled = applyStableShuffledCatalogOrder(list, disponiblesGridShuffleOrderRef);
+      return [...shuffled].sort((a, b) => soldRank(a.status) - soldRank(b.status));
     }
-    return orderCatalogItemsByServerIndex(list, initialItems);
+    const ordered = orderCatalogItemsByServerIndex(list, initialItems);
+    const indexById = new Map(ordered.map((item, i) => [item.id, i]));
+    return [...ordered].sort((a, b) => {
+      const sold = soldRank(a.status) - soldRank(b.status);
+      if (sold !== 0) return sold;
+      return (indexById.get(a.id) ?? 0) - (indexById.get(b.id) ?? 0);
+    });
   }, [filteredItems, sortMode, isDisponiblesCatalogView, sortExplicitlyChosen, initialItems]);
 
   const sortedFilteredItemsRef = useRef(sortedFilteredItems);

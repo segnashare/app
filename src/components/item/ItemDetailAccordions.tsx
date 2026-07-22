@@ -1,10 +1,12 @@
 "use client";
 
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 
 import type { ItemInfoCardData } from "./ItemInfoCard";
 import { shouldShowItemExpertAuthentication } from "@/lib/items/item-expert-authentication";
+import { itemDescriptionToSafeHtml } from "@/lib/items/item-description-format";
+import { formatItemEraLabel } from "@/lib/items/item-era-fitting-dimensions";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -63,17 +65,19 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 
 type ItemDetailAccordionsProps = {
   description?: string;
-  infoCard: Pick<ItemInfoCardData, "brand" | "pricePoints" | "materials" | "color">;
+  infoCard: Pick<ItemInfoCardData, "brand" | "pricePoints" | "materials" | "color" | "era">;
   className?: string;
 };
 
 export function ItemDetailAccordions({ description, infoCard, className }: ItemDetailAccordionsProps) {
-  const descriptionText = description?.trim() ?? "";
+  const descriptionHtml = useMemo(() => itemDescriptionToSafeHtml(description), [description]);
   const materials = infoCard.materials?.trim() ?? "";
   const color = infoCard.color?.trim() ?? "";
+  const eraLabel = formatItemEraLabel(infoCard.era) ?? "";
 
   const showDescriptionSection =
-    Boolean(descriptionText) ||
+    Boolean(descriptionHtml) ||
+    Boolean(eraLabel) ||
     (materials && materials !== "—") ||
     (color && color !== "—");
 
@@ -85,9 +89,21 @@ export function ItemDetailAccordions({ description, infoCard, className }: ItemD
     <div className={className}>
       {showDescriptionSection ? (
         <AccordionItem title="Description & mesures" defaultOpen>
+          <DetailLine label="Collection" value={eraLabel} />
           <DetailLine label="Couleur" value={color} />
           <DetailLine label="Matériaux" value={materials} />
-          <DetailLine label="Description" value={descriptionText} />
+          {descriptionHtml ? (
+            <div
+              className={cn(
+                "item-description-html space-y-2 [&_h1]:text-[18px] [&_h1]:font-semibold [&_h1]:text-zinc-900",
+                "[&_h2]:text-[16px] [&_h2]:font-semibold [&_h2]:text-zinc-900",
+                "[&_h3]:text-[15px] [&_h3]:font-semibold [&_h3]:text-zinc-900",
+                "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
+                "[&_li]:my-0.5",
+              )}
+              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+            />
+          ) : null}
         </AccordionItem>
       ) : null}
 

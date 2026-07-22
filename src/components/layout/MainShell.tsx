@@ -5,8 +5,8 @@ import { PreCartExitPathTracker } from "@/components/cart/PreCartExitPathTracker
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { DesktopMobileOnlyGate } from "@/components/layout/DesktopMobileOnlyGate";
 import { MainTabRoutePrefetch } from "@/components/layout/MainTabRoutePrefetch";
-import { MemberFeedbackFab } from "@/components/feedback/MemberFeedbackFab";
-import { MemberFeedbackModal } from "@/components/feedback/MemberFeedbackModal";
+import { ItemChatBubble } from "@/components/item-chat/ItemChatBubble";
+import { ItemChatProvider } from "@/components/item-chat/ItemChatProvider";
 import { InAppOnboardingTaskFab } from "@/components/onboarding/InAppOnboardingTaskFab";
 import { FloatingViewCartButton } from "@/components/layout/FloatingViewCartButton";
 import { PageChromeLoadingProvider } from "@/components/layout/PageChromeLoadingContext";
@@ -51,6 +51,7 @@ export function MainShell({
 
   return (
     <PageChromeLoadingProvider>
+    <ItemChatProvider source="app">
     <div className="min-h-[100dvh] bg-zinc-100 text-zinc-900">
       {desktopMobileGate ? <DesktopMobileOnlyGate /> : null}
       <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] overflow-x-hidden bg-white md:my-6 md:min-h-[calc(100dvh-48px)] md:rounded-[32px] md:border md:border-zinc-200 md:shadow-[0_24px_60px_rgba(0,0,0,0.12)]">
@@ -68,8 +69,7 @@ export function MainShell({
       </div>
       <FloatingViewCartButton />
       <InAppOnboardingTaskFab />
-      <MemberFeedbackModal />
-      <MemberFeedbackFab />
+      <ItemChatBubble />
       <BottomTabBar />
       {inAppOnboardingIntro ? (
         <InAppOnboardingIntroModal
@@ -85,6 +85,7 @@ export function MainShell({
         <BorrowOverdueAppGateModal gate={memberBorrowOverdueAppGate} />
       </Suspense>
     </div>
+    </ItemChatProvider>
     </PageChromeLoadingProvider>
   );
 }

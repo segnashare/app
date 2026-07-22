@@ -3,6 +3,6 @@ project_id = "replace-with-your-supabase-project-ref"
 [functions.onboarding-webhook]
 verify_jwt = true
 
-# Database Webhook (pas de JWT user) : auth via `X-Webhook-Secret` (ITEM_INTAKE_WEBHOOK_SECRET)
+# Database Webhook historique (désactivé — plus de relay n8n évaluation)
 [functions.item-intake-evaluation-webhook]
 verify_jwt = false

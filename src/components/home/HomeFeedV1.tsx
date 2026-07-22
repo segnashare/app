@@ -560,6 +560,7 @@ export function HomeFeedV1({ initialCards, initialLikedItemIds, initialCursor, i
         <div className="space-y-2">
           <div className="bg-white">
             <ItemViewView
+              itemId={currentCard.id}
               title={currentCard.title}
               description={currentCard.description}
               slots={itemSlotsById[currentCard.id] ?? [null, null, null, null, null, null]}

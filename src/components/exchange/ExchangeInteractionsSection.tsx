@@ -87,11 +87,14 @@ function OrderStatusPill({
         vibrate && "exchange-return-urgent-vibrate",
         isUrgent
           ? "segna-urgent-red-shimmer-active segna-urgent-red-shimmer-target border-red-600 bg-red-600 text-white"
-          : "border-zinc-200 bg-zinc-100 text-zinc-800",
+          : "border-zinc-300 bg-white text-zinc-800",
       )}
     >
       {active && !isUrgent ? (
-        <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" aria-hidden />
+        <span
+          className="exchange-order-status-dot-pulse inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500"
+          aria-hidden
+        />
       ) : null}
       {active && isUrgent ? (
         <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-white" aria-hidden />

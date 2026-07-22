@@ -24,6 +24,7 @@ import { ItemPhotoGallery } from "./ItemPhotoGallery";
 import { ItemPhotoStickyHeader, type ItemPhotoStickyHeaderProps } from "./ItemPhotoOverlayActions";
 import { useItemMemberData } from "@/hooks/useItemMemberData";
 import type { ItemPhotoLayout } from "@/lib/items/item-photo-layout";
+import { itemDimensionsEntries } from "@/lib/items/item-era-fitting-dimensions";
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { ItemOutfitLookPayload } from "@/lib/items/fetch-item-outfit-look";
 import { isSegnaCorporateInventoryUserId } from "@/lib/config/segna-corporate-inventory";
@@ -36,6 +37,7 @@ export type ItemViewSlot = {
 };
 
 type ItemViewViewProps = {
+  itemId?: string | null;
   title: string;
   description?: string;
   slots: Array<ItemViewSlot | null>;
@@ -65,6 +67,7 @@ function normalizeItemPhotoSlots(slots: Array<ItemViewSlot | null>): ItemViewSlo
 }
 
 export function ItemViewView({
+  itemId,
   title,
   description,
   slots,
@@ -177,7 +180,13 @@ export function ItemViewView({
                   recommendedSize: infoCard.recommendedSize ?? "—",
                   sizeDescription: infoCard.sizeDescription,
                   categoryLabel: infoCard.categoryLabel,
+                  fitting: infoCard.fitting,
+                  dimensions: itemDimensionsEntries(infoCard.dimensions).map((d) => ({
+                    label: d.label,
+                    value: d.value,
+                  })),
                 }}
+                askChat={itemId ? { itemId, itemTitle: title } : null}
               />
 
               {showCartCta ? (

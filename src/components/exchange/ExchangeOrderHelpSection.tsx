@@ -1,6 +1,6 @@
 "use client";
 
-import { openMemberFeedbackModal } from "@/lib/feedback/open-member-feedback-modal";
+import { openItemChatPanel } from "@/lib/item-chat/client-storage";
 import { segnaHeaderInlineLinkClass } from "@/lib/ui/segna-inline-link";
 import { cn } from "@/lib/utils/cn";
 
@@ -12,7 +12,7 @@ type ExchangeOrderHelpSectionProps = {
 };
 
 /**
- * Lien d’aide ouvrant la modale membre (bulle chat : signalement / question).
+ * Lien d’aide ouvrant le chat Segna.
  */
 export function ExchangeOrderHelpSection({
   placement = "footer",
@@ -21,7 +21,7 @@ export function ExchangeOrderHelpSection({
   const trigger = (
     <button
       type="button"
-      onClick={openMemberFeedbackModal}
+      onClick={openItemChatPanel}
       className={cn(
         segnaHeaderInlineLinkClass,
         placement === "header" ? "text-right whitespace-nowrap" : "text-left",

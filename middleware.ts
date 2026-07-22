@@ -39,6 +39,8 @@ const API_MIDDLEWARE_BYPASS_PREFIXES = [
   "/api/stripe/webhook",
   "/api/uber-direct/webhook",
   "/api/sendcloud/webhook",
+  "/api/item-chat/",
+  "/api/cron/item-chat-discord-sync",
 ] as const;
 const ONBOARDING_PATHS = [
   "/onboarding/1",

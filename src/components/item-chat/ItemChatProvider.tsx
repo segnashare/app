@@ -1,0 +1,536 @@
+'use client'
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+
+import {
+  ITEM_CHAT_OPEN_EVENT,
+  ITEM_CHAT_OPEN_PANEL_EVENT,
+  loadItemChatLocalState,
+  openItemChat,
+  saveItemChatLocalState,
+  type ItemChatLocalState,
+  type OpenItemChatDetail,
+} from "@/lib/item-chat/client-storage"
+
+export type ItemChatMessage = {
+  id: string
+  role: 'visitor' | 'staff' | 'system'
+  body: string
+  createdAt: string
+}
+
+export type ItemChatConversation = {
+  id: string
+  itemId: string | null
+  itemTitle: string | null
+  itemSizeLabel: string | null
+  itemConditionLabel: string | null
+  contactEmail: string | null
+  status: string
+  lastMessageAt: string
+  lastReadAt: string | null
+  unreadStaffCount: number
+  hasVisitorMessage: boolean
+  usefulnessPromptedAt: string | null
+  usefulnessRating: 'yes' | 'no' | null
+}
+
+export type ItemChatView = 'list' | 'thread'
+
+type ItemChatContextValue = {
+  source: 'web' | 'app'
+  apiBase: string
+  panelOpen: boolean
+  setPanelOpen: (open: boolean) => void
+  view: ItemChatView
+  goToList: () => void
+  startNewChat: (opts?: {initialMessage?: string}) => void | Promise<void>
+  conversations: ItemChatConversation[]
+  unreadCount: number
+  messages: ItemChatMessage[]
+  conversation: ItemChatConversation | null
+  pendingItem: OpenItemChatDetail | null
+  sending: boolean
+  error: string | null
+  clearError: () => void
+  openForItem: (detail: OpenItemChatDetail) => void
+  openConversation: (id: string) => void
+  sendMessage: (body: string) => Promise<void>
+  submitUsefulnessRating: (rating: 'yes' | 'no') => Promise<void>
+  markRead: () => Promise<void>
+}
+
+const ItemChatContext = createContext<ItemChatContextValue | null>(null)
+
+async function apiFetch(
+  apiBase: string,
+  path: string,
+  visitorId: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  headers.set('X-Segna-Chat-Visitor', visitorId)
+  if (init?.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  return fetch(`${apiBase}${path}`, {
+    ...init,
+    headers,
+    credentials: apiBase ? 'omit' : 'same-origin',
+  })
+}
+
+type ProviderProps = {
+  children: ReactNode
+  source: 'web' | 'app'
+  apiBase?: string
+}
+
+export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps) {
+  const [local, setLocal] = useState<ItemChatLocalState | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [view, setView] = useState<ItemChatView>('thread')
+  const [pendingItem, setPendingItem] = useState<OpenItemChatDetail | null>(null)
+  const [conversation, setConversation] = useState<ItemChatConversation | null>(null)
+  const [conversations, setConversations] = useState<ItemChatConversation[]>([])
+  const [messages, setMessages] = useState<ItemChatMessage[]>([])
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const claimedRef = useRef(false)
+
+  useEffect(() => {
+    setLocal(loadItemChatLocalState())
+  }, [])
+
+  const persist = useCallback((next: ItemChatLocalState) => {
+    setLocal(next)
+    saveItemChatLocalState(next)
+  }, [])
+
+  const clearError = useCallback(() => setError(null), [])
+
+  const refreshConversation = useCallback(
+    async (conversationId: string, visitorId: string) => {
+      const res = await apiFetch(
+        apiBase,
+        `/api/item-chat/conversations/${conversationId}/messages`,
+        visitorId,
+      )
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        conversation?: ItemChatConversation
+        messages?: ItemChatMessage[]
+      }
+      if (data.conversation) setConversation(data.conversation)
+      if (Array.isArray(data.messages)) setMessages(data.messages)
+    },
+    [apiBase],
+  )
+
+  const refreshList = useCallback(
+    async (visitorId: string) => {
+      const res = await apiFetch(apiBase, '/api/item-chat/conversations', visitorId)
+      if (!res.ok) return
+      const data = (await res.json()) as {conversations?: ItemChatConversation[]}
+      if (Array.isArray(data.conversations)) setConversations(data.conversations)
+    },
+    [apiBase],
+  )
+
+  const goToList = useCallback(() => {
+    setView('list')
+    setError(null)
+    const state = local ?? loadItemChatLocalState()
+    void refreshList(state.visitorId)
+  }, [local, refreshList])
+
+  const startNewChat = useCallback(
+    async (opts?: {initialMessage?: string}) => {
+      const initialMessage = opts?.initialMessage?.trim() || ''
+      setError(null)
+      setPendingItem(null)
+      setMessages([])
+      setConversation(null)
+      setPanelOpen(true)
+      setView('thread')
+      const state = local ?? loadItemChatLocalState()
+      if (!local) setLocal(state)
+
+      try {
+        const res = await apiFetch(apiBase, '/api/item-chat/conversations', state.visitorId, {
+          method: 'POST',
+          body: JSON.stringify({
+            visitorId: state.visitorId,
+            source,
+            forceNew: true,
+          }),
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as {error?: string} | null
+          setError(err?.error || 'Impossible d’ouvrir le chat')
+          return
+        }
+        const data = (await res.json()) as {conversation?: ItemChatConversation}
+        if (!data.conversation) return
+        setConversation(data.conversation)
+        persist({...state, conversationId: data.conversation.id})
+
+        if (initialMessage) {
+          setSending(true)
+          try {
+            const msgRes = await apiFetch(
+              apiBase,
+              `/api/item-chat/conversations/${data.conversation.id}/messages`,
+              state.visitorId,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  visitorId: state.visitorId,
+                  body: initialMessage,
+                  source,
+                }),
+              },
+            )
+            if (!msgRes.ok) {
+              const err = (await msgRes.json().catch(() => null)) as {error?: string} | null
+              setError(err?.error || 'Envoi impossible')
+              await refreshConversation(data.conversation.id, state.visitorId)
+              return
+            }
+            const msgData = (await msgRes.json()) as {
+              message?: ItemChatMessage
+              ackMessage?: ItemChatMessage | null
+              conversation?: ItemChatConversation
+            }
+            const nextMessages: ItemChatMessage[] = []
+            if (msgData.message) nextMessages.push(msgData.message)
+            if (msgData.ackMessage) nextMessages.push(msgData.ackMessage)
+            setMessages(nextMessages)
+            if (msgData.conversation) setConversation(msgData.conversation)
+          } finally {
+            setSending(false)
+          }
+        } else {
+          await refreshConversation(data.conversation.id, state.visitorId)
+        }
+        void refreshList(state.visitorId)
+      } catch {
+        setError('Réseau indisponible')
+      }
+    },
+    [apiBase, local, persist, refreshConversation, refreshList, source],
+  )
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      const state = local ?? loadItemChatLocalState()
+      setError(null)
+      setView('thread')
+      setPanelOpen(true)
+      persist({...state, conversationId: id})
+      await refreshConversation(id, state.visitorId)
+    },
+    [local, persist, refreshConversation],
+  )
+
+  const openForItem = useCallback(
+    async (detail: OpenItemChatDetail) => {
+      setError(null)
+      setPendingItem(detail)
+      setPanelOpen(true)
+      setView('thread')
+      setMessages([])
+      const state = local ?? loadItemChatLocalState()
+      if (!local) setLocal(state)
+
+      try {
+        const res = await apiFetch(apiBase, '/api/item-chat/conversations', state.visitorId, {
+          method: 'POST',
+          body: JSON.stringify({
+            visitorId: state.visitorId,
+            itemId: detail.itemId,
+            source,
+            itemTitle: detail.itemTitle ?? undefined,
+            itemSizeLabel: detail.itemSizeLabel ?? undefined,
+            itemConditionLabel: detail.itemConditionLabel ?? undefined,
+          }),
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as {error?: string} | null
+          setError(err?.error || 'Impossible d’ouvrir le chat')
+          return
+        }
+        const data = (await res.json()) as {conversation?: ItemChatConversation}
+        if (!data.conversation) return
+        setConversation(data.conversation)
+        persist({...state, conversationId: data.conversation.id})
+        await refreshConversation(data.conversation.id, state.visitorId)
+        void refreshList(state.visitorId)
+      } catch {
+        setError('Réseau indisponible')
+      }
+    },
+    [apiBase, local, persist, refreshConversation, refreshList, source],
+  )
+
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const ce = e as CustomEvent<OpenItemChatDetail>
+      if (!ce.detail?.itemId) return
+      void openForItem(ce.detail)
+    }
+    const onOpenPanel = () => {
+      clearError()
+      goToList()
+      setPanelOpen(true)
+    }
+    window.addEventListener(ITEM_CHAT_OPEN_EVENT, onOpen)
+    window.addEventListener(ITEM_CHAT_OPEN_PANEL_EVENT, onOpenPanel)
+    return () => {
+      window.removeEventListener(ITEM_CHAT_OPEN_EVENT, onOpen)
+      window.removeEventListener(ITEM_CHAT_OPEN_PANEL_EVENT, onOpenPanel)
+    }
+  }, [clearError, goToList, openForItem])
+
+  useEffect(() => {
+    if (!local || claimedRef.current) return
+    claimedRef.current = true
+    void (async () => {
+      try {
+        await apiFetch(apiBase, "/api/item-chat/claim", local.visitorId, {
+          method: "POST",
+          body: JSON.stringify({ visitorId: local.visitorId }),
+        })
+      } catch {
+        /* guest ok */
+      }
+      await refreshList(local.visitorId)
+      if (local.conversationId) {
+        await refreshConversation(local.conversationId, local.visitorId)
+      }
+    })()
+  }, [apiBase, local, refreshConversation, refreshList])
+
+  useEffect(() => {
+    if (!local) return
+    const id = conversation?.id || local.conversationId
+    if (!id) return
+    const tick = () => {
+      void refreshConversation(id, local.visitorId)
+      if (view === 'list') void refreshList(local.visitorId)
+    }
+    const ms = panelOpen ? 8_000 : 25_000
+    const t = window.setInterval(tick, ms)
+    return () => window.clearInterval(t)
+  }, [conversation?.id, local, panelOpen, refreshConversation, refreshList, view])
+
+  const markRead = useCallback(async () => {
+    if (!local || !conversation) return
+    const now = new Date().toISOString()
+    persist({
+      ...local,
+      lastReadByConversation: {...local.lastReadByConversation, [conversation.id]: now},
+    })
+    setConversation((prev) => (prev ? {...prev, unreadStaffCount: 0, lastReadAt: now} : prev))
+    try {
+      await apiFetch(apiBase, `/api/item-chat/conversations/${conversation.id}/read`, local.visitorId, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [apiBase, conversation, local, persist])
+
+  useEffect(() => {
+    if (panelOpen && view === 'thread' && conversation) {
+      void markRead()
+    }
+  }, [panelOpen, view, conversation?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendMessage = useCallback(
+    async (body: string) => {
+      if (!local) return
+      const trimmed = body.trim()
+      if (!trimmed) return
+      setSending(true)
+      setError(null)
+      try {
+        let conv = conversation
+        if (!conv && pendingItem) {
+          await openForItem(pendingItem)
+          const state = loadItemChatLocalState()
+          if (!state.conversationId) {
+            setError('Conversation indisponible')
+            return
+          }
+          conv = {
+            id: state.conversationId,
+            itemId: pendingItem.itemId,
+            itemTitle: pendingItem.itemTitle ?? null,
+            itemSizeLabel: pendingItem.itemSizeLabel ?? null,
+            itemConditionLabel: pendingItem.itemConditionLabel ?? null,
+            contactEmail: null,
+            status: 'open',
+            lastMessageAt: new Date().toISOString(),
+            lastReadAt: null,
+            unreadStaffCount: 0,
+            hasVisitorMessage: false,
+          }
+        }
+        if (!conv) {
+          setError('Impossible d’envoyer le message')
+          return
+        }
+
+        const res = await apiFetch(
+          apiBase,
+          `/api/item-chat/conversations/${conv.id}/messages`,
+          local.visitorId,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              visitorId: local.visitorId,
+              body: trimmed,
+              source,
+            }),
+          },
+        )
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as {error?: string} | null
+          setError(err?.error || 'Envoi impossible')
+          return
+        }
+        const data = (await res.json()) as {
+          message?: ItemChatMessage
+          ackMessage?: ItemChatMessage | null
+          conversation?: ItemChatConversation
+        }
+        if (data.message) {
+          setMessages((prev) => [
+            ...prev,
+            data.message!,
+            ...(data.ackMessage ? [data.ackMessage] : []),
+          ])
+        }
+        if (data.conversation) setConversation(data.conversation)
+        persist({...local, conversationId: conv.id})
+        void refreshList(local.visitorId)
+      } catch {
+        setError('Réseau indisponible')
+      } finally {
+        setSending(false)
+      }
+    },
+    [apiBase, conversation, local, openForItem, pendingItem, persist, refreshList, source],
+  )
+
+  const submitUsefulnessRating = useCallback(
+    async (rating: 'yes' | 'no') => {
+      if (!local || !conversation) return
+      if (!conversation.usefulnessPromptedAt || conversation.usefulnessRating) return
+      setSending(true)
+      setError(null)
+      try {
+        const res = await apiFetch(
+          apiBase,
+          `/api/item-chat/conversations/${conversation.id}/usefulness`,
+          local.visitorId,
+          {
+            method: 'POST',
+            body: JSON.stringify({visitorId: local.visitorId, rating}),
+          },
+        )
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as {error?: string} | null
+          setError(err?.error || 'Impossible d’enregistrer le retour')
+          return
+        }
+        const data = (await res.json()) as {
+          conversation?: ItemChatConversation
+          messages?: ItemChatMessage[]
+        }
+        if (data.conversation) setConversation(data.conversation)
+        if (data.messages?.length) {
+          setMessages((prev) => [...prev, ...data.messages!])
+        }
+        void refreshList(local.visitorId)
+      } catch {
+        setError('Réseau indisponible')
+      } finally {
+        setSending(false)
+      }
+    },
+    [apiBase, conversation, local, refreshList],
+  )
+
+  const unreadCount = useMemo(
+    () => conversations.reduce((sum, c) => sum + (c.unreadStaffCount || 0), 0),
+    [conversations],
+  )
+
+  const value = useMemo<ItemChatContextValue>(
+    () => ({
+      source,
+      apiBase,
+      panelOpen,
+      setPanelOpen,
+      view,
+      goToList,
+      startNewChat,
+      conversations,
+      unreadCount,
+      messages,
+      conversation,
+      pendingItem,
+      sending,
+      error,
+      clearError,
+      openForItem,
+      openConversation,
+      sendMessage,
+      submitUsefulnessRating,
+      markRead,
+    }),
+    [
+      apiBase,
+      clearError,
+      conversation,
+      conversations,
+      error,
+      goToList,
+      startNewChat,
+      markRead,
+      messages,
+      openConversation,
+      openForItem,
+      panelOpen,
+      pendingItem,
+      sendMessage,
+      submitUsefulnessRating,
+      sending,
+      source,
+      unreadCount,
+      view,
+    ],
+  )
+
+  return <ItemChatContext.Provider value={value}>{children}</ItemChatContext.Provider>
+}
+
+export function useItemChat(): ItemChatContextValue {
+  const ctx = useContext(ItemChatContext)
+  if (!ctx) throw new Error('useItemChat must be used within ItemChatProvider')
+  return ctx
+}
+
+export {openItemChat}

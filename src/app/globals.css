@@ -93,6 +93,21 @@ body:has(.segna-lock-document-scroll) {
   animation: cart-surplus-trash-vibrate 2.75s ease-in-out infinite;
 }
 
+/* Point pastille commande (« En préparation ») : léger grossissement / rétrécissement. */
+@keyframes exchange-order-status-dot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.45);
+  }
+}
+
+.exchange-order-status-dot-pulse {
+  animation: exchange-order-status-dot-pulse 1.6s ease-in-out infinite;
+}
+
 /* Pastille wallet (échange / panier) : flash crédit entrant / sortant. */
 @keyframes wallet-pill-credit-pulse {
   0% {

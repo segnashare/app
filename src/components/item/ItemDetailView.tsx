@@ -749,6 +749,7 @@ export function ItemDetailView({
 
       <div className="relative z-0 mx-auto max-w-[430px] pb-28">
         <ItemViewView
+          itemId={itemId!}
           title={data.title}
           description={data.description}
           slots={data.slots}
