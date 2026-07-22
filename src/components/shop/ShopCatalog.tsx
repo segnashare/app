@@ -140,6 +140,8 @@ export type ShopCatalogItem = {
   brand_label: string | null;
   condition_label: string | null;
   condition_score: string | null;
+  /** Badge « New » (top ~20 % created_at). */
+  isNew?: boolean;
 };
 
 type FilterOption = { id: string; label: string };
@@ -482,6 +484,7 @@ function ShopPieceSquareCatalogCard({
   const sizeLine = pieceCardSizeLine(item.size_label);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
   const isSold = item.status === "sold";
+  const isNew = Boolean(item.isNew) && !isSold;
   const photosLayout = parseItemPhotosLayout(item.photos);
   const catalogPhotoPosition = resolveItemPhotoData(item.photos).position;
   const catalogSquareThumbProps = itemSquareListThumbCoverProps({
@@ -537,13 +540,28 @@ function ShopPieceSquareCatalogCard({
           cartBusy={cartBusyIds.has(item.id)}
           onToggleCart={() => void onToggleCart(item.id)}
         />
-        {isSold ? (
-          <span
-            className="pointer-events-none absolute left-2 top-2 z-[3] inline-flex items-center justify-center rounded-md bg-zinc-300 px-2 py-1 text-[11px] font-semibold tracking-wide text-zinc-900"
-            aria-hidden
-          >
-            Sold
-          </span>
+        {isNew || isSold ? (
+          <div className="pointer-events-none absolute left-2 top-2 z-[3] flex flex-wrap gap-1.5">
+            {isNew ? (
+              <span
+                className={cn(
+                  segnaPlayfairDisplay.className,
+                  "inline-flex items-center justify-center rounded-md bg-[#e8e8e8] px-2 py-1 text-[11px] font-semibold tracking-wide text-zinc-900",
+                )}
+                aria-hidden
+              >
+                New
+              </span>
+            ) : null}
+            {isSold ? (
+              <span
+                className="inline-flex items-center justify-center rounded-md bg-zinc-300 px-2 py-1 text-[11px] font-semibold tracking-wide text-zinc-900"
+                aria-hidden
+              >
+                Sold
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <div className={cn("mt-1 min-w-0 flex flex-col gap-0.5 px-0.5", !showMeta && "invisible")}>

@@ -46,8 +46,12 @@ export const SHOP_SECTION_TITLES: Record<ShopSectionSlug, string> = {
 };
 
 function parseCatalogPayload(data: unknown): ShopCatalogItem[] {
-  const p = (data ?? { items: [] }) as { items?: ShopCatalogItem[] };
-  return Array.isArray(p.items) ? p.items : [];
+  const p = (data ?? { items: [] }) as { items?: Array<ShopCatalogItem & { is_new?: boolean }> };
+  const raw = Array.isArray(p.items) ? p.items : [];
+  return raw.map((row) => {
+    const isNew = row.isNew === true || row.is_new === true;
+    return isNew ? { ...row, isNew: true } : row;
+  });
 }
 
 type LoaderCtx = {
@@ -235,9 +239,10 @@ export async function loadShopSectionItems(
       return parseCatalogPayload(res.data);
     }
     case "discover": {
-      const res = await anySb.rpc("get_shop_catalog_items", { p_limit: SHOP_SECTION_ITEMS_LIMIT });
+      // Aligné badge « New » site : ~20 % des pièces les plus récentes (created_at).
+      const res = await anySb.rpc("get_shop_newest_fraction", { p_fraction: 0.2 });
       if (res.error) return [];
-      return parseCatalogPayload(res.data);
+      return parseCatalogPayload(res.data).map((item) => ({ ...item, isNew: true }));
     }
     case "liked": {
       const res = await anySb.rpc("get_shop_user_favorite_items", { p_limit: SHOP_SECTION_ITEMS_LIMIT });

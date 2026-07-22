@@ -4,6 +4,10 @@ import {
   notifyCartDisputeN8n,
   type CartDisputeN8nNotifyResult,
 } from "@/lib/disputes/notify-cart-dispute-n8n";
+import {
+  maybeNotifyBorrowOverdueDayN8n,
+  type BorrowOverdueDayN8nNotifyResult,
+} from "@/lib/disputes/notify-borrow-overdue-day-n8n";
 import type { BorrowOverdueAccrueResult } from "@/lib/emprunt/borrow-overdue-penalty";
 
 export async function notifyBorrowOverdueEscalationDisputeN8n(
@@ -82,4 +86,21 @@ export async function maybeNotifyBorrowOverdueEscalationDisputeN8n(
   }
 
   return result;
+}
+
+/**
+ * Après accrue RPC : Discord n8n chaque nouveau J+X, + litige escalade si créé (J+15).
+ */
+export async function maybeNotifyBorrowOverdueAccrueN8n(
+  admin: SupabaseClient,
+  cartId: string,
+  calendarDate: string,
+  accrue: BorrowOverdueAccrueResult | null | undefined,
+): Promise<{
+  day: BorrowOverdueDayN8nNotifyResult | null;
+  escalation: CartDisputeN8nNotifyResult | null;
+}> {
+  const day = await maybeNotifyBorrowOverdueDayN8n(admin, cartId, calendarDate, accrue);
+  const escalation = await maybeNotifyBorrowOverdueEscalationDisputeN8n(admin, cartId, accrue);
+  return { day, escalation };
 }

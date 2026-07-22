@@ -10,7 +10,7 @@ import {
 import { settleCartBorrowOverdueStripe } from "@/lib/cart/settle-borrow-overdue-stripe";
 import type { BorrowOverdueAccrueResult } from "@/lib/emprunt/borrow-overdue-penalty";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { maybeNotifyBorrowOverdueEscalationDisputeN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
+import { maybeNotifyBorrowOverdueAccrueN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
 
 type Body = {
   cart_id?: string;
@@ -91,9 +91,9 @@ export async function POST(request: Request) {
     }
     accrueResult = data as BorrowOverdueAccrueResult;
     try {
-      await maybeNotifyBorrowOverdueEscalationDisputeN8n(admin, cartId, accrueResult);
+      await maybeNotifyBorrowOverdueAccrueN8n(admin, cartId, calendarDate, accrueResult);
     } catch (e) {
-      console.error("[dev/notify-borrow-overdue-day] dispute n8n", cartId, e);
+      console.error("[dev/notify-borrow-overdue-day] n8n", cartId, e);
     }
   }
 

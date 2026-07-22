@@ -12,7 +12,7 @@ import {
 import { resolveOutboundBorrowDeliveredAtIso } from "@/lib/emprunt/borrow-period";
 import { settleCartBorrowOverdueStripe } from "@/lib/cart/settle-borrow-overdue-stripe";
 import { notifyBorrowOverdueDailyWhenUnsettled } from "@/lib/cart/notify-borrow-overdue-daily-unsettled";
-import { maybeNotifyBorrowOverdueEscalationDisputeN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
+import { maybeNotifyBorrowOverdueAccrueN8n } from "@/lib/disputes/notify-borrow-overdue-escalation-dispute-n8n";
 
 const MAX_CARTS = 400;
 const OUTBOUND_FETCH_MULT = 3;
@@ -165,9 +165,9 @@ export async function runBorrowOverdueAccrual(
     }
 
     try {
-      await maybeNotifyBorrowOverdueEscalationDisputeN8n(admin, cart.id, row);
+      await maybeNotifyBorrowOverdueAccrueN8n(admin, cart.id, calendarDate, row);
     } catch (e) {
-      console.error("[borrow-overdue] dispute n8n", cart.id, e);
+      console.error("[borrow-overdue] n8n", cart.id, e);
       errors++;
     }
 

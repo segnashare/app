@@ -186,7 +186,7 @@ export function ItemChatBubble() {
                       placeholder="Demande-nous n’importe quoi…"
                       maxLength={4000}
                       disabled={sending}
-                      className="min-w-0 flex-1 bg-transparent py-2 text-[13px] outline-none"
+                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
@@ -288,7 +288,7 @@ export function ItemChatBubble() {
                       placeholder="Nouveau chat…"
                       maxLength={4000}
                       disabled={sending}
-                      className="min-w-0 flex-1 bg-transparent py-2 text-[13px] outline-none"
+                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
@@ -402,7 +402,7 @@ export function ItemChatBubble() {
                     }}
                     placeholder="Demande-nous n’importe quoi…"
                     maxLength={4000}
-                    className="min-w-0 flex-1 bg-transparent py-2 text-[13px] outline-none"
+                    className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                   />
                   <button
                     type="submit"
@@ -434,7 +434,7 @@ export function ItemChatBubble() {
             setPanelOpen(true);
           }
         }}
-        className={cn(FLOATING_ROUND_ACTION_SHELL_CLASS, "bg-zinc-900 hover:bg-zinc-800")}
+        className={FLOATING_ROUND_ACTION_SHELL_CLASS}
       >
         {panelOpen ? (
           <X className="h-6 w-6" />
