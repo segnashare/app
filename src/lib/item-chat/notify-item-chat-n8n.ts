@@ -10,6 +10,9 @@ export type ItemChatN8nNotifyInput = {
   body: string;
   source: ItemChatSource;
   isFirstVisitorMessage: boolean;
+  /** Prénom + nom membre (si connecté). */
+  clientFirstName?: string | null;
+  clientLastName?: string | null;
 };
 
 export type ItemChatN8nNotifyResult =
@@ -47,6 +50,32 @@ function replyUrlForSource(source: ItemChatSource): string {
   return `${base}/api/internal/item-chat/reply`;
 }
 
+function resolveClientName(input: ItemChatN8nNotifyInput): {
+  firstName: string | null;
+  lastName: string | null;
+  clientName: string;
+  threadName: string;
+} {
+  const firstName =
+    typeof input.clientFirstName === "string" && input.clientFirstName.trim()
+      ? input.clientFirstName.trim()
+      : null;
+  const lastName =
+    typeof input.clientLastName === "string" && input.clientLastName.trim()
+      ? input.clientLastName.trim()
+      : null;
+  const fromUser = [firstName, lastName].filter(Boolean).join(" ").trim();
+  const email = input.conversation.contact_email?.trim() || "";
+  const emailLocal = email.includes("@") ? email.split("@")[0]!.trim() : email;
+  const clientName = fromUser || emailLocal || "Visiteur";
+  return {
+    firstName,
+    lastName,
+    clientName,
+    threadName: clientName.slice(0, 100),
+  };
+}
+
 /**
  * Déclenche le workflow n8n (`N8N_ITEM_CHAT_WEBHOOK_URL`) après un message visitor chat pièce.
  * À await côté API pour éviter que Next coupe le fetch.
@@ -68,6 +97,7 @@ export async function notifyItemChatN8n(
 
   const conv = input.conversation;
   const bindUrl = replyUrlForSource(input.source).replace(/\/reply$/, "/bind-thread");
+  const { firstName, lastName, clientName, threadName } = resolveClientName(input);
   const payload = {
     event: input.isFirstVisitorMessage ? "item_chat_opened" : "item_chat_message",
     conversation_id: conv.id,
@@ -83,6 +113,11 @@ export async function notifyItemChatN8n(
     contact_email: conv.contact_email,
     visitor_id: conv.visitor_id,
     user_id: conv.user_id,
+    client_first_name: firstName,
+    client_last_name: lastName,
+    client_name: clientName,
+    /** Titre Discord thread (nom client). n8n : Options → Thread Name = `{{ $json.body.thread_name }}` */
+    thread_name: threadName,
     web_url: getItemPublicWebUrl(conv.item_id),
     app_url: getItemPublicAppUrl(conv.item_id),
     reply_url: replyUrlForSource(input.source),

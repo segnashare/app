@@ -8,7 +8,7 @@ import type {
   ItemChatMessageRow,
   ItemChatSource,
 } from "@/lib/item-chat/types";
-import { ITEM_CHAT_BODY_MAX, ITEM_CHAT_BODY_MIN, UUID_RE } from "@/lib/item-chat/types";
+import { ITEM_CHAT_BODY_MAX, ITEM_CHAT_BODY_MIN, ITEM_CHAT_STAFF_JOINED_BODY, UUID_RE } from "@/lib/item-chat/types";
 
 type Admin = SupabaseClient;
 
@@ -35,12 +35,67 @@ export function normalizeMessageBody(raw: unknown): string | null {
   return t;
 }
 
+export function normalizeStaffDisplayName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const full = raw.trim().replace(/\s+/g, " ");
+  if (!full) return null;
+  const first = full.split(" ")[0] || full;
+  return first.slice(0, 40) || null;
+}
+
+export function normalizeStaffAvatarUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  if (!t.startsWith("https://") || t.length > 500) return null;
+  return t;
+}
+
+/** Événement « Prénom a rejoint la conversation » — une fois par opérateur, juste avant sa 1re réponse. */
+export async function ensureStaffJoinedEvent(params: {
+  admin: Admin;
+  conversationId: string;
+  staffDisplayName: string;
+  staffAvatarUrl?: string | null;
+  beforeIso: string;
+}): Promise<void> {
+  const name = normalizeStaffDisplayName(params.staffDisplayName);
+  if (!name) return;
+  const avatarUrl = normalizeStaffAvatarUrl(params.staffAvatarUrl);
+
+  const { data: existing } = await params.admin
+    .from("item_chat_messages" as never)
+    .select("id")
+    .eq("conversation_id", params.conversationId)
+    .eq("role", "system")
+    .eq("body", ITEM_CHAT_STAFF_JOINED_BODY)
+    .eq("staff_display_name", name)
+    .maybeSingle();
+  if (existing) return;
+
+  const joinedAtMs = Date.parse(params.beforeIso);
+  const joinedAt = Number.isFinite(joinedAtMs)
+    ? new Date(joinedAtMs - 1).toISOString()
+    : new Date().toISOString();
+
+  await params.admin.from("item_chat_messages" as never).insert({
+    conversation_id: params.conversationId,
+    role: "system",
+    body: ITEM_CHAT_STAFF_JOINED_BODY,
+    discord_message_id: null,
+    staff_display_name: name,
+    staff_avatar_url: avatarUrl,
+    created_at: joinedAt,
+  } as never);
+}
+
 export function toMessageDto(row: ItemChatMessageRow): ItemChatMessageDto {
   return {
     id: row.id,
     role: row.role,
     body: row.body,
     createdAt: row.created_at,
+    staffDisplayName: row.staff_display_name ?? null,
+    staffAvatarUrl: row.staff_avatar_url ?? null,
   };
 }
 
@@ -299,6 +354,18 @@ export async function appendVisitorMessage(params: {
 
   const updatedConversation = convData ? asConv(convData) : conversation;
 
+  let clientFirstName: string | null = null;
+  let clientLastName: string | null = null;
+  if (updatedConversation.user_id) {
+    const { data: user } = await admin
+      .from("users")
+      .select("first_name, last_name")
+      .eq("id", updatedConversation.user_id)
+      .maybeSingle();
+    clientFirstName = typeof user?.first_name === "string" ? user.first_name : null;
+    clientLastName = typeof user?.last_name === "string" ? user.last_name : null;
+  }
+
   // n8n → Discord (ne bloque pas l’UX si le webhook échoue)
   await notifyItemChatN8n({
     conversation: updatedConversation,
@@ -306,6 +373,8 @@ export async function appendVisitorMessage(params: {
     body,
     source,
     isFirstVisitorMessage,
+    clientFirstName,
+    clientLastName,
   });
 
   return {
@@ -320,8 +389,12 @@ export async function appendStaffMessage(params: {
   conversationId: string;
   body: string;
   externalId?: string | null;
+  staffDisplayName?: string | null;
+  staffAvatarUrl?: string | null;
 }): Promise<{ message: ItemChatMessageDto; conversation: ItemChatConversationRow } | null> {
   const { admin, conversationId, body, externalId } = params;
+  const staffDisplayName = normalizeStaffDisplayName(params.staffDisplayName);
+  const staffAvatarUrl = normalizeStaffAvatarUrl(params.staffAvatarUrl);
   if (!UUID_RE.test(conversationId)) return null;
 
   const { data: convRaw } = await admin
@@ -333,11 +406,22 @@ export async function appendStaffMessage(params: {
   const conversation = asConv(convRaw);
 
   const now = new Date().toISOString();
+  if (staffDisplayName) {
+    await ensureStaffJoinedEvent({
+      admin,
+      conversationId: conversation.id,
+      staffDisplayName,
+      staffAvatarUrl,
+      beforeIso: now,
+    });
+  }
   const insertRow: Record<string, unknown> = {
     conversation_id: conversation.id,
     role: "staff",
     body,
     created_at: now,
+    staff_display_name: staffDisplayName,
+    staff_avatar_url: staffAvatarUrl,
   };
   if (externalId) insertRow.discord_message_id = externalId;
 

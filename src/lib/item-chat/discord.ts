@@ -10,12 +10,46 @@ import type { ItemChatConversationRow, ItemChatSource } from "@/lib/item-chat/ty
 
 const DISCORD_API = "https://discord.com/api/v10";
 
+export type DiscordAuthor = {
+  id: string;
+  bot?: boolean;
+  username?: string;
+  global_name?: string | null;
+  avatar?: string | null;
+};
+
 type DiscordMessage = {
   id: string;
   content?: string;
-  author?: { id: string; bot?: boolean; username?: string };
+  author?: DiscordAuthor;
   timestamp?: string;
 };
+
+/** Prénom affiché + avatar CDN à partir de l’auteur Discord. */
+export function discordStaffProfileFromAuthor(
+  author: DiscordAuthor | null | undefined,
+): { displayName: string; avatarUrl: string } | null {
+  if (!author?.id) return null;
+  const full = (author.global_name || author.username || "").trim();
+  if (!full) return null;
+  const firstToken = full.split(/\s+/)[0] || full;
+  const displayName = firstToken.slice(0, 40);
+
+  let avatarUrl: string;
+  if (author.avatar) {
+    const ext = author.avatar.startsWith("a_") ? "gif" : "png";
+    avatarUrl = `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.${ext}?size=128`;
+  } else {
+    let index = 0;
+    try {
+      index = Number((BigInt(author.id) >> 22n) % 6n);
+    } catch {
+      index = 0;
+    }
+    avatarUrl = `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+  }
+  return { displayName, avatarUrl };
+}
 
 async function discordFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = getDiscordBotToken();
@@ -29,12 +63,11 @@ async function discordFetch(path: string, init?: RequestInit): Promise<Response>
   });
 }
 
-function threadNameFromConversation(conv: ItemChatConversationRow): string {
-  const title = (conv.item_title || (conv.item_id ? "Pièce" : "Question générale")).trim().slice(0, 40);
-  const size = (conv.item_size_label || (conv.item_id ? "?" : "—")).trim().slice(0, 12);
-  const who = (conv.contact_email || conv.visitor_id.slice(0, 8)).trim().slice(0, 30);
-  const raw = `${title} · ${size} · ${who}`;
-  return raw.slice(0, 100);
+function threadNameFromConversation(conv: ItemChatConversationRow, clientName?: string | null): string {
+  const who =
+    (clientName && clientName.trim()) ||
+    (conv.contact_email || conv.visitor_id.slice(0, 8)).trim();
+  return who.slice(0, 100);
 }
 
 export async function discordCreateThreadAndPost(params: {

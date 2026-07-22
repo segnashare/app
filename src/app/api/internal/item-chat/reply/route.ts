@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { appendStaffMessage, bindDiscordThread, normalizeMessageBody } from "@/lib/item-chat/service";
+import {
+  appendStaffMessage,
+  bindDiscordThread,
+  normalizeMessageBody,
+  normalizeStaffAvatarUrl,
+  normalizeStaffDisplayName,
+} from "@/lib/item-chat/service";
 import { UUID_RE } from "@/lib/item-chat/types";
 
 function itemChatInternalSecrets(): string[] {
@@ -13,7 +19,7 @@ function itemChatInternalSecrets(): string[] {
 /**
  * Réponse staff depuis n8n (après message Discord).
  * Auth : Bearer = `SEGNA_INTERNAL_ITEM_CHAT_SECRET` (ou `N8N_ITEM_CHAT_WEBHOOK_SECRET`).
- * Body : `{ "conversation_id": "uuid", "body": "...", "external_id"?: "discord-msg-id", "discord_thread_id"?: "…" }`
+ * Body : `{ "conversation_id", "body", "external_id"?, "discord_thread_id"?, "staff_display_name"?, "staff_avatar_url"? }`
  * Si `discord_thread_id` est fourni, le fil est lié (utile si le bind dédié a échoué).
  */
 export async function POST(request: Request) {
@@ -39,6 +45,8 @@ export async function POST(request: Request) {
     body?: unknown;
     external_id?: unknown;
     discord_thread_id?: unknown;
+    staff_display_name?: unknown;
+    staff_avatar_url?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -57,6 +65,8 @@ export async function POST(request: Request) {
     typeof body.discord_thread_id === "string" && body.discord_thread_id.trim()
       ? body.discord_thread_id.trim()
       : null;
+  const staffDisplayName = normalizeStaffDisplayName(body.staff_display_name);
+  const staffAvatarUrl = normalizeStaffAvatarUrl(body.staff_avatar_url);
 
   if (!UUID_RE.test(conversationId) || !messageBody) {
     return NextResponse.json({ ok: false as const, error: "invalid_payload" }, { status: 400 });
@@ -76,6 +86,8 @@ export async function POST(request: Request) {
       conversationId,
       body: messageBody,
       externalId,
+      staffDisplayName,
+      staffAvatarUrl,
     });
     if (!result) {
       return NextResponse.json(

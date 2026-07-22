@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
@@ -236,133 +236,128 @@ export function PackageSegnaXLandingClient({
   );
 }
 
-const SEGNA_X_COMPARE_BENEFITS: Array<{
+/** Même contenu / structure que le tableau Guest vs SegnaX du site (page Location). */
+const SEGNA_X_COMPARE_ROWS: Array<{
   label: string;
-  guestSr: string;
-  segnaXSr: string;
-  segnaXText: string;
+  guestCell: string;
+  memberCell: string;
 }> = [
   {
-    label: "Pièces",
-    guestSr: "Non inclus",
-    segnaXSr: "6 pièces maximum",
-    segnaXText: "6 pièces max",
+    label: "Prix de location",
+    guestCell: "10 % du prix / semaine\nou 20 % / mois",
+    memberCell: "40 € / mois pour 400 € de pièces",
   },
   {
-    label: "Valeur",
-    guestSr: "Non inclus",
-    segnaXSr: "Jusqu’à 500 euros de valeur",
-    segnaXText: "Jusqu’à 500€ de valeur",
+    label: "Durée de location",
+    guestCell: "1 semaine ou 1 mois",
+    memberCell: "Illimitée",
   },
   {
-    label: "Achat",
-    guestSr: "Pas de réduction",
-    segnaXSr: "30 pour cent de réduction sur chaque achat",
-    segnaXText: "30% de réduction sur chaque achat",
+    label: "Assurance",
+    guestCell: "Non incluse",
+    memberCell: "Incluse sur taches & petits accidents",
   },
   {
-    label: "Échange",
-    guestSr: "Aucun échange inclus",
-    segnaXSr: "1 échange par mois inclus",
-    segnaXText: "1 échange/mois inclus",
+    label: "Frais d’échange",
+    guestCell: "10–15 € par échange",
+    memberCell: "1 échange inclus / mois",
   },
   {
-    label: "Livraison",
-    guestSr: "Non incluse",
-    segnaXSr: "Relais et domicile compris",
-    segnaXText: "Relais + domicile compris",
+    label: "Pressing",
+    guestCell: "Inclus",
+    memberCell: "Inclus",
+  },
+  {
+    label: "Achat des pièces",
+    guestCell: "Prix standard",
+    memberCell: "30 % de réduction",
   },
 ];
 
-/** Comparaison Guest vs SegnaX sous les offres (landing abonnement uniquement). */
+/** Comparaison Guest vs SegnaX — même tableau que le website. */
 function SegnaXGuestComparisonTable() {
-  const guestDash = (
-    <span className="text-[15px] font-medium text-zinc-400" aria-hidden>
-      —
-    </span>
-  );
+  const rows = SEGNA_X_COMPARE_ROWS;
+  const gridRows = `auto repeat(${rows.length}, auto)`;
 
   return (
     <section className="mt-8" aria-labelledby="plan-x-compare-heading">
       <h2 id="plan-x-compare-heading" className="sr-only">
         Comparaison Guest et SegnaX
       </h2>
-      <table className="w-full border-separate border-spacing-0 text-left">
-        <thead>
-          <tr className={cn(montserrat.className, "text-[11px] font-semibold uppercase tracking-wide text-zinc-500")}>
-            <th
-              scope="col"
-              className="w-[32%] border-b border-zinc-200 bg-white px-3 py-3.5 font-semibold normal-case tracking-normal text-zinc-500"
-            >
-              <span className="sr-only">Critères</span>
-            </th>
-            <th
-              scope="col"
-              className="w-[18%] border-b border-zinc-200 bg-white px-2 py-3.5 text-center text-zinc-950 sm:px-3"
-            >
-              <span className={cn(montserrat.className, "text-[12px] font-bold uppercase tracking-wide")}>Guest</span>
-            </th>
-            <th
-              scope="col"
-              className="rounded-t-2xl border-l-2 border-r-2 border-t-2 border-zinc-950 bg-zinc-950 px-3 py-3 text-center text-white sm:px-4"
-            >
-              <img
-                src={SEGNA_X_LOGO_BLANC_SRC}
-                alt="SegnaX"
-                className="mx-auto h-[1.25rem] w-auto max-w-[5rem] object-contain sm:h-[1.125rem] sm:max-w-[5.25rem]"
-              />
-            </th>
-          </tr>
-        </thead>
-        <tbody className={cn(montserrat.className, "text-[13px] leading-snug sm:text-[14px]")}>
-          {SEGNA_X_COMPARE_BENEFITS.map((row, rowIndex) => {
-            const isLast = rowIndex === SEGNA_X_COMPARE_BENEFITS.length - 1;
-            return (
-              <tr key={row.label}>
-                <th
-                  scope="row"
-                  className={cn(
-                    "bg-white px-3 py-4 align-top font-semibold text-zinc-950 sm:py-5",
-                    !isLast && "border-b border-zinc-200",
-                  )}
-                >
-                  {row.label}
-                </th>
-                <td
-                  className={cn(
-                    "bg-white px-2 py-4 text-center align-middle text-zinc-600 sm:px-3 sm:py-5",
-                    !isLast && "border-b border-zinc-200",
-                  )}
-                >
-                  <span className="sr-only">{row.guestSr}</span>
-                  {guestDash}
-                </td>
-                <td
-                  className={cn(
-                    "border-x-2 border-zinc-950 bg-zinc-950 px-3 py-4 text-left text-white sm:px-4 sm:py-5",
-                    rowIndex === 0 && "border-t-2 border-white",
-                    isLast
-                      ? "rounded-b-2xl border-b-2 border-zinc-950"
-                      : "border-b border-white/15",
-                  )}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <Check
-                      className="mt-0.5 h-4 w-4 shrink-0 text-white"
-                      strokeWidth={2.75}
-                      aria-hidden
-                    />
-                    <span className="sr-only">{row.segnaXSr}</span>
-                    <p aria-hidden className="text-balance text-[13px] font-semibold leading-snug sm:text-[14px]">
-                      {row.segnaXText}
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+
+      <div
+        className={cn(montserrat.className, "grid w-full items-stretch")}
+        style={{
+          gridTemplateColumns: "minmax(5.5rem, 0.85fr) minmax(6.5rem, 1fr) minmax(9.5rem, 1.25fr)",
+          gridTemplateRows: gridRows,
+        }}
+        role="table"
+        aria-label="Comparaison Guest et SegnaX"
+      >
+        <div className="min-h-11" role="columnheader" style={{ gridColumn: 1, gridRow: 1 }}>
+          <span className="sr-only">Critère</span>
+        </div>
+        <div
+          className="flex items-center justify-center px-1 py-3 text-center text-[0.82rem] font-bold uppercase tracking-[0.05em] text-zinc-950"
+          role="columnheader"
+          style={{ gridColumn: 2, gridRow: 1 }}
+        >
+          Guest
+        </div>
+
+        <div
+          className="z-[1] grid rounded-2xl bg-zinc-950 text-white [grid-template-rows:subgrid]"
+          role="presentation"
+          style={{ gridColumn: 3, gridRow: `1 / ${rows.length + 2}` }}
+        >
+          <div className="flex items-center justify-center px-3 py-3 text-center" role="columnheader">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={SEGNA_X_LOGO_BLANC_SRC}
+              alt="SegnaX"
+              className="mx-auto h-[1.35rem] w-auto max-w-[5.75rem] object-contain"
+              width={120}
+              height={39}
+            />
+          </div>
+          {rows.map((row) => (
+            <div key={`m-${row.label}`} className="flex items-center px-3.5 py-3.5" role="cell">
+              <p className="m-0 text-balance whitespace-pre-line text-[0.82rem] font-semibold leading-snug text-white">
+                {row.memberCell}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {rows.map((row, index) => {
+          const gridRow = index + 2;
+          const isLast = index === rows.length - 1;
+          return (
+            <div key={row.label} className="contents" role="row">
+              <div
+                className={cn(
+                  "flex min-h-12 items-center py-3.5 pr-2 text-[0.92rem] font-bold tracking-tight text-zinc-950",
+                  !isLast && "border-b border-zinc-950/10",
+                )}
+                role="rowheader"
+                style={{ gridColumn: 1, gridRow }}
+              >
+                {row.label}
+              </div>
+              <div
+                className={cn(
+                  "flex min-h-12 items-center justify-center px-2 py-3.5 text-center text-[0.82rem] font-normal leading-snug text-zinc-950/78 whitespace-pre-line",
+                  !isLast && "border-b border-zinc-950/10",
+                )}
+                role="cell"
+                style={{ gridColumn: 2, gridRow }}
+              >
+                {row.guestCell}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

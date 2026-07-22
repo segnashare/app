@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { discordFetchThreadMessagesAfter, discordGetBotUserId } from "@/lib/item-chat/discord";
+import {
+  discordFetchThreadMessagesAfter,
+  discordGetBotUserId,
+  discordStaffProfileFromAuthor,
+} from "@/lib/item-chat/discord";
 import { isItemChatDiscordSyncEnabled } from "@/lib/item-chat/config";
+import { ensureStaffJoinedEvent } from "@/lib/item-chat/service";
 import type { ItemChatConversationRow } from "@/lib/item-chat/types";
 
 type Admin = SupabaseClient;
@@ -32,12 +37,25 @@ async function syncOneConversation(
       const body = (msg.content || "").trim();
       if (!body) continue;
 
+      const profile = discordStaffProfileFromAuthor(msg.author);
+      const createdAt = msg.timestamp || new Date().toISOString();
+      if (profile) {
+        await ensureStaffJoinedEvent({
+          admin,
+          conversationId: conv.id,
+          staffDisplayName: profile.displayName,
+          staffAvatarUrl: profile.avatarUrl,
+          beforeIso: createdAt,
+        });
+      }
       const { error } = await admin.from("item_chat_messages" as never).insert({
         conversation_id: conv.id,
         role: "staff",
         body: body.slice(0, 4000),
         discord_message_id: msg.id,
-        created_at: msg.timestamp || new Date().toISOString(),
+        staff_display_name: profile?.displayName ?? null,
+        staff_avatar_url: profile?.avatarUrl ?? null,
+        created_at: createdAt,
       } as never);
 
       if (error) {

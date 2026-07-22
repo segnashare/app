@@ -26,6 +26,8 @@ export type ItemChatMessage = {
   role: 'visitor' | 'staff' | 'system'
   body: string
   createdAt: string
+  staffDisplayName?: string | null
+  staffAvatarUrl?: string | null
 }
 
 export type ItemChatConversation = {
