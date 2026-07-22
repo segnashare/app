@@ -545,12 +545,12 @@ function ShopPieceSquareCatalogCard({
             {isNew ? (
               <span
                 className={cn(
-                  segnaPlayfairDisplay.className,
-                  "inline-flex items-center justify-center rounded-md bg-[#e8e8e8] px-2 py-1 text-[11px] font-semibold tracking-wide text-zinc-900",
+                  montserratPieceBold.className,
+                  "inline-flex items-center justify-center rounded-md border border-white/25 bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white shadow-sm backdrop-blur-md",
                 )}
                 aria-hidden
               >
-                New
+                NEW
               </span>
             ) : null}
             {isSold ? (

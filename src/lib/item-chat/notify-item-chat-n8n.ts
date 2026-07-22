@@ -30,23 +30,24 @@ function readItemChatWebhookSecret(): string {
   return process.env.N8N_ITEM_CHAT_WEBHOOK_SECRET?.trim() ?? "";
 }
 
-function replyUrlForSource(source: ItemChatSource): string {
+function replyUrlForSource(_source: ItemChatSource): string {
+  // Toujours l’app : même DB + secret interne déjà configuré en prod.
   const override = process.env.ITEM_CHAT_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
   if (override) return `${override}/api/internal/item-chat/reply`;
 
-  if (source === "web") {
-    const base = (
-      process.env.NEXT_PUBLIC_MARKETING_SITE_URL ||
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      "https://www.segnashare.com"
-    ).replace(/\/+$/, "");
-    return `${base}/api/internal/item-chat/reply`;
+  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+    return "https://app.segnashare.com/api/internal/item-chat/reply";
   }
+
   const base = (
     process.env.SEGNA_EMAIL_PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_SEGNA_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
     "https://app.segnashare.com"
   ).replace(/\/+$/, "");
+  if (base.includes("localhost") || base.includes("127.0.0.1")) {
+    return "https://app.segnashare.com/api/internal/item-chat/reply";
+  }
   return `${base}/api/internal/item-chat/reply`;
 }
 
@@ -122,6 +123,8 @@ export async function notifyItemChatN8n(
     app_url: getItemPublicAppUrl(conv.item_id),
     reply_url: replyUrlForSource(input.source),
     bind_thread_url: bindUrl,
+    /** n8n doit POST bind_thread_url avec ce header + conversation_id + discord_thread_id. */
+    bind_authorization: "Bearer <SEGNA_INTERNAL_ITEM_CHAT_SECRET>",
     sent_at: new Date().toISOString(),
   };
 
