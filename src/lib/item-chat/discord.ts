@@ -42,7 +42,7 @@ export function discordStaffProfileFromAuthor(
   } else {
     let index = 0;
     try {
-      index = Number((BigInt(author.id) >> 22n) % 6n);
+      index = Number((BigInt(author.id) >> BigInt(22)) % BigInt(6));
     } catch {
       index = 0;
     }
