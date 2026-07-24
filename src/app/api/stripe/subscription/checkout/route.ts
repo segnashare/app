@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeConfig } from "@/lib/social/stripe";
+import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
+import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 type PlanCode = "segna_plus" | "segna_x";
 
@@ -29,25 +32,42 @@ function getFallbackPriceId(planCode: PlanCode): string | null {
   return value.length > 0 ? value : null;
 }
 
+function resolveCancelUrl(cancelRaw: string, returnUrlBase: string): string {
+  const websiteOrigin = getWebsiteOrigin();
+  if (
+    (cancelRaw.startsWith(`${websiteOrigin}/`) || cancelRaw === websiteOrigin) &&
+    !cancelRaw.includes("..")
+  ) {
+    return cancelRaw;
+  }
+  if (cancelRaw.startsWith("/abonnement/") && !cancelRaw.includes("..")) {
+    return `${websiteOrigin}${cancelRaw}`;
+  }
+  if (cancelRaw.startsWith("/package") && !cancelRaw.includes("..")) {
+    return `${returnUrlBase}${cancelRaw}`;
+  }
+  return `${returnUrlBase}/package?checkout=cancelled`;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
       planCode?: unknown;
       cancelReturnPath?: unknown;
       trialPeriodDays?: unknown;
+      /** Empreinte bancaire SegnaX (100 €) après validation carte. */
+      bankHold?: unknown;
     } | null;
     const planCode = body?.planCode;
     if (!isPlanCode(planCode)) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
     const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
+    const bankHoldAmountCents =
+      planCode === "segna_x" && body?.bankHold === true ? SEGNAX_BANK_HOLD_AMOUNT_CENTS : undefined;
 
-    const supabase = (await createSupabaseServerClient()) as any;
     const admin = createSupabaseAdminClient() as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const { user, error: userError } = await resolveRequestUser(request);
 
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
@@ -88,49 +108,28 @@ export async function POST(request: Request) {
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
 
-    const { data: billingCustomerRow, error: billingCustomerError } = await admin
-      .from("billing_customers")
-      .select("provider_customer_id")
-      .eq("provider", "stripe")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (billingCustomerError) {
-      return NextResponse.json({ message: billingCustomerError.message }, { status: 500 });
-    }
-
-    let stripeCustomerId = billingCustomerRow?.provider_customer_id ?? null;
-    if (!stripeCustomerId) {
-      const createdCustomer = await stripe.customers.create({
-        email: user.email ?? undefined,
-        metadata: {
-          user_id: user.id,
-        },
+    let stripeCustomerId: string;
+    try {
+      stripeCustomerId = await ensureStripeBillingCustomer({
+        stripe,
+        admin,
+        userId: user.id,
+        email: user.email,
+        source: "subscription_checkout",
       });
-      stripeCustomerId = createdCustomer.id;
-
-      const { error: upsertCustomerError } = await admin.from("billing_customers").upsert(
-        {
-          user_id: user.id,
-          provider: "stripe",
-          provider_customer_id: stripeCustomerId,
-          metadata: {
-            source: "subscription_checkout",
-          },
-        },
-        { onConflict: "user_id" },
-      );
-      if (upsertCustomerError) {
-        return NextResponse.json({ message: upsertCustomerError.message }, { status: 500 });
-      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Impossible de préparer le client Stripe.";
+      return NextResponse.json({ message }, { status: 500 });
     }
 
-    const successUrl = `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`;
     const cancelRaw = typeof body?.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
-    const cancelUrl =
-      cancelRaw.startsWith("/package") && !cancelRaw.includes("..")
-        ? `${config.returnUrlBase}${cancelRaw}`
-        : `${config.returnUrlBase}/package?checkout=cancelled`;
+    const cancelUrl = resolveCancelUrl(cancelRaw, config.returnUrlBase);
+    const websiteOrigin = getWebsiteOrigin();
+    const successFromWebsite =
+      cancelUrl.startsWith(`${websiteOrigin}/`) || cancelUrl === websiteOrigin;
+    const successUrl = successFromWebsite
+      ? `${websiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
+      : `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -148,12 +147,18 @@ export async function POST(request: Request) {
       metadata: {
         user_id: user.id,
         plan_code: planCode,
+        ...(bankHoldAmountCents != null
+          ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
+          : {}),
       },
       subscription_data: {
         metadata: {
           user_id: user.id,
           plan_code: planCode,
           ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
+          ...(bankHoldAmountCents != null
+            ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
+            : {}),
         },
         ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
       },
@@ -169,6 +174,7 @@ export async function POST(request: Request) {
       {
         plan_code: planCode,
         ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
       },
     );
     await flushServerAnalytics();

@@ -15,6 +15,10 @@ const playfairDisplay = segnaPlayfairDisplay;
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { Input } from "@/components/ui/Input";
 import { signInSchema } from "@/features/auth/lib/schemas";
+import {
+  isWebsiteCheckoutTunnelComplete,
+  websiteOnboardingResumeUrl,
+} from "@/lib/auth/website-checkout-onboarding";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -54,16 +58,40 @@ export function SignInCore({
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [passwordPlainVisible, setPasswordPlainVisible] = useState(false);
 
-  const resolvePostSignInPath = useCallback(
+  const navigateAfterSignIn = useCallback(
     async (userId: string) => {
+      const websiteReady = await isWebsiteCheckoutTunnelComplete(supabase, userId);
+      if (!websiteReady) {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        const refreshToken = data.session?.refresh_token;
+        const target = new URL(websiteOnboardingResumeUrl());
+        if (accessToken && refreshToken) {
+          target.hash = new URLSearchParams({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            token_type: "bearer",
+            type: "app_signin_resume",
+          }).toString();
+        }
+        window.location.assign(target.toString());
+        return;
+      }
+
       const { data: onboardingData } = await supabase
         .from("onboarding_sessions")
         .select("current_step, status")
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (onboardingData?.status === "completed") return MEMBER_HOME_HREF;
-      if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
+      if (onboardingData?.status === "completed") {
+        router.replace(MEMBER_HOME_HREF);
+        return;
+      }
+      if (onboardingData?.current_step?.startsWith("/onboarding/")) {
+        router.replace(onboardingData.current_step);
+        return;
+      }
 
       const { data: profileRow } = await supabase
         .from("user_profiles")
@@ -71,13 +99,21 @@ export function SignInCore({
         .eq("user_id", userId)
         .maybeSingle();
       const profileData = (profileRow?.profile_data ?? {}) as Record<string, unknown>;
-      const rawScore = profileRow?.score ?? profileData.completion_score ?? profileData.profile_completion ?? profileData.score ?? profileData.progress_score;
+      const rawScore =
+        profileRow?.score ??
+        profileData.completion_score ??
+        profileData.profile_completion ??
+        profileData.score ??
+        profileData.progress_score;
       const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
-      if (Number.isFinite(numericScore) && numericScore >= 100) return MEMBER_HOME_HREF;
+      if (Number.isFinite(numericScore) && numericScore >= 100) {
+        router.replace(MEMBER_HOME_HREF);
+        return;
+      }
 
-      return "/onboarding/1";
+      router.replace("/onboarding/3");
     },
-    [supabase],
+    [router, supabase],
   );
 
   useEffect(() => {
@@ -90,12 +126,11 @@ export function SignInCore({
       } = await supabase.auth.getUser();
 
       if (userError || !user) return;
-      const targetPath = await resolvePostSignInPath(user.id);
-      router.replace(targetPath);
+      await navigateAfterSignIn(user.id);
     };
 
     void redirectIfAlreadySignedIn();
-  }, [memberEntry, resolvePostSignInPath, router, supabase]);
+  }, [memberEntry, navigateAfterSignIn, supabase]);
 
   useEffect(() => {
     if (!memberEntry) return;
@@ -220,8 +255,7 @@ export function SignInCore({
       router.replace("/onboarding");
       return;
     }
-    const targetPath = memberEntry ? MEMBER_HOME_HREF : await resolvePostSignInPath(user.id);
-    router.replace(targetPath);
+    await navigateAfterSignIn(user.id);
   });
 
   const handleContinueExistingSession = async () => {
@@ -230,7 +264,7 @@ export function SignInCore({
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) return;
-    router.replace(MEMBER_HOME_HREF);
+    await navigateAfterSignIn(user.id);
   };
 
   const handleSignOutMemberEntry = async () => {

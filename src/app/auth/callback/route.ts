@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
+import {
+  isWebsiteCheckoutTunnelComplete,
+  websiteOnboardingResumeUrl,
+} from "@/lib/auth/website-checkout-onboarding";
 import { isAllowedWebsiteReturnTo } from "@/lib/auth/website-return-to";
 import { REFERRAL_COOKIE_NAME } from "@/lib/referral/referralInviteConstants";
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
@@ -50,15 +54,22 @@ function referralCodeFromCookie(request: NextRequest): string | null {
 async function resolvePostAuthPath(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   userId: string,
-) {
+): Promise<{ kind: "app"; path: string } | { kind: "website"; url: string }> {
+  const websiteReady = await isWebsiteCheckoutTunnelComplete(supabase, userId);
+  if (!websiteReady) {
+    return { kind: "website", url: websiteOnboardingResumeUrl() };
+  }
+
   const { data: onboardingData } = await supabase
     .from("onboarding_sessions")
     .select("current_step, status")
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (onboardingData?.status === "completed") return MEMBER_HOME_HREF;
-  if (onboardingData?.current_step?.startsWith("/onboarding/")) return onboardingData.current_step;
+  if (onboardingData?.status === "completed") return { kind: "app", path: MEMBER_HOME_HREF };
+  if (onboardingData?.current_step?.startsWith("/onboarding/")) {
+    return { kind: "app", path: onboardingData.current_step };
+  }
 
   const { data: profileRow } = await supabase
     .from("user_profiles")
@@ -73,9 +84,11 @@ async function resolvePostAuthPath(
     profileData.score ??
     profileData.progress_score;
   const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
-  if (Number.isFinite(numericScore) && numericScore >= 100) return MEMBER_HOME_HREF;
+  if (Number.isFinite(numericScore) && numericScore >= 100) {
+    return { kind: "app", path: MEMBER_HOME_HREF };
+  }
 
-  return "/onboarding/1";
+  return { kind: "app", path: "/onboarding/3" };
 }
 
 /** Handoff session app → website (hash, lu côté client website). */
@@ -177,8 +190,28 @@ export async function GET(request: NextRequest) {
     return redirectWithOAuthError(request, intent, "exchange_failed", returnTo);
   }
 
+  const destination = await resolvePostAuthPath(supabase, user.id);
+  if (destination.kind === "website") {
+    const accessToken = exchangeData.session?.access_token;
+    const refreshToken = exchangeData.session?.refresh_token;
+    if (accessToken && refreshToken) {
+      return redirectToWebsiteWithSession(destination.url, accessToken, refreshToken);
+    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token && sessionData.session.refresh_token) {
+      return redirectToWebsiteWithSession(
+        destination.url,
+        sessionData.session.access_token,
+        sessionData.session.refresh_token,
+      );
+    }
+    const res = NextResponse.redirect(destination.url);
+    res.cookies.set(REFERRAL_COOKIE_NAME, "", { path: "/", maxAge: 0, sameSite: "lax" });
+    return res;
+  }
+
   const url = request.nextUrl.clone();
-  url.pathname = await resolvePostAuthPath(supabase, user.id);
+  url.pathname = destination.path;
   url.search = "";
   const res = NextResponse.redirect(url);
   res.cookies.set(REFERRAL_COOKIE_NAME, "", { path: "/", maxAge: 0, sameSite: "lax" });

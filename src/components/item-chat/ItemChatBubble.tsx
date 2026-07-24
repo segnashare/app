@@ -13,8 +13,42 @@ import {
   FLOATING_ROUND_ACTION_SHELL_CLASS,
 } from "@/components/layout/floating-action-chrome";
 import { cn } from "@/lib/utils/cn";
-import { resolveStaffAvatarUrl } from "@/lib/item-chat/staff-avatars";
+import { resolveStaffAvatarUrl, resolveConversationAvatarUrl, CHATBOT_AVATAR_URL } from "@/lib/item-chat/staff-avatars";
 import { ITEM_CHAT_STAFF_JOINED_BODY } from "@/lib/item-chat/types";
+
+function ConversationAvatar({
+  name,
+  url,
+  className,
+}: {
+  name?: string | null;
+  url?: string | null;
+  className?: string;
+}) {
+  const [src, setSrc] = useState(() => resolveConversationAvatarUrl(name, url));
+  const isLogo = src === CHATBOT_AVATAR_URL;
+
+  useEffect(() => {
+    setSrc(resolveConversationAvatarUrl(name, url));
+  }, [name, url]);
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      className={cn(
+        "shrink-0 rounded-full bg-zinc-100",
+        isLogo ? "object-cover bg-zinc-900" : "object-cover",
+        className,
+      )}
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (src !== CHATBOT_AVATAR_URL) setSrc(CHATBOT_AVATAR_URL);
+      }}
+    />
+  );
+}
 
 function StaffAvatar({
   name,
@@ -302,9 +336,6 @@ export function ItemChatBubble() {
                   ) : (
                     conversations.map((c) => {
                       const operatorName = c.operatorDisplayName?.trim() || null;
-                      const avatarSrc =
-                        resolveStaffAvatarUrl(operatorName, c.operatorAvatarUrl) ||
-                        "/ressources/segna_logo.svg";
                       const listTitle = operatorName || "Chatbot";
                       const preview =
                         c.lastMessagePreview?.trim() ||
@@ -323,11 +354,10 @@ export function ItemChatBubble() {
                                 aria-label="Nouvelle réponse"
                               />
                             ) : null}
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={avatarSrc}
-                              alt=""
-                              className="h-9 w-9 rounded-full object-cover max-md:h-11 max-md:w-11"
+                            <ConversationAvatar
+                              name={operatorName}
+                              url={c.operatorAvatarUrl}
+                              className="h-9 w-9 max-md:h-11 max-md:w-11"
                             />
                           </span>
                           <span className="min-w-0 flex-1">
@@ -391,21 +421,16 @@ export function ItemChatBubble() {
                   >
                     <ChevronLeft className="h-5 w-5 max-md:h-6 max-md:w-6" />
                   </button>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={
-                      resolveStaffAvatarUrl(
-                        conversation?.operatorDisplayName,
-                        conversation?.operatorAvatarUrl,
-                      ) ||
-                      resolveStaffAvatarUrl(
-                        messages.find((m) => m.role === "staff" && m.staffDisplayName)?.staffDisplayName,
-                        messages.find((m) => m.role === "staff" && m.staffAvatarUrl)?.staffAvatarUrl,
-                      ) ||
-                      "/ressources/segna_logo.svg"
+                  <ConversationAvatar
+                    name={
+                      conversation?.operatorDisplayName ||
+                      messages.find((m) => m.role === "staff" && m.staffDisplayName)?.staffDisplayName
                     }
-                    alt=""
-                    className="h-7 w-7 rounded-full object-cover max-md:h-8 max-md:w-8"
+                    url={
+                      conversation?.operatorAvatarUrl ||
+                      messages.find((m) => m.role === "staff" && m.staffAvatarUrl)?.staffAvatarUrl
+                    }
+                    className="h-7 w-7 max-md:h-8 max-md:w-8"
                   />
                   <p className="min-w-0 truncate text-[14px] font-semibold text-zinc-900 max-md:text-[15px]">
                     {title}

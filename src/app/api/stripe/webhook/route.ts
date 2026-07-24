@@ -14,6 +14,7 @@ import { processBorrowNonRestitutionStripeInvoiceEvent } from "@/lib/stripe/borr
 import { processGuestPurchaseStripeInvoiceEvent } from "@/lib/stripe/guest-purchase-invoice-webhook";
 import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
+import { createSegnaXSubscriptionBankHoldIfNeeded } from "@/lib/stripe/segnax-subscription-bank-hold";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -135,6 +136,17 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       if (typeof session.subscription === "string") {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);
         await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+        try {
+          await createSegnaXSubscriptionBankHoldIfNeeded({
+            stripe,
+            session,
+            subscription,
+            userId,
+            customerId: stripeCustomerId,
+          });
+        } catch (e) {
+          console.error("[stripe/webhook] segnax bank hold", e);
+        }
         const planCode =
           (typeof session.metadata?.plan_code === "string" && session.metadata.plan_code) ||
           (typeof subscription.metadata?.plan_code === "string" && subscription.metadata.plan_code) ||
