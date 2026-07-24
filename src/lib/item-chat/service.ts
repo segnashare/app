@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { notifyItemChatN8n } from "@/lib/item-chat/notify-item-chat-n8n";
+import { resolveStaffAvatarUrl } from "@/lib/item-chat/staff-avatars";
 import type {
   ItemChatConversationDto,
   ItemChatConversationRow,
@@ -132,10 +133,38 @@ export async function toConversationDto(
   admin: Admin,
   row: ItemChatConversationRow,
 ): Promise<ItemChatConversationDto> {
-  const [unreadStaffCount, visitorMessageCount] = await Promise.all([
+  const [unreadStaffCount, visitorMessageCount, lastMsgRes, lastStaffRes] = await Promise.all([
     countUnreadStaff(admin, row.id, row.last_read_at),
     countVisitorMessages(admin, row.id),
+    admin
+      .from("item_chat_messages" as never)
+      .select("body,role,created_at")
+      .eq("conversation_id", row.id)
+      .neq("role", "system")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    admin
+      .from("item_chat_messages" as never)
+      .select("staff_display_name,staff_avatar_url,created_at")
+      .eq("conversation_id", row.id)
+      .eq("role", "staff")
+      .not("staff_display_name", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+
+  const lastMsg = lastMsgRes.data as { body?: string | null } | null;
+  const lastStaff = lastStaffRes.data as {
+    staff_display_name?: string | null;
+    staff_avatar_url?: string | null;
+  } | null;
+  const operatorName =
+    typeof lastStaff?.staff_display_name === "string" && lastStaff.staff_display_name.trim()
+      ? lastStaff.staff_display_name.trim()
+      : null;
+
   return {
     id: row.id,
     itemId: row.item_id,
@@ -150,6 +179,12 @@ export async function toConversationDto(
     hasVisitorMessage: visitorMessageCount > 0,
     usefulnessPromptedAt: row.usefulness_prompted_at ?? null,
     usefulnessRating: row.usefulness_rating ?? null,
+    lastMessagePreview:
+      typeof lastMsg?.body === "string" && lastMsg.body.trim() ? lastMsg.body.trim() : null,
+    operatorDisplayName: operatorName,
+    operatorAvatarUrl: operatorName
+      ? resolveStaffAvatarUrl(operatorName, lastStaff?.staff_avatar_url ?? null)
+      : null,
   };
 }
 

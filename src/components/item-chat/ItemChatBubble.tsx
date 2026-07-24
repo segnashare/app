@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Maximize2, Minimize2, Plus, Send, X } from "lucide-react";
+import { ChevronLeft, Maximize2, Minimize2, Send, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { useItemChat } from "@/components/item-chat/ItemChatProvider";
@@ -132,14 +132,14 @@ export function ItemChatBubble() {
 
   const baseBottom = hasTabBar && tabBarVisible ? FLOATING_BOTTOM_ABOVE_TAB_BAR : FLOATING_BOTTOM_WITHOUT_TAB_BAR;
   const title =
-    conversation?.itemTitle ||
-    pendingItem?.itemTitle ||
-    (conversation && !conversation.itemId ? "Question générale" : "Question");
+    conversation?.operatorDisplayName?.trim() ||
+    (messages.find((m) => m.role === "staff" && m.staffDisplayName?.trim())?.staffDisplayName?.trim() ??
+      null) ||
+    "Chatbot";
 
-  const welcomeCopy =
-    conversation?.itemId || pendingItem?.itemId
-      ? "Qu'est-ce que tu aimerais savoir sur cette pièce ?"
-      : "Qu'est-ce que tu aimerais savoir ?";
+  const welcomeCopy = conversation?.itemId || pendingItem?.itemId
+    ? "Qu'est-ce que tu aimerais savoir sur cette pièce ?"
+    : "Qu'est-ce que tu aimerais savoir ?";
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -198,7 +198,6 @@ export function ItemChatBubble() {
                       alt="Segna"
                       className="h-6 w-auto object-contain max-md:h-7"
                     />
-                    <p className="min-w-0 truncate text-[11px] text-zinc-500 max-md:text-[13px]">Question générale</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5 max-md:gap-1">
                     <button
@@ -270,17 +269,6 @@ export function ItemChatBubble() {
                 <div className="flex items-center gap-0.5 max-md:gap-1">
                   <button
                     type="button"
-                    aria-label="Nouveau chat"
-                    disabled={sending}
-                    onClick={() => {
-                      void startNewChat();
-                    }}
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 max-md:p-2.5"
-                  >
-                    <Plus className="h-4 w-4 max-md:h-5 max-md:w-5" />
-                  </button>
-                  <button
-                    type="button"
                     aria-label={expanded ? "Réduire le chat" : "Agrandir le chat"}
                     aria-pressed={expanded}
                     onClick={() => setExpanded((v) => !v)}
@@ -312,40 +300,52 @@ export function ItemChatBubble() {
                       Aucune discussion pour l’instant.
                     </p>
                   ) : (
-                    conversations.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => void openConversation(c.id)}
-                        className="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-3.5 text-left hover:bg-zinc-50 max-md:gap-3.5 max-md:px-4 max-md:py-4"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src="/ressources/segna_logo.svg"
-                          alt=""
-                          className="h-9 w-9 object-contain max-md:h-11 max-md:w-11"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-baseline justify-between gap-2">
-                            <span className="truncate text-[14px] font-semibold text-zinc-900 max-md:text-[16px]">
-                              {c.itemTitle || (c.itemId ? "Pièce" : "Question générale")}
+                    conversations.map((c) => {
+                      const operatorName = c.operatorDisplayName?.trim() || null;
+                      const avatarSrc =
+                        resolveStaffAvatarUrl(operatorName, c.operatorAvatarUrl) ||
+                        "/ressources/segna_logo.svg";
+                      const listTitle = operatorName || "Chatbot";
+                      const preview =
+                        c.lastMessagePreview?.trim() ||
+                        (c.usefulnessRating ? "Merci pour ton retour" : "Ouvrir la discussion");
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => void openConversation(c.id)}
+                          className="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-3.5 text-left hover:bg-zinc-50 max-md:gap-3.5 max-md:px-4 max-md:py-4"
+                        >
+                          <span className="relative shrink-0">
+                            {c.unreadStaffCount > 0 ? (
+                              <span
+                                className="absolute -left-1 top-1/2 z-[1] h-2 w-2 -translate-y-1/2 rounded-full bg-sky-500"
+                                aria-label="Nouvelle réponse"
+                              />
+                            ) : null}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={avatarSrc}
+                              alt=""
+                              className="h-9 w-9 rounded-full object-cover max-md:h-11 max-md:w-11"
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-baseline justify-between gap-2">
+                              <span className="truncate text-[14px] font-semibold text-zinc-900 max-md:text-[16px]">
+                                {listTitle}
+                              </span>
+                              <span className="shrink-0 text-[11px] text-zinc-400 max-md:text-[12px]">
+                                {formatWhen(c.lastMessageAt)}
+                              </span>
                             </span>
-                            <span className="shrink-0 text-[11px] text-zinc-400 max-md:text-[12px]">
-                              {formatWhen(c.lastMessageAt)}
+                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500 max-md:mt-1 max-md:text-[14px]">
+                              {preview}
                             </span>
                           </span>
-                          <span className="mt-0.5 block truncate text-[12px] text-zinc-500 max-md:mt-1 max-md:text-[14px]">
-                            {c.unreadStaffCount > 0
-                              ? `${c.unreadStaffCount} nouvelle${c.unreadStaffCount > 1 ? "s" : ""} réponse${c.unreadStaffCount > 1 ? "s" : ""}`
-                              : c.usefulnessRating
-                                ? "Merci pour ton retour"
-                                : c.hasVisitorMessage
-                                  ? "En attente de réponse"
-                                  : "Ouvrir la discussion"}
-                          </span>
-                        </span>
-                      </button>
-                    ))
+                        </button>
+                      );
+                    })
                   )}
                 </div>
                 <form
@@ -393,11 +393,23 @@ export function ItemChatBubble() {
                   </button>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src="/ressources/segna_logo.svg"
-                    alt="Segna"
-                    className="h-6 w-auto object-contain max-md:h-7"
+                    src={
+                      resolveStaffAvatarUrl(
+                        conversation?.operatorDisplayName,
+                        conversation?.operatorAvatarUrl,
+                      ) ||
+                      resolveStaffAvatarUrl(
+                        messages.find((m) => m.role === "staff" && m.staffDisplayName)?.staffDisplayName,
+                        messages.find((m) => m.role === "staff" && m.staffAvatarUrl)?.staffAvatarUrl,
+                      ) ||
+                      "/ressources/segna_logo.svg"
+                    }
+                    alt=""
+                    className="h-7 w-7 rounded-full object-cover max-md:h-8 max-md:w-8"
                   />
-                  <p className="min-w-0 truncate text-[11px] text-zinc-500 max-md:text-[13px]">{title}</p>
+                  <p className="min-w-0 truncate text-[14px] font-semibold text-zinc-900 max-md:text-[15px]">
+                    {title}
+                  </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5 max-md:gap-1">
                   <button

@@ -44,6 +44,9 @@ export type ItemChatConversation = {
   hasVisitorMessage: boolean
   usefulnessPromptedAt: string | null
   usefulnessRating: 'yes' | 'no' | null
+  lastMessagePreview: string | null
+  operatorDisplayName: string | null
+  operatorAvatarUrl: string | null
 }
 
 export type ItemChatView = 'list' | 'thread'
@@ -389,6 +392,9 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
             hasVisitorMessage: false,
             usefulnessPromptedAt: null,
             usefulnessRating: null,
+            lastMessagePreview: null,
+            operatorDisplayName: null,
+            operatorAvatarUrl: null,
           }
         }
         if (!conv) {

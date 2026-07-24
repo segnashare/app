@@ -59,6 +59,11 @@ export type ItemChatConversationDto = {
   hasVisitorMessage: boolean;
   usefulnessPromptedAt: string | null;
   usefulnessRating: ItemChatUsefulnessRating | null;
+  /** Dernier message non-système (aperçu liste). */
+  lastMessagePreview: string | null;
+  /** Opérateur Discord (null → afficher « Chatbot »). */
+  operatorDisplayName: string | null;
+  operatorAvatarUrl: string | null;
 };
 
 export const ITEM_CHAT_BODY_MAX = 4000;
