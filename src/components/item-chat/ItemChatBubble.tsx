@@ -269,11 +269,11 @@ export function ItemChatBubble() {
                   <button
                     type="button"
                     aria-label="Nouveau chat"
+                    disabled={sending}
                     onClick={() => {
-                      if (conversations.length === 0) setBrowseEmptyList(false);
-                      else listInputRef.current?.focus();
+                      void startNewChat();
                     }}
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 max-md:p-2.5"
                   >
                     <Plus className="h-4 w-4 max-md:h-5 max-md:w-5" />
                   </button>
