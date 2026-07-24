@@ -335,9 +335,11 @@ export function ItemChatBubble() {
                           <span className="mt-0.5 block truncate text-[12px] text-zinc-500 max-md:mt-1 max-md:text-[14px]">
                             {c.unreadStaffCount > 0
                               ? `${c.unreadStaffCount} nouvelle${c.unreadStaffCount > 1 ? "s" : ""} réponse${c.unreadStaffCount > 1 ? "s" : ""}`
-                              : c.hasVisitorMessage
-                                ? "En attente de réponse"
-                                : "Ouvrir la discussion"}
+                              : c.usefulnessRating
+                                ? "Merci pour ton retour"
+                                : c.hasVisitorMessage
+                                  ? "En attente de réponse"
+                                  : "Ouvrir la discussion"}
                           </span>
                         </span>
                       </button>
@@ -513,7 +515,8 @@ export function ItemChatBubble() {
                       Non
                     </button>
                   </div>
-                ) : messages.some((m) => m.role === "visitor") &&
+                ) : !conversation?.usefulnessRating &&
+                  messages.some((m) => m.role === "visitor") &&
                   !messages.some(
                     (m) =>
                       m.role === "system" &&
