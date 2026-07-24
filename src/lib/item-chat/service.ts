@@ -505,7 +505,7 @@ export async function recordUsefulnessRating(params: {
   thankYouMessage: ItemChatMessageDto;
 } | null> {
   const { admin, conversation, rating } = params;
-  if (conversation.status !== "open") return null;
+  // Autoriser même si déjà `closed` (lifecycle Discord) : le client peut encore répondre au prompt.
   if (!conversation.usefulness_prompted_at || conversation.usefulness_rating) return null;
 
   const { ITEM_CHAT_USEFULNESS_THANKS_BODY } = await import(
