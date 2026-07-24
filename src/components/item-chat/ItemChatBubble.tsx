@@ -13,25 +13,27 @@ import {
   FLOATING_ROUND_ACTION_SHELL_CLASS,
 } from "@/components/layout/floating-action-chrome";
 import { cn } from "@/lib/utils/cn";
+import { resolveStaffAvatarUrl } from "@/lib/item-chat/staff-avatars";
 import { ITEM_CHAT_STAFF_JOINED_BODY } from "@/lib/item-chat/types";
 
 function StaffAvatar({
   name,
   url,
-  sizeClass = "h-6 w-6 text-[10px]",
+  sizeClass = "h-7 w-7 text-[10px]",
 }: {
   name: string;
   url?: string | null;
   sizeClass?: string;
 }) {
-  if (url) {
+  const resolved = resolveStaffAvatarUrl(name, url);
+  if (resolved) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={url}
+        src={resolved}
         alt=""
-        width={24}
-        height={24}
+        width={28}
+        height={28}
         className={cn("shrink-0 rounded-full object-cover ring-1 ring-zinc-200", sizeClass)}
         referrerPolicy="no-referrer"
       />
@@ -449,17 +451,14 @@ export function ItemChatBubble() {
                     const joinName = m.staffDisplayName?.trim();
                     if (joinName && m.body === ITEM_CHAT_STAFF_JOINED_BODY) {
                       return (
-                        <div
+                        <p
                           key={m.id}
-                          className="mr-auto flex max-w-[95%] items-center gap-2 py-0.5"
+                          className="mx-auto mt-1 max-w-[95%] text-center text-[12px] leading-snug text-zinc-400 max-md:text-[13px]"
                         >
-                          <StaffAvatar name={joinName} url={m.staffAvatarUrl} />
-                          <p className="text-[12px] leading-snug text-zinc-500 max-md:text-[13px]">
-                            <span className="font-semibold text-zinc-800">{joinName}</span>
-                            {" "}
-                            a rejoint la conversation
-                          </p>
-                        </div>
+                          <span className="font-semibold text-zinc-800">{joinName}</span>
+                          {" "}
+                          a rejoint la conversation
+                        </p>
                       );
                     }
                     return (
@@ -474,14 +473,10 @@ export function ItemChatBubble() {
                   const name = m.staffDisplayName?.trim();
                   if (name) {
                     return (
-                      <div key={m.id} className="mr-auto flex max-w-[92%] flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <StaffAvatar name={name} url={m.staffAvatarUrl} />
-                          <p className="text-[12px] font-semibold text-zinc-800 max-md:text-[13px]">
-                            {name}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]">
+                      <div key={m.id} className="mr-auto flex max-w-[92%] items-end gap-2">
+                        <StaffAvatar name={name} url={m.staffAvatarUrl} />
+                        <div className="min-w-0 rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]">
+                          <p className="mb-1 text-[12px] font-semibold max-md:text-[13px]">{name}</p>
                           {m.body}
                         </div>
                       </div>
