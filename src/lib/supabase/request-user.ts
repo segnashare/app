@@ -16,7 +16,12 @@ function readBearerToken(request: Request): string | null {
  * (ex. proxy website → checkout Stripe).
  */
 export async function resolveRequestUser(request: Request): Promise<{
-  user: { id: string; email?: string | null } | null;
+  user: {
+    id: string;
+    email?: string | null;
+    phone?: string | null;
+    phone_confirmed_at?: string | null;
+  } | null;
   error: Error | null;
 }> {
   const bearer = readBearerToken(request);
@@ -37,7 +42,15 @@ export async function resolveRequestUser(request: Request): Promise<{
       if (error || !user) {
         return { user: null, error: error ?? new Error("Session invalide.") };
       }
-      return { user: { id: user.id, email: user.email }, error: null };
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          phone: user.phone,
+          phone_confirmed_at: user.phone_confirmed_at,
+        },
+        error: null,
+      };
     } catch (e) {
       return {
         user: null,
@@ -54,5 +67,13 @@ export async function resolveRequestUser(request: Request): Promise<{
   if (error || !user) {
     return { user: null, error: error ?? new Error("Session invalide.") };
   }
-  return { user: { id: user.id, email: user.email }, error: null };
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      phone_confirmed_at: user.phone_confirmed_at,
+    },
+    error: null,
+  };
 }
