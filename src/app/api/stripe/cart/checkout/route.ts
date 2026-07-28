@@ -871,9 +871,16 @@ export async function POST(request: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer: stripeCustomerId,
-      payment_intent_data: {
-        setup_future_usage: "off_session",
-      },
+      // Achat définitif : paiement one-shot → pas de setup_future_usage
+      // (sinon Stripe filtre Klarna / BNPL et ne laisse souvent que la carte).
+      // Location / complément : on conserve la carte pour prélèvements off_session.
+      ...(purchaseMode
+        ? {}
+        : {
+            payment_intent_data: {
+              setup_future_usage: "off_session" as const,
+            },
+          }),
       line_items: lineItems,
       success_url: successUrl,
       cancel_url: cancelUrl,
