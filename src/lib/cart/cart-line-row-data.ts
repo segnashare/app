@@ -6,6 +6,8 @@ export type CartLineRowData = {
   itemName: string;
   brand: string | null;
   description: string | null;
+  /** Label taille étiquette (`sizes.label`), si connu. */
+  sizeLabel: string | null;
   pricePoints: number;
   status: CartLineStatus;
   photoUrl: string | null;

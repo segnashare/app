@@ -1,11 +1,9 @@
 import Image from "next/image";
-
-import type { CheckoutHomeMethodOption } from "@/lib/sendcloud/checkout-home-delivery-options";
 import { Home } from "lucide-react";
 
+import type { CheckoutHomeMethodOption } from "@/lib/sendcloud/checkout-home-delivery-options";
+import { resolveCheckoutCarrierLogoSrc } from "@/lib/sendcloud/checkout-carrier-logo";
 import { cn } from "@/lib/utils/cn";
-
-const CHRONOPOST_ICON_SRC = "/ressources/carriers/chronopost-icon.png";
 
 function isChronopostPlan(plan: CheckoutHomeMethodOption): boolean {
   return (
@@ -23,10 +21,14 @@ type Props = {
 
 export function CheckoutHomePlanCarrierIcon({ plan, methodKey, className }: Props) {
   const resolvedMethodKey = plan?.methodKey ?? methodKey;
-  const logoSrc =
-    resolvedMethodKey === "chronopost" || (plan != null && isChronopostPlan(plan))
-      ? CHRONOPOST_ICON_SRC
-      : plan?.carrierLogoUrl?.trim() || null;
+  const logoSrc = resolveCheckoutCarrierLogoSrc({
+    methodKey: resolvedMethodKey,
+    carrier:
+      resolvedMethodKey === "chronopost" || (plan != null && isChronopostPlan(plan))
+        ? "chronopost"
+        : plan?.carrierCode,
+    logoUrl: plan?.carrierLogoUrl,
+  });
 
   if (logoSrc) {
     return (

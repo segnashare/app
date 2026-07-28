@@ -24,6 +24,7 @@ export type CheckoutRelayCarrierOption = {
   carrierCode: string;
   carrierName: string;
   optionCode: string;
+  carrierLogoUrl: string | null;
 };
 
 export type CheckoutRelaySendcloudPricing = {
@@ -134,6 +135,7 @@ function carrierOptionsFromPool(pool: SendcloudDeliveryOption[]): CheckoutRelayC
       carrierCode: code,
       carrierName: o.carrierName,
       optionCode: o.checkoutIdentifierValue,
+      carrierLogoUrl: o.carrierLogoUrl?.trim() || null,
     });
   }
   return out;

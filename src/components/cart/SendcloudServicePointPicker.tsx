@@ -5,6 +5,9 @@ import { MapPin } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { CheckoutRelaySelection } from "@/lib/cart/checkout-delivery-storage";
+import {
+  formatSendcloudServicePointHoursLabel,
+} from "@/lib/sendcloud/format-service-point-hours";
 
 const SPP_SCRIPT = "https://embed.sendcloud.sc/spp/1.0.0/api.min.js";
 
@@ -52,11 +55,30 @@ function mapSppResultToSelection(raw: RawSppResult, fallbackPostal: string): Sen
 
   const label = [name, street, [postalCode, city].filter(Boolean).join(" ")].filter(Boolean).join(" — ");
 
+  const distanceRaw = raw.distance ?? raw.formatted_distance;
+  const distanceMeters =
+    typeof distanceRaw === "number" && Number.isFinite(distanceRaw)
+      ? distanceRaw
+      : typeof distanceRaw === "string" && /^\d+(\.\d+)?$/.test(distanceRaw.trim())
+        ? Number(distanceRaw)
+        : undefined;
+
+  const hoursLabel =
+    formatSendcloudServicePointHoursLabel(raw.opening_hours) ??
+    formatSendcloudServicePointHoursLabel(raw.opening_times) ??
+    (typeof raw.open_tomorrow === "string" && raw.open_tomorrow.trim()
+      ? raw.open_tomorrow.trim()
+      : undefined);
+
   return {
     code,
     label: label.slice(0, 220),
     postalCode,
     city: city || undefined,
+    name,
+    street: street || undefined,
+    distanceMeters: distanceMeters != null && distanceMeters >= 0 ? distanceMeters : undefined,
+    hoursLabel: hoursLabel || undefined,
     sendcloudServicePointId: id,
     sendcloudCarrier: carrier,
     sendcloudPostNumber: str(raw.post_number) || str(raw.to_post_number) || undefined,

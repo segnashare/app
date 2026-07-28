@@ -16,6 +16,7 @@ type QueryResult = { data: unknown; error?: { message?: string } | null };
 type QueryBuilderLike = PromiseLike<QueryResult> & {
   eq: (column: string, value: unknown) => QueryBuilderLike;
   is: (column: string, value: unknown) => QueryBuilderLike;
+  in: (column: string, values: readonly unknown[]) => QueryBuilderLike;
   filter: (column: string, operator: string, value: unknown) => QueryBuilderLike;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilderLike;
   limit: (count: number) => QueryBuilderLike;
@@ -35,6 +36,7 @@ export type MemberCartOrderLine = {
   itemName: string;
   brand: string | null;
   description: string | null;
+  sizeLabel: string | null;
   pricePoints: number;
   photoUrl: string | null;
   photoPosition: CartLineRowData["photoPosition"];
@@ -239,7 +241,7 @@ export async function fetchMemberCartOrderDetail(
     supabase
       .from("cart_items")
       .select(
-        "id, item_id, items(id, title, description, price_points, photos, item_custom_brand_label, item_brands(label))",
+        "id, item_id, items(id, title, description, price_points, photos, item_custom_brand_label, item_size_id, item_brands(label))",
       )
       .eq("cart_id", cartId)
       .is("deleted_at", null)
@@ -289,6 +291,7 @@ export async function fetchMemberCartOrderDetail(
     price_points?: number | null;
     photos?: unknown;
     item_custom_brand_label?: string | null;
+    item_size_id?: string | null;
     item_brands?: { label?: string | null } | null;
   } | null;
 
@@ -297,6 +300,23 @@ export async function fetchMemberCartOrderDetail(
     item_id: string;
     items: ItemJoin;
   }[];
+
+  const sizeIds = [
+    ...new Set(
+      rawLines
+        .map((row) => row.items?.item_size_id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const sizeLabelById = new Map<string, string>();
+  if (sizeIds.length > 0) {
+    const sizesRes = await supabase.from("sizes").select("id,label").in("id", sizeIds);
+    for (const row of (sizesRes.data ?? []) as Array<{ id?: string; label?: string | null }>) {
+      const id = row.id?.trim();
+      const label = row.label?.trim();
+      if (id && label) sizeLabelById.set(id, label);
+    }
+  }
 
   const signedPhotoByPath = new Map<string, string>();
   const pathsToSign = new Set<string>();
@@ -314,6 +334,7 @@ export async function fetchMemberCartOrderDetail(
     const rawPath = photoData.path;
     const photoUrl =
       rawPath == null ? null : isHttpUrl(rawPath) ? rawPath : (signedPhotoByPath.get(rawPath) ?? null);
+    const sizeId = item?.item_size_id?.trim() || null;
 
     return {
       id: row.id,
@@ -324,6 +345,7 @@ export async function fetchMemberCartOrderDetail(
         item?.item_brands?.label?.trim() ||
         null,
       description: item?.description?.trim() || null,
+      sizeLabel: sizeId ? sizeLabelById.get(sizeId) ?? null : null,
       pricePoints: Number(item?.price_points ?? 0),
       photoUrl,
       photoPosition: photoData.position,

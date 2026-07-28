@@ -54,13 +54,36 @@ function pricingFromApi(raw: Record<string, unknown>): CheckoutRelaySendcloudPri
     for (const c of rawCarriers) {
       if (!c || typeof c !== "object") continue;
       const row = c as Record<string, unknown>;
-      const carrierCode = typeof row.carrier_code === "string" ? row.carrier_code.trim() : "";
-      const optionCodeRow = typeof row.option_code === "string" ? row.option_code.trim() : "";
+      const carrierCode =
+        (typeof row.carrier_code === "string"
+          ? row.carrier_code
+          : typeof row.carrierCode === "string"
+            ? row.carrierCode
+            : ""
+        ).trim();
+      const optionCodeRow =
+        (typeof row.option_code === "string"
+          ? row.option_code
+          : typeof row.optionCode === "string"
+            ? row.optionCode
+            : ""
+        ).trim();
       if (!carrierCode || !optionCodeRow) continue;
       carrierOptions.push({
         carrierCode,
-        carrierName: typeof row.carrier_name === "string" ? row.carrier_name : carrierCode,
+        carrierName:
+          typeof row.carrier_name === "string"
+            ? row.carrier_name
+            : typeof row.carrierName === "string"
+              ? row.carrierName
+              : carrierCode,
         optionCode: optionCodeRow,
+        carrierLogoUrl:
+          typeof row.carrier_logo_url === "string"
+            ? row.carrier_logo_url
+            : typeof row.carrierLogoUrl === "string"
+              ? row.carrierLogoUrl
+              : null,
       });
     }
   }

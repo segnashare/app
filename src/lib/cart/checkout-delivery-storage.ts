@@ -31,6 +31,14 @@ export type CheckoutRelaySelection = {
   label: string;
   postalCode: string;
   city?: string;
+  /** Nom du point (ex. LOCKER TELESPACE…) — affichage carte Sendcloud. */
+  name?: string;
+  /** Adresse rue + n° — affichage carte Sendcloud. */
+  street?: string;
+  /** Distance en mètres depuis le CP de recherche (widget SPP). */
+  distanceMeters?: number;
+  /** Libellé horaires style Sendcloud (« Ouvert demain: 10:30 - 21:00 »). */
+  hoursLabel?: string;
   /** Id Sendcloud service point (widget ou API). */
   sendcloudServicePointId?: number;
   /** ex. mondial_relay, colissimo — pour l’étiquette Sendcloud. */

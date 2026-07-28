@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Briefcase, Check, ChevronLeft, ChevronRight, Store, User } from "lucide-react";
 
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { SendcloudRelayPointCard } from "@/components/cart/SendcloudRelayPointCard";
 import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServicePointPicker";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
@@ -88,6 +89,7 @@ import { toCheckoutSendcloudOutboundOption } from "@/lib/cart/use-sendcloud-outb
 import { useSendcloudCheckoutShippingQuote } from "@/lib/cart/use-sendcloud-checkout-shipping-quote";
 import { SEGNA_PARCEL_WEIGHT_GRAMS, centsToEuros } from "@/lib/shipping/exchange-shipping-pricing";
 import { formatCheckoutRelayDisplayLabel } from "@/lib/sendcloud/relay-point-ref";
+import { normalizeCheckoutCarrierCode } from "@/lib/sendcloud/checkout-carrier-logo";
 import { coursierQuoteFeeCentsFromRaw } from "@/lib/coursier/format-quote-for-display";
 import { formatCoursierOfferSlotButtonLabel } from "@/lib/coursier/format-offer-label";
 import {
@@ -898,6 +900,36 @@ function CartPaymentScreenContent({
     };
   }, [relaySendcloudPricing.pricing]);
 
+  /** Même logos que les options domicile (URL Sendcloud MR / icône Chronopost). */
+  const resolveRelayCarrierLogoUrl = useCallback(
+    (carrier?: string | null): string | null => {
+      const needle = normalizeCheckoutCarrierCode(carrier);
+      if (!needle) return null;
+      const fromRelay = relaySendcloudPricing.pricing?.carrierOptions.find((c) => {
+        const code = normalizeCheckoutCarrierCode(c.carrierCode);
+        return (
+          code === needle ||
+          code.includes(needle) ||
+          needle.includes(code) ||
+          (needle.includes("mondial") && code.includes("mondial"))
+        );
+      })?.carrierLogoUrl;
+      if (fromRelay?.trim()) return fromRelay.trim();
+      const fromHome = homeSendcloudPlans.find((p) => {
+        const code = normalizeCheckoutCarrierCode(p.carrierCode);
+        return (
+          code === needle ||
+          code.includes(needle) ||
+          needle.includes(code) ||
+          (needle.includes("mondial") && code.includes("mondial")) ||
+          (needle.includes("chrono") && p.methodKey === "chronopost")
+        );
+      })?.carrierLogoUrl;
+      return fromHome?.trim() || null;
+    },
+    [homeSendcloudPlans, relaySendcloudPricing.pricing?.carrierOptions],
+  );
+
   const billedRoundTripSubtotalCents = useMemo(() => {
     const roundTripForBilling =
       deliveryChannel === "relay" && sendcloudRelayCheckoutActive
@@ -1357,17 +1389,25 @@ function CartPaymentScreenContent({
         return;
       }
       const raw = Array.isArray(j.points) ? j.points : [];
-      const list: CheckoutRelaySelection[] = raw.map((p) => ({
-        code: p.code,
-        label: p.label,
-        postalCode: p.postalCode ?? pc,
-        city: p.city,
-        sendcloudServicePointId:
-          typeof p.sendcloudServicePointId === "number" && p.sendcloudServicePointId > 0
-            ? p.sendcloudServicePointId
-            : undefined,
-        sendcloudCarrier: undefined,
-      }));
+      const list: CheckoutRelaySelection[] = raw.map((p) => {
+        const fromLabel = formatCheckoutRelayDisplayLabel(p.label)
+          .split(/\s*[—–]\s*/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        return {
+          code: p.code,
+          label: p.label,
+          postalCode: p.postalCode ?? pc,
+          city: p.city,
+          name: fromLabel[0],
+          street: fromLabel[1],
+          sendcloudServicePointId:
+            typeof p.sendcloudServicePointId === "number" && p.sendcloudServicePointId > 0
+              ? p.sendcloudServicePointId
+              : undefined,
+          sendcloudCarrier: sendcloudRelaySearch ? "mondial_relay" : undefined,
+        };
+      });
       setRelayPoints(list);
       if (list.length === 0) {
         const hubCp = j.plan_tri?.destination_postcode?.trim();
@@ -1595,17 +1635,10 @@ function CartPaymentScreenContent({
                     onSelect={(r) => onSelectRelay(r)}
                   />
                   {selectedRelay ? (
-                    <div className="rounded-xl border-2 border-zinc-900 bg-zinc-50 px-3 py-3 text-left">
-                      <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Point relais sélectionné
-                      </p>
-                      <p className="mt-1 text-[14px] font-medium leading-snug text-zinc-900">
-                        {formatCheckoutRelayDisplayLabel(selectedRelay.label)}
-                      </p>
-                      <p className="mt-0.5 text-[13px] text-zinc-600">
-                        {[selectedRelay.postalCode, selectedRelay.city].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
+                    <SendcloudRelayPointCard
+                      relay={selectedRelay}
+                      carrierLogoUrl={resolveRelayCarrierLogoUrl(selectedRelay.sendcloudCarrier)}
+                    />
                   ) : null}
                   {sendcloudRelayCheckoutActive &&
                   !relaySendcloudPricing.loading &&
@@ -1659,16 +1692,14 @@ function CartPaymentScreenContent({
                               aria-pressed={isSelected}
                               onClick={() => onSelectRelay(r)}
                               className={cn(
-                                "w-full rounded-xl border-2 bg-white px-3 py-3 text-left transition",
-                                isSelected ? "border-zinc-950" : "border-zinc-200",
+                                "w-full rounded-[6px] text-left transition",
+                                isSelected ? "ring-2 ring-[#1a2b56] ring-offset-1" : "opacity-95 hover:opacity-100",
                               )}
                             >
-                              <p className="text-[15px] font-semibold text-zinc-900">
-                                {formatCheckoutRelayDisplayLabel(r.label)}
-                              </p>
-                              <p className="text-[13px] text-zinc-600">
-                                {[r.postalCode, r.city].filter(Boolean).join(" · ")}
-                              </p>
+                              <SendcloudRelayPointCard
+                                relay={r}
+                                carrierLogoUrl={resolveRelayCarrierLogoUrl(r.sendcloudCarrier)}
+                              />
                             </button>
                           </li>
                         );

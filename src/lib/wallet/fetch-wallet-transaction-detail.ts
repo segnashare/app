@@ -12,7 +12,15 @@ import {
 
 export type WalletTransactionDetailLine = Pick<
   MemberCartOrderLine,
-  "id" | "itemId" | "itemName" | "brand" | "description" | "pricePoints" | "photoUrl" | "photoPosition"
+  | "id"
+  | "itemId"
+  | "itemName"
+  | "brand"
+  | "description"
+  | "sizeLabel"
+  | "pricePoints"
+  | "photoUrl"
+  | "photoPosition"
 >;
 
 export type WalletTransactionDetailSummaryRow = {
@@ -199,6 +207,7 @@ async function fetchItemLine(
       item.item_brands?.label?.trim() ||
       null,
     description: item.description?.trim() || null,
+    sizeLabel: null,
     pricePoints: Math.max(0, Math.floor(Number(item.price_points ?? 0))),
     photoUrl,
     photoPosition: photoData.position,
@@ -212,6 +221,7 @@ function mapOrderLines(lines: MemberCartOrderLine[]): WalletTransactionDetailLin
     itemName: line.itemName,
     brand: line.brand,
     description: line.description,
+    sizeLabel: line.sizeLabel,
     pricePoints: line.pricePoints,
     photoUrl: line.photoUrl,
     photoPosition: line.photoPosition,

@@ -37,6 +37,7 @@ export function MemberIntakeVerificationContent({ snapshot }: Props) {
         itemName: item.title,
         brand: item.brand,
         description: item.description,
+        sizeLabel: null,
         pricePoints: item.pricePoints,
         photoUrl: item.photoUrl,
         photoPosition: item.photoPosition,

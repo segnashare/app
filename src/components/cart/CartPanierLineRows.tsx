@@ -12,6 +12,7 @@ import {
 import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { formatOtherMembersDiscreteLine } from "@/lib/cart/cart-competition-copy";
 import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
+import { cartLineDisplayTitleWithoutBrand } from "@/lib/cart/cart-line-display-title";
 import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import type { BorrowCheckoutOption } from "@/lib/billing/fetch-borrow-checkout-options";
@@ -25,16 +26,6 @@ function cartLineStatusLabelFr(status: CartLineStatus): string {
   if (status === "reserve") return "Réservé";
   if (status === "en_attente_wallet") return "Non réservé";
   return "À vérifier";
-}
-
-function cartLineDisplayTitle(itemName: string, brand: string | null): string {
-  const trimmed = itemName.trim();
-  if (!brand) return trimmed;
-  const suffix = `(${brand.trim()})`;
-  if (trimmed.endsWith(suffix)) {
-    return trimmed.slice(0, -suffix.length).trim();
-  }
-  return trimmed;
 }
 
 function parseCompetitionExpiryMs(raw: string): number | null {
@@ -178,14 +169,16 @@ export function CartPanierLineRows({
                 <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center justify-start px-1">
                   <div className="min-w-0 flex-1">
                     <p className={cn("font-semibold italic text-zinc-900 break-words", exchangeUiCalm ? "text-[16px] leading-[1.08]" : "text-[18px] leading-[1.15]")}>
-                      {cartLineDisplayTitle(line.itemName, line.brand)}
+                      {cartLineDisplayTitleWithoutBrand(line.itemName, line.brand)}
                     </p>
-                    {line.brand ? (
+                    {line.sizeLabel?.trim() ? (
                       <p
-                        className={cn("mt-0.5 min-w-0 italic text-zinc-500 line-clamp-1", exchangeUiCalm ? "text-[12px] leading-[1.2]" : "text-[13px] leading-[1.3]")}
-                        title={line.brand}
+                        className={cn(
+                          "mt-0.5 min-w-0 text-zinc-500",
+                          exchangeUiCalm ? "text-[12px] leading-[1.2]" : "text-[13px] leading-[1.3]",
+                        )}
                       >
-                        {line.brand}
+                        Taille {line.sizeLabel.trim()}
                       </p>
                     ) : null}
                     <p className="mt-1 text-[15px] tracking-tight text-zinc-900">

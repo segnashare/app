@@ -162,7 +162,12 @@ export async function POST(request: Request) {
       return_ttc_cents: p.returnTtcCents,
       bundled_round_trip_ht_cents: p.bundledRoundTripHtCents,
       bundled_round_trip_ttc_cents: p.bundledRoundTripTtcCents,
-      carrier_options: p.carrierOptions,
+      carrier_options: p.carrierOptions.map((c) => ({
+        carrier_code: c.carrierCode,
+        carrier_name: c.carrierName,
+        option_code: c.optionCode,
+        carrier_logo_url: c.carrierLogoUrl,
+      })),
     },
     default_option_code: p.optionCode,
     return_ttc_cents: p.returnTtcCents,

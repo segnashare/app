@@ -93,6 +93,7 @@ type ItemRow = {
   photos?: unknown | null;
   item_custom_brand_label?: string | null;
   item_brands?: { label?: string | null } | null;
+  item_size_id?: string | null;
 };
 
 type QueryResult = { data: unknown; error?: { message?: string } | null };
@@ -150,9 +151,28 @@ async function fetchCartLinesForActiveCart(
   if (itemIds.length > 0) {
     const itemsRes = await supabase
       .from("items")
-      .select("id,title,description,price_points,status,photos,item_custom_brand_label,item_brands(label)")
+      .select(
+        "id,title,description,price_points,status,photos,item_custom_brand_label,item_size_id,item_brands(label)",
+      )
       .in("id", itemIds);
     itemsMap = new Map(((itemsRes.data ?? []) as ItemRow[]).map((item) => [item.id, item]));
+  }
+
+  const sizeIds = [
+    ...new Set(
+      [...itemsMap.values()]
+        .map((item) => item.item_size_id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const sizeLabelById = new Map<string, string>();
+  if (sizeIds.length > 0) {
+    const sizesRes = await supabase.from("sizes").select("id,label").in("id", sizeIds);
+    for (const row of (sizesRes.data ?? []) as Array<{ id?: string; label?: string | null }>) {
+      const id = row.id?.trim();
+      const label = row.label?.trim();
+      if (id && label) sizeLabelById.set(id, label);
+    }
   }
 
   const signedPhotoByPath = new Map<string, string>();
@@ -171,6 +191,7 @@ async function fetchCartLinesForActiveCart(
     const rawPath = photoData.path;
     const photoUrl =
       rawPath == null ? null : isHttpUrl(rawPath) ? rawPath : (signedPhotoByPath.get(rawPath) ?? null);
+    const sizeId = item?.item_size_id?.trim() || null;
 
     return {
       id: line.id,
@@ -181,6 +202,7 @@ async function fetchCartLinesForActiveCart(
         item?.item_brands?.label?.trim() ||
         null,
       description: item?.description?.trim() || null,
+      sizeLabel: sizeId ? sizeLabelById.get(sizeId) ?? null : null,
       pricePoints: Number(item?.price_points ?? 0),
       status: mapCartLineStatus(line.status, item?.status ?? null),
       photoUrl,
