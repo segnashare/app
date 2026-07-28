@@ -42,7 +42,7 @@ export function SendcloudRelayPointCard({ relay, carrierLogoUrl, className }: Pr
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[6px] border border-[#e3e6eb] bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        "overflow-hidden rounded-xl border border-[#e3e6eb] bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         className,
       )}
     >
@@ -56,7 +56,7 @@ export function SendcloudRelayPointCard({ relay, carrierLogoUrl, className }: Pr
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 text-[13px] font-bold uppercase leading-snug tracking-[-0.01em] text-[#1a2b56]">
+              <p className="min-w-0 text-[15px] font-bold uppercase leading-snug tracking-[-0.01em] text-[#1a2b56]">
                 {name}
               </p>
               {distance ? (

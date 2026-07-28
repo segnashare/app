@@ -1692,7 +1692,7 @@ function CartPaymentScreenContent({
                               aria-pressed={isSelected}
                               onClick={() => onSelectRelay(r)}
                               className={cn(
-                                "w-full rounded-[6px] text-left transition",
+                                "w-full rounded-xl text-left transition",
                                 isSelected ? "ring-2 ring-[#1a2b56] ring-offset-1" : "opacity-95 hover:opacity-100",
                               )}
                             >
