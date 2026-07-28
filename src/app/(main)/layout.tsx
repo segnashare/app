@@ -5,6 +5,7 @@ import { MainShell } from "@/components/layout/MainShell";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
 import { fetchMemberPendingReceiptGate } from "@/lib/cart/fetch-member-pending-receipt-gate";
 import { fetchMemberBorrowOverdueAppGate } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import { createPerfTracker } from "@/lib/perf/server-timing";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -21,14 +22,15 @@ export default async function MainLayout({ children }: { children: ReactNode }) 
   const isDemoMode = userState.onboarding_mode === "demo";
 
   const inAppOnboardingIntro =
-    userState.onboarding_process === "intro"
+    IN_APP_ONBOARDING_UI_ENABLED && userState.onboarding_process === "intro"
       ? {
           userId: user.id,
           lastSignInAt: user.last_sign_in_at ?? null,
           referralInvite: userState.referralInviteForIntro,
         }
       : null;
-  const inAppOnboardingRewardUserId = userState.onboarding_process === "reward" ? user.id : null;
+  const inAppOnboardingRewardUserId =
+    IN_APP_ONBOARDING_UI_ENABLED && userState.onboarding_process === "reward" ? user.id : null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Supabase typage projet
   const supabase = (await createSupabaseServerClient()) as any;

@@ -4,6 +4,13 @@
  */
 import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 
+/**
+ * Kill switch UI « Ton parcours Segna » :
+ * FAB checklist, modale intro, reward, cartes Échange (profile/kyc/panier/exchange).
+ * Le statut DB `onboarding_process` et l’offre crédits restent inchangés.
+ */
+export const IN_APP_ONBOARDING_UI_ENABLED = false;
+
 export const ONBOARDING_PROCESS_STATUS = [
   "intro",
   "profile",

@@ -9,22 +9,32 @@ import {
 } from "@/lib/cart/checkout-delivery-storage";
 import { computeCartCheckoutShippingFees } from "@/lib/cart/cart-payment-fees";
 import { parseRemainingIncludedOrdersThisMonth } from "@/lib/billing/membership-included-orders";
-import { computeCartCheckoutRoundTripShippingHtCents } from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import {
+  computeCartCheckoutRoundTripShippingHtCents,
+  type CartCheckoutHomePlanKind,
+} from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import { complementQualifiesForFreeRelay } from "@/lib/cart/cart-complement-relay-offer";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import {
   centsPerMissingCreditForDuration,
-  computeMissingCreditsCashCents,
+  computeMemberBorrowComplementCashCents,
+  MEMBER_BORROW_COMPLEMENT_CENTS_PER_CREDIT,
+  MEMBER_BORROW_COMPLEMENT_DURATION_DAYS,
   fetchBorrowCheckoutOptions,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
   computeGuestCartPurchaseEuroCents,
   computeGuestCartRentalEuroCents,
+  computeMemberCartPurchaseEuroCents,
   guestStripeCompPoints,
   isGuestCashRentalMode,
 } from "@/lib/billing/guest-rental-pricing";
 import { defaultCheckoutBorrowDurationDays } from "@/lib/cart/checkout-borrow-duration-storage";
-import { cartPaymentProfileGateMessage, fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
+import {
+  cartPaymentPhoneGateMessage,
+  cartPaymentProfileGateMessage,
+  fetchCartPaymentEligibility,
+} from "@/lib/cart/cart-payment-eligibility";
 import { KYC_REQUIRED_FOR_BORROW } from "@/lib/kyc/kyc-policy";
 import { fetchOnboardingProfileRequirements } from "@/lib/profile/onboarding-profile-requirements";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -38,6 +48,7 @@ import {
 import { buildGuestPurchaseCheckoutLineItems } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { exchangeOrderSuccessUrl, orderCheckoutEconomicsDirect, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
+import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -251,9 +262,10 @@ export async function POST(request: Request) {
       const profileRequirements = !paymentEligibility.profileComplete
         ? await fetchOnboardingProfileRequirements(supabase as any, userId)
         : null;
-      const message =
-        !paymentEligibility.profileComplete
-          ? cartPaymentProfileGateMessage(profileRequirements)
+      const message = !paymentEligibility.profileComplete
+        ? cartPaymentProfileGateMessage(profileRequirements)
+        : !paymentEligibility.phoneReady
+          ? cartPaymentPhoneGateMessage()
           : KYC_REQUIRED_FOR_BORROW
             ? "Valide ton identité (KYC) avant de payer."
             : "Complète ton profil avant de payer.";
@@ -303,42 +315,74 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     const guestCashRental = isGuestCashRentalMode(membershipLabel);
-    const purchaseMode = guestCashRental && body.purchaseMode === true;
+    const purchaseMode = body.purchaseMode === true;
     const outboundOnly = purchaseMode;
-    const availableWalletMods = guestCashRental
-      ? 0
-      : parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
-    const cartExceedsWallet = guestCashRental ? cartTotalMods > 0 : cartTotalMods > availableWalletMods;
+    const availableWalletMods =
+      guestCashRental || purchaseMode
+        ? 0
+        : parseUserWalletPointsRow(walletRow as Record<string, unknown>).total;
+    const cartExceedsWallet = guestCashRental || purchaseMode
+      ? cartTotalMods > 0
+      : cartTotalMods > availableWalletMods;
     const missingExchangeMods = guestCashRental
       ? guestStripeCompPoints(cartTotalMods)
-      : cartExceedsWallet
-        ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods))
-        : 0;
+      : purchaseMode
+        ? 0
+        : cartExceedsWallet
+          ? Math.max(0, Math.floor(cartTotalMods - availableWalletMods))
+          : 0;
+
+    let purchaseDiscountPercent = 0;
+    if (!guestCashRental && purchaseMode) {
+      const planCode = membershipLabel === "Membre X" ? "segna_x" : membershipLabel === "Membre +" ? "segna_plus" : null;
+      if (planCode) {
+        const { data: limitRow } = await admin
+          .from("billing_plan_entitlement_limits")
+          .select("purchase_discount_percent")
+          .eq("plan_code", planCode)
+          .eq("is_active", true)
+          .maybeSingle();
+        const raw = Number(limitRow?.purchase_discount_percent ?? 0);
+        purchaseDiscountPercent = Number.isFinite(raw) ? Math.min(100, Math.max(0, Math.trunc(raw))) : 0;
+      }
+    }
 
     const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
     const allowedBorrowDurations = new Set(borrowCheckoutOptions.map((o) => o.durationDays));
-    const needsBorrowDuration = guestCashRental && !purchaseMode ? cartTotalMods > 0 : missingExchangeMods > 0;
-    const borrowDurationDays = needsBorrowDuration
-      ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
-      : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
+    const needsBorrowDuration =
+      purchaseMode ? false : guestCashRental ? cartTotalMods > 0 : missingExchangeMods > 0;
+    // Abonné location : complément toujours 1 mois @ 10 %. Guest : durée choisie (7/14/30).
+    const borrowDurationDays =
+      purchaseMode
+        ? null
+        : !guestCashRental && missingExchangeMods > 0
+          ? MEMBER_BORROW_COMPLEMENT_DURATION_DAYS
+          : needsBorrowDuration
+            ? parseBorrowDurationDays(body.borrowDurationDays, allowedBorrowDurations)
+            : defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
     if (needsBorrowDuration && borrowDurationDays == null) {
       return NextResponse.json({ message: "Choisis une durée d'emprunt valide." }, { status: 400 });
     }
 
     const resolvedBorrowDurationDays =
-      borrowDurationDays ?? defaultCheckoutBorrowDurationDays(borrowCheckoutOptions);
+      purchaseMode
+        ? defaultCheckoutBorrowDurationDays(borrowCheckoutOptions)
+        : !guestCashRental && missingExchangeMods > 0
+          ? MEMBER_BORROW_COMPLEMENT_DURATION_DAYS
+          : (borrowDurationDays ?? defaultCheckoutBorrowDurationDays(borrowCheckoutOptions));
 
-    const centsPerMissingCredit = centsPerMissingCreditForDuration(
-      borrowCheckoutOptions,
-      resolvedBorrowDurationDays,
-    );
-    const creditsCents = guestCashRental
-      ? purchaseMode
+    const centsPerMissingCredit = !guestCashRental && !purchaseMode && missingExchangeMods > 0
+      ? MEMBER_BORROW_COMPLEMENT_CENTS_PER_CREDIT
+      : centsPerMissingCreditForDuration(borrowCheckoutOptions, resolvedBorrowDurationDays);
+    const creditsCents = purchaseMode
+      ? guestCashRental
         ? computeGuestCartPurchaseEuroCents(cartTotalMods)
-        : computeGuestCartRentalEuroCents(cartTotalMods, resolvedBorrowDurationDays, borrowCheckoutOptions)
-      : missingExchangeMods > 0
-        ? computeMissingCreditsCashCents(missingExchangeMods, resolvedBorrowDurationDays, borrowCheckoutOptions)
-        : 0;
+        : computeMemberCartPurchaseEuroCents(cartTotalMods, purchaseDiscountPercent)
+      : guestCashRental
+        ? computeGuestCartRentalEuroCents(cartTotalMods, resolvedBorrowDurationDays, borrowCheckoutOptions)
+        : missingExchangeMods > 0
+          ? computeMemberBorrowComplementCashCents(missingExchangeMods)
+          : 0;
     const complementRelayFree = complementQualifiesForFreeRelay(
       creditsCents / 100,
       purchaseMode ? "achat" : "location",
@@ -386,6 +430,7 @@ export async function POST(request: Request) {
     const relayRoundTrip = shippingRoundTrips.relayRoundTrip;
     let currentRoundTrip =
       deliveryChannel === "relay" ? shippingRoundTrips.relayRoundTrip : shippingRoundTrips.homeRoundTrip;
+    let homePlanKind: CartCheckoutHomePlanKind | null = null;
 
     if (activeOutboundOptionCode && memberPostalCode.length === 5) {
       const scEnv = getSendcloudEnv();
@@ -407,6 +452,7 @@ export async function POST(request: Request) {
           });
           if (sendcloudHomeTrip != null) {
             currentRoundTrip = sendcloudHomeTrip;
+            homePlanKind = sendcloudHomeTrip.methodKey;
           }
         }
       }
@@ -419,10 +465,8 @@ export async function POST(request: Request) {
       remainingIncludedOrdersThisMonth: remainingIncludedOrders,
     });
 
-    const needsExpressQuote =
-      deliveryChannel === "home" &&
-      homeSpeedBilling === "uber_direct" &&
-      includedExchangeShipping === "none";
+    // Toujours requérir le devis Express si sélectionné (y compris avec échange inclus → supplément).
+    const needsExpressQuote = deliveryChannel === "home" && homeSpeedBilling === "uber_direct";
 
     let expressOutboundHtCents: number | null = null;
     let coursierSelection: {
@@ -517,6 +561,7 @@ export async function POST(request: Request) {
         homeSpeedBilling,
         includedKind: includedExchangeShipping,
         complementRelayFree,
+        homePlanKind,
         relayRoundTrip,
         currentRoundTrip,
         uberOutboundHtCents: expressOutboundHtCents,
@@ -541,7 +586,8 @@ export async function POST(request: Request) {
 
     const config = getStripeConfig();
 
-    const usedIncludedOrder = includedExchangeShipping !== "none";
+    // Quota « échange inclus » (1/mois SegnaX) ≠ livraison offerte (désactivée).
+    const usedIncludedOrder = !purchaseMode && remainingIncludedOrders > 0;
 
     if (totalCents === 0) {
       if (guestCashRental && cartTotalMods > 0) {
@@ -593,30 +639,13 @@ export async function POST(request: Request) {
 
       const stripe = new Stripe(config.secretKey);
 
-      const { data: billingCustomerRow } = await admin
-        .from("billing_customers")
-        .select("provider_customer_id")
-        .eq("provider", "stripe")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      let stripeCustomerId = billingCustomerRow?.provider_customer_id ?? null;
-      if (!stripeCustomerId) {
-        const createdCustomer = await stripe.customers.create({
-          email: user.email ?? undefined,
-          metadata: { user_id: userId },
-        });
-        stripeCustomerId = createdCustomer.id;
-        await admin.from("billing_customers").upsert(
-          {
-            user_id: userId,
-            provider: "stripe",
-            provider_customer_id: stripeCustomerId,
-            metadata: { source: "cart_checkout" },
-          },
-          { onConflict: "user_id" },
-        );
-      }
+      const stripeCustomerId = await ensureStripeBillingCustomer({
+        stripe,
+        admin,
+        userId,
+        email: user.email,
+        source: "cart_checkout",
+      });
 
       const hasSavedPaymentMethod = await stripeCustomerHasSavedPaymentMethod(stripe, admin, userId);
       if (!hasSavedPaymentMethod) {
@@ -710,30 +739,13 @@ export async function POST(request: Request) {
 
     const stripe = new Stripe(config.secretKey);
 
-    const { data: billingCustomerRow } = await admin
-      .from("billing_customers")
-      .select("provider_customer_id")
-      .eq("provider", "stripe")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    let stripeCustomerId = billingCustomerRow?.provider_customer_id ?? null;
-    if (!stripeCustomerId) {
-      const createdCustomer = await stripe.customers.create({
-        email: user.email ?? undefined,
-        metadata: { user_id: userId },
-      });
-      stripeCustomerId = createdCustomer.id;
-      await admin.from("billing_customers").upsert(
-        {
-          user_id: userId,
-          provider: "stripe",
-          provider_customer_id: stripeCustomerId,
-          metadata: { source: "cart_checkout" },
-        },
-        { onConflict: "user_id" },
-      );
-    }
+    const stripeCustomerId = await ensureStripeBillingCustomer({
+      stripe,
+      admin,
+      userId,
+      email: user.email,
+      source: "cart_checkout",
+    });
 
     const stripeWalletTopupKind = walletCreditKindForBillingSubscription(null, null);
     const relayMeta = relaySelection != null ? relayMetaFromSelection(relaySelection) : "";
@@ -802,12 +814,12 @@ export async function POST(request: Request) {
               ? purchaseMode
                 ? "Prix d'achat"
                 : "Prix de location"
-              : "Complément crédits Segna",
+              : "Complément budget SegnaX",
             description: guestCashRental
               ? purchaseMode
                 ? "Achat définitif"
                 : `Location · ${resolvedBorrowDurationDays} j`
-              : `${missingExchangeMods} crédit(s) manquant(s) · ${resolvedBorrowDurationDays} j`,
+              : `${missingExchangeMods} € manquant(s) · 1 mois à 10 %`,
           },
         },
       });

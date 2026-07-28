@@ -1,4 +1,7 @@
-import type { OnboardingProcessStatus } from "@/lib/onboarding/in-app-onboarding";
+import {
+  IN_APP_ONBOARDING_UI_ENABLED,
+  type OnboardingProcessStatus,
+} from "@/lib/onboarding/in-app-onboarding";
 import { KYC_INCLUDED_IN_ONBOARDING } from "@/lib/kyc/kyc-policy";
 
 /** Étapes comptées comme tâches onboarding in-app (hors intro, reward, finished). */
@@ -86,6 +89,7 @@ export function normalizeInAppOnboardingTaskStatus(
 
 /** Affiche le compteur flottant uniquement pendant les tâches actives (pas intro / reward / finished). */
 export function shouldShowInAppOnboardingTaskFab(process: string | null | undefined): boolean {
+  if (!IN_APP_ONBOARDING_UI_ENABLED) return false;
   return normalizeInAppOnboardingTaskStatus(process) != null;
 }
 

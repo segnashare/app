@@ -5,12 +5,25 @@ export type BorrowCheckoutOption = {
   sortOrder: number;
 };
 
-/** Valeurs par défaut (alignées migration economy v2). */
+/** Valeurs par défaut (alignées migration economy v2) — tarifs Guest location. */
 export const BORROW_CHECKOUT_OPTIONS_FALLBACK: BorrowCheckoutOption[] = [
   { durationDays: 7, label: "7 jours", centsPerMissingCredit: 10, sortOrder: 1 },
   { durationDays: 14, label: "14 jours", centsPerMissingCredit: 15, sortOrder: 2 },
   { durationDays: 30, label: "1 mois", centsPerMissingCredit: 20, sortOrder: 3 },
 ];
+
+/**
+ * Complément abonné (SegnaX) quand le panier dépasse le budget wallet :
+ * durée fixe 1 mois à 10 % du prix d’achat (1 point = 1 € → 10 cts / point manquant).
+ */
+export const MEMBER_BORROW_COMPLEMENT_DURATION_DAYS = 30;
+export const MEMBER_BORROW_COMPLEMENT_CENTS_PER_CREDIT = 10;
+
+export function computeMemberBorrowComplementCashCents(missingCredits: number): number {
+  const missing = Math.max(0, Math.trunc(missingCredits));
+  if (missing <= 0) return 0;
+  return missing * MEMBER_BORROW_COMPLEMENT_CENTS_PER_CREDIT;
+}
 
 type RpcRow = {
   duration_days: number | string;

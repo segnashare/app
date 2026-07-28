@@ -15,6 +15,12 @@ import {
 } from "@/lib/notifications/resend-send";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
+import {
+  allowsMarketingEmail,
+  allowsMarketingSms,
+  isMarketingNotificationKind,
+  loadMemberCommsPreferences,
+} from "@/lib/notifications/member-comms-preferences";
 import { loadUserContact } from "@/lib/notifications/member-outreach-contact";
 import {
   isMemberOutreachSmsRequested,
@@ -62,6 +68,17 @@ export async function sendMemberOutreachNotification(
     transactionalSms: input.transactionalSms,
   });
 
+  const prefs = isMarketingNotificationKind(input.kind)
+    ? await loadMemberCommsPreferences(admin, input.userId)
+    : null;
+  const allowMarketingEmail = !prefs || allowsMarketingEmail(prefs, input.kind);
+  const allowMarketingSms = !prefs || allowsMarketingSms(prefs, input.kind);
+
+  if (!allowMarketingEmail && !(smsRequested && allowMarketingSms)) {
+    // Opt-out marketing total sur ce kind : ne pas journaliser comme envoyé.
+    return;
+  }
+
   const claimed = await claimNotificationSend(admin, {
     idempotencyKey: input.idempotencyKey,
     kind: input.kind,
@@ -69,7 +86,7 @@ export async function sendMemberOutreachNotification(
     metadata: input.metadata ?? {},
   });
   if (!claimed) {
-    if (smsRequested && input.smsBody?.trim()) {
+    if (smsRequested && allowMarketingSms && input.smsBody?.trim()) {
       await tryUpgradeMemberOutreachSms(admin, {
         idempotencyKey: input.idempotencyKey,
         userId: input.userId,
@@ -87,28 +104,32 @@ export async function sendMemberOutreachNotification(
 
   const user = await loadUserContact(admin, input.userId);
   const email = user?.email?.trim();
-  if (!email) {
+  if (allowMarketingEmail && !email) {
     console.warn("[notifications] member-outreach: pas d’e-mail", { userId: input.userId, kind: input.kind });
     await releaseNotificationSend(admin, input.idempotencyKey);
     return;
   }
 
   try {
-    const sent = await sendTransactionalEmail({
-      to: email,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-      idempotencyKey: input.idempotencyKey,
-      attachments: input.emailAttachments,
-    });
-    if (!sent) {
-      await releaseNotificationSend(admin, input.idempotencyKey);
-      return;
+    let delivery: NotificationDeliveryChannels | null = null;
+
+    if (allowMarketingEmail && email) {
+      const sent = await sendTransactionalEmail({
+        to: email,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+        idempotencyKey: input.idempotencyKey,
+        attachments: input.emailAttachments,
+      });
+      if (!sent) {
+        await releaseNotificationSend(admin, input.idempotencyKey);
+        return;
+      }
+      delivery = "email";
     }
 
-    const smsAlertsOn = getServerEnv().SEGNA_NOTIFY_SMS_ALERTS?.trim() === "1";
-    let allowSms = smsRequested;
+    let allowSms = smsRequested && allowMarketingSms;
     if (allowSms && input.applyCronSmsDailyCap && !input.skipCronSmsDailyCap) {
       allowSms = await shouldSendMemberCronSms(
         admin,
@@ -117,7 +138,6 @@ export async function sendMemberOutreachNotification(
         input.cronSmsNowMs ?? Date.now(),
       );
     }
-    let delivery: NotificationDeliveryChannels = "email";
     if (allowSms) {
       const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
       const smsText = input.smsBody?.trim() ?? "";
@@ -125,7 +145,7 @@ export async function sendMemberOutreachNotification(
         try {
           const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsText.slice(0, 320) });
           if (sent) {
-            delivery = "email+phone";
+            delivery = delivery === "email" ? "email+phone" : "phone";
             trackNotificationSentServer({
               userId: input.userId,
               kind: input.kind,
@@ -138,6 +158,11 @@ export async function sendMemberOutreachNotification(
           console.error("[notifications] member-outreach sms failed", msg);
         }
       }
+    }
+
+    if (!delivery) {
+      await releaseNotificationSend(admin, input.idempotencyKey);
+      return;
     }
 
     await setNotificationDeliveryChannels(admin, input.idempotencyKey, delivery);
@@ -165,6 +190,11 @@ export async function sendMemberSmsOnlyNotification(
     cronSmsNowMs?: number;
   },
 ): Promise<void> {
+  if (isMarketingNotificationKind(input.kind)) {
+    const prefs = await loadMemberCommsPreferences(admin, input.userId);
+    if (!allowsMarketingSms(prefs, input.kind)) return;
+  }
+
   if (input.applyCronSmsDailyCap) {
     const allowed = await shouldSendMemberCronSms(
       admin,

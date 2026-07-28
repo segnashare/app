@@ -183,16 +183,13 @@ function isProfileRequirementValueFilled(value: unknown): boolean {
   return trimmed.length > 0 && trimmed !== "À compléter" && trimmed !== "Non renseigné";
 }
 
-const ESSENTIAL_ONBOARDING_INFO_IDS = ["first_name", "age", "location", "work", "sizes"] as const;
+const ESSENTIAL_ONBOARDING_INFO_IDS = ["first_name", "age", "location", "sizes"] as const;
 
 function collectMissingOnboardingRequirementTargets(
-  profilePhoto: LookSlot | null,
+  _profilePhoto: LookSlot | null,
   infoItems: ProfileRowItem[],
 ): Set<string> {
   const targets = new Set<string>();
-  if (!profilePhoto) {
-    targets.add("profile-photo");
-  }
   for (const id of ESSENTIAL_ONBOARDING_INFO_IDS) {
     const value = infoItems.find((item) => item.id === id)?.value;
     if (!isProfileRequirementValueFilled(value)) {
@@ -1055,7 +1052,6 @@ export function ProfileCompleteModifyCore({
         isProfileRequirementValueFilled(getInfo("first_name")) &&
         isProfileRequirementValueFilled(getInfo("age")) &&
         isProfileRequirementValueFilled(getInfo("location")) &&
-        isProfileRequirementValueFilled(getInfo("work")) &&
         isProfileRequirementValueFilled(getInfo("sizes")),
     });
   }, [infoItems, isHydrating, profilePhoto, onOnboardingProfileRequirementsChange]);

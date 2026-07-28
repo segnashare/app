@@ -74,10 +74,10 @@ export function ExchangeHeader({
             </div>
             {membershipLabel === "Guest" ? (
               <div className="mt-2 space-y-2 text-sm text-zinc-600">
-                <p>Tu es en mode Guest : location de pièces en euros, sans wallet ni prêt vers Segna.</p>
+                <p>Tu es en mode Guest : location de pièces en euros, sans wallet.</p>
                 <p>
-                  Avec Segna X, tu débloques l&apos;économie crédits, les prêts et{" "}
-                  <strong className="font-bold text-zinc-900">500 crédits Segna</strong> par mois.
+                  Avec Segna X, tu débloques l&apos;économie crédits et{" "}
+                  <strong className="font-bold text-zinc-900">400 € de pièces</strong> par mois.
                 </p>
               </div>
             ) : subscriberMembershipDescription ? (

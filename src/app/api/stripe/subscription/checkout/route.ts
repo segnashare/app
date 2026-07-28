@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
-import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
+import { resolveFrVat20TaxRateId } from "@/lib/stripe/fr-vat-tax-rate";
 import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
+import { syncStripeCustomerBillingAddressFromProfile } from "@/lib/stripe/sync-customer-billing-address-from-profile";
+import { isPhoneVerified } from "@/lib/phone/phone-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
@@ -73,11 +75,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
-    if (!(await fetchUserKycVerified(admin, user.id))) {
+    const [{ data: memberRow }, { data: profileRow }] = await Promise.all([
+      admin.from("users").select("phone").eq("id", user.id).maybeSingle(),
+      admin.from("user_profiles").select("profile_data").eq("user_id", user.id).maybeSingle(),
+    ]);
+    const profileData = ((profileRow?.profile_data ?? {}) as Record<string, unknown>) ?? {};
+    const phoneReady = isPhoneVerified({
+      usersPhone: typeof memberRow?.phone === "string" ? memberRow.phone : null,
+      profilePhoneE164: typeof profileData.phone_e164 === "string" ? profileData.phone_e164 : null,
+      phoneCodeVerified: profileData.phone_code_verified === true,
+      authPhone: typeof user.phone === "string" ? user.phone : null,
+      phoneConfirmedAt: user.phone_confirmed_at ?? null,
+    });
+    if (!phoneReady) {
       return NextResponse.json(
         {
-          message: "La vérification d’identité (KYC) est obligatoire avant de souscrire à un abonnement.",
-          code: "kyc_required",
+          message: "Confirme ton numéro de téléphone par SMS avant d’activer ton abonnement.",
+          code: "phone_not_verified",
         },
         { status: 403 },
       );
@@ -122,15 +136,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ message }, { status: 500 });
     }
 
+    try {
+      await syncStripeCustomerBillingAddressFromProfile({
+        stripe,
+        admin,
+        userId: user.id,
+        stripeCustomerId,
+      });
+    } catch (error) {
+      // Non bloquant : Checkout reste possible sans préremplissage.
+      console.warn("[stripe/subscription/checkout] sync billing address from profile", error);
+    }
+
     const cancelRaw = typeof body?.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
     const cancelUrl = resolveCancelUrl(cancelRaw, config.returnUrlBase);
     const websiteOrigin = getWebsiteOrigin();
-    const successFromWebsite =
-      cancelUrl.startsWith(`${websiteOrigin}/`) || cancelUrl === websiteOrigin;
-    const successUrl = successFromWebsite
-      ? `${websiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
+    // Préférer l’origine réelle du cancel URL (ex. localhost:3002) pour le retour succès,
+    // plutôt que seulement getWebsiteOrigin() — évite de renvoyer vers le mauvais port en local.
+    let successWebsiteOrigin: string | null = null;
+    try {
+      const cancelParsed = new URL(cancelUrl);
+      if (cancelParsed.pathname.startsWith("/abonnement")) {
+        successWebsiteOrigin = cancelParsed.origin;
+      }
+    } catch {
+      successWebsiteOrigin = null;
+    }
+    if (
+      !successWebsiteOrigin &&
+      (cancelUrl.startsWith(`${websiteOrigin}/`) || cancelUrl === websiteOrigin)
+    ) {
+      successWebsiteOrigin = websiteOrigin;
+    }
+    const successUrl = successWebsiteOrigin
+      ? `${successWebsiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
       : `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`;
 
+    const frVatTaxRateId = resolveFrVat20TaxRateId();
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
@@ -138,8 +180,15 @@ export async function POST(request: Request) {
         {
           price: resolvedPriceId,
           quantity: 1,
+          ...(frVatTaxRateId ? { tax_rates: [frVatTaxRateId] } : {}),
         },
       ],
+      // Pas de formulaire adresse Checkout (abonnement) : l’adresse profil est déjà
+      // sur le customer Stripe pour la facture + TVA.
+      customer_update: {
+        address: "auto",
+        name: "auto",
+      },
       success_url: successUrl,
       cancel_url: cancelUrl,
       allow_promotion_codes: true,
@@ -161,6 +210,8 @@ export async function POST(request: Request) {
             : {}),
         },
         ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        // Renouvellements : même TVA sur les factures suivantes.
+        ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
       },
     });
 

@@ -34,7 +34,10 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) {
-      return NextResponse.json({ message: result.reason }, { status: result.status });
+      return NextResponse.json(
+        { message: result.detail ?? result.reason, code: result.reason },
+        { status: result.status },
+      );
     }
 
     return NextResponse.json({ ok: true, planCode: result.planCode });

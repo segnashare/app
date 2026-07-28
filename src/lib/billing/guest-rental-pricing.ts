@@ -34,6 +34,21 @@ export function computeGuestCartPurchaseEuroCents(cartTotalPoints: number): numb
   return computeItemPurchaseEuroCents(cartTotalPoints);
 }
 
+/**
+ * Prix d’achat membre : retail (1 pt = 1 €) moins `purchaseDiscountPercent` (0–100).
+ * Ex. 340 pts, −30 % → 238 €.
+ */
+export function computeMemberCartPurchaseEuroCents(
+  cartTotalPoints: number,
+  purchaseDiscountPercent: number,
+): number {
+  const points = Math.max(0, Math.trunc(cartTotalPoints));
+  if (points <= 0) return 0;
+  const discount = Math.min(100, Math.max(0, Math.trunc(purchaseDiscountPercent)));
+  const payableEuros = Math.round((points * (100 - discount)) / 100);
+  return Math.max(0, payableEuros) * 100;
+}
+
 /** % du prix retail (1 crédit = 1 € ; tarif location = X centimes / crédit). */
 export function guestRentalPercentOfRetail(
   durationDays: number,

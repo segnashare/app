@@ -37,13 +37,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ exists: false }, { status: 500 });
     }
 
-    const row = lookup as { exists?: boolean; passwordSet?: boolean; googleLinked?: boolean } | null;
+    const row = lookup as {
+      exists?: boolean;
+      emailConfirmed?: boolean;
+      passwordSet?: boolean;
+      googleLinked?: boolean;
+    } | null;
     if (!row || row.exists !== true) {
       return NextResponse.json({ exists: false });
     }
 
     return NextResponse.json({
       exists: true,
+      emailConfirmed: Boolean(row.emailConfirmed),
       passwordSet: Boolean(row.passwordSet),
       googleLinked: Boolean(row.googleLinked),
     });

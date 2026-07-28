@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { CartPaymentScreen } from "@/components/cart/CartPaymentScreen";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
+import { fetchPurchaseDiscountPercentForMembership } from "@/lib/billing/fetch-purchase-discount-percent";
 import { isCoursierCheckoutEnabled } from "@/lib/coursier/coursier-checkout-enabled";
 import { fetchCartPaymentEligibility } from "@/lib/cart/cart-payment-eligibility";
 import { fetchActiveCartForUser } from "@/lib/cart/fetch-active-cart-lines";
@@ -172,7 +173,10 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
     : cartExceedsWallet
       ? Math.max(0, cartTotalMods - availableWalletMods)
       : 0;
-  const borrowCheckoutOptions = await fetchBorrowCheckoutOptions(supabase as never);
+  const [borrowCheckoutOptions, purchaseDiscountPercent] = await Promise.all([
+    fetchBorrowCheckoutOptions(supabase as never),
+    fetchPurchaseDiscountPercentForMembership(admin, membershipLabel),
+  ]);
 
   const sendcloudEnv = getSendcloudEnv();
   const initialSendcloudFeatures = {
@@ -201,6 +205,7 @@ export default async function CartPaymentPage({ searchParams }: CartPaymentPageP
         initialProfileDeliveryAddress={profileDeliveryAddress}
         initialSendcloudFeatures={initialSendcloudFeatures}
         coursierCheckoutEnabled={isCoursierCheckoutEnabled()}
+        purchaseDiscountPercent={purchaseDiscountPercent}
       />
     </main>
   );

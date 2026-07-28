@@ -10,6 +10,11 @@ import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
 import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
 
+import {
+  allowsMarketingSms,
+  isMarketingNotificationKind,
+  loadMemberCommsPreferences,
+} from "@/lib/notifications/member-comms-preferences";
 import { loadUserContact } from "@/lib/notifications/member-outreach-contact";
 
 export function isMemberOutreachSmsRequested(input: {
@@ -73,6 +78,11 @@ export async function tryUpgradeMemberOutreachSms(
     })
   ) {
     return true;
+  }
+
+  if (isMarketingNotificationKind(input.kind)) {
+    const prefs = await loadMemberCommsPreferences(admin, input.userId);
+    if (!allowsMarketingSms(prefs, input.kind)) return true;
   }
 
   const user = await loadUserContact(admin, input.userId);

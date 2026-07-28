@@ -10,17 +10,9 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { ItemCatalogModePriceDisplay } from "@/components/ui/ItemCatalogModePriceDisplay";
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
 import { useToggleCartItem } from "@/hooks/useToggleCartItem";
-import {
-  computeItemRentalEuroCents,
-  formatEuroPerCredit,
-  type BorrowCheckoutOption,
-} from "@/lib/billing/fetch-borrow-checkout-options";
+import { type BorrowCheckoutOption } from "@/lib/billing/fetch-borrow-checkout-options";
 import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import { CartCatalogModeProvider } from "@/components/cart/CartCatalogModeContext";
-import {
-  readCheckoutBorrowDurationDays,
-  resolveCheckoutBorrowDurationDays,
-} from "@/lib/cart/checkout-borrow-duration-storage";
 import { getFirstPhotoStoragePath } from "@/lib/items/parse-item-photos";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
@@ -52,7 +44,6 @@ function UpsellGridCard({
   busy,
   onToggleCart,
   allowInCartItems = false,
-  borrowDurationDays,
   borrowCheckoutOptions,
   guestCashRental = false,
 }: {
@@ -62,7 +53,6 @@ function UpsellGridCard({
   busy: boolean;
   onToggleCart: () => void;
   allowInCartItems?: boolean;
-  borrowDurationDays: number;
   borrowCheckoutOptions: BorrowCheckoutOption[];
   guestCashRental?: boolean;
 }) {
@@ -71,12 +61,6 @@ function UpsellGridCard({
     : item.status === "available";
   const brandName = (item.brand_label ?? "").trim();
   const sizeLine = upsellCardSizeLine(item.size_label);
-  const rentalEuroCents = computeItemRentalEuroCents(
-    item.price_points,
-    borrowDurationDays,
-    borrowCheckoutOptions,
-  );
-  const rentalEuroLabel = rentalEuroCents > 0 ? formatEuroPerCredit(rentalEuroCents) : null;
 
   return (
     <article className="min-w-0">
@@ -156,30 +140,18 @@ function UpsellGridCard({
               <ItemCatalogModePriceDisplay
                 pricePoints={item.price_points}
                 borrowCheckoutOptions={borrowCheckoutOptions}
+                guestCashRental
                 priceClassName={cn(segnaMontserrat.className, "font-semibold text-zinc-900")}
               />
             ) : (
-              <>
-                <SegnaPointsUnitDisplay
-                  points={item.price_points}
-                  creditKind="consumption"
-                  unitDisplay="icon"
-                  iconColor="fixed"
-                  className="shrink-0 gap-x-0.5"
-                  numberClassName={cn(segnaMontserrat.className, "tabular-nums")}
-                />
-                {rentalEuroLabel ? (
-                  <>
-                    <span className="shrink-0 text-zinc-400" aria-hidden>
-                      |
-                    </span>
-                    <span className="shrink-0 tabular-nums text-zinc-600">
-                      {rentalEuroLabel}{" "}
-                      <span className="text-zinc-500">({borrowDurationDays}j)</span>
-                    </span>
-                  </>
-                ) : null}
-              </>
+              <SegnaPointsUnitDisplay
+                points={item.price_points}
+                creditKind="consumption"
+                unitDisplay="icon"
+                iconColor="fixed"
+                className="shrink-0 gap-x-0.5"
+                numberClassName={cn(segnaMontserrat.className, "tabular-nums")}
+              />
             )
           ) : (
             <span className={cn(segnaMontserrat.className, "tabular-nums text-zinc-500")}>—</span>
@@ -213,24 +185,6 @@ function CartUpsellScreenContent({
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { cartItemIds, cartBusyIds, toggleCart } = useToggleCartItem();
   const [coverUrlById, setCoverUrlById] = useState<Record<string, string>>(initialCoverUrlById);
-  const [borrowDurationDays, setBorrowDurationDays] = useState(() =>
-    resolveCheckoutBorrowDurationDays(readCheckoutBorrowDurationDays(), borrowCheckoutOptions),
-  );
-
-  useEffect(() => {
-    const syncDuration = () => {
-      setBorrowDurationDays(
-        resolveCheckoutBorrowDurationDays(readCheckoutBorrowDurationDays(), borrowCheckoutOptions),
-      );
-    };
-    syncDuration();
-    window.addEventListener("focus", syncDuration);
-    window.addEventListener("pageshow", syncDuration);
-    return () => {
-      window.removeEventListener("focus", syncDuration);
-      window.removeEventListener("pageshow", syncDuration);
-    };
-  }, [borrowCheckoutOptions]);
 
   const visibleItems = useMemo(() => {
     const base = allowInCartItems
@@ -303,7 +257,6 @@ function CartUpsellScreenContent({
               busy={cartBusyIds.has(item.id)}
               onToggleCart={() => void toggleCart(item.id)}
               allowInCartItems={allowInCartItems}
-              borrowDurationDays={borrowDurationDays}
               borrowCheckoutOptions={borrowCheckoutOptions}
               guestCashRental={guestCashRental}
             />

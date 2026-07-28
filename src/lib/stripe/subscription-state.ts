@@ -87,7 +87,12 @@ export async function upsertSubscriptionAndEntitlements(
   await promotePendingLenderIntakesAfterStripeSubscription(admin, userId, subscription, planCode);
 }
 
-async function markSubscriptionCanceledLocally(admin: any, userId: string, stripeCustomerId: string, providerSubscriptionId: string) {
+export async function markSubscriptionCanceledLocally(
+  admin: any,
+  userId: string,
+  stripeCustomerId: string,
+  providerSubscriptionId: string,
+) {
   await admin.from("user_subscriptions").upsert(
     {
       user_id: userId,

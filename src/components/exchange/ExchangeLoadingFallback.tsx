@@ -41,7 +41,7 @@ function ExchangeLoadingSection({
   );
 }
 
-/** Squelette fidèle à `/exchange` : header Guest + wallet, Panier, promo, Prêts (listes horizontales). */
+/** Squelette fidèle à `/exchange` : header + wallet, Panier, promo. */
 export function ExchangeLoadingFallback() {
   return (
     <div className="min-h-0 bg-white pb-28 text-zinc-900" aria-busy aria-label="Chargement de l’échange">
@@ -67,18 +67,6 @@ export function ExchangeLoadingFallback() {
         <section className="w-full bg-white px-5 py-4" aria-hidden>
           <SegnaSkeletonBlock className="aspect-[2.12] w-full rounded-2xl" />
         </section>
-
-        <ExchangeLoadingSection
-          title="Prêts"
-          footer={
-            <div className="flex justify-end py-0.5">
-              <SegnaSkeletonBlock className="h-9 w-36 rounded-full" rounded="rounded-full" />
-            </div>
-          }
-        >
-          <ExchangeLoadingListRow />
-          <ExchangeLoadingListRow />
-        </ExchangeLoadingSection>
       </div>
     </div>
   );

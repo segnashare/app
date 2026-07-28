@@ -20,6 +20,7 @@ import type { MemberReceiptPendingGatePayload } from "@/lib/cart/fetch-member-pe
 import type { MemberBorrowOverdueAppGate } from "@/lib/emprunt/fetch-member-borrow-overdue-app-gate";
 import type { ReferralInviteIntroKind } from "@/lib/auth/current-user-server";
 import { isDesktopMobileGateEnabled } from "@/lib/config/desktop-mobile-gate-enabled";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import { cn } from "@/lib/utils/cn";
 
 type InAppOnboardingIntroGate = {
@@ -68,17 +69,19 @@ export function MainShell({
         <div className={cn("flex min-h-[100dvh] flex-col md:min-h-[calc(100dvh-48px)]")}>{children}</div>
       </div>
       <FloatingViewCartButton />
-      <InAppOnboardingTaskFab />
+      {IN_APP_ONBOARDING_UI_ENABLED ? <InAppOnboardingTaskFab /> : null}
       <ItemChatBubble />
       <BottomTabBar />
-      {inAppOnboardingIntro ? (
+      {IN_APP_ONBOARDING_UI_ENABLED && inAppOnboardingIntro ? (
         <InAppOnboardingIntroModal
           userId={inAppOnboardingIntro.userId}
           lastSignInAt={inAppOnboardingIntro.lastSignInAt}
           referralInvite={inAppOnboardingIntro.referralInvite}
         />
       ) : null}
-      {inAppOnboardingRewardUserId ? <InAppOnboardingRewardModal /> : null}
+      {IN_APP_ONBOARDING_UI_ENABLED && inAppOnboardingRewardUserId ? (
+        <InAppOnboardingRewardModal />
+      ) : null}
       {referrerBonusModal ? <ReferrerBonusModal payload={referrerBonusModal} /> : null}
       <MemberReceiptPendingGateModal gate={memberReceiptPendingGate} />
       <Suspense fallback={null}>

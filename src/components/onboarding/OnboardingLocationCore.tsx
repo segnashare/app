@@ -366,7 +366,7 @@ export function OnboardingLocationCore({
             id="location"
             type="text"
             autoComplete="address-level2"
-            placeholder="Saisis ton adresse, ton quartier ou ta ville..."
+            placeholder="Adresse"
             className={cn(
               montserrat.className,
               themeClassNames.onboarding.textes.champPrincipalBase,

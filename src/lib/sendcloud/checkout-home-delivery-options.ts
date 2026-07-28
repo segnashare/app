@@ -268,6 +268,7 @@ export async function resolveHomeCheckoutShippingRoundTrip(
   outboundCents: number;
   returnRelayCents: number;
   subtotalCents: number;
+  methodKey: CheckoutHomeMethodKey;
 } | null> {
   const quotes = await fetchCheckoutHomeSendcloudPricing(env, {
     itemCount: params.itemCount,
@@ -282,5 +283,6 @@ export async function resolveHomeCheckoutShippingRoundTrip(
     outboundCents: picked.outboundHtCents,
     returnRelayCents: picked.returnHtCents,
     subtotalCents: picked.bundledRoundTripHtCents,
+    methodKey: picked.methodKey,
   };
 }

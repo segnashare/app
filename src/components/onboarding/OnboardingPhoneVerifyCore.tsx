@@ -8,6 +8,7 @@ import { OtpInput } from "@/components/auth/OtpInput";
 import type { SignUpVerifyFooterState } from "@/components/auth/SignUpVerifyCore";
 import { otpPhoneSchema } from "@/features/auth/lib/schemas";
 import { trackClientEvent } from "@/lib/analytics/track-client";
+import { verifyPhoneChangeOtp } from "@/lib/phone/verify-phone-change-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
@@ -168,22 +169,14 @@ export function OnboardingPhoneVerifyCore({
 
     setIsSubmitting(true);
     try {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        phone: normalizedPhone,
-        token: code,
-        type: "phone_change",
-      });
-      if (verifyError) {
-        const normalizedMessage = (verifyError.message ?? "").toLowerCase();
-        if (normalizedMessage.includes("token has expired") || normalizedMessage.includes("invalid")) {
-          setErrorMessage("Ce n'est pas le bon code.");
+      const verified = await verifyPhoneChangeOtp(supabase, normalizedPhone, code);
+      if (!verified.ok) {
+        const raw = (verified.rawMessage ?? "").toLowerCase();
+        if (raw.includes("unable to get sms provider")) {
+          setErrorMessage(mapPhoneProviderError(verified.rawMessage));
           return;
         }
-        if (normalizedMessage.includes("unable to get sms provider")) {
-          setErrorMessage(mapPhoneProviderError(verifyError.message));
-          return;
-        }
-        setErrorMessage("Code incorrect.");
+        setErrorMessage(verified.message);
         return;
       }
 

@@ -5,14 +5,14 @@ import {
   parseUserProfilePhotoPublicUrl,
 } from "@/lib/profile/parse-profile-photo-path";
 
-/** Même critère que l’onboarding profil : 1 photo + infos essentielles (pas 100 %). */
+/** Infos essentielles pour payer / valider l’onboarding profil (pas de photo, pas 100 %). */
 export type OnboardingProfileRequirements = {
   hasPhoto: boolean;
   hasEssentialInfos: boolean;
 };
 
 export function isOnboardingProfileReady(requirements: OnboardingProfileRequirements): boolean {
-  return requirements.hasPhoto && requirements.hasEssentialInfos;
+  return requirements.hasEssentialInfos;
 }
 
 export function hasProfileDisplayValue(value: unknown): boolean {
@@ -113,21 +113,14 @@ export async function fetchOnboardingProfileRequirements(
       hasProfileDisplayValue(user?.first_name ?? profile.display_name) &&
       hasProfileDisplayValue(profile.age) &&
       hasProfileDisplayValue(profile.city ?? location.label) &&
-      hasProfileDisplayValue(profileData.work) &&
       sizes.some((entry) => hasProfileDisplayValue(entry.size_id)),
   };
 }
 
 export function cartPaymentProfileGateMessage(requirements: OnboardingProfileRequirements | null): string {
   if (!requirements) return "Complète ton profil avant de payer.";
-  const missingPhoto = !requirements.hasPhoto;
-  const missingInfos = !requirements.hasEssentialInfos;
-  if (missingPhoto && missingInfos) {
-    return "Ajoute une photo de profil et renseigne tes infos essentielles (prénom, âge, ville, profession, tailles) avant de payer.";
-  }
-  if (missingPhoto) return "Ajoute une photo de profil avant de payer.";
-  if (missingInfos) {
-    return "Renseigne tes infos essentielles (prénom, âge, ville, profession, tailles) avant de payer.";
+  if (!requirements.hasEssentialInfos) {
+    return "Renseigne tes infos essentielles (prénom, âge, ville, tailles) avant de payer.";
   }
   return "Complète ton profil avant de payer.";
 }

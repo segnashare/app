@@ -115,9 +115,9 @@ export function BorrowComplementCheckoutBlock({
     <div className={cn("space-y-5", className)} role="status" aria-live="polite">
       <div className="space-y-2.5">
         <CalcRow label="Panier" value={<CalcPointsValue points={cartTotalPoints} />} />
-        <CalcRow label="Tes crédits" value={<CalcPointsValue points={availablePoints} prefix="−" />} />
+        <CalcRow label="Ton budget" value={<CalcPointsValue points={availablePoints} prefix="−" />} />
         <CalcRow
-          label="Crédits à compléter"
+          label="À compléter (1 mois · 10 %)"
           value={<CalcPointsValue points={missingPoints} emphasis />}
           emphasis
         />

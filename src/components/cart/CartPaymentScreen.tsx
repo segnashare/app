@@ -27,12 +27,19 @@ import {
   type CheckoutRelaySelection,
 } from "@/lib/cart/checkout-delivery-storage";
 import {
-  computeMissingCreditsCashCents,
+  computeHomeShippingHtAfterIncludedAllowance,
+  computeCartCheckoutRoundTripShippingHtCents,
+  homePlanUsesIncludedSupplement,
+} from "@/lib/billing/cart-checkout-shipping-ht-cents";
+import {
+  computeMemberBorrowComplementCashCents,
+  MEMBER_BORROW_COMPLEMENT_DURATION_DAYS,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
   computeGuestCartPurchaseEuroCents,
   computeGuestCartRentalEuroCents,
+  computeMemberCartPurchaseEuroCents,
   isGuestCashRentalMode,
 } from "@/lib/billing/guest-rental-pricing";
 import { CartCatalogModeProvider, useCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
@@ -58,11 +65,7 @@ import {
   computeCartCheckoutIncludedFeeReductions,
   computeCartCheckoutShippingFees,
 } from "@/lib/cart/cart-payment-fees";
-import {
-  computeCartCheckoutRoundTripShippingHtCents,
-} from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import type { IncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
-import { formatIncludedShippingQuotaLabel } from "@/lib/billing/membership-included-orders";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 import { exitCartFlow } from "@/lib/cart/pre-cart-exit-path";
 import { CART_RESERVED_AT_STORAGE_KEY } from "@/lib/cart/reservation-timer";
@@ -175,6 +178,8 @@ type CartPaymentScreenProps = {
   };
   /** Frame Coursier « Aller express - Retour relais » (SSR, `COURSIER_CHECKOUT_ENABLED`). */
   coursierCheckoutEnabled?: boolean;
+  /** % réduction achat plan (SegnaX), 0–100. */
+  purchaseDiscountPercent?: number;
 };
 
 function extractPostalCodeFromAddress(address: CheckoutDeliveryAddress | null | undefined): string {
@@ -209,11 +214,12 @@ function CartPaymentScreenContent({
   initialProfileDeliveryAddress = null,
   initialSendcloudFeatures,
   coursierCheckoutEnabled = true,
+  purchaseDiscountPercent = 0,
 }: CartPaymentScreenProps) {
   const router = useRouter();
   const { isPurchaseMode } = useCartCatalogMode();
   const guestCashRental = isGuestCashRentalMode(membershipLabel);
-  const purchaseOutboundOnly = guestCashRental && isPurchaseMode;
+  const purchaseOutboundOnly = isPurchaseMode;
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel>("relay");
   const [homeSpeed, setHomeSpeed] = useState<HomeDeliverySpeed>("standard");
   const checkoutUiPrefsRestoredRef = useRef(false);
@@ -288,9 +294,18 @@ function CartPaymentScreenContent({
   );
 
   useEffect(() => {
+    if (isPurchaseMode) {
+      clearCheckoutBorrowDurationDays();
+      return;
+    }
     const needsDuration = guestCashRental ? cartTotalMods > 0 : missingExchangeMods > 0;
     if (!needsDuration) {
       if (!guestCashRental) clearCheckoutBorrowDurationDays();
+      return;
+    }
+    if (!guestCashRental) {
+      setBorrowDurationDays(MEMBER_BORROW_COMPLEMENT_DURATION_DAYS);
+      writeCheckoutBorrowDurationDays(MEMBER_BORROW_COMPLEMENT_DURATION_DAYS);
       return;
     }
     const resolved = resolveCheckoutBorrowDurationDays(
@@ -299,20 +314,30 @@ function CartPaymentScreenContent({
     );
     setBorrowDurationDays(resolved);
     writeCheckoutBorrowDurationDays(resolved);
-  }, [borrowCheckoutOptions, cartTotalMods, guestCashRental, missingExchangeMods]);
+  }, [borrowCheckoutOptions, cartTotalMods, guestCashRental, isPurchaseMode, missingExchangeMods]);
 
   const exchangeCreditsEuroCents = useMemo(
     () =>
-      guestCashRental
-        ? cartTotalMods > 0
-          ? isPurchaseMode
-            ? computeGuestCartPurchaseEuroCents(cartTotalMods)
-            : computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
-          : 0
-        : missingExchangeMods > 0
-          ? computeMissingCreditsCashCents(missingExchangeMods, borrowDurationDays, borrowCheckoutOptions)
-          : 0,
-    [borrowCheckoutOptions, borrowDurationDays, cartTotalMods, guestCashRental, isPurchaseMode, missingExchangeMods],
+      isPurchaseMode
+        ? guestCashRental
+          ? computeGuestCartPurchaseEuroCents(cartTotalMods)
+          : computeMemberCartPurchaseEuroCents(cartTotalMods, purchaseDiscountPercent)
+        : guestCashRental
+          ? cartTotalMods > 0
+            ? computeGuestCartRentalEuroCents(cartTotalMods, borrowDurationDays, borrowCheckoutOptions)
+            : 0
+          : missingExchangeMods > 0
+            ? computeMemberBorrowComplementCashCents(missingExchangeMods)
+            : 0,
+    [
+      borrowCheckoutOptions,
+      borrowDurationDays,
+      cartTotalMods,
+      guestCashRental,
+      isPurchaseMode,
+      missingExchangeMods,
+      purchaseDiscountPercent,
+    ],
   );
   const exchangeCreditsChargeEuros = exchangeCreditsEuroCents / 100;
 
@@ -601,7 +626,8 @@ function CartPaymentScreenContent({
         uberQuotePanelPhase !== "invite"));
 
   const itemCount = initialLines.length;
-  const walletAppliedMods = guestCashRental ? 0 : Math.min(cartTotalMods, Math.max(0, availableWalletMods));
+  const walletAppliedMods =
+    guestCashRental || isPurchaseMode ? 0 : Math.min(cartTotalMods, Math.max(0, availableWalletMods));
 
   const relayPostalNorm = relayPostal.replace(/\D/g, "").slice(0, 5);
   const selectionPostalNorm = (selectedRelay?.postalCode ?? "").replace(/\D/g, "").slice(0, 5);
@@ -889,6 +915,7 @@ function CartPaymentScreenContent({
         homeSpeedBilling: homeSpeed,
         includedKind: includedExchangeShipping,
         complementRelayFree,
+        homePlanKind: selectedHomeSendcloudPlan?.methodKey ?? null,
         relayRoundTrip,
         currentRoundTrip: roundTripForBilling,
         uberOutboundHtCents: uberOutboundCentsFromQuote,
@@ -918,18 +945,10 @@ function CartPaymentScreenContent({
     selectedRelayCarrierRoundTrip,
     homeSendcloudPlanSelected,
     selectedHomeMethodRoundTrip,
+    selectedHomeSendcloudPlan?.methodKey,
     sendcloudRelayCheckoutActive,
     uberOutboundCentsFromQuote,
   ]);
-
-  const includedShippingQuotaLabel =
-    includedExchangeShipping !== "none" && remainingIncludedOrdersThisMonth > 0
-      ? formatIncludedShippingQuotaLabel(
-          membershipLabel,
-          subscriptionIncludedOrdersRemaining,
-          includedOrdersLimitThisMonth,
-        )
-      : null;
 
   const creditsTtcCents = Math.round(exchangeCreditsChargeEuros * 100);
 
@@ -970,7 +989,8 @@ function CartPaymentScreenContent({
     !relayInboundShowsZero &&
     (sendcloudRelayCheckoutActive ? relaySendcloudPricing.loading : sendcloudQuoteLoading);
 
-  const homeDeliveryShowsFullIncluded = includedExchangeShipping === "member_all_modes";
+  /** Échange inclus actif : Express / Chrono en supplément ; Mondial Relay offert. */
+  const homeDeliveryIncludedActive = includedExchangeShipping === "member_all_modes";
 
   const shippingHtCents = useMemo(() => billedRoundTripSubtotalCents, [billedRoundTripSubtotalCents]);
 
@@ -1034,26 +1054,36 @@ function CartPaymentScreenContent({
     [feesPricing, grossFeesPricing],
   );
 
+  /** Relais entièrement offert ; domicile peut rester en supplément (devis − 10 €). */
+  const shippingCoveredByIncludedExchange =
+    includedExchangeShipping !== "none" && feesPricing.shippingTtcCents === 0;
   const showIncludedFeeReductionLines = includedFeeReductions.totalTtcCents > 0;
 
+  /**
+   * Pas de ligne verte « 1er échange inclus » : l’échange inclus affiche la livraison à 0 / Offert.
+   * Seule l’offre relais (seuil complément) garde une ligne de réduction.
+   */
   const shippingReductionLabel =
-    includedExchangeShipping !== "none"
-      ? "1er échange inclus"
-      : complementRelayFree && deliveryChannel === "relay"
-        ? "Livraison relais offerte"
-        : "1er échange inclus";
+    !shippingCoveredByIncludedExchange && complementRelayFree && deliveryChannel === "relay"
+      ? "Livraison relais offerte"
+      : null;
 
   const feesHtEuros = centsToEuros(feesPricing.feesHtCents);
   const feesVatEuros = centsToEuros(feesPricing.feesVatCents);
   const feesTtcEuros = centsToEuros(feesPricing.feesTtcCents);
+  /** Échange inclus : montant facturé (0). Offre relais : prix barré + réduction. */
   const shippingTtcEuros = centsToEuros(
-    showIncludedFeeReductionLines ? grossFeesPricing.shippingTtcCents : feesPricing.shippingTtcCents,
+    shippingCoveredByIncludedExchange
+      ? feesPricing.shippingTtcCents
+      : shippingReductionLabel && showIncludedFeeReductionLines
+        ? grossFeesPricing.shippingTtcCents
+        : feesPricing.shippingTtcCents,
   );
   const includedShippingReductionEuros = centsToEuros(includedFeeReductions.shippingTtcCents);
 
   const shippingFeesSplit = useMemo((): { outboundEuros: number; returnEuros: number } | null => {
     if (purchaseOutboundOnly) return null;
-    if (relayInboundShowsZero || homeDeliveryShowsFullIncluded) return null;
+    if (relayInboundShowsZero || shippingCoveredByIncludedExchange) return null;
 
     if (deliveryChannel === "relay" && sendcloudRelayCheckoutActive && relaySendcloudPricing.pricing) {
       return {
@@ -1084,7 +1114,6 @@ function CartPaymentScreenContent({
     return null;
   }, [
     deliveryChannel,
-    homeDeliveryShowsFullIncluded,
     homeReturnTtcCents,
     homeSendcloudPlanSelected,
     homeSpeed,
@@ -1092,6 +1121,7 @@ function CartPaymentScreenContent({
     relaySendcloudPricing.pricing,
     selectedHomeSendcloudPlan,
     sendcloudRelayCheckoutActive,
+    shippingCoveredByIncludedExchange,
     uberOutboundCentsFromQuote,
     purchaseOutboundOnly,
   ]);
@@ -1538,10 +1568,10 @@ function CartPaymentScreenContent({
                 </div>
                 <span className="shrink-0 pt-0.5 text-right text-[15px] font-semibold tabular-nums text-zinc-900">
                   {relayInboundShowsZero ? (
-                    includedShippingQuotaLabel ? (
-                      <span className="tabular-nums">{includedShippingQuotaLabel}</span>
+                    includedExchangeShipping !== "none" ? (
+                      <span className="text-[13px] font-medium text-zinc-500">1 échange inclus</span>
                     ) : (
-                      <span className="text-emerald-700">Offert</span>
+                      <span className="text-zinc-900">Offert</span>
                     )
                   ) : relayHeaderPriceLoading ? (
                     <span className="text-[13px] font-medium text-zinc-500">…</span>
@@ -1675,7 +1705,7 @@ function CartPaymentScreenContent({
                 <User className="h-5 w-5 shrink-0 text-zinc-700" aria-hidden />
                 <div className="min-w-0 flex-1 text-left">
                   <p className="text-[15px] font-medium text-zinc-900">Rendez-vous devant ma porte</p>
-                  <p className="text-[13px] text-emerald-700">
+                  <p className="text-[13px] text-sky-600">
                     {instructionsSaved.trim() ? "Modifier les instructions" : "Ajouter des instructions de livraison"}
                   </p>
                 </div>
@@ -1719,19 +1749,20 @@ function CartPaymentScreenContent({
                             <span className="text-[13px] font-semibold text-zinc-500">
                               {uberDirectUnavailablePriceLabel(uberQuoteErrorCode)}
                             </span>
-                          ) : homeDeliveryShowsFullIncluded ? (
-                            includedShippingQuotaLabel ? (
-                              <span className="tabular-nums">{includedShippingQuotaLabel}</span>
-                            ) : (
-                              <span className="text-emerald-700">Offert</span>
-                            )
                           ) : uberQuoteFetch === "loading" || uberQuoteFetch === "idle" ? (
                             <span className="text-[13px] font-medium text-zinc-500">…</span>
                           ) : uberQuoteFetch === "ok" && uberQuote ? (
-                            <>
-                              {euros(expressOptionShippingTtcEuros)}
-                              <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
-                            </>
+                            expressOptionShippingTtcEuros <= 0 ? (
+                              <span className="text-zinc-900">Offert</span>
+                            ) : (
+                              <>
+                                {homeDeliveryIncludedActive ? (
+                                  <span className="mr-1 text-[11px] font-semibold text-zinc-500">Supplément</span>
+                                ) : null}
+                                {euros(expressOptionShippingTtcEuros)}
+                                <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
+                              </>
+                            )
                           ) : (
                             <span className="text-[13px] font-medium text-zinc-500">…</span>
                           )}
@@ -1788,9 +1819,17 @@ function CartPaymentScreenContent({
                 {homeSendcloudPlans.map((plan) => {
                   const planSelected =
                     homeSpeed === "standard" && homeOutboundOptionCode === plan.optionCode;
-                  const planBillableHtCents = purchaseOutboundOnly
+                  const planFullHtCents = purchaseOutboundOnly
                     ? plan.outboundHtCents
                     : plan.bundledRoundTripHtCents;
+                  const planUsesSupplement =
+                    homeDeliveryIncludedActive &&
+                    homePlanUsesIncludedSupplement("standard", plan.methodKey);
+                  const planBillableHtCents = planUsesSupplement
+                    ? computeHomeShippingHtAfterIncludedAllowance(planFullHtCents)
+                    : homeDeliveryIncludedActive
+                      ? 0
+                      : planFullHtCents;
                   const planShippingTtcEuros = centsToEuros(
                     computeCartCheckoutShippingFees(planBillableHtCents).shippingTtcCents,
                   );
@@ -1812,14 +1851,15 @@ function CartPaymentScreenContent({
                         </p>
                       </div>
                       <span className="shrink-0 self-start pt-0.5 text-right text-[14px] font-semibold tabular-nums text-zinc-900">
-                        {homeDeliveryShowsFullIncluded ? (
-                          includedShippingQuotaLabel ? (
-                            <span className="tabular-nums">{includedShippingQuotaLabel}</span>
-                          ) : (
-                            <span className="text-emerald-700">Offert</span>
-                          )
+                        {homeDeliveryIncludedActive && !planUsesSupplement ? (
+                          <span className="text-[13px] font-medium text-zinc-500">1 échange inclus</span>
+                        ) : planShippingTtcEuros <= 0 ? (
+                          <span className="text-zinc-900">Offert</span>
                         ) : (
                           <>
+                            {planUsesSupplement ? (
+                              <span className="mr-1 text-[11px] font-semibold text-zinc-500">Supplément</span>
+                            ) : null}
                             {euros(planShippingTtcEuros)}
                             <span className="ml-1 text-[11px] font-semibold text-zinc-500">TTC</span>
                           </>
@@ -1873,7 +1913,7 @@ function CartPaymentScreenContent({
           {!guestCashRental && complementMods > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Complément d&apos;échange</span>
+                <span className="min-w-0 pr-2">Complément budget</span>
                 <span className="inline-flex shrink-0 items-baseline gap-1.5 font-medium text-zinc-900">
                   <span className="tabular-nums">{borrowDurationDays}j&nbsp;×</span>
                   <SegnaPointsUnitDisplay
@@ -1922,7 +1962,7 @@ function CartPaymentScreenContent({
                   ? isPurchaseMode
                     ? "Prix d'achat (TTC)"
                     : "Prix de location (TTC)"
-                  : "Complément d&apos;échange (TTC)"}
+                  : "Complément budget (TTC)"}
               </span>
               <span className="shrink-0 tabular-nums font-medium text-zinc-900">{euros(exchangeCreditsChargeEuros)}</span>
             </div>
@@ -1943,11 +1983,21 @@ function CartPaymentScreenContent({
               </>
             ) : (
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Frais de livraison (TTC)</span>
-                <span className="shrink-0 font-medium tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
+                <span className="min-w-0 pr-2">
+                  {homeDeliveryIncludedActive &&
+                  !shippingCoveredByIncludedExchange &&
+                  homePlanUsesIncludedSupplement(homeSpeed, selectedHomeSendcloudPlan?.methodKey)
+                    ? "Supplément livraison (TTC)"
+                    : "Frais de livraison (TTC)"}
+                </span>
+                <span className="shrink-0 font-medium tabular-nums text-zinc-900">
+                  {shippingCoveredByIncludedExchange ? "Offert" : euros(shippingTtcEuros)}
+                </span>
               </div>
             )}
-            {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
+            {showIncludedFeeReductionLines &&
+            includedShippingReductionEuros > 0 &&
+            shippingReductionLabel ? (
               <IncludedExchangeFeeReductionLine
                 label={shippingReductionLabel}
                 amountEuros={includedShippingReductionEuros}
@@ -2048,9 +2098,13 @@ function CartPaymentScreenContent({
                         ? "Aller express - Retour relais (TTC)"
                         : "Livraison (TTC)"}
                   </span>
-                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">{euros(shippingTtcEuros)}</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-zinc-900">
+                    {shippingCoveredByIncludedExchange ? "Offert" : euros(shippingTtcEuros)}
+                  </span>
                 </div>
-                {showIncludedFeeReductionLines && includedShippingReductionEuros > 0 ? (
+                {showIncludedFeeReductionLines &&
+                includedShippingReductionEuros > 0 &&
+                shippingReductionLabel ? (
                   <IncludedExchangeFeeReductionLine
                     label={shippingReductionLabel}
                     amountEuros={includedShippingReductionEuros}
@@ -2069,19 +2123,13 @@ function CartPaymentScreenContent({
                           ? `Prestation complète : enlèvement express à domicile (devis Coursier.fr) puis retour de tes articles via un point relais (${itemCount} article${itemCount > 1 ? "s" : ""}). Montant TTC (TVA 20 %).`
                           : `Aller domicile + retour relais selon le nombre d’articles (${itemCount}). Retour toujours en point relais. Montant TTC (TVA 20 %).`
                         : null}
-                  {showIncludedFeeReductionLines ? (
-                    <span className="mt-1 block text-emerald-800/90">
-                      {includedExchangeShipping !== "none" ? (
-                        <>
-                          Livraison (tous modes) prise en charge pour cet échange inclus
-                          {remainingIncludedOrdersThisMonth > 0
-                            ? ` (${remainingIncludedOrdersThisMonth} échange${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} inclus restant${remainingIncludedOrdersThisMonth > 1 ? "s" : ""} avant paiement)`
-                            : ""}
-                          .
-                        </>
-                      ) : complementRelayFree && deliveryChannel === "relay" ? (
-                        <>{cartRelayFreeOfferUnlockedSubtext()}</>
-                      ) : null}
+                  {shippingCoveredByIncludedExchange ? (
+                    <span className="mt-1 block text-zinc-500">1 échange inclus</span>
+                  ) : showIncludedFeeReductionLines &&
+                    complementRelayFree &&
+                    deliveryChannel === "relay" ? (
+                    <span className="mt-1 block text-zinc-500">
+                      {cartRelayFreeOfferUnlockedSubtext()}
                     </span>
                   ) : null}
                 </p>
@@ -2167,8 +2215,8 @@ function IncludedExchangeFeeReductionLine({
   if (amountEuros <= 0) return null;
   return (
     <div className={cn("flex items-baseline justify-between gap-3", className)}>
-      <span className="min-w-0 pr-2 text-[14px] font-medium leading-snug text-emerald-700">{label}</span>
-      <span className="shrink-0 tabular-nums text-[14px] font-semibold text-emerald-700">−{euros(amountEuros)}</span>
+      <span className="min-w-0 pr-2 text-[14px] font-medium leading-snug text-sky-600">{label}</span>
+      <span className="shrink-0 tabular-nums text-[14px] font-semibold text-sky-600">−{euros(amountEuros)}</span>
     </div>
   );
 }

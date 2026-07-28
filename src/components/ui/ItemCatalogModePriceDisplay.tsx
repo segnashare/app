@@ -1,6 +1,8 @@
 "use client";
 
 import { useOptionalCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
+import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
+import { useGuestCashRentalCatalog } from "@/components/shop/GuestCashRentalCatalogContext";
 import type { CartCatalogMode } from "@/lib/cart/cart-catalog-mode";
 import {
   BORROW_CHECKOUT_OPTIONS_FALLBACK,
@@ -19,6 +21,11 @@ type ItemCatalogModePriceDisplayProps = {
   borrowCheckoutOptions?: ReadonlyArray<BorrowCheckoutOption>;
   /** Force le mode catalogue (ex. page commande achat sans provider session). */
   forcedMode?: CartCatalogMode;
+  /**
+   * Force le tarif location guest (€ / période).
+   * Par défaut : lit `GuestCashRentalCatalog` — abonné = valeur budget sans « / mois ».
+   */
+  guestCashRental?: boolean;
   className?: string;
   priceClassName?: string;
   suffixClassName?: string;
@@ -28,11 +35,14 @@ export function ItemCatalogModePriceDisplay({
   pricePoints,
   borrowCheckoutOptions = BORROW_CHECKOUT_OPTIONS_FALLBACK,
   forcedMode,
+  guestCashRental: guestCashRentalProp,
   className,
   priceClassName,
   suffixClassName,
 }: ItemCatalogModePriceDisplayProps) {
   const catalogMode = useOptionalCartCatalogMode();
+  const guestCashRentalFromCtx = useGuestCashRentalCatalog();
+  const guestCashRental = guestCashRentalProp ?? guestCashRentalFromCtx;
 
   if (typeof pricePoints !== "number" || Number.isNaN(pricePoints)) {
     return <span className={cn("tabular-nums", className, priceClassName)}>—</span>;
@@ -48,6 +58,19 @@ export function ItemCatalogModePriceDisplay({
           {formatEuroPerCredit(cents)}
         </span>
       </span>
+    );
+  }
+
+  // Abonné SegnaX : valeur pièce (budget), pas le tarif locatif guest.
+  if (!guestCashRental) {
+    return (
+      <SegnaPointsUnitDisplay
+        points={pricePoints}
+        creditKind="consumption"
+        unitDisplay="icon"
+        className={cn("gap-x-0.5", className)}
+        numberClassName={cn("font-medium", priceClassName ?? "text-zinc-950")}
+      />
     );
   }
 

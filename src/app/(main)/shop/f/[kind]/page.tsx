@@ -18,6 +18,7 @@ import { loadShopCatalogFilterItems } from "@/lib/shop/load-shop-section-items";
 import { mapCategoryFilterRows, mapFilterRows, mapSizeFilterRows } from "@/lib/shop/shop-filter-options";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import { resolveShopGuestCashRental } from "@/lib/shop/resolve-shop-guest-cash-rental";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 type PageProps = {
@@ -114,7 +115,9 @@ export default async function ShopCatalogFilterPage({ params, searchParams }: Pa
         materials={materials}
         featuredLenders={[]}
         featuredLenderSectionItemIds={[]}
-        guideCartOnboarding={userState.onboarding_process === "panier"}
+        guideCartOnboarding={
+          IN_APP_ONBOARDING_UI_ENABLED && userState.onboarding_process === "panier"
+        }
         guestCashRental={guestCashRental}
       />
     </MainContent>

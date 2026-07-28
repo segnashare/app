@@ -108,6 +108,19 @@ export default function AuthHandoffPage() {
           return;
         }
 
+        if (handoffType === "website_subscription_success") {
+          try {
+            sessionStorage.removeItem(HANDOFF_TYPE_KEY);
+          } catch {
+            // ignore
+          }
+          if (!cancelled) {
+            setMessage("Bienvenue…");
+            router.replace("/exchange?subscription=success&plan=segna_x");
+          }
+          return;
+        }
+
         if (handoffType === "website_skip_subscription") {
           try {
             sessionStorage.removeItem(HANDOFF_TYPE_KEY);

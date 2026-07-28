@@ -7,13 +7,13 @@ import { useRouter } from "next/navigation";
 import { Info, X } from "lucide-react";
 
 import { SegnaPointsUnitDisplay } from "@/components/ui/SegnaPointsUnitDisplay";
-import { segnaDialogBodyClass, segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
+import { segnaDialogTitleClass } from "@/components/ui/SegnaAppDialog";
 import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
-import { BorrowComplementCheckoutBlock } from "@/components/cart/BorrowComplementCheckoutBlock";
 import { GuestRentalCheckoutBlock } from "@/components/cart/GuestRentalCheckoutBlock";
 import { GuestPurchaseCheckoutBlock } from "@/components/cart/GuestPurchaseCheckoutBlock";
 import { CartCatalogModeProvider, useCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
 import { CartCatalogModeToggle } from "@/components/cart/CartCatalogModeToggle";
+import { CartCompleteBudgetSection } from "@/components/cart/CartCompleteBudgetSection";
 import { CartComplementShippingIncentive } from "@/components/cart/CartComplementShippingIncentive";
 import { BorrowLocationInfoContent } from "@/components/cart/BorrowLocationInfoContent";
 import { GuestPurchaseInfoContent } from "@/components/cart/GuestPurchaseInfoContent";
@@ -23,13 +23,15 @@ import { ExchangeWalletAnnouncementProvider } from "@/components/exchange/Exchan
 import { ExchangeWalletPill } from "@/components/exchange/ExchangeWalletPill";
 import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
 import {
-  computeMissingCreditsCashCents,
+  computeMemberBorrowComplementCashCents,
   formatBorrowCheckoutDurationLabel,
+  MEMBER_BORROW_COMPLEMENT_DURATION_DAYS,
   type BorrowCheckoutOption,
 } from "@/lib/billing/fetch-borrow-checkout-options";
 import {
   computeGuestCartRentalEuroCents,
   computeGuestCartPurchaseEuroCents,
+  computeMemberCartPurchaseEuroCents,
   isGuestCashRentalMode,
 } from "@/lib/billing/guest-rental-pricing";
 import {
@@ -102,17 +104,19 @@ type CartScreenProps = {
   cartShopSystemForYouItems?: ShopCatalogItem[];
   /** Suggestions contextuelles tenue (`cart_system_outfit_suggestions`). */
   cartOutfitSuggestionItems?: ShopCatalogItem[];
-  /** Onboarding in-app : étape offer, explique les crédits sur le panier. */
-  showOfferOnboarding?: boolean;
   /** Activation crédits inclus encore disponible (`onboarding_process === "offer"`). */
   welcomeGiftOfferEligible?: boolean;
   /** Textes + montant (BO) pour la feuille d’activation sur la carte CMS. */
   includedCreditsActivationContent?: WelcomeGiftLandingContent | null;
-  /** Profil à 100 % + KYC validé requis pour le paiement. */
+  /** Infos essentielles onboarding + KYC / téléphone requis pour le paiement. */
   profileComplete?: boolean;
   kycVerified?: boolean;
+  /** Numéro mobile renseigné (SMS confirmation commande). */
+  phoneReady?: boolean;
   /** Durées / tarifs complément crédits (RPC BO economy v2). */
   borrowCheckoutOptions?: BorrowCheckoutOption[];
+  /** % réduction achat (plan SegnaX), 0–100. */
+  purchaseDiscountPercent?: number;
 };
 
 const OFFERS: OfferCardData[] = [
@@ -140,7 +144,7 @@ const OFFERS: OfferCardData[] = [
   {
     id: "pret",
     title: "Augmente ta capacité",
-    subtitle: "Prête une pièce — gagne des crédits d'échange",
+    subtitle: "Prête une pièce — gagne du budget d'échange",
     href: "/exchange",
     accent: "from-emerald-50 to-teal-50",
   },
@@ -174,27 +178,35 @@ function CartScreenContent({
   initialCoverUrlById = {},
   cartShopSystemForYouItems = [],
   cartOutfitSuggestionItems = [],
-  showOfferOnboarding = false,
   welcomeGiftOfferEligible = false,
   includedCreditsActivationContent = null,
   profileComplete = true,
   kycVerified = true,
+  phoneReady = true,
   borrowCheckoutOptions = [],
+  purchaseDiscountPercent = 0,
 }: CartScreenProps) {
   const router = useRouter();
-  const { durationDays: catalogDurationDays, isPurchaseMode } = useCartCatalogMode();
+  const { mode, setMode, durationDays: catalogDurationDays, isPurchaseMode } = useCartCatalogMode();
   const guestCashRental = isGuestCashRentalMode(membershipLabel);
+
+  // Abonné : pas de mode 7j — bascule vers Location 30j.
+  useEffect(() => {
+    if (!guestCashRental && mode === "location_7j") {
+      setMode("location_30j");
+    }
+  }, [guestCashRental, mode, setMode]);
   const offerOnboardingActiveRaw = useOnboardingOfferActive(welcomeGiftOfferEligible);
-  const showOfferOnboardingUiRaw = useOnboardingOfferActive(showOfferOnboarding);
   const offerOnboardingActive = guestCashRental ? false : offerOnboardingActiveRaw;
-  const showOfferOnboardingUi = guestCashRental ? false : showOfferOnboardingUiRaw;
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const [lines, setLines] = useState<CartLineRowData[]>(() => sortCartLinesByPriceAsc(initialLines));
   const [reserveBusy, setReserveBusy] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [exchangeCreditsModalOpen, setExchangeCreditsModalOpen] = useState(false);
+  const [billedAmountInfoOpen, setBilledAmountInfoOpen] = useState(false);
   const [paymentGateModalOpen, setPaymentGateModalOpen] = useState(false);
-  const canAccessPayment = profileComplete && (KYC_REQUIRED_FOR_BORROW ? kycVerified : true);
+  const canAccessPayment =
+    profileComplete && phoneReady && (KYC_REQUIRED_FOR_BORROW ? kycVerified : true);
   const [walletPanelOpen, setWalletPanelOpen] = useState(false);
   const [removingLineId, setRemovingLineId] = useState<string | null>(null);
   const [lineRemoveError, setLineRemoveError] = useState<string | null>(null);
@@ -310,6 +322,12 @@ function CartScreenContent({
       return;
     }
     if (isPurchaseMode) return;
+    // Abonné : complément fixe 1 mois @ 10 % — pas de choix de durée.
+    if (!guestCashRental) {
+      setBorrowDurationDays(MEMBER_BORROW_COMPLEMENT_DURATION_DAYS);
+      writeCheckoutBorrowDurationDays(MEMBER_BORROW_COMPLEMENT_DURATION_DAYS);
+      return;
+    }
     const resolved = resolveCheckoutBorrowDurationDays(
       catalogDurationDays ?? readCheckoutBorrowDurationDays(),
       borrowCheckoutOptions,
@@ -323,33 +341,49 @@ function CartScreenContent({
     writeCheckoutBorrowDurationDays(durationDays);
   }, []);
 
-  const activeBorrowDurationDays = isPurchaseMode
-    ? borrowDurationDays
-    : catalogDurationDays ?? borrowDurationDays;
+  const activeBorrowDurationDays = !guestCashRental && cartExceedsWallet && !isPurchaseMode
+    ? MEMBER_BORROW_COMPLEMENT_DURATION_DAYS
+    : isPurchaseMode
+      ? borrowDurationDays
+      : catalogDurationDays ?? borrowDurationDays;
 
   const walletCreditKind = walletCreditKindForMembership(membershipLabel);
 
+  /** Guest location / achat : bloc tarifaire. Abonné location : « Budget utilisé » suffit (pas de détail Panier / À compléter). */
   const showCartPricingBlock =
-    orderedLines.length > 0 && (isPurchaseMode || (cartExceedsWallet && borrowCheckoutOptions.length > 0));
+    orderedLines.length > 0 &&
+    (isPurchaseMode || (guestCashRental && cartExceedsWallet && borrowCheckoutOptions.length > 0));
 
-  const showCartInfoButton = guestCashRental
-    ? showCartPricingBlock
-    : !isPurchaseMode && cartExceedsWallet && borrowCheckoutOptions.length > 0;
+  const showCartInfoButton = guestCashRental ? showCartPricingBlock : true;
 
   const exchangeCreditsEuroCents = isPurchaseMode
     ? guestCashRental
       ? computeGuestCartPurchaseEuroCents(cartTotalPoints)
-      : cartTotalPoints * 100
+      : computeMemberCartPurchaseEuroCents(cartTotalPoints, purchaseDiscountPercent)
     : cartExceedsWallet
       ? guestCashRental
         ? computeGuestCartRentalEuroCents(cartTotalPoints, activeBorrowDurationDays, borrowCheckoutOptions)
-        : computeMissingCreditsCashCents(missingExchangeMods, activeBorrowDurationDays, borrowCheckoutOptions)
+        : computeMemberBorrowComplementCashCents(missingExchangeMods)
       : 0;
-  /** Complément € si le panier dépasse le wallet. */
+  /** Achat : prix € (après réduction SegnaX). Location : complément € si panier > wallet. */
   const subtotalCashFees = useMemo(() => {
-    const creditsEuros = cartExceedsWallet ? exchangeCreditsEuroCents / 100 : 0;
-    return creditsEuros;
-  }, [cartExceedsWallet, exchangeCreditsEuroCents]);
+    if (isPurchaseMode) return exchangeCreditsEuroCents / 100;
+    return cartExceedsWallet ? exchangeCreditsEuroCents / 100 : 0;
+  }, [cartExceedsWallet, exchangeCreditsEuroCents, isPurchaseMode]);
+
+  /** Budget SegnaX encore disponible après le panier (location membre uniquement). */
+  const remainingBudgetPoints =
+    !guestCashRental && !isPurchaseMode && orderedLines.length > 0
+      ? Math.max(0, availablePoints - cartTotalPoints)
+      : 0;
+
+  const showMemberBudgetUsage =
+    !guestCashRental && !isPurchaseMode && orderedLines.length > 0 && availablePoints > 0;
+  const memberBudgetUsedPoints = showMemberBudgetUsage ? cartTotalPoints : 0;
+  const memberBudgetTotalPoints = showMemberBudgetUsage ? availablePoints : 0;
+  const memberBudgetProgressPct = showMemberBudgetUsage
+    ? Math.min(100, Math.round((memberBudgetUsedPoints / memberBudgetTotalPoints) * 100))
+    : 0;
 
   useEffect(() => {
     if (!cartExceedsWallet) setExchangeCreditsModalOpen(false);
@@ -486,7 +520,7 @@ function CartScreenContent({
 
   return (
     <ExchangeWalletAnnouncementProvider>
-      <ExchangeWalletTransactionAnnounceLayer userId={userId} />
+      <ExchangeWalletTransactionAnnounceLayer userId={userId} membershipLabel={membershipLabel} />
       <OnboardingIncludedCreditsProvider
         active={offerOnboardingActive}
         content={includedCreditsActivationContent}
@@ -539,18 +573,6 @@ function CartScreenContent({
             if (slotKey === "cart_system_items") {
               return (
                 <section key={slotKey} className="bg-white px-5 pb-4 pt-0">
-                  {showOfferOnboardingUi ? (
-                    <div
-                      className="mb-5 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-[0_8px_28px_rgba(24,24,27,0.07)]"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      <h2 className={segnaDialogTitleClass()}>Crédits et capacité</h2>
-                      <p className={cn(segnaDialogBodyClass(), "mt-1.5 text-[14px] font-medium text-zinc-600")}>
-                        Tu n'as pas encore de crédits. Remplis ton wallet gratuitement !
-                      </p>
-                    </div>
-                  ) : null}
                   {orderedLines.length === 0 ? (
                     <div className="pb-2 pt-1">
                       <p className="text-center text-sm font-medium text-zinc-600">
@@ -590,7 +612,10 @@ function CartScreenContent({
                 <section key={slotKey} className="bg-white px-5 py-4">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <CartCatalogModeToggle />
+                      <CartCatalogModeToggle memberSimplified={!guestCashRental} />
+                      {!guestCashRental && !isPurchaseMode ? (
+                        <p className="mt-1.5 text-[13px] text-zinc-500">Inclus dans ton budget SegnaX</p>
+                      ) : null}
                     </div>
                     {showCartInfoButton ? (
                       <button
@@ -616,23 +641,16 @@ function CartScreenContent({
                     <div className="space-y-3">
                       {showCartPricingBlock ? (
                         isPurchaseMode ? (
-                          <GuestPurchaseCheckoutBlock cartTotalPoints={cartTotalPoints} />
-                        ) : guestCashRental ? (
+                          <GuestPurchaseCheckoutBlock
+                            cartTotalPoints={cartTotalPoints}
+                            purchaseDiscountPercent={guestCashRental ? 0 : purchaseDiscountPercent}
+                          />
+                        ) : (
                           <GuestRentalCheckoutBlock
                             options={borrowCheckoutOptions}
                             durationDays={activeBorrowDurationDays}
                             onDurationChange={handleBorrowDurationChange}
                             cartTotalPoints={cartTotalPoints}
-                            hideDurationSelector
-                          />
-                        ) : (
-                          <BorrowComplementCheckoutBlock
-                            options={borrowCheckoutOptions}
-                            durationDays={activeBorrowDurationDays}
-                            onDurationChange={handleBorrowDurationChange}
-                            cartTotalPoints={cartTotalPoints}
-                            availablePoints={availablePoints}
-                            missingPoints={missingExchangeMods}
                             hideDurationSelector
                           />
                         )
@@ -642,51 +660,120 @@ function CartScreenContent({
                             {isPurchaseMode ? "Prix d'achat" : "Durée de location"}
                           </span>
                           <span className="text-[15px] font-semibold tabular-nums text-zinc-900">
-                            {isPurchaseMode ? euros(exchangeCreditsEuroCents / 100) : cartBorrowDurationLabel}
+                            {isPurchaseMode
+                              ? euros(exchangeCreditsEuroCents / 100)
+                              : guestCashRental
+                                ? cartBorrowDurationLabel
+                                : formatBorrowCheckoutDurationLabel(
+                                    MEMBER_BORROW_COMPLEMENT_DURATION_DAYS,
+                                    borrowCheckoutOptions,
+                                  )}
                           </span>
                         </div>
                       )}
                     </div>
 
                     <div className="mt-6 w-full border-t border-zinc-200 pt-4">
-                      <div className="flex w-full items-baseline justify-between gap-3">
-                        <span className={cn(segnaPlayfairDisplay.className, SEGNA_SECTION_TITLE_CLASSNAME, "leading-tight")}>
-                          Sous-total
-                        </span>
-                        <div className="flex flex-col items-end gap-0.5">
-                          {!guestCashRental && !isPurchaseMode && !cartExceedsWallet && cartTotalPoints > 0 ? (
-                            <span className="inline-flex items-baseline gap-0.5">
-                              <span
-                                className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950"
-                                aria-hidden
-                              >
-                                −
-                              </span>
+                      {showMemberBudgetUsage ? (
+                        <div className="space-y-3">
+                          <div className="flex w-full items-baseline justify-between gap-3">
+                            <span
+                              className={cn(
+                                segnaPlayfairDisplay.className,
+                                SEGNA_SECTION_TITLE_CLASSNAME,
+                                "leading-tight",
+                              )}
+                            >
+                              Budget utilisé
+                            </span>
+                            <span
+                              className="inline-flex items-baseline gap-1.5 text-[18px] font-extrabold tabular-nums leading-tight text-zinc-950"
+                              aria-label={`Budget utilisé : ${memberBudgetUsedPoints} euros sur ${memberBudgetTotalPoints}`}
+                            >
                               <SegnaPointsUnitDisplay
-                                points={cartTotalPoints}
+                                points={memberBudgetUsedPoints}
                                 creditKind={walletCreditKind}
                                 unitDisplay="icon"
                                 className="gap-x-1"
-                                numberClassName="text-[20px] font-extrabold leading-tight text-zinc-950"
+                                numberClassName="text-[18px] font-extrabold leading-tight text-zinc-950"
+                              />
+                              <span className="text-[15px] font-semibold text-zinc-400" aria-hidden>
+                                /
+                              </span>
+                              <SegnaPointsUnitDisplay
+                                points={memberBudgetTotalPoints}
+                                creditKind={walletCreditKind}
+                                unitDisplay="icon"
+                                className="gap-x-1"
+                                numberClassName="text-[15px] font-semibold leading-tight text-zinc-500"
                               />
                             </span>
-                          ) : null}
+                          </div>
+
+                          <div
+                            className="h-2 overflow-hidden rounded-full bg-zinc-100"
+                            role="progressbar"
+                            aria-valuenow={memberBudgetProgressPct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`Budget SegnaX utilisé à ${memberBudgetProgressPct} pour cent`}
+                          >
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-[width] duration-300 ease-out",
+                                cartExceedsWallet ? "bg-red-500" : "bg-zinc-950",
+                              )}
+                              style={{ width: `${memberBudgetProgressPct}%` }}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 text-[13px] leading-snug">
+                            <span className="inline-flex items-center gap-1 font-medium text-zinc-500">
+                              Montant facturé
+                              <button
+                                type="button"
+                                aria-haspopup="dialog"
+                                aria-expanded={billedAmountInfoOpen}
+                                aria-controls="cart-billed-amount-info-modal"
+                                aria-label="Comment est calculé le montant facturé"
+                                onClick={() => setBilledAmountInfoOpen(true)}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+                              >
+                                <Info className="h-3.5 w-3.5" strokeWidth={2.2} />
+                              </button>
+                            </span>
+                            <span className="font-semibold tabular-nums text-zinc-500">
+                              {euros(subtotalCashFees)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex w-full items-baseline justify-between gap-3">
                           <span
                             className={cn(
-                              "font-extrabold tabular-nums leading-tight text-zinc-950",
-                              !guestCashRental && !isPurchaseMode && !cartExceedsWallet && cartTotalPoints > 0
-                                ? "text-[13px] font-semibold text-zinc-500"
-                                : "text-[20px]",
+                              segnaPlayfairDisplay.className,
+                              SEGNA_SECTION_TITLE_CLASSNAME,
+                              "leading-tight",
                             )}
                           >
+                            Sous-total
+                          </span>
+                          <span className="text-[20px] font-extrabold tabular-nums leading-tight text-zinc-950">
                             {euros(subtotalCashFees)}
                           </span>
                         </div>
-                      </div>
+                      )}
                       {cartExceedsWallet && borrowCheckoutOptions.length > 0 && orderedLines.length > 0 && guestCashRental ? (
                         <CartComplementShippingIncentive
                           complementEuros={subtotalCashFees}
                           offerMode={isPurchaseMode ? "achat" : "location"}
+                          cartItemIds={orderedLines.map((line) => line.itemId)}
+                          suggestionItems={[...cartOutfitSuggestionItems, ...cartShopSystemForYouItems]}
+                        />
+                      ) : null}
+                      {!guestCashRental && !isPurchaseMode && remainingBudgetPoints > 0 ? (
+                        <CartCompleteBudgetSection
+                          remainingPoints={remainingBudgetPoints}
                           cartItemIds={orderedLines.map((line) => line.itemId)}
                           suggestionItems={[...cartOutfitSuggestionItems, ...cartShopSystemForYouItems]}
                         />
@@ -845,6 +932,7 @@ function CartScreenContent({
         onClose={() => setPaymentGateModalOpen(false)}
         profileComplete={profileComplete}
         kycVerified={kycVerified}
+        phoneReady={phoneReady}
       />
 
       <SegnaAppBottomSheet
@@ -864,6 +952,38 @@ function CartScreenContent({
         <button
           type="button"
           onClick={() => setExchangeCreditsModalOpen(false)}
+          className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+        >
+          OK
+        </button>
+      </SegnaAppBottomSheet>
+
+      <SegnaAppBottomSheet
+        open={billedAmountInfoOpen}
+        onClose={() => setBilledAmountInfoOpen(false)}
+        dialogId="cart-billed-amount-info-modal"
+        labelledBy="cart-billed-amount-info-title"
+        zIndexClassName="z-[100]"
+      >
+        <SegnaDialogSheetHandle />
+        <h2 id="cart-billed-amount-info-title" className={segnaDialogTitleClass()}>
+          Montant facturé
+        </h2>
+        <div className="mt-4 space-y-3 text-[14px] leading-relaxed text-zinc-600">
+          <p>
+            Tant que ton panier reste dans ton budget SegnaX, rien n&apos;est débité : le montant facturé
+            est de 0&nbsp;€.
+          </p>
+          <p>
+            Au-delà du budget, seul l&apos;écart est facturé à{" "}
+            <span className="font-semibold text-zinc-900">10&nbsp;% de la valeur des pièces</span>, pour une
+            location limitée à{" "}
+            <span className="font-semibold text-zinc-900">1 mois</span>.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setBilledAmountInfoOpen(false)}
           className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
         >
           OK

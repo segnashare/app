@@ -23,6 +23,8 @@ import {
   filterCartOfferFramesForWelcomeGiftEligibility,
 } from "@/lib/cms/welcome-gift-offer-visibility";
 import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisibility } from "@/lib/onboarding/activate-included-credits";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
+import { MEMBER_LENDING_UI_ENABLED } from "@/lib/items/member-lending-ui";
 import { isGuestCashRentalMode } from "@/lib/billing/guest-rental-pricing";
 import { ExchangeLendsSection, type LendItem } from "@/components/exchange/ExchangeLendsSection";
 import { parseItemPhotosLayout, type ItemPhotoLayout } from "@/lib/items/item-photo-layout";
@@ -1086,12 +1088,16 @@ export default async function ExchangePage() {
     exchangeOnboardingRow.onboarding_process ?? null,
     includedCreditsClaimed,
   );
-  const showProfileInAppOnboarding = exchangeOnboardingRow.onboarding_process === "profile";
+  const showProfileInAppOnboarding =
+    IN_APP_ONBOARDING_UI_ENABLED && exchangeOnboardingRow.onboarding_process === "profile";
   const showKycInAppOnboarding =
-    KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc";
+    IN_APP_ONBOARDING_UI_ENABLED &&
+    KYC_INCLUDED_IN_ONBOARDING &&
+    exchangeOnboardingRow.onboarding_process === "kyc";
   const showCartInAppOnboarding =
-    exchangeOnboardingRow.onboarding_process === "panier" ||
-    (!KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc");
+    IN_APP_ONBOARDING_UI_ENABLED &&
+    (exchangeOnboardingRow.onboarding_process === "panier" ||
+      (!KYC_INCLUDED_IN_ONBOARDING && exchangeOnboardingRow.onboarding_process === "kyc"));
   const showOfferInAppOnboarding =
     !isGuestCashRentalMode(membershipLabel) &&
     canShowWelcomeGiftOffer(onboardingProcessForOffer, includedCreditsClaimed);
@@ -1099,7 +1105,8 @@ export default async function ExchangePage() {
     showOfferInAppOnboarding
       ? await perf.measure("cms.includedCredits", () => fetchWelcomeGiftLandingContent(supabase))
       : null;
-  const showExchangeInAppOnboarding = exchangeOnboardingRow.onboarding_process === "exchange";
+  const showExchangeInAppOnboarding =
+    IN_APP_ONBOARDING_UI_ENABLED && exchangeOnboardingRow.onboarding_process === "exchange";
   emptyCartCms.frames = filterCartOfferFramesForWelcomeGiftEligibility(
     emptyCartCms.frames,
     onboardingProcessForOffer,
@@ -1181,8 +1188,10 @@ export default async function ExchangePage() {
       <Suspense fallback={null}>
         <ExchangeCheckoutSuccessTracker />
       </Suspense>
-      <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
-      <ExchangeWalletTransactionAnnounceLayer userId={userId} />
+      {MEMBER_LENDING_UI_ENABLED ? (
+        <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
+      ) : null}
+      <ExchangeWalletTransactionAnnounceLayer userId={userId} membershipLabel={membershipLabel} />
       {transferDepositQueue.length > 0 ? (
         <MemberIntakeTransferDepositConfirmModal initialQueue={transferDepositQueue} />
       ) : null}
@@ -1242,7 +1251,7 @@ export default async function ExchangePage() {
                   />
                 );
               case "exchange_system_lends":
-                if (membershipLabel === "Guest") return null;
+                if (!MEMBER_LENDING_UI_ENABLED || membershipLabel === "Guest") return null;
                 return (
                   <ExchangeLendsSection
                     key={sectionKey}
@@ -1274,8 +1283,7 @@ export default async function ExchangePage() {
                 const cms = cmsSectionsByKey[sectionKey];
                 if (!cms) return null;
                 if (
-                  membershipLabel === "Guest" &&
-                  lends.length > 0 &&
+                  (!MEMBER_LENDING_UI_ENABLED || (membershipLabel === "Guest" && lends.length > 0)) &&
                   isExchangeGuestRedundantPretsModularSection(sectionKey, cms.display)
                 ) {
                   return null;

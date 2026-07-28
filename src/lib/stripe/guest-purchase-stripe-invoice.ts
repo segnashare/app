@@ -9,6 +9,7 @@ import {
 import { getStripeConfig } from "@/lib/social/stripe";
 import { ensureStripeCustomerForUser } from "@/lib/stripe/borrow-overdue-checkout";
 import { notifyGuestPurchaseInvoiced } from "@/lib/notifications/guest-purchase-notify";
+import { stripeFrVat20TaxParams } from "@/lib/stripe/fr-vat-tax-rate";
 import { upsertCartOrderStripeInvoiceFromSession, upsertGuestPurchaseStripeInvoiceRecord, guestPurchaseInvoiceDownloadUrlFromStripeInvoice } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 
 function stripeInvoiceEnabled(): boolean {
@@ -23,18 +24,10 @@ function shouldEmailStripeInvoiceAfterPayment(): boolean {
   return process.env.SEGNA_GUEST_PURCHASE_STRIPE_INVOICE_EMAIL !== "0";
 }
 
-/** Tax rate Stripe FR 20 % (montants TTC inclusifs). */
-function resolveFrVat20TaxRateId(): string | null {
-  const id = process.env.STRIPE_FR_VAT_20_TAX_RATE_ID?.trim();
-  return id || null;
-}
-
 function guestPurchaseInvoiceItemTaxParams():
   | { tax_rates: string[]; tax_behavior: "inclusive" }
   | Record<string, never> {
-  const taxRateId = resolveFrVat20TaxRateId();
-  if (!taxRateId) return {};
-  return { tax_rates: [taxRateId], tax_behavior: "inclusive" };
+  return stripeFrVat20TaxParams();
 }
 
 async function resolvePaymentIntentIdForGuestPurchaseInvoice(

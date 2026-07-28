@@ -193,6 +193,7 @@ export function CartPanierLineRows({
                         <ItemCatalogModePriceDisplay
                           pricePoints={line.pricePoints}
                           borrowCheckoutOptions={borrowCheckoutOptions}
+                          guestCashRental
                           priceClassName="text-[15px] font-semibold text-zinc-900"
                         />
                       ) : (

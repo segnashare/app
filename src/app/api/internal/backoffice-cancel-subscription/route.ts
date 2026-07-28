@@ -2,11 +2,33 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
-import { upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
+import {
+  markSubscriptionCanceledLocally,
+  upsertSubscriptionAndEntitlements,
+} from "@/lib/stripe/subscription-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Sub / customer introuvable sur ce compte Stripe (test≠live, cancel manuel, etc.). */
+function isStripeResourceMissing(error: unknown): boolean {
+  return (
+    error instanceof Stripe.errors.StripeInvalidRequestError &&
+    (error.code === "resource_missing" || error.statusCode === 404)
+  );
+}
+
+async function applyStripeCancel(
+  stripe: Stripe,
+  subscriptionId: string,
+  mode: "immediate" | "at_period_end",
+): Promise<Stripe.Subscription> {
+  if (mode === "immediate") {
+    return stripe.subscriptions.cancel(subscriptionId, { prorate: false });
+  }
+  return stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
 }
 
 function internalBackofficeSecrets(): string[] {
@@ -79,21 +101,86 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_cancel_at_period_end" });
   }
 
+  const customerIdFromDb =
+    typeof subRow?.provider_customer_id === "string" ? subRow.provider_customer_id.trim() : "";
+
   try {
     const { secretKey } = getStripeConfig();
     const stripe = new Stripe(secretKey);
 
-    const subscription =
-      mode === "immediate"
-        ? await stripe.subscriptions.cancel(subscriptionId, { prorate: false })
-        : await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+    let subscription: Stripe.Subscription;
+    let syncedFrom: "stored" | "already_canceled" | "other_live" | "local_missing" = "stored";
+
+    try {
+      subscription = await applyStripeCancel(stripe, subscriptionId, mode);
+    } catch (primaryError) {
+      // Abonnement déjà annulé / inexistant côté Stripe (ex. cancel manuel dashboard) :
+      // on resynchronise la DB au lieu de bloquer le BO.
+      try {
+        const existing = await stripe.subscriptions.retrieve(subscriptionId);
+        if (existing.status === "canceled" || existing.status === "incomplete_expired") {
+          subscription = existing;
+          syncedFrom = "already_canceled";
+        } else if (mode === "at_period_end" && existing.cancel_at_period_end) {
+          subscription = existing;
+          syncedFrom = "already_canceled";
+        } else {
+          throw primaryError;
+        }
+      } catch (retrieveError) {
+        if (!isStripeResourceMissing(retrieveError) && !isStripeResourceMissing(primaryError)) {
+          throw primaryError;
+        }
+
+        const localMissingResponse = async (customerId: string) => {
+          await markSubscriptionCanceledLocally(admin, userId, customerId, subscriptionId);
+          return NextResponse.json({
+            ok: true as const,
+            mode,
+            status: "canceled",
+            cancel_at_period_end: false,
+            plan_code: "guest",
+            synced_from: "local_missing" as const,
+          });
+        };
+
+        const customerId = customerIdFromDb;
+        if (!customerId) {
+          return localMissingResponse("");
+        }
+
+        let list: Stripe.ApiList<Stripe.Subscription>;
+        try {
+          list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 30 });
+        } catch (listError) {
+          // Customer inexistant sur ce compte Stripe (souvent test vs live).
+          if (isStripeResourceMissing(listError)) {
+            return localMissingResponse(customerId);
+          }
+          throw listError;
+        }
+
+        const live = list.data
+          .filter((s) => s.status === "active" || s.status === "trialing" || s.status === "past_due")
+          .sort((a, b) => b.created - a.created);
+
+        if (live.length === 0) {
+          return localMissingResponse(customerId);
+        }
+
+        let last: Stripe.Subscription | null = null;
+        for (const liveSub of live) {
+          last = await applyStripeCancel(stripe, liveSub.id, mode);
+        }
+        subscription = last!;
+        syncedFrom = "other_live";
+      }
+    }
 
     const customerId =
       typeof subscription.customer === "string"
         ? subscription.customer
-        : typeof subRow?.provider_customer_id === "string"
-          ? subRow.provider_customer_id
-          : null;
+        : customerIdFromDb || null;
 
     await upsertSubscriptionAndEntitlements(admin, userId, customerId, subscription);
 
@@ -103,8 +190,20 @@ export async function POST(request: Request) {
       status: subscription.status,
       cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
       plan_code: subRow?.plan_code ?? null,
+      synced_from: syncedFrom,
     });
   } catch (error) {
+    if (isStripeResourceMissing(error)) {
+      await markSubscriptionCanceledLocally(admin, userId, customerIdFromDb, subscriptionId);
+      return NextResponse.json({
+        ok: true as const,
+        mode,
+        status: "canceled",
+        cancel_at_period_end: false,
+        plan_code: "guest",
+        synced_from: "local_missing" as const,
+      });
+    }
     const message = error instanceof Error ? error.message : "stripe_cancel_failed";
     console.error("[internal/backoffice-cancel-subscription]", message);
     return NextResponse.json({ ok: false as const, error: "stripe_cancel_failed", detail: message }, { status: 502 });

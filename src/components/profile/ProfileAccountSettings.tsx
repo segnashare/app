@@ -76,18 +76,6 @@ function SettingsLinkRow({
   );
 }
 
-function SettingsDisabledRow({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="flex min-h-[52px] w-full items-center gap-3 px-5 py-3.5 pr-4 opacity-55" aria-disabled>
-      <div className="min-w-0 flex-1">
-        <p className="text-[16px] font-medium leading-snug text-zinc-900">{title}</p>
-        <p className="mt-0.5 text-[13px] leading-snug text-zinc-500">{subtitle}</p>
-      </div>
-      <ChevronRight className="h-5 w-5 shrink-0 text-zinc-200" aria-hidden />
-    </div>
-  );
-}
-
 function subscriberPlanBadge(label: MembershipLabel): string | null {
   if (label === "Membre X") return "SegnaX";
   if (label === "Membre +") return "Segna+";
@@ -280,8 +268,16 @@ export function ProfileAccountSettings({
         </SectionBlock>
 
         <SectionBlock title="Notifications" ariaLabel="Notifications">
-          <SettingsDisabledRow title="Notifications push" subtitle="Réglages détaillés : bientôt dans l’app." />
-          <SettingsDisabledRow title="E-mail" subtitle="Choix des e-mails Segna : bientôt." />
+          <SettingsLinkRow
+            href={`/profile/notifications/sms?${profileSubflowTabQuery}`}
+            title="SMS"
+            subtitle="Commandes toujours · offres & actus au choix."
+          />
+          <SettingsLinkRow
+            href={`/profile/notifications/email?${profileSubflowTabQuery}`}
+            title="E-mail"
+            subtitle="Transactionnels toujours · marketing au choix."
+          />
         </SectionBlock>
 
         <SectionBlock title="Téléphone & e-mail" ariaLabel="Téléphone et e-mail">

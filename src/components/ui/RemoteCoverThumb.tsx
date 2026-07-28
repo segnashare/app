@@ -225,11 +225,11 @@ function RemoteCoverThumbImpl({
     <div
       ref={frameRef}
       className={cn(
-        "relative overflow-hidden",
-        useCoverFill ? "bg-zinc-950" : "bg-zinc-200",
+        "relative overflow-hidden bg-zinc-200",
         frameClassName,
       )}
     >
+      {/* Balayage pendant le chargement — plus de fond noir `bg-zinc-950` qui masquait le skeleton. */}
       {!suppressLoadSkeleton && !failed && !shouldPaintPhoto ? (
         <SegnaSkeletonBlock
           className="pointer-events-none absolute inset-0 z-[2]"
@@ -237,8 +237,8 @@ function RemoteCoverThumbImpl({
         />
       ) : null}
       {failed ? (
-        <div className="relative z-[1] flex h-full w-full items-center justify-center text-zinc-400">
-          <ImageIcon className="h-7 w-7" aria-hidden />
+        <div className="relative z-[1] flex h-full w-full items-center justify-center bg-zinc-200 text-zinc-400">
+          <ImageIcon className="h-7 w-7 opacity-50" aria-hidden />
         </div>
       ) : shouldPaintPhoto ? (
         useCoverFill && fillLayerStyle ? (

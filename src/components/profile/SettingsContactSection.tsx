@@ -10,8 +10,11 @@ import {
   segnaDialogBodyClass,
   segnaDialogTitleClass,
 } from "@/components/ui/SegnaAppDialog";
+import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
+import { isMultiAccountPhoneException } from "@/lib/phone/multi-account-phone-exception";
+import { resolveVerifiedPhoneE164 } from "@/lib/phone/phone-verified";
+import { verifyPhoneChangeOtp } from "@/lib/phone/verify-phone-change-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { e164ToFrenchNationalDigits } from "@/lib/phone/fr-mobile";
 import { cn } from "@/lib/utils/cn";
 
 const PRIVACY_HREF = "https://www.segnashare.com/politique-confidentialite";
@@ -26,6 +29,24 @@ function formatPhoneDisplay(e164: string): string {
     return `+33 ${national}`;
   }
   return e164.trim() || "";
+}
+
+function mapPhoneProviderError(message?: string): string {
+  const normalized = (message ?? "").toLowerCase();
+  if (normalized.includes("unable to get sms provider")) {
+    return "Le fournisseur SMS n'est pas configuré. Active Twilio dans Supabase (Auth > Phone).";
+  }
+  if (normalized.includes("rate limit")) {
+    return "Trop de tentatives. Réessaie dans une minute.";
+  }
+  if (
+    normalized.includes("already been registered") ||
+    normalized.includes("already registered") ||
+    normalized.includes("phone number has already")
+  ) {
+    return "Ce numéro de téléphone est déjà utilisé par un autre compte.";
+  }
+  return message ?? "Impossible d'envoyer le code SMS.";
 }
 
 function VerifiedBadge() {
@@ -50,14 +71,15 @@ export function SettingsContactSection() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [initialEmail, setInitialEmail] = useState("");
-  const [initialE164, setInitialE164] = useState("");
+  const [verifiedE164, setVerifiedE164] = useState("");
+  const [pendingE164, setPendingE164] = useState("");
   const [emailConfirmed, setEmailConfirmed] = useState(false);
-  const [phoneConfirmed, setPhoneConfirmed] = useState(false);
 
   const [email, setEmail] = useState("");
 
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalKind, setModalKind] = useState<"email" | "phone" | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [otpPhoneE164, setOtpPhoneE164] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpHint, setOtpHint] = useState<string | null>(null);
@@ -85,9 +107,17 @@ export function SettingsContactSection() {
     const profilePhone = typeof profileData.phone_e164 === "string" ? profileData.phone_e164 : "";
     const publicPhone = typeof usersRow?.phone === "string" ? usersRow.phone : "";
     const authPhone = typeof user.phone === "string" ? user.phone : "";
-    const resolved = authPhone || publicPhone || profilePhone;
-    setInitialE164(resolved);
-    setPhoneConfirmed(!!user.phone_confirmed_at || (!!resolved && resolved.length > 0));
+    const verified =
+      resolveVerifiedPhoneE164({
+        usersPhone: publicPhone,
+        profilePhoneE164: profilePhone,
+        phoneCodeVerified: profileData.phone_code_verified === true,
+        authPhone,
+        phoneConfirmedAt: user.phone_confirmed_at ?? null,
+      }) ?? "";
+    const pending = !verified ? tryNormalizePhoneToE164(profilePhone) ?? "" : "";
+    setVerifiedE164(verified);
+    setPendingE164(pending);
     setLoading(false);
   }, [supabase]);
 
@@ -95,11 +125,17 @@ export function SettingsContactSection() {
     void load();
   }, [load]);
 
-  const phoneDisplay = initialE164 ? formatPhoneDisplay(initialE164) : "—";
+  const phoneConfirmed = Boolean(verifiedE164);
+  const phoneDisplay = verifiedE164
+    ? formatPhoneDisplay(verifiedE164)
+    : pendingE164
+      ? formatPhoneDisplay(pendingE164)
+      : "—";
 
   const closeModal = () => {
-    setModalOpen(false);
+    setModalKind(null);
     setPendingEmail(null);
+    setOtpPhoneE164(null);
     setOtpCode("");
     setOtpHint(null);
     setOtpBusy(false);
@@ -134,8 +170,46 @@ export function SettingsContactSection() {
       return;
     }
     setPendingEmail(nextEmailTrim);
-    setModalOpen(true);
+    setModalKind("email");
     setOtpHint("Un code à 6 chiffres t’a été envoyé par e-mail.");
+  };
+
+  const startPhoneVerification = async (phoneE164: string) => {
+    if (!userId) {
+      setError("Session invalide.");
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setOtpCode("");
+    setOtpHint(null);
+    setOtpBusy(true);
+    try {
+      const { data: phoneOk, error: phoneAvailErr } = await supabase.rpc("phone_available_for_user_change", {
+        p_phone: phoneE164,
+        p_user_id: userId,
+      });
+      if (phoneAvailErr) {
+        setError(phoneAvailErr.message ?? "Impossible de vérifier le numéro.");
+        return;
+      }
+      if (phoneOk !== true && !isMultiAccountPhoneException(phoneE164)) {
+        setError("Ce numéro de téléphone est déjà utilisé par un autre compte.");
+        return;
+      }
+
+      const { error: authPhoneErr } = await supabase.auth.updateUser({ phone: phoneE164 });
+      if (authPhoneErr) {
+        setError(mapPhoneProviderError(authPhoneErr.message));
+        return;
+      }
+
+      setOtpPhoneE164(phoneE164);
+      setModalKind("phone");
+      setOtpHint("Un code à 6 chiffres t’a été envoyé par SMS.");
+    } finally {
+      setOtpBusy(false);
+    }
   };
 
   const onTerminéEdit = async () => {
@@ -173,7 +247,7 @@ export function SettingsContactSection() {
     await startEmailVerification(trimmedEmail);
   };
 
-  const submitOtp = async () => {
+  const submitEmailOtp = async () => {
     if (!userId || !pendingEmail) return;
     const code = otpCode.replace(/\D/g, "");
     if (code.length !== 6) {
@@ -207,6 +281,55 @@ export function SettingsContactSection() {
     }
   };
 
+  const submitPhoneOtp = async () => {
+    if (!otpPhoneE164) return;
+    const code = otpCode.replace(/\D/g, "");
+    if (code.length !== 6) {
+      setError("Indique un code à 6 chiffres.");
+      return;
+    }
+
+    setOtpBusy(true);
+    setError(null);
+    try {
+      const verified = await verifyPhoneChangeOtp(supabase, otpPhoneE164, code);
+      if (!verified.ok) {
+        setError(verified.message);
+        setOtpCode("");
+        return;
+      }
+
+      const { error: phoneError } = await supabase.rpc("set_user_phone_verified", {
+        p_phone_e164: otpPhoneE164,
+        p_request_id: crypto.randomUUID(),
+      });
+      if (phoneError) {
+        setError(phoneError.message);
+        return;
+      }
+
+      const { error: profileError } = await supabase.rpc("update_user_profile_public", {
+        p_profile_json: {
+          profile_data: {
+            phone_e164: otpPhoneE164,
+            phone_code_verified: true,
+          },
+        },
+        p_request_id: crypto.randomUUID(),
+      });
+      if (profileError) {
+        setError(profileError.message);
+        return;
+      }
+
+      closeModal();
+      setInfo("Numéro de téléphone confirmé.");
+      await load();
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
   const resendEmailOtp = async () => {
     if (!pendingEmail) return;
     setError(null);
@@ -219,6 +342,11 @@ export function SettingsContactSection() {
       return;
     }
     setInfo("Nouveau code envoyé.");
+  };
+
+  const resendPhoneOtp = async () => {
+    if (!otpPhoneE164) return;
+    await startPhoneVerification(otpPhoneE164);
   };
 
   if (loading) {
@@ -237,6 +365,28 @@ export function SettingsContactSection() {
     );
   }
 
+  const phoneRow = (
+    <div className="inline-flex min-w-0 max-w-full items-center gap-2">
+      {pendingE164 && !phoneConfirmed ? (
+        <button
+          type="button"
+          disabled={otpBusy}
+          onClick={() => void startPhoneVerification(pendingE164)}
+          className="inline-flex min-w-0 max-w-full items-baseline gap-1.5 text-left transition hover:opacity-80 disabled:opacity-50"
+          aria-label={`Confirmer le numéro ${phoneDisplay}`}
+        >
+          <span className="text-[16px] font-medium leading-snug text-zinc-900">{phoneDisplay}</span>
+          <span className="shrink-0 text-[13px] font-medium leading-snug text-zinc-500">(pas confirmé)</span>
+        </button>
+      ) : (
+        <>
+          <span className="text-[16px] font-medium leading-snug text-zinc-900">{phoneDisplay}</span>
+          {phoneConfirmed ? <VerifiedBadge /> : null}
+        </>
+      )}
+    </div>
+  );
+
   return (
     <>
       {!editMode ? (
@@ -246,12 +396,12 @@ export function SettingsContactSection() {
               <p className="text-[13px] leading-snug text-zinc-600">{info}</p>
             </div>
           ) : null}
-          <div className="flex min-h-[52px] items-center px-5 py-3.5">
-            <div className="inline-flex min-w-0 max-w-full items-center gap-2">
-              <span className="text-[16px] font-medium leading-snug text-zinc-900">{phoneDisplay}</span>
-              {phoneConfirmed && initialE164 ? <VerifiedBadge /> : null}
+          {error && !modalKind ? (
+            <div className="border-b border-zinc-100 px-5 py-3">
+              <p className="text-[13px] leading-snug text-red-600">{error}</p>
             </div>
-          </div>
+          ) : null}
+          <div className="flex min-h-[52px] items-center px-5 py-3.5">{phoneRow}</div>
           <div className="flex min-h-[52px] w-full items-center gap-2 px-5 py-3.5">
             <div className="inline-flex min-w-0 flex-1 items-center gap-2">
               <span className="truncate text-[16px] font-medium leading-snug text-zinc-900">{initialEmail || "—"}</span>
@@ -288,12 +438,7 @@ export function SettingsContactSection() {
             </button>
           </div>
 
-          <div className="border-b border-zinc-100 py-3">
-            <div className="inline-flex min-w-0 max-w-full items-center gap-2">
-              <span className="text-[16px] font-medium leading-snug text-zinc-900">{phoneDisplay}</span>
-              {phoneConfirmed && initialE164 ? <VerifiedBadge /> : null}
-            </div>
-          </div>
+          <div className="border-b border-zinc-100 py-3">{phoneRow}</div>
 
           <div className="pt-4">
             <div className="flex items-end gap-3">
@@ -329,7 +474,7 @@ export function SettingsContactSection() {
         </div>
       )}
 
-      {modalOpen ? (
+      {modalKind ? (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
           role="presentation"
@@ -346,10 +491,12 @@ export function SettingsContactSection() {
           >
             <SegnaDialogDismissButton variant="overlay" onClick={() => !otpBusy && closeModal()} />
             <h2 id="settings-otp-title" className={cn(segnaDialogTitleClass(), "pr-10")}>
-              Code e-mail
+              {modalKind === "phone" ? "Code SMS" : "Code e-mail"}
             </h2>
             <p className={cn(segnaDialogBodyClass(), "mt-2")}>
-              {`Saisis le code à 6 chiffres envoyé à ${pendingEmail ?? ""}.`}
+              {modalKind === "phone"
+                ? `Saisis le code à 6 chiffres envoyé au ${otpPhoneE164 ? formatPhoneDisplay(otpPhoneE164) : ""}.`
+                : `Saisis le code à 6 chiffres envoyé à ${pendingEmail ?? ""}.`}
             </p>
             {otpHint ? <p className="mt-2 text-[13px] text-zinc-500">{otpHint}</p> : null}
 
@@ -363,7 +510,7 @@ export function SettingsContactSection() {
               <button
                 type="button"
                 disabled={otpBusy}
-                onClick={() => void resendEmailOtp()}
+                onClick={() => void (modalKind === "phone" ? resendPhoneOtp() : resendEmailOtp())}
                 className="text-center text-[14px] font-semibold text-zinc-700 underline disabled:opacity-50"
               >
                 Renvoyer le code
@@ -371,7 +518,7 @@ export function SettingsContactSection() {
               <button
                 type="button"
                 disabled={otpBusy || otpCode.replace(/\D/g, "").length !== 6}
-                onClick={() => void submitOtp()}
+                onClick={() => void (modalKind === "phone" ? submitPhoneOtp() : submitEmailOtp())}
                 className="mx-auto inline-flex min-h-[48px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-900 px-4 text-[16px] font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-45"
               >
                 {otpBusy ? "Vérification…" : "Valider"}

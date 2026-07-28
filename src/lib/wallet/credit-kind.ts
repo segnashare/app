@@ -4,19 +4,24 @@ import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
 export type WalletCreditKind = "consumption" | "exchange";
 
 /** Libellé court du seau bonus (wallet, filtres). */
-export const WALLET_BONUS_BUCKET_SHORT_LABEL = "Bonus";
+export const WALLET_BONUS_BUCKET_SHORT_LABEL = "Budget";
 
-/** Libellé membre pour les crédits offerts par Segna (`consumption` en base). */
-export const WALLET_BONUS_CREDITS_LABEL = "crédits bonus";
+/** Libellé membre pour le budget offert par Segna (`consumption` en base, affiché en €). */
+export const WALLET_BONUS_CREDITS_LABEL = "budget SegnaX";
 
 export function walletBonusCreditsAriaLabel(points: number): string {
   const n = Number.isFinite(points) ? Math.floor(points) : 0;
-  const formatted = n.toLocaleString("fr-FR");
-  return `${formatted} ${n === 1 ? "crédit bonus" : "crédits bonus"}`;
+  const formatted = new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n);
+  return `${formatted} de budget`;
 }
 
 export function walletCreditKindLabel(kind: WalletCreditKind): string {
-  return kind === "consumption" ? WALLET_BONUS_CREDITS_LABEL : "crédits";
+  return kind === "consumption" ? WALLET_BONUS_CREDITS_LABEL : "budget d’échange";
 }
 
 /**

@@ -105,6 +105,7 @@ export function CommandeOrderLineRows({
                 <ItemCatalogModePriceDisplay
                   pricePoints={line.pricePoints}
                   borrowCheckoutOptions={borrowCheckoutOptions}
+                  guestCashRental
                   forcedMode={guestPurchaseMode ? "achat" : undefined}
                   priceClassName="text-[15px] font-semibold text-zinc-900"
                 />

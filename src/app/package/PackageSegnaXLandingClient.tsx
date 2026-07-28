@@ -24,15 +24,11 @@ type PackageSegnaXLandingClientProps = {
   content: SubscriptionPlanLandingContent;
   /** `plan=credits` : cadeau onboarding uniquement (achat packs retiré). */
   planQuery?: "x" | "credits";
-  /** SegnaX (`plan=x`) : abonnement réservé aux comptes avec KYC validé (sinon redirection profil). */
-  identityVerifiedForSubscription?: boolean;
   /** Onboarding offer : affiche la frame bonus de crédits offerts. */
   showOfferOnboarding?: boolean;
   /** Contenu CMS cadeau de bienvenue (carte panier `onboarding_offer_only` + `/package?plan=credits`). */
   welcomeGiftContent?: WelcomeGiftLandingContent | null;
 };
-
-const KYC_SUBSCRIPTION_HREF = "/profile/kyc?tab=me";
 
 function defaultSelectedTierIndex(tiers: SubscriptionOfferTier[]): number {
   const featured = tiers.findIndex((t) => t.featured);
@@ -43,14 +39,12 @@ function defaultSelectedTierIndex(tiers: SubscriptionOfferTier[]): number {
 export function PackageSegnaXLandingClient({
   content,
   planQuery = "x",
-  identityVerifiedForSubscription = true,
   showOfferOnboarding = false,
   welcomeGiftContent = null,
 }: PackageSegnaXLandingClientProps) {
   const router = useRouter();
   const offerOnboardingVisible = useOnboardingOfferActive(showOfferOnboarding);
   const isWelcomeGiftPage = planQuery === "credits";
-  const subscriptionBlockedByKyc = planQuery === "x" && !identityVerifiedForSubscription;
   const offerTiers = useMemo(() => content.offerTiers, [content.offerTiers]);
   const pageTitle = isWelcomeGiftPage
     ? welcomeGiftContent?.pageTitle?.trim() || "Active tes crédits offerts"
@@ -70,22 +64,15 @@ export function PackageSegnaXLandingClient({
     if (selectedFreeCredits || isWelcomeGiftPage) {
       return welcomeGiftContent?.activateCtaLabel?.trim() || "Activer mes crédits inclus";
     }
-    if (subscriptionBlockedByKyc) {
-      return "Vérifier d'abord mon identité";
-    }
     const tier = offerTiers[selectedOfferIndex];
     const synthetic = tier?.syntheticCheckoutCta?.trim();
     if (synthetic) return synthetic;
     const fallback = content.ctaLabel?.trim();
     if (fallback) return fallback;
     return "Continuer vers le paiement";
-  }, [content.ctaLabel, isWelcomeGiftPage, offerTiers, selectedFreeCredits, selectedOfferIndex, subscriptionBlockedByKyc, welcomeGiftContent?.activateCtaLabel]);
+  }, [content.ctaLabel, isWelcomeGiftPage, offerTiers, selectedFreeCredits, selectedOfferIndex, welcomeGiftContent?.activateCtaLabel]);
 
   const handleSubscriptionCheckout = async () => {
-    if (subscriptionBlockedByKyc) {
-      router.push(KYC_SUBSCRIPTION_HREF);
-      return;
-    }
     if (isCheckoutLoading) return;
     setIsCheckoutLoading(true);
     try {
@@ -108,7 +95,18 @@ export function PackageSegnaXLandingClient({
             : {}),
         }),
       });
-      const payload = (await response.json().catch(() => null)) as { url?: string; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        url?: string;
+        message?: string;
+        code?: string;
+      } | null;
+      if (response.status === 403 && payload?.code === "phone_not_verified") {
+        setIsCheckoutLoading(false);
+        router.push(
+          `/profile/edit-contact?requirePhone=1&returnPath=${encodeURIComponent(`/package?plan=${planQuery}`)}`,
+        );
+        return;
+      }
       if (!response.ok || !payload?.url) {
         throw new Error(payload?.message ?? "Impossible de rediriger vers Stripe.");
       }

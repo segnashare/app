@@ -11,8 +11,8 @@ export type PlanEntitlementComparisonLimits = {
 const FALLBACK: PlanEntitlementComparisonLimits = {
   guestIncludedOrders: 0,
   guestMonthlyCredits: 100,
-  segnaXIncludedOrders: 2,
-  segnaXMonthlyCredits: 500,
+  segnaXIncludedOrders: 1,
+  segnaXMonthlyCredits: 400,
 };
 
 /** Valeurs de secours (SSR hors `plan=x` ou erreur lecture DB). */

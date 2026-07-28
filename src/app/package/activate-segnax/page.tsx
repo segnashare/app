@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 
-const KYC_HREF = "/profile/kyc?tab=me";
 /** Essai gratuit « 1 mois offert » côté Stripe. */
 const TRIAL_PERIOD_DAYS = 30;
 
@@ -38,14 +37,7 @@ export default function ActivateSegnaXPage() {
         const payload = (await response.json().catch(() => null)) as {
           url?: string;
           message?: string;
-          code?: string;
         } | null;
-
-        if (response.status === 403 && payload?.code === "kyc_required") {
-          setMessage("Vérification d’identité requise…");
-          router.replace(KYC_HREF);
-          return;
-        }
 
         if (response.status === 401) {
           setMessage("Session expirée. Redirection…");

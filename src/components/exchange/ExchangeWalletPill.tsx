@@ -10,7 +10,6 @@ import { useWalletPillBalanceAnimation } from "@/components/exchange/useWalletPi
 import { WalletPanel } from "@/components/exchange/WalletPanel";
 import { WalletPillAnimatedBalance } from "@/components/exchange/WalletPillAnimatedBalance";
 import { WalletPillFrameReveal } from "@/components/exchange/WalletPillFrameReveal";
-import { SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
 import {
   WALLET_PILL_EASE_IN_OUT,
   WALLET_PILL_GROW_SCALE,
@@ -113,7 +112,7 @@ export function ExchangeWalletPill({
           !frameAnimation && pulseKind === "debit" && (cartExceedsWallet ? "wallet-pill-pulse-debit-light" : "wallet-pill-pulse-debit"),
           className,
         )}
-        aria-label={`Wallet : ${availablePoints} crédits Segna`}
+        aria-label={`Budget SegnaX : ${availablePoints} euros`}
       >
         {frameAnimation ? (
           <WalletPillFrameReveal
@@ -130,15 +129,9 @@ export function ExchangeWalletPill({
             slideFromY={slideFromY}
           />
         )}
-        <img
-          src={SEGNA_CREDIT_ICON_SRC}
-          alt=""
-          aria-hidden
-          className={cn(
-            "h-4 w-4 shrink-0 object-contain",
-            !cartExceedsWallet && "invert",
-          )}
-        />
+        <span className="text-sm font-semibold tabular-nums" aria-hidden>
+          €
+        </span>
         <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.25} />
       </motion.button>
 

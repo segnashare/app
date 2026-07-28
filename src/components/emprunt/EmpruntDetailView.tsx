@@ -134,7 +134,7 @@ export function EmpruntDetailView({
           detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement > 0 ? (
             <div className="mt-3 space-y-2.5 text-[15px] leading-snug">
               <div className="flex items-baseline justify-between gap-3 text-zinc-700">
-                <span className="min-w-0 pr-2">Complément d&apos;échange</span>
+                <span className="min-w-0 pr-2">Complément budget</span>
                 <span className="shrink-0 font-medium text-zinc-900">
                   <SegnaPointsUnitDisplay
                     points={detail.paymentBreakdown.creditSplit.pointsFromExchangeComplement}
@@ -157,7 +157,7 @@ export function EmpruntDetailView({
               {detail.paymentBreakdown.euroDetail.complementCreditsEuros > 0 ? (
                 <div className="flex items-baseline justify-between gap-3 text-zinc-700">
                   <span className="min-w-0 pr-2">
-                    {guestCashRental ? "Prix de location (TTC)" : "Complément d&apos;échange (TTC)"}
+                    {guestCashRental ? "Prix de location (TTC)" : "Complément budget (TTC)"}
                   </span>
                   <span className="shrink-0 tabular-nums font-medium text-zinc-900">
                     {formatEuros(detail.paymentBreakdown.euroDetail.complementCreditsEuros)}

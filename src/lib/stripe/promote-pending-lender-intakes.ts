@@ -20,6 +20,7 @@ export async function promotePendingLenderIntakesAfterStripeSubscription(
     p_user_id: userId,
   });
   if (error) {
-    throw new Error(error.message);
+    // Ne bloque pas la confirmation d’abonnement (RPC best-effort).
+    console.error("[stripe] promote pending lender intakes", error.message);
   }
 }

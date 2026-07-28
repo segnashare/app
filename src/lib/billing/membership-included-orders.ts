@@ -67,21 +67,13 @@ export function formatIncludedShippingForfaitLine(
   const bonus = Math.max(0, opts?.bonusRemaining ?? 0);
   const sub = Math.max(0, opts?.subscriptionRemaining ?? 0);
 
+  if (label === "Membre X" || label === "Membre +") {
+    return "1 échange inclus";
+  }
+
   if (label === "Guest" || (bonus > 0 && sub <= 0)) {
     return bonus === 1 ? "1 échange inclus disponible" : `${bonus} échanges inclus disponibles`;
   }
 
-  const forfaitName =
-    label === "Membre X" ? "SegnaX" : label === "Membre +" ? "Segna+" : null;
-  if (forfaitName) {
-    const subLine =
-      sub === 1
-        ? `1 échange inclus ce mois (${forfaitName})`
-        : `${sub} échanges inclus ce mois (${forfaitName})`;
-    if (bonus > 0) {
-      return `${subLine} · +${bonus} échange${bonus > 1 ? "s" : ""} bonus`;
-    }
-    return subLine;
-  }
   return remainingTotal === 1 ? "1 échange inclus disponible" : `${remainingTotal} échanges inclus disponibles`;
 }

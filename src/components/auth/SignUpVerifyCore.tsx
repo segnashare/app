@@ -210,9 +210,10 @@ export function SignUpVerifyCore({
 
     let error: { message?: string } | null = null;
     try {
-      const result = await supabase.auth.signInWithOtp({
+      // Renvoie le mail « Confirm signup » (code), pas le template Magic Link.
+      const result = await supabase.auth.resend({
+        type: "signup",
         email,
-        options: { shouldCreateUser: true },
       });
       error = result.error;
     } catch {

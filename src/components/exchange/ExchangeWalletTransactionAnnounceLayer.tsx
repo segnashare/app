@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -16,17 +17,24 @@ import {
   shouldAnnounceWalletTransaction,
 } from "@/lib/wallet/wallet-transaction-ack-storage";
 import {
+  hasSeenSegnaXWelcome,
+  markSegnaXWelcomeSeen,
+} from "@/lib/wallet/segnax-welcome-storage";
+import {
+  shouldUseSegnaXWelcomeCopy,
+  walletTransactionAnnouncementAmountCaption,
   walletTransactionAnnouncementBody,
   walletTransactionAnnouncementCta,
   walletTransactionAnnouncementSignedAmount,
   walletTransactionAnnouncementTitle,
   type WalletTransactionAnnouncement,
 } from "@/lib/wallet/wallet-transaction-announcement";
-import { SEGNA_CREDIT_ICON_SRC } from "@/lib/brand/segna-mark";
 import { cn } from "@/lib/utils/cn";
 
 type ExchangeWalletTransactionAnnounceLayerProps = {
   userId: string;
+  /** Pour afficher la bienvenue SegnaX à la 1ʳᵉ arrivée abonnée. */
+  membershipLabel?: "Guest" | "Membre +" | "Membre X";
 };
 
 async function fetchLatestWalletTransactionAnnouncement(): Promise<WalletTransactionAnnouncement | null> {
@@ -36,29 +44,105 @@ async function fetchLatestWalletTransactionAnnouncement(): Promise<WalletTransac
   return json.latestAnnouncement ?? null;
 }
 
-export function ExchangeWalletTransactionAnnounceLayer({ userId }: ExchangeWalletTransactionAnnounceLayerProps) {
+function readSubscriptionSuccessFromUrl(): { success: boolean; plan: string | null } {
+  if (typeof window === "undefined") return { success: false, plan: null };
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      success: params.get("subscription") === "success",
+      plan: params.get("plan")?.trim().toLowerCase() ?? null,
+    };
+  } catch {
+    return { success: false, plan: null };
+  }
+}
+
+function clearSubscriptionSuccessFromUrl(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("subscription") && !url.searchParams.has("plan")) return;
+    url.searchParams.delete("subscription");
+    url.searchParams.delete("plan");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Annonce synthétique si le grant n’est pas encore remonté mais l’URL dit succès SegnaX. */
+function syntheticSegnaXWelcomeAnnouncement(): WalletTransactionAnnouncement {
+  return {
+    id: "segnax-welcome-synthetic",
+    createdAt: new Date().toISOString(),
+    direction: "credit",
+    amountPoints: 400,
+    label: "Crédits inclus",
+    subtitle: "Crédits inclus du mois",
+    source: "subscription_monthly_consumption_grant",
+    planCode: "segna_x",
+  };
+}
+
+export function ExchangeWalletTransactionAnnounceLayer({
+  userId,
+  membershipLabel = "Guest",
+}: ExchangeWalletTransactionAnnounceLayerProps) {
+  const router = useRouter();
   const announcementCtx = useExchangeWalletAnnouncement();
   const [announcement, setAnnouncement] = useState<WalletTransactionAnnouncement | null>(null);
+  const [welcomeCopy, setWelcomeCopy] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
   const syncLatestAnnouncement = useCallback(async () => {
     try {
+      const { success: subscriptionSuccess, plan: urlPlan } = readSubscriptionSuccessFromUrl();
       const latest = await fetchLatestWalletTransactionAnnouncement();
-      if (!latest) {
+      const welcomeAlreadySeen = hasSeenSegnaXWelcome(userId);
+      const forceWelcome =
+        (subscriptionSuccess && (urlPlan === "segna_x" || urlPlan === "segnax" || !urlPlan)) ||
+        (membershipLabel === "Membre X" && !welcomeAlreadySeen);
+
+      if (latest) {
+        const useWelcome = shouldUseSegnaXWelcomeCopy(latest, {
+          forceWelcome,
+          welcomeAlreadySeen,
+        });
+
+        // Ne pas baseline-silencer un welcome SegnaX forcé (checkout / 1ʳᵉ visite).
+        if (!useWelcome) {
+          ensureWalletTransactionAckBaseline(userId, latest.id, latest.createdAt);
+        }
+
+        if (useWelcome) {
+          setAnnouncement(latest);
+          setWelcomeCopy(true);
+          setModalOpen(true);
+          return;
+        }
+
+        if (shouldAnnounceWalletTransaction(userId, latest.id)) {
+          setAnnouncement(latest);
+          setWelcomeCopy(false);
+          setModalOpen(true);
+          return;
+        }
+
+        ensureWalletTransactionAckBaseline(userId, latest.id, latest.createdAt);
+      } else {
         ensureWalletTransactionAckBaseline(userId, null, new Date().toISOString());
-        return;
       }
 
-      ensureWalletTransactionAckBaseline(userId, latest.id, latest.createdAt);
-
-      if (shouldAnnounceWalletTransaction(userId, latest.id)) {
-        setAnnouncement(latest);
+      // Checkout OK / 1ʳᵉ visite abonnée mais grant pas encore visible.
+      if (forceWelcome) {
+        setAnnouncement(syntheticSegnaXWelcomeAnnouncement());
+        setWelcomeCopy(true);
         setModalOpen(true);
       }
     } catch {
       /* ignore */
     }
-  }, [userId]);
+  }, [membershipLabel, userId]);
 
   useEffect(() => {
     void syncLatestAnnouncement();
@@ -73,13 +157,28 @@ export function ExchangeWalletTransactionAnnounceLayer({ userId }: ExchangeWalle
   const handleCta = useCallback(() => {
     if (!announcement) return;
 
-    acknowledgeWalletTransaction(userId, announcement.id, announcement.createdAt);
+    if (welcomeCopy) {
+      markSegnaXWelcomeSeen(userId);
+    }
+    if (!announcement.id.startsWith("segnax-welcome-synthetic")) {
+      acknowledgeWalletTransaction(userId, announcement.id, announcement.createdAt);
+    }
+    clearSubscriptionSuccessFromUrl();
     setModalOpen(false);
+
+    if (welcomeCopy) {
+      setAnnouncement(null);
+      setWelcomeCopy(false);
+      router.push("/shop");
+      return;
+    }
 
     announcementCtx?.triggerPillFrameAnimation(announcement, () => {
       setAnnouncement(null);
     });
-  }, [announcement, announcementCtx, userId]);
+  }, [announcement, announcementCtx, router, userId, welcomeCopy]);
+
+  const copyOpts = { welcomeCopy };
 
   return (
     <>
@@ -95,20 +194,31 @@ export function ExchangeWalletTransactionAnnounceLayer({ userId }: ExchangeWalle
             aria-labelledby="wallet-tx-announce-title"
           >
             <h2 id="wallet-tx-announce-title" className={segnaDialogTitleClass()}>
-              {walletTransactionAnnouncementTitle()}
+              {walletTransactionAnnouncementTitle(announcement, copyOpts)}
             </h2>
-            <p className={cn(segnaDialogBodyClass(), "mt-3")}>{walletTransactionAnnouncementBody(announcement)}</p>
+            <p className={cn(segnaDialogBodyClass(), "mt-3")}>
+              {walletTransactionAnnouncementBody(announcement, copyOpts)}
+            </p>
             <div
               className={cn(
                 segnaDialogMontserrat.className,
-                "mt-4 flex items-center justify-center gap-2.5",
+                "mt-4 flex flex-col items-center justify-center gap-1",
               )}
-              aria-label={`${walletTransactionAnnouncementSignedAmount(announcement)} crédits`}
+              aria-label={`${walletTransactionAnnouncementSignedAmount(announcement)} euros`}
             >
-              <span className="text-[28px] font-bold tabular-nums text-zinc-900">
-                {walletTransactionAnnouncementSignedAmount(announcement)}
-              </span>
-              <img src={SEGNA_CREDIT_ICON_SRC} alt="" className="h-8 w-8 shrink-0 object-contain" aria-hidden />
+              <div className="flex items-center justify-center gap-2.5">
+                <span className="text-[28px] font-bold tabular-nums text-zinc-900">
+                  {walletTransactionAnnouncementSignedAmount(announcement)}
+                </span>
+                <span className="text-[28px] font-bold tabular-nums text-zinc-900" aria-hidden>
+                  €
+                </span>
+              </div>
+              {walletTransactionAnnouncementAmountCaption(announcement, copyOpts) ? (
+                <p className="text-center text-[13px] font-medium text-zinc-500">
+                  {walletTransactionAnnouncementAmountCaption(announcement, copyOpts)}
+                </p>
+              ) : null}
             </div>
             <div className={cn(segnaDialogMontserrat.className, "mt-5")}>
               <button
@@ -116,7 +226,7 @@ export function ExchangeWalletTransactionAnnounceLayer({ userId }: ExchangeWalle
                 onClick={handleCta}
                 className="w-full rounded-full bg-zinc-900 py-3.5 text-[15px] font-semibold text-white transition hover:bg-zinc-800"
               >
-                {walletTransactionAnnouncementCta(announcement)}
+                {walletTransactionAnnouncementCta(announcement, copyOpts)}
               </button>
             </div>
           </div>

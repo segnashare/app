@@ -4,6 +4,7 @@ import {
   hasOnboardingIncludedCreditsGrant,
   resolveOnboardingProcessForOfferVisibility,
 } from "@/lib/onboarding/activate-included-credits";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import { createSupabaseDemoAdminClient } from "@/lib/supabase/demo-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ShopPageLoadContext } from "@/lib/shop/load-shop-page-progressive";
@@ -39,7 +40,8 @@ export async function buildShopPageLoadContext(): Promise<ShopPageLoadContext | 
     isDemoMode,
     onboardingProcess: onboardingProcess ?? null,
     includedCreditsClaimed,
-    guideCartOnboarding: userState.onboarding_process === "panier",
+    guideCartOnboarding:
+      IN_APP_ONBOARDING_UI_ENABLED && userState.onboarding_process === "panier",
     guestCashRental,
   };
 }

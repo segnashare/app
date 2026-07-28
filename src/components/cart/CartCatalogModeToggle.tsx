@@ -10,19 +10,31 @@ import {
 import { useCartCatalogMode } from "@/components/cart/CartCatalogModeContext";
 import { cn } from "@/lib/utils/cn";
 
+const MEMBER_CART_CATALOG_MODES: readonly CartCatalogMode[] = ["location_30j", "achat"] as const;
+
 type CartCatalogModeToggleProps = {
   className?: string;
   /** Panier : segments légèrement plus compacts. Fiche produit : libellés Semaine / Mois / Achat. */
   variant?: "default" | "compact" | "item";
+  /**
+   * Abonné : toggle 2 options Location / Achat (pas de 7j).
+   * Guest : 7j / 30j / Achat.
+   */
+  memberSimplified?: boolean;
 };
 
-export function CartCatalogModeToggle({ className, variant = "default" }: CartCatalogModeToggleProps) {
+export function CartCatalogModeToggle({
+  className,
+  variant = "default",
+  memberSimplified = false,
+}: CartCatalogModeToggleProps) {
   const { mode, setMode } = useCartCatalogMode();
+  const options = memberSimplified ? MEMBER_CART_CATALOG_MODES : CART_CATALOG_MODES;
 
   return (
     <div
       className={cn(
-        "grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1",
+        memberSimplified ? "grid grid-cols-2 gap-1 rounded-xl border border-zinc-200 bg-white p-1" : "grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1",
         variant === "compact" && "gap-0.5 p-0.5",
         variant === "item" && "gap-0 overflow-hidden rounded-full border border-zinc-200 bg-white p-0",
         className,
@@ -30,15 +42,22 @@ export function CartCatalogModeToggle({ className, variant = "default" }: CartCa
       role="tablist"
       aria-label={variant === "item" ? "Type de tarif" : "Mode panier"}
     >
-      {CART_CATALOG_MODES.map((option, index) => (
+      {options.map((option, index) => (
         <ModeSegment
           key={option}
           option={option}
-          active={mode === option}
-          onSelect={setMode}
+          active={mode === option || (memberSimplified && option === "location_30j" && mode === "location_7j")}
+          onSelect={(next) => {
+            if (memberSimplified && next === "location_30j" && mode === "location_7j") {
+              setMode("location_30j");
+              return;
+            }
+            setMode(next);
+          }}
           variant={variant}
+          memberSimplified={memberSimplified}
           segmentIndex={index}
-          segmentCount={CART_CATALOG_MODES.length}
+          segmentCount={options.length}
         />
       ))}
     </div>
@@ -50,6 +69,7 @@ function ModeSegment({
   active,
   onSelect,
   variant,
+  memberSimplified = false,
   segmentIndex,
   segmentCount,
 }: {
@@ -57,11 +77,15 @@ function ModeSegment({
   active: boolean;
   onSelect: (mode: CartCatalogMode) => void;
   variant: "default" | "compact" | "item";
+  memberSimplified?: boolean;
   segmentIndex: number;
   segmentCount: number;
 }) {
-  const label =
-    variant === "item"
+  const label = memberSimplified
+    ? option === "achat"
+      ? "Achat"
+      : "Location"
+    : variant === "item"
       ? cartCatalogModeItemPageLabel(option)
       : cartCatalogModeShortLabel(option);
 

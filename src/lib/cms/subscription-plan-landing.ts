@@ -188,7 +188,7 @@ const DEFAULTS: Omit<SubscriptionPlanLandingContent, "offerTiers" | "heroImageUr
   valueProps: [
     {
       title: "Plus de pièces",
-      body: "Accédez jusqu’à 500€ de pièces chaque mois, avec jusqu’à 6 pièces en location.",
+      body: "Accédez jusqu’à 400 € de pièces chaque mois, avec jusqu’à 6 pièces en location.",
     },
     {
       title: "Plus de liberté",

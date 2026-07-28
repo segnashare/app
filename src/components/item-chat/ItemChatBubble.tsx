@@ -39,7 +39,7 @@ function ConversationAvatar({
       alt=""
       className={cn(
         "shrink-0 rounded-full bg-zinc-100",
-        isLogo ? "object-cover bg-zinc-900" : "object-cover",
+        isLogo ? "object-cover bg-zinc-900 p-[2px] box-border" : "object-cover",
         className,
       )}
       referrerPolicy="no-referrer"
@@ -216,62 +216,62 @@ export function ItemChatBubble() {
           {view === "list" ? (
             showEmptyWelcome ? (
               <>
-                <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-2.5 py-2.5 max-md:px-3 max-md:py-3.5">
-                  <div className="flex min-w-0 items-center gap-1.5 max-md:gap-2">
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-2.5 py-2.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
                     <button
                       type="button"
                       aria-label="Toutes les discussions"
                       onClick={() => setBrowseEmptyList(true)}
-                      className="rounded-full p-1.5 text-zinc-900 hover:bg-zinc-100 max-md:p-2"
+                      className="rounded-full p-1.5 text-zinc-900 hover:bg-zinc-100"
                     >
-                      <ChevronLeft className="h-5 w-5 max-md:h-6 max-md:w-6" />
+                      <ChevronLeft className="h-5 w-5" />
                     </button>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src="/ressources/segna_logo.svg"
                       alt="Segna"
-                      className="h-6 w-auto object-contain max-md:h-7"
+                      className="h-6 w-auto object-contain"
                     />
                   </div>
-                  <div className="flex shrink-0 items-center gap-0.5 max-md:gap-1">
+                  <div className="flex shrink-0 items-center gap-0.5">
                     <button
                       type="button"
                       aria-label={expanded ? "Réduire le chat" : "Agrandir le chat"}
                       aria-pressed={expanded}
                       onClick={() => setExpanded((v) => !v)}
-                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                     >
                       {expanded ? (
-                        <Minimize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                        <Minimize2 className="h-4 w-4" />
                       ) : (
-                        <Maximize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                        <Maximize2 className="h-4 w-4" />
                       )}
                     </button>
                     <button
                       type="button"
                       aria-label="Fermer le chat"
-                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                       onClick={() => {
                         setExpanded(false);
                         setPanelOpen(false);
                       }}
                     >
-                      <X className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-white px-3.5 py-3.5 max-md:gap-3 max-md:px-4 max-md:py-4">
-                  <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]">
-                    <p className="mb-1 text-[12px] font-semibold max-md:text-[13px]">Segna</p>
+                <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-white px-3.5 py-3.5">
+                  <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900">
+                    <p className="mb-1 text-[12px] font-semibold">Segna</p>
                     Une question sur une pièce&nbsp;? Un bug&nbsp;? Un problème&nbsp;?
                     Écris-nous ci-dessous pour démarrer.
                   </div>
                 </div>
                 <form
                   onSubmit={onListNewChat}
-                  className="border-t border-zinc-100 bg-white px-3 py-2.5 max-md:px-4 max-md:py-3.5"
+                  className="border-t border-zinc-100 bg-white px-3 py-2.5.5"
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1 max-md:py-1.5 max-md:pl-4">
+                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
                     <input
                       ref={listInputRef}
                       value={listDraft}
@@ -282,15 +282,15 @@ export function ItemChatBubble() {
                       placeholder="Demande-nous n’importe quoi…"
                       maxLength={4000}
                       disabled={sending}
-                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none max-md:py-2.5 max-md:text-[17px]"
+                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
                       disabled={sending || !listDraft.trim()}
                       aria-label="Envoyer"
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35 max-md:size-11"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                     >
-                      <Send className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Send className="h-4 w-4" />
                     </button>
                   </div>
                   {error ? <p className="mt-1.5 text-[11px] text-red-600">{error}</p> : null}
@@ -298,39 +298,39 @@ export function ItemChatBubble() {
               </>
             ) : (
             <>
-              <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3.5 max-md:px-4 max-md:py-4">
-                <p className="text-[16px] font-bold text-zinc-900 max-md:text-[18px]">Chat</p>
-                <div className="flex items-center gap-0.5 max-md:gap-1">
+              <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3.5">
+                <p className="text-[16px] font-bold text-zinc-900">Chat</p>
+                <div className="flex items-center gap-0.5">
                   <button
                     type="button"
                     aria-label={expanded ? "Réduire le chat" : "Agrandir le chat"}
                     aria-pressed={expanded}
                     onClick={() => setExpanded((v) => !v)}
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                   >
                     {expanded ? (
-                      <Minimize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Minimize2 className="h-4 w-4" />
                     ) : (
-                      <Maximize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Maximize2 className="h-4 w-4" />
                     )}
                   </button>
                   <button
                     type="button"
                     aria-label="Fermer"
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                     onClick={() => {
                       setExpanded(false);
                       setPanelOpen(false);
                     }}
                   >
-                    <X className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {conversations.length === 0 ? (
-                    <p className="px-4 py-8 text-center text-[13px] text-zinc-500 max-md:text-[15px]">
+                    <p className="px-4 py-8 text-center text-[13px] text-zinc-500">
                       Aucune discussion pour l’instant.
                     </p>
                   ) : (
@@ -345,7 +345,7 @@ export function ItemChatBubble() {
                           key={c.id}
                           type="button"
                           onClick={() => void openConversation(c.id)}
-                          className="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-3.5 text-left hover:bg-zinc-50 max-md:gap-3.5 max-md:px-4 max-md:py-4"
+                          className="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-3.5 text-left hover:bg-zinc-50.5"
                         >
                           <span className="relative shrink-0">
                             {c.unreadStaffCount > 0 ? (
@@ -357,19 +357,19 @@ export function ItemChatBubble() {
                             <ConversationAvatar
                               name={operatorName}
                               url={c.operatorAvatarUrl}
-                              className="h-9 w-9 max-md:h-11 max-md:w-11"
+                              className="h-9 w-9"
                             />
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex items-baseline justify-between gap-2">
-                              <span className="truncate text-[14px] font-semibold text-zinc-900 max-md:text-[16px]">
+                              <span className="truncate text-[14px] font-semibold text-zinc-900">
                                 {listTitle}
                               </span>
-                              <span className="shrink-0 text-[11px] text-zinc-400 max-md:text-[12px]">
+                              <span className="shrink-0 text-[11px] text-zinc-400">
                                 {formatWhen(c.lastMessageAt)}
                               </span>
                             </span>
-                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500 max-md:mt-1 max-md:text-[14px]">
+                            <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
                               {preview}
                             </span>
                           </span>
@@ -380,9 +380,9 @@ export function ItemChatBubble() {
                 </div>
                 <form
                   onSubmit={onListNewChat}
-                  className="shrink-0 border-t border-zinc-100 bg-white px-3 py-2.5 max-md:px-4 max-md:py-3.5"
+                  className="shrink-0 border-t border-zinc-100 bg-white px-3 py-2.5.5"
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1 max-md:py-1.5 max-md:pl-4">
+                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
                     <input
                       ref={listInputRef}
                       value={listDraft}
@@ -393,15 +393,15 @@ export function ItemChatBubble() {
                       placeholder="Nouveau chat…"
                       maxLength={4000}
                       disabled={sending}
-                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none max-md:py-2.5 max-md:text-[17px]"
+                      className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
                       disabled={sending || !listDraft.trim()}
                       aria-label="Envoyer"
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35 max-md:size-11"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                     >
-                      <Send className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Send className="h-4 w-4" />
                     </button>
                   </div>
                   {error ? <p className="mt-1.5 text-[11px] text-red-600">{error}</p> : null}
@@ -411,15 +411,15 @@ export function ItemChatBubble() {
             )
           ) : (
             <>
-              <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-2.5 py-2.5 max-md:px-3 max-md:py-3.5">
-                <div className="flex min-w-0 items-center gap-1.5 max-md:gap-2">
+              <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-2.5 py-2.5">
+                <div className="flex min-w-0 items-center gap-1.5">
                   <button
                     type="button"
                     aria-label="Toutes les discussions"
                     onClick={goToList}
-                    className="rounded-full p-1.5 text-zinc-900 hover:bg-zinc-100 max-md:p-2"
+                    className="rounded-full p-1.5 text-zinc-900 hover:bg-zinc-100"
                   >
-                    <ChevronLeft className="h-5 w-5 max-md:h-6 max-md:w-6" />
+                    <ChevronLeft className="h-5 w-5" />
                   </button>
                   <ConversationAvatar
                     name={
@@ -430,46 +430,46 @@ export function ItemChatBubble() {
                       conversation?.operatorAvatarUrl ||
                       messages.find((m) => m.role === "staff" && m.staffAvatarUrl)?.staffAvatarUrl
                     }
-                    className="h-7 w-7 max-md:h-8 max-md:w-8"
+                    className="h-7 w-7"
                   />
-                  <p className="min-w-0 truncate text-[14px] font-semibold text-zinc-900 max-md:text-[15px]">
+                  <p className="min-w-0 truncate text-[14px] font-semibold text-zinc-900">
                     {title}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5 max-md:gap-1">
+                <div className="flex shrink-0 items-center gap-0.5">
                   <button
                     type="button"
                     aria-label={expanded ? "Réduire le chat" : "Agrandir le chat"}
                     aria-pressed={expanded}
                     onClick={() => setExpanded((v) => !v)}
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                   >
                     {expanded ? (
-                      <Minimize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Minimize2 className="h-4 w-4" />
                     ) : (
-                      <Maximize2 className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                      <Maximize2 className="h-4 w-4" />
                     )}
                   </button>
                   <button
                     type="button"
                     aria-label="Fermer le chat"
-                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 max-md:p-2.5"
+                    className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900.5"
                     onClick={() => {
                       setExpanded(false);
                       setPanelOpen(false);
                     }}
                   >
-                    <X className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
 
               <div
                 ref={listRef}
-                className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-white px-3.5 py-3.5 max-md:gap-3 max-md:px-4 max-md:py-4"
+                className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-white px-3.5 py-3.5"
               >
-                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]">
-                  <p className="mb-1 text-[12px] font-semibold max-md:text-[13px]">Segna</p>
+                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900">
+                  <p className="mb-1 text-[12px] font-semibold">Segna</p>
                   {welcomeCopy}
                 </div>
 
@@ -478,7 +478,7 @@ export function ItemChatBubble() {
                     return (
                       <div
                         key={m.id}
-                        className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-zinc-900 px-3.5 py-2.5 text-[13px] leading-snug text-white max-md:px-4 max-md:py-3 max-md:text-[15px]"
+                        className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-zinc-900 px-3.5 py-2.5 text-[13px] leading-snug text-white"
                       >
                         {m.body}
                       </div>
@@ -490,7 +490,7 @@ export function ItemChatBubble() {
                       return (
                         <p
                           key={m.id}
-                          className="mx-auto mt-1 max-w-[95%] text-center text-[12px] leading-snug text-zinc-400 max-md:text-[13px]"
+                          className="mx-auto mt-1 max-w-[95%] text-center text-[12px] leading-snug text-zinc-400"
                         >
                           <span className="font-semibold text-zinc-800">{joinName}</span>
                           {" "}
@@ -501,7 +501,7 @@ export function ItemChatBubble() {
                     return (
                       <div
                         key={m.id}
-                        className="mx-auto max-w-[85%] text-center text-[11px] leading-snug text-zinc-400 max-md:text-[12px]"
+                        className="mx-auto max-w-[85%] text-center text-[11px] leading-snug text-zinc-400"
                       >
                         {m.body}
                       </div>
@@ -512,8 +512,8 @@ export function ItemChatBubble() {
                     return (
                       <div key={m.id} className="mr-auto flex max-w-[92%] items-end gap-2">
                         <StaffAvatar name={name} url={m.staffAvatarUrl} />
-                        <div className="min-w-0 rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]">
-                          <p className="mb-1 text-[12px] font-semibold max-md:text-[13px]">{name}</p>
+                        <div className="min-w-0 rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900">
+                          <p className="mb-1 text-[12px] font-semibold">{name}</p>
                           {m.body}
                         </div>
                       </div>
@@ -522,19 +522,19 @@ export function ItemChatBubble() {
                   return (
                     <div
                       key={m.id}
-                      className="mr-auto max-w-[85%] rounded-2xl bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900 max-md:px-4 max-md:py-3 max-md:text-[15px]"
+                      className="mr-auto max-w-[85%] rounded-2xl bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900"
                     >
                       {m.body}
                     </div>
                   );
                 })}
                 {awaitingUsefulness ? (
-                  <div className="mt-1 flex justify-center gap-2 max-md:gap-3">
+                  <div className="mt-1 flex justify-center gap-2">
                     <button
                       type="button"
                       disabled={sending}
                       onClick={() => void submitUsefulnessRating("yes")}
-                      className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-40 max-md:min-h-11 max-md:px-5 max-md:text-[15px]"
+                      className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
                     >
                       Oui
                     </button>
@@ -542,7 +542,7 @@ export function ItemChatBubble() {
                       type="button"
                       disabled={sending}
                       onClick={() => void submitUsefulnessRating("no")}
-                      className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-40 max-md:min-h-11 max-md:px-5 max-md:text-[15px]"
+                      className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-40"
                     >
                       Non
                     </button>
@@ -555,7 +555,7 @@ export function ItemChatBubble() {
                       m.body === ITEM_CHAT_STAFF_JOINED_BODY &&
                       m.staffDisplayName,
                   ) ? (
-                  <p className="mx-auto mt-1 text-center text-[12px] text-zinc-400 max-md:text-[14px]">
+                  <p className="mx-auto mt-1 text-center text-[12px] text-zinc-400">
                     En attente de réponse
                   </p>
                 ) : null}
@@ -563,9 +563,9 @@ export function ItemChatBubble() {
 
               <form
                 onSubmit={onSubmit}
-                className="border-t border-zinc-100 bg-white px-3 py-2.5 max-md:px-4 max-md:py-3.5"
+                className="border-t border-zinc-100 bg-white px-3 py-2.5.5"
               >
-                <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1 max-md:py-1.5 max-md:pl-4">
+                <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
                   <input
                     ref={inputRef}
                     value={draft}
@@ -575,15 +575,15 @@ export function ItemChatBubble() {
                     }}
                     placeholder="Demande-nous n’importe quoi…"
                     maxLength={4000}
-                    className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none max-md:py-2.5 max-md:text-[17px]"
+                    className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                   />
                   <button
                     type="submit"
                     disabled={sending || !draft.trim()}
                     aria-label="Envoyer"
-                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35 max-md:size-11"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                   >
-                    <Send className="h-4 w-4 max-md:h-5 max-md:w-5" />
+                    <Send className="h-4 w-4" />
                   </button>
                 </div>
                 {error ? <p className="mt-1.5 text-[11px] text-red-600">{error}</p> : null}

@@ -15,6 +15,7 @@ import { ProfileIdentitySummary } from "@/components/profile/ProfileIdentitySumm
 import { ProfileProgressAvatar } from "@/components/profile/ProfileProgressAvatar";
 import { ProfileSavedSection } from "@/components/profile/ProfileSavedSection";
 import { readPhotoModifyDraft, removePhotoModifyDraft, savePhotoModifyDraft } from "@/lib/onboarding/photoModifyStore";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { measureClientPhotoPerf } from "@/lib/perf/client-photo-flow";
 import { cn } from "@/lib/utils/cn";
@@ -254,7 +255,8 @@ export function ProfileTabs({
   const [headerError, setHeaderError] = useState<string | null>(null);
   const hasWarmHeaderDataRef = useRef(Boolean(initialHeaderData));
   const [onboardingProcess, setOnboardingProcess] = useState<string | null>(null);
-  const shouldGuideProfileCompletion = onboardingProcess === "profile";
+  const shouldGuideProfileCompletion =
+    IN_APP_ONBOARDING_UI_ENABLED && onboardingProcess === "profile";
   useEffect(() => {
     if (initialHeaderData) return;
     const cached = readWarmProfileHeaderCache();

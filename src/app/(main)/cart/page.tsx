@@ -18,6 +18,7 @@ import { hasOnboardingIncludedCreditsGrant, resolveOnboardingProcessForOfferVisi
 import { trackOnboardingInAppStepServer } from "@/lib/analytics/track-onboarding-in-app-step-server";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { fetchBorrowCheckoutOptions } from "@/lib/billing/fetch-borrow-checkout-options";
+import { fetchPurchaseDiscountPercentForMembership } from "@/lib/billing/fetch-purchase-discount-percent";
 import { fetchPanierSectionOrder } from "@/lib/cms/fetch-panier-section-order";
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 import { getCurrentAuthUser, getCurrentUserAppState } from "@/lib/auth/current-user-server";
@@ -94,8 +95,6 @@ export default async function CartPage() {
 
   const walletPoints = parseUserWalletPointsRow(walletRes.data as Record<string, unknown>);
   const isDemoMode = userState?.onboarding_mode === "demo";
-  const showOfferInAppOnboarding =
-    userState?.onboarding_process === "panier" || userState?.onboarding_process === "offer";
   if (userState?.onboarding_process === "panier") {
     await perf.measure("users.onboardingOffer", () =>
       supabase
@@ -120,9 +119,12 @@ export default async function CartPage() {
   };
   const availablePoints = isDemoMode ? demoWalletPoints.total : walletPoints.total;
 
-  const [panierSectionOrder, borrowCheckoutOptions] = await Promise.all([
+  const [panierSectionOrder, borrowCheckoutOptions, purchaseDiscountPercent] = await Promise.all([
     perf.measure("cms.panier.order", () => fetchPanierSectionOrder(supabase)),
     perf.measure("billing.borrowCheckoutOptions", () => fetchBorrowCheckoutOptions(supabase as never)),
+    perf.measure("billing.purchaseDiscount", () =>
+      fetchPurchaseDiscountPercentForMembership(admin, membershipLabel),
+    ),
   ]);
   const needsShopSystemForYou = panierSectionOrder.includes("shop_system_for_you");
 
@@ -226,12 +228,13 @@ export default async function CartPage() {
           initialCoverUrlById={initialCoverUrlById}
           cartShopSystemForYouItems={cartShopSystemForYouItems}
           cartOutfitSuggestionItems={cartOutfitSuggestionItems}
-          showOfferOnboarding={showOfferInAppOnboarding}
           welcomeGiftOfferEligible={welcomeGiftOfferEligible}
           includedCreditsActivationContent={includedCreditsActivationContent}
           profileComplete={paymentEligibility.profileComplete}
           kycVerified={paymentEligibility.kycVerified}
+          phoneReady={paymentEligibility.phoneReady}
           borrowCheckoutOptions={borrowCheckoutOptions}
+          purchaseDiscountPercent={purchaseDiscountPercent}
         />
       </main>
     </PageImageReadyShell>

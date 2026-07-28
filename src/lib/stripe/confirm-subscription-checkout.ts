@@ -11,7 +11,7 @@ function isPlanCode(value: string | null | undefined): value is "guest" | "segna
 
 export type ConfirmSubscriptionCheckoutResult =
   | { ok: true; planCode: "guest" | "segna_plus" | "segna_x" }
-  | { ok: false; reason: string; status: number };
+  | { ok: false; reason: string; status: number; detail?: string };
 
 /**
  * Synchronise un Checkout Session abonnement Stripe → entitlements (+ empreinte si demandée).
@@ -33,7 +33,13 @@ export async function confirmSubscriptionCheckoutSession(params: {
     session.metadata?.user_id ??
     (typeof session.client_reference_id === "string" ? session.client_reference_id : null);
   if (expectedUserId && expectedUserId !== userId) {
-    return { ok: false, reason: "user_mismatch", status: 403 };
+    return {
+      ok: false,
+      reason: "user_mismatch",
+      status: 403,
+      detail:
+        "Ce paiement Stripe est lié à un autre compte Segna. Reconnecte-toi avec l’email utilisé lors du checkout, puis réessaie.",
+    };
   }
 
   const stripeCustomerId = typeof session.customer === "string" ? session.customer : null;
@@ -52,7 +58,13 @@ export async function confirmSubscriptionCheckoutSession(params: {
     return { ok: false, reason: "missing_subscription", status: 400 };
   }
 
-  await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+  try {
+    await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
+  } catch (e) {
+    console.error("[stripe] upsert subscription/entitlements", e);
+    const message = e instanceof Error ? e.message : "subscription_upsert_failed";
+    return { ok: false, reason: "subscription_upsert_failed", status: 500, detail: message };
+  }
 
   try {
     await createSegnaXSubscriptionBankHoldIfNeeded({
@@ -63,6 +75,7 @@ export async function confirmSubscriptionCheckoutSession(params: {
       customerId: stripeCustomerId,
     });
   } catch (e) {
+    // L’abonnement est déjà sync : ne pas faire échouer la page succès pour l’empreinte.
     console.error("[stripe] subscription bank hold", e);
   }
 

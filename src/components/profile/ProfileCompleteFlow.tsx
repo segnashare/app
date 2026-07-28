@@ -26,29 +26,12 @@ type ProfileCompleteFlowProps = {
 };
 
 function getOnboardingProfileHelpCopy(requirements: OnboardingProfileRequirements) {
-  const missingPhoto = !requirements.hasPhoto;
   const missingEssentialInfos = !requirements.hasEssentialInfos;
-  if (missingPhoto && missingEssentialInfos) {
-    return {
-      title: "Complète ton profil",
-      description:
-        "Renseigne tes infos essentielles et ajoute une photo de profil. Pas besoin d’atteindre 100 % pour continuer : on veut juste un profil clair et identifiable.",
-      ready: false,
-    };
-  }
-  if (missingPhoto) {
-    return {
-      title: "Complète ton profil",
-      description:
-        "Mets une photo de profil. Pas besoin d’atteindre 100 % pour continuer : on veut juste un profil clair et identifiable.",
-      ready: false,
-    };
-  }
   if (missingEssentialInfos) {
     return {
       title: "Complète ton profil",
       description:
-        "Renseigne tes infos essentielles. Pas besoin d’atteindre 100 % pour continuer : on veut juste un profil clair et identifiable.",
+        "Renseigne tes infos essentielles (prénom, âge, ville, tailles). Pas besoin d’atteindre 100 % pour continuer.",
       ready: false,
     };
   }
@@ -128,7 +111,6 @@ async function readOnboardingProfileRequirements(
       hasDisplayValue(userRow?.first_name ?? profile.display_name) &&
       hasDisplayValue(profile.age) &&
       hasDisplayValue(profile.city ?? location.label) &&
-      hasDisplayValue(profileData.work) &&
       Array.isArray(sizeRows) &&
       sizeRows.some((entry: { size_id?: string | null }) => hasDisplayValue(entry.size_id)),
   };

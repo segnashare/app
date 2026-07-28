@@ -4,8 +4,6 @@ import { fetchCmsSectionFramesResolved } from "@/lib/cms/fetch-cms-section-frame
 import { parseSubscriptionPlanLandingPayload } from "@/lib/cms/subscription-plan-landing";
 import { fetchWelcomeGiftLandingContent } from "@/lib/cms/welcome-gift-landing";
 import { getCurrentUserAppState } from "@/lib/auth/current-user-server";
-import { fetchUserKycVerified } from "@/lib/kyc/user-kyc-verified";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PackagePageProps = {
@@ -44,16 +42,6 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
       ? (await getCurrentUserAppState(user.id)).onboarding_process === "offer"
       : false;
 
-    let identityVerifiedForSubscription = true;
-    if (plan === "x") {
-      if (user?.id) {
-        const admin = createSupabaseAdminClient() as any;
-        identityVerifiedForSubscription = await fetchUserKycVerified(admin, user.id);
-      } else {
-        identityVerifiedForSubscription = false;
-      }
-    }
-
     const welcomeGiftContent =
       showOfferOnboarding && plan === "credits" ? await fetchWelcomeGiftLandingContent(supabase) : null;
 
@@ -61,7 +49,6 @@ export default async function PackagePage({ searchParams }: PackagePageProps) {
       <PackageSegnaXLandingClient
         content={content}
         planQuery={planQuery}
-        identityVerifiedForSubscription={identityVerifiedForSubscription}
         showOfferOnboarding={showOfferOnboarding}
         welcomeGiftContent={welcomeGiftContent}
       />

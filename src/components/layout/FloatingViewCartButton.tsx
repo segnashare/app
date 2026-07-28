@@ -13,6 +13,7 @@ import {
   FLOATING_BOTTOM_WITHOUT_TAB_BAR,
 } from "@/components/layout/floating-action-chrome";
 import { useActiveCartItemCount } from "@/hooks/useActiveCartItemCount";
+import { IN_APP_ONBOARDING_UI_ENABLED } from "@/lib/onboarding/in-app-onboarding";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -84,7 +85,11 @@ export function FloatingViewCartButton() {
         .select("onboarding_process")
         .eq("id", user.id)
         .maybeSingle<{ onboarding_process?: string | null }>();
-      if (!cancelled) setGuideCartOnboarding(data?.onboarding_process === "panier");
+      if (!cancelled) {
+        setGuideCartOnboarding(
+          IN_APP_ONBOARDING_UI_ENABLED && data?.onboarding_process === "panier",
+        );
+      }
     })();
     return () => {
       cancelled = true;

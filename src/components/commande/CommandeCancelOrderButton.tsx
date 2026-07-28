@@ -164,7 +164,7 @@ export function CommandeCancelOrderButton({ cartId, cancellation, stripeEuroLine
                 <p className="font-semibold text-zinc-900">Détail paiement carte (TTC)</p>
                 {stripeEuroLines.complementCreditsEuros > 0.005 ? (
                   <div className="flex justify-between gap-2">
-                    <span>Complément d&apos;échange</span>
+                    <span>Complément budget</span>
                     <span className="shrink-0 tabular-nums font-medium text-zinc-900">
                       {formatEuros(stripeEuroLines.complementCreditsEuros)}
                     </span>
