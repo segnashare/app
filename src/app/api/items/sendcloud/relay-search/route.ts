@@ -3,14 +3,11 @@ import { NextResponse } from "next/server";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { searchSendcloudServicePoints } from "@/lib/sendcloud/service-points";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const { user, error: userError } = await resolveRequestUser(request);
+  if (userError || !user) {
     return NextResponse.json({ error: "Authentification requise" }, { status: 401 });
   }
 

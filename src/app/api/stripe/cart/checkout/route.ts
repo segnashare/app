@@ -69,11 +69,50 @@ import { resolveCartCheckoutShippingRoundTrips } from "@/lib/sendcloud/resolve-c
 import { resolveHomeCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-home-delivery-options";
 import { resolveRelayCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv, isSendcloudCheckoutLivePricingEnabled } from "@/lib/sendcloud/config";
+import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForBillingSubscription, walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { parseUserWalletPointsRow } from "@/lib/wallet/user-wallet-row";
+
+function resolveCartCancelUrl(cancelRaw: string, returnUrlBase: string): string {
+  const websiteOrigin = getWebsiteOrigin();
+  /** Deep link Expo (`segna://…`) — retour app après annulation Checkout. */
+  if (cancelRaw.startsWith("segna://") && !cancelRaw.includes("..")) {
+    return cancelRaw;
+  }
+  if (
+    (cancelRaw.startsWith(`${websiteOrigin}/`) || cancelRaw === websiteOrigin) &&
+    !cancelRaw.includes("..")
+  ) {
+    return cancelRaw;
+  }
+  try {
+    const parsed = new URL(cancelRaw);
+    if (
+      (parsed.pathname.startsWith("/panier") || parsed.pathname.startsWith("/abonnement")) &&
+      !cancelRaw.includes("..")
+    ) {
+      return cancelRaw;
+    }
+  } catch {
+    // ignore
+  }
+  if (cancelRaw.startsWith("/panier") && !cancelRaw.includes("..")) {
+    return `${websiteOrigin}${cancelRaw}`;
+  }
+  return `${returnUrlBase}/cart/payment?checkout=cancelled`;
+}
+
+function resolveMobileSuccessUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("segna://") || trimmed.includes("..")) return null;
+  return trimmed.includes("{CHECKOUT_SESSION_ID}")
+    ? trimmed
+    : `${trimmed}${trimmed.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
+}
 
 type DeliveryChannel = "relay" | "home";
 type HomeSpeed = "standard" | "uber_direct" | "priority";
@@ -244,12 +283,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = await createSupabaseServerClient();
-    const admin = createSupabaseAdminClient();
     const {
-      data: { user },
+      user,
       error: userError,
-    } = await supabase.auth.getUser();
+      supabase,
+    } = await resolveRequestUserClient(request);
+    const admin = createSupabaseAdminClient();
 
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
@@ -865,8 +904,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
     }
 
-    const successUrl = `${config.returnUrlBase}/api/stripe/cart/sync?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${config.returnUrlBase}/cart/payment?checkout=cancelled`;
+    const cancelRaw =
+      typeof body.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
+    const cancelUrl = cancelRaw
+      ? resolveCartCancelUrl(cancelRaw, config.returnUrlBase)
+      : `${config.returnUrlBase}/cart/payment?checkout=cancelled`;
+
+    const mobileSuccessUrl = resolveMobileSuccessUrl(body.mobileSuccessUrl);
+    let successUrl =
+      mobileSuccessUrl ??
+      `${config.returnUrlBase}/api/stripe/cart/sync?session_id={CHECKOUT_SESSION_ID}`;
+    if (!mobileSuccessUrl) {
+      try {
+        const cancelParsed = new URL(cancelUrl);
+        if (cancelParsed.pathname.startsWith("/panier")) {
+          successUrl = `${cancelParsed.origin}/panier/succes?session_id={CHECKOUT_SESSION_ID}`;
+        }
+      } catch {
+        // keep app sync
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
