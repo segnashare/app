@@ -987,6 +987,62 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
     }
 
+    const wantsPaymentSheet =
+      body.paymentUi === "payment_sheet" || body.paymentUi === "native";
+
+    /** Mobile in-app : PaymentIntent + Payment Sheet (pas de Checkout URL). */
+    if (wantsPaymentSheet) {
+      if (!config.publishableKey) {
+        return NextResponse.json(
+          { message: "STRIPE_PUBLISHABLE_KEY manquante côté serveur." },
+          { status: 500 },
+        );
+      }
+      if (totalCents < 50) {
+        return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
+      }
+
+      const ephemeralKey = await stripe.ephemeralKeys.create(
+        { customer: stripeCustomerId },
+        { apiVersion: "2026-02-25.clover" },
+      );
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: totalCents,
+        currency: "eur",
+        customer: stripeCustomerId,
+        automatic_payment_methods: { enabled: true },
+        ...(purchaseMode
+          ? {}
+          : {
+              setup_future_usage: "off_session" as const,
+            }),
+        metadata: checkoutMetadata,
+        description: purchaseMode
+          ? "Commande Segna — achat"
+          : guestCashRental
+            ? "Commande Segna — location"
+            : "Commande Segna — complément / livraison",
+      });
+
+      if (!paymentIntent.client_secret || !ephemeralKey.secret) {
+        return NextResponse.json(
+          { message: "Stripe n'a pas renvoyé les secrets Payment Sheet." },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        paymentUi: "payment_sheet",
+        paymentIntentId: paymentIntent.id,
+        paymentIntentClientSecret: paymentIntent.client_secret,
+        customerId: stripeCustomerId,
+        customerEphemeralKeySecret: ephemeralKey.secret,
+        publishableKey: config.publishableKey,
+        amountCents: totalCents,
+      });
+    }
+
     const cancelRaw =
       typeof body.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
     const cancelUrl = cancelRaw

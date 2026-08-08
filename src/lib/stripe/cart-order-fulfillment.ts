@@ -10,7 +10,11 @@ import { finalizeCoursierExpressHomeAfterConfirm } from "@/lib/cart/coursier-che
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { persistCartOutboundSendcloudCheckoutMeta } from "@/lib/stripe/persist-cart-sendcloud-outbound-meta";
-import { upsertCartOrderStripeInvoiceFromSession, upsertCartOrderStripeInvoiceFromStripeInvoice } from "@/lib/stripe/upsert-cart-order-stripe-invoice";
+import {
+  upsertCartOrderStripeInvoiceFromPaymentIntent,
+  upsertCartOrderStripeInvoiceFromSession,
+  upsertCartOrderStripeInvoiceFromStripeInvoice,
+} from "@/lib/stripe/upsert-cart-order-stripe-invoice";
 import { getStripeConfig } from "@/lib/social/stripe";
 import {
   issueGuestPurchaseStripeInvoiceAfterCheckoutPayment,
@@ -417,6 +421,51 @@ export async function confirmCartPaidFromStripeSession(
     } catch (e) {
       console.error("[cart-order] issueGuestPurchaseStripeInvoiceAfterCheckoutPayment", e);
     }
+  }
+
+  return { ok: true, alreadyConfirmed };
+}
+
+/**
+ * Panier payé via Payment Sheet (PaymentIntent) — même fulfillment que Checkout Session.
+ * Idempotent si le panier est déjà `confirmed`.
+ */
+export async function confirmCartPaidFromStripePaymentIntent(
+  admin: AdminClientWithTable,
+  paymentIntent: Stripe.PaymentIntent,
+  userId: string,
+): Promise<{ ok: boolean; alreadyConfirmed?: boolean; skipped?: boolean }> {
+  if (!isCartOrderCheckoutKind(paymentIntent.metadata?.checkout_kind)) {
+    return { ok: true, skipped: true };
+  }
+  if (paymentIntent.status !== "succeeded") {
+    return { ok: true, skipped: true };
+  }
+
+  const cartId = paymentIntent.metadata?.cart_id?.trim();
+  if (!cartId) {
+    throw new Error("cart_order: metadata cart_id manquant");
+  }
+
+  const expectedUserId = paymentIntent.metadata?.user_id?.trim();
+  if (expectedUserId && expectedUserId !== userId) {
+    throw new Error("user_mismatch");
+  }
+
+  const { alreadyConfirmed } = await confirmCartPaidFromCheckoutMetadata(admin, {
+    userId,
+    cartId,
+    checkoutSessionId: paymentIntent.id,
+    paymentIntentId: paymentIntent.id,
+    stripeCustomerId: typeof paymentIntent.customer === "string" ? paymentIntent.customer : null,
+    metadata: paymentIntent.metadata,
+  });
+
+  try {
+    await upsertCartOrderStripeInvoiceFromPaymentIntent(admin, paymentIntent, userId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown";
+    console.error("[cart-order] cart_order_stripe_invoices upsert from PI failed", msg);
   }
 
   return { ok: true, alreadyConfirmed };

@@ -2,10 +2,15 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
+import {
+  confirmCartPaidFromStripePaymentIntent,
+  confirmCartPaidFromStripeSession,
+} from "@/lib/stripe/cart-order-fulfillment";
+import { persistStripeCustomerDefaultPaymentMethodFromPaymentIntent } from "@/lib/stripe/persist-customer-default-payment-method";
 import {
   trackOrderConfirmedServer,
   parseOrderConfirmedItemCount,
+  parseOrderCheckoutEconomicsFromMetadata,
   parseOrderCheckoutEconomicsFromStripeSession,
 } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
@@ -167,6 +172,53 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
         }
       }
 
+      return "processed";
+    }
+
+    case "payment_intent.succeeded": {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      if (paymentIntent.metadata?.checkout_kind !== "cart_order") return "ignored";
+
+      const stripeCustomerId =
+        typeof paymentIntent.customer === "string" ? paymentIntent.customer : null;
+      let userId = paymentIntent.metadata?.user_id?.trim() || null;
+      if (!userId && stripeCustomerId) {
+        userId = await resolveUserIdFromCustomer(admin, stripeCustomerId);
+      }
+      if (!userId) return "ignored";
+
+      if (stripeCustomerId) {
+        await upsertBillingCustomer(admin, userId, stripeCustomerId, paymentIntent.metadata ?? {});
+      }
+
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromPaymentIntent(stripe, paymentIntent);
+      } catch (e) {
+        console.error("[stripe/webhook] persist default PM from PI", e);
+      }
+
+      const confirmResult = await confirmCartPaidFromStripePaymentIntent(admin, paymentIntent, userId);
+      const cartId = paymentIntent.metadata?.cart_id?.trim();
+      if (cartId) {
+        try {
+          await notifyCartOrderPaidAfterConfirmation(admin, {
+            userId,
+            cartId,
+            skipMemberNotification: paymentIntent.metadata?.purchase_mode === "true",
+          });
+        } catch (e) {
+          console.error("[stripe/webhook] notifyCartOrderPaidAfterConfirmation PI", e);
+        }
+        if (!confirmResult.alreadyConfirmed && !confirmResult.skipped) {
+          trackOrderConfirmedServer(userId, {
+            cart_id: cartId,
+            checkout_mode: "webhook_payment_intent",
+            used_included_order: paymentIntent.metadata?.used_included_order === "true",
+            item_count: parseOrderConfirmedItemCount(paymentIntent.metadata ?? undefined),
+            ...parseOrderCheckoutEconomicsFromMetadata(paymentIntent.metadata ?? undefined),
+          });
+        }
+      }
       return "processed";
     }
 
