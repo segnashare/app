@@ -5,7 +5,7 @@ import { SEGNA_PARCEL_WEIGHT_GRAMS } from "@/lib/shipping/exchange-shipping-pric
 import { fetchCheckoutRelaySendcloudPricing } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { fetchCheckoutHomeSendcloudPricing } from "@/lib/sendcloud/checkout-home-delivery-options";
 import { shouldAttachCheckoutDebugToApiResponse } from "@/lib/sendcloud/checkout-home-debug";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 function parseItemCount(raw: unknown): number | null {
   const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
@@ -19,11 +19,8 @@ function parseChannel(raw: unknown): "relay" | "home" | null {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const { user, error: userError } = await resolveRequestUser(request);
+  if (userError || !user) {
     return NextResponse.json({ error: "Authentification requise" }, { status: 401 });
   }
 

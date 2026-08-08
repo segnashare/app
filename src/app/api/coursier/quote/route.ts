@@ -17,7 +17,7 @@ import {
   formatMissingEnvMessage,
   getShippingEnvDiagnostics,
 } from "@/lib/shipping/server-env-diagnostics";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
   if (!raw || typeof raw !== "object") return null;
@@ -85,11 +85,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = (await createSupabaseServerClient()) as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const { user, error: userError } = await resolveRequestUserClient(request);
     if (userError || !user) {
       return NextResponse.json({ ok: false, message: "Session invalide." }, { status: 401 });
     }
