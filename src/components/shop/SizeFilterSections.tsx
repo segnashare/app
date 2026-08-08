@@ -7,6 +7,7 @@ import {
   SIZE_FILTER_RAYONS,
   allSizeIdsInCategory,
   groupSizesByCategory,
+  isSizeOptionSelected,
   sousRayonLabel,
   type SizeFilterCategory,
   type SizeFilterOption,
@@ -18,7 +19,8 @@ type SizeFilterSectionsProps = {
   selectedIds: string[];
   browseCategory: SizeFilterCategory | null;
   onBrowseCategoryChange: (category: SizeFilterCategory | null) => void;
-  onToggle: (id: string) => void;
+  /** Toggle une option agrégée (top+bottom) — reçoit l’option complète. */
+  onToggleOption: (option: SizeFilterOption) => void;
   onClearAll: () => void;
   onSelectAllInCategory: (ids: string[]) => void;
   scrollRowClassName: string;
@@ -31,7 +33,7 @@ export function SizeFilterSections({
   selectedIds,
   browseCategory,
   onBrowseCategoryChange,
-  onToggle,
+  onToggleOption,
   onClearAll,
   onSelectAllInCategory,
   scrollRowClassName,
@@ -82,13 +84,13 @@ export function SizeFilterSections({
               onClick: () => onSelectAllInCategory(categoryIds),
             })}
             {categoryOptions.map((option) => {
-              const active = selectedIds.includes(option.id);
+              const active = isSizeOptionSelected(option, selectedIds);
               return (
-                <Fragment key={option.id}>
+                <Fragment key={`${option.code}:${option.id}`}>
                   {renderSizeChip({
                     option,
                     active,
-                    onClick: () => onToggle(option.id),
+                    onClick: () => onToggleOption(option),
                   })}
                 </Fragment>
               );

@@ -52,6 +52,7 @@ import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-custome
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
+import { stripeFrVat20TaxParams } from "@/lib/stripe/fr-vat-tax-rate";
 import { parseFranceCoursierAddress } from "@/lib/coursier/addresses";
 import { readCoursierConfig } from "@/lib/coursier/config";
 import { isCoursierCheckoutEnabled } from "@/lib/coursier/coursier-checkout-enabled";
@@ -66,7 +67,10 @@ import { memberPostalCodeForCheckoutShipping } from "@/lib/cart/checkout-shippin
 import type { CheckoutSendcloudOutboundOption } from "@/lib/cart/checkout-sendcloud-outbound-option";
 import { resolveDefaultCheckoutReturnRelayHub } from "@/lib/sendcloud/resolve-checkout-return-relay-hub";
 import { resolveCartCheckoutShippingRoundTrips } from "@/lib/sendcloud/resolve-cart-checkout-shipping-round-trips";
-import { resolveHomeCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-home-delivery-options";
+import {
+  fetchCheckoutHomeSendcloudPricing,
+  resolveHomeCheckoutShippingRoundTrip,
+} from "@/lib/sendcloud/checkout-home-delivery-options";
 import { resolveRelayCheckoutShippingRoundTrip } from "@/lib/sendcloud/checkout-relay-delivery-options";
 import { getSendcloudEnv, isSendcloudCheckoutLivePricingEnabled } from "@/lib/sendcloud/config";
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
@@ -250,10 +254,13 @@ export async function POST(request: Request) {
     const coursierSlotKey =
       typeof body.coursierSlotKey === "string" ? body.coursierSlotKey.trim() : "";
     const deliveryInstructions = parseDeliveryInstructions(body.deliveryInstructions);
-    const sendcloudOutboundSelection = parseSendcloudOutboundSelection(body.sendcloudOutboundSelection);
+    let sendcloudOutboundSelection = parseSendcloudOutboundSelection(body.sendcloudOutboundSelection);
+    const purchaseModeEarly = body.purchaseMode === true;
     const needsSendcloudOutboundPick =
       isSendcloudCheckoutLivePricingEnabled() &&
-      !(deliveryChannel === "home" && homeSpeedBilling === "uber_direct");
+      !(deliveryChannel === "home" && homeSpeedBilling === "uber_direct") &&
+      // Website purchase : barème interne / Sendcloud sans sélection UI transporteur.
+      !purchaseModeEarly;
 
     const relaySelection = parseRelaySelection(body.relaySelection);
     const deliveryAddress = parseDeliveryAddress(body.deliveryAddress);
@@ -298,17 +305,48 @@ export async function POST(request: Request) {
 
     const paymentEligibility = await fetchCartPaymentEligibility(supabase as any, admin, userId);
     if (!paymentEligibility.canAccessPayment) {
-      const profileRequirements = !paymentEligibility.profileComplete
-        ? await fetchOnboardingProfileRequirements(supabase as any, userId)
-        : null;
-      const message = !paymentEligibility.profileComplete
-        ? cartPaymentProfileGateMessage(profileRequirements)
-        : !paymentEligibility.phoneReady
-          ? cartPaymentPhoneGateMessage()
-          : KYC_REQUIRED_FOR_BORROW
-            ? "Valide ton identité (KYC) avant de payer."
-            : "Complète ton profil avant de payer.";
-      return NextResponse.json({ message, code: "payment_gate" }, { status: 403 });
+      // Achat website : prénom + adresse + téléphone (pas tailles / âge / KYC obligatoires).
+      let websitePurchaseReady = false;
+      if (purchaseModeEarly) {
+        const [{ data: memberRow }, { data: profileRow }] = await Promise.all([
+          admin.from("users").select("first_name, adress, phone").eq("id", userId).maybeSingle(),
+          admin.from("user_profiles").select("profile_data").eq("user_id", userId).maybeSingle(),
+        ]);
+        const member = memberRow as {
+          first_name?: string | null;
+          adress?: string | null;
+          phone?: string | null;
+        } | null;
+        const profileData = ((profileRow as { profile_data?: Record<string, unknown> } | null)
+          ?.profile_data ?? {}) as Record<string, unknown>;
+        const location = (profileData.location ?? {}) as Record<string, unknown>;
+        const phoneE164 =
+          typeof profileData.phone_e164 === "string" ? profileData.phone_e164.trim() : "";
+        const hasName = Boolean(member?.first_name?.trim());
+        const hasAddress = Boolean(
+          member?.adress?.trim() ||
+            (typeof location.label === "string" && location.label.trim()),
+        );
+        const hasPhone = Boolean(phoneE164 || member?.phone?.trim());
+        websitePurchaseReady = hasName && hasAddress && hasPhone;
+      }
+      if (!websitePurchaseReady) {
+        const profileRequirements = !paymentEligibility.profileComplete
+          ? await fetchOnboardingProfileRequirements(supabase as any, userId)
+          : null;
+        const message = purchaseModeEarly
+          ? !websitePurchaseReady
+            ? "Complète ton nom, ton adresse et ton téléphone pour payer."
+            : "Complète tes informations pour payer."
+          : !paymentEligibility.profileComplete
+            ? cartPaymentProfileGateMessage(profileRequirements)
+            : !paymentEligibility.phoneReady
+              ? cartPaymentPhoneGateMessage()
+              : KYC_REQUIRED_FOR_BORROW
+                ? "Valide ton identité (KYC) avant de payer."
+                : "Complète ton profil avant de payer.";
+        return NextResponse.json({ message, code: "payment_gate" }, { status: 403 });
+      }
     }
 
     const membershipLabel = await resolveMembershipLabel(supabase, userId);
@@ -442,6 +480,42 @@ export async function POST(request: Request) {
       relayPostalCode: relaySelection?.postalCode,
       deliveryAddress,
     });
+
+    // Achat sans choix transporteur (website) : Chronopost domicile (18h) par défaut,
+    // pour que la sélection Sendcloud soit tarifée et enregistrée sur le panier (BO/étiquette).
+    if (
+      purchaseMode &&
+      deliveryChannel === "home" &&
+      homeSpeedBilling === "standard" &&
+      !sendcloudOutboundSelection?.optionCode?.trim() &&
+      memberPostalCode.length === 5
+    ) {
+      const scEnvDefault = getSendcloudEnv();
+      if (scEnvDefault) {
+        const homeQuotes = await fetchCheckoutHomeSendcloudPricing(scEnvDefault, {
+          itemCount,
+          memberPostalCode,
+        });
+        if (homeQuotes.ok) {
+          const defaultHomeOption =
+            homeQuotes.pricing.methodOptions.find((o) => o.methodKey === "chronopost") ??
+            homeQuotes.pricing.methodOptions[0] ??
+            null;
+          if (defaultHomeOption) {
+            sendcloudOutboundSelection = {
+              optionCode: defaultHomeOption.optionCode,
+              optionId: defaultHomeOption.deliveryMethodId,
+              title: defaultHomeOption.title,
+              carrierCode: defaultHomeOption.carrierCode,
+              carrierName: defaultHomeOption.carrierName,
+              shippingRateCents: defaultHomeOption.outboundTtcCents,
+            };
+          }
+        } else {
+          console.error("[stripe/cart/checkout] default chronopost home option", homeQuotes.error);
+        }
+      }
+    }
 
     const relayOutboundOptionCode =
       deliveryChannel === "relay" ? sendcloudOutboundSelection?.optionCode ?? null : null;
@@ -825,6 +899,7 @@ export async function POST(request: Request) {
     });
 
     let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    const vat = stripeFrVat20TaxParams();
 
     if (purchaseMode) {
       const shippingDescription =
@@ -834,7 +909,9 @@ export async function POST(request: Request) {
             : "Livraison point relais (TTC)"
           : homeSpeedBilling === "uber_direct"
             ? "Livraison à domicile express (Coursier.fr, TTC)"
-            : "Livraison à domicile (aller, TTC)";
+            : homePlanKind === "chronopost"
+              ? "Livraison à domicile — Chronopost 18h (TTC)"
+              : "Livraison à domicile (aller, TTC)";
       lineItems = await buildGuestPurchaseCheckoutLineItems(admin, {
         cartId: activeCart.cartId,
         itemsCents: creditsCents,
@@ -848,6 +925,7 @@ export async function POST(request: Request) {
         price_data: {
           currency: "eur",
           unit_amount: creditsCents,
+          ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
           product_data: {
             name: guestCashRental
               ? purchaseMode
@@ -861,6 +939,7 @@ export async function POST(request: Request) {
               : `${missingExchangeMods} € manquant(s) · 1 mois à 10 %`,
           },
         },
+        ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
       });
     }
 
@@ -870,6 +949,7 @@ export async function POST(request: Request) {
         price_data: {
           currency: "eur",
           unit_amount: fees.shippingTtcCents,
+          ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
           product_data: {
             name: purchaseMode ? "Livraison (aller, TTC)" : "Livraison échange (aller-retour, TTC)",
             description:
@@ -884,6 +964,7 @@ export async function POST(request: Request) {
                   : "Livraison à domicile",
           },
         },
+        ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
       });
     }
 
@@ -893,10 +974,12 @@ export async function POST(request: Request) {
         price_data: {
           currency: "eur",
           unit_amount: fees.serviceTtcCents,
+          ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
           product_data: {
             name: "Frais de service (TTC)",
           },
         },
+        ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
       });
     }
 

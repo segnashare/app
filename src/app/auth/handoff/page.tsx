@@ -11,6 +11,7 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const HANDOFF_TYPE_KEY = "segna_website_handoff_type";
+const HANDOFF_NEXT_KEY = "segna_website_handoff_next";
 
 /**
  * Handoff website → app : lit les tokens dans le hash, pose la session,
@@ -36,9 +37,17 @@ export default function AuthHandoffPage() {
         const accessToken = params.get("access_token");
         const refreshToken = params.get("refresh_token");
         const typeFromHash = params.get("type")?.trim() ?? "";
+        const nextFromHash = params.get("next")?.trim() ?? "";
         if (typeFromHash) {
           try {
             sessionStorage.setItem(HANDOFF_TYPE_KEY, typeFromHash);
+          } catch {
+            // ignore
+          }
+        }
+        if (nextFromHash.startsWith("/") && !nextFromHash.startsWith("//")) {
+          try {
+            sessionStorage.setItem(HANDOFF_NEXT_KEY, nextFromHash);
           } catch {
             // ignore
           }
@@ -50,6 +59,15 @@ export default function AuthHandoffPage() {
           } catch {
             handoffType = "";
           }
+        }
+        let safeNext = "";
+        try {
+          const storedNext = sessionStorage.getItem(HANDOFF_NEXT_KEY)?.trim() ?? "";
+          if (storedNext.startsWith("/") && !storedNext.startsWith("//")) {
+            safeNext = storedNext;
+          }
+        } catch {
+          safeNext = "";
         }
 
         const supabase = createSupabaseBrowserClient();
@@ -142,6 +160,13 @@ export default function AuthHandoffPage() {
             nextPath = step;
           } else {
             nextPath = "/onboarding/3";
+          }
+        } else if (safeNext) {
+          nextPath = safeNext;
+          try {
+            sessionStorage.removeItem(HANDOFF_NEXT_KEY);
+          } catch {
+            // ignore
           }
         }
 

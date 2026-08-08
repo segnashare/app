@@ -2,10 +2,24 @@ import { NextResponse } from "next/server";
 
 import { getItemChatCorsOrigins } from "@/lib/item-chat/config";
 
+function resolveItemChatAllowOrigin(origin: string): string {
+  const allowed = getItemChatCorsOrigins();
+  if (!origin) return allowed[0]!;
+  if (allowed.includes(origin)) return origin;
+  // Expo tunnel / Expo Go web preview / local Metro
+  if (
+    /\.exp\.direct$/i.test(origin) ||
+    /\.expo\.dev$/i.test(origin) ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+  ) {
+    return origin;
+  }
+  return allowed[0]!;
+}
+
 export function itemChatCorsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get("origin")?.trim() || "";
-  const allowed = getItemChatCorsOrigins();
-  const allowOrigin = allowed.includes(origin) ? origin : allowed[0]!;
+  const allowOrigin = resolveItemChatAllowOrigin(origin);
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",

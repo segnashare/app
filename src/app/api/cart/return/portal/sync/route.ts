@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { runCartReturnPortalSync } from "@/lib/cart/member-cart-return-portal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,10 +21,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "cart_id invalide" }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await resolveRequestUser(request);
   if (!user) {
     return NextResponse.json({ ok: false as const, error: "Authentification requise" }, { status: 401 });
   }

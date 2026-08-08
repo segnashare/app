@@ -1,6 +1,31 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type NotificationDeliveryChannels = "none" | "email" | "phone" | "email+phone";
+export type NotificationDeliveryChannels =
+  | "none"
+  | "email"
+  | "phone"
+  | "email+phone"
+  | "push"
+  | "email+push"
+  | "phone+push"
+  | "email+phone+push";
+
+export function mergeDeliveryChannels(
+  current: NotificationDeliveryChannels | null,
+  next: "email" | "phone" | "push",
+): NotificationDeliveryChannels {
+  const hasEmail = Boolean(current?.includes("email")) || next === "email";
+  const hasPhone = Boolean(current?.includes("phone")) || next === "phone";
+  const hasPush = Boolean(current?.includes("push")) || next === "push";
+  if (hasEmail && hasPhone && hasPush) return "email+phone+push";
+  if (hasEmail && hasPhone) return "email+phone";
+  if (hasEmail && hasPush) return "email+push";
+  if (hasPhone && hasPush) return "phone+push";
+  if (hasEmail) return "email";
+  if (hasPhone) return "phone";
+  if (hasPush) return "push";
+  return "none";
+}
 
 export async function claimNotificationSend(
   admin: SupabaseClient,

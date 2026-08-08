@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 type DeletionGuardBlockers = {
   open_carts?: number;
@@ -15,11 +15,7 @@ type DeletionGuardPayload = {
 };
 
 export async function POST(request: Request) {
-  const supabase = (await createSupabaseServerClient()) as any;
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const { user, error: userError, supabase } = (await resolveRequestUserClient(request)) as any;
 
   if (userError || !user) {
     return NextResponse.json({ ok: false as const, error: "Non authentifié." }, { status: 401 });
@@ -38,7 +34,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false as const, error: "Session invalide." }, { status: 401 });
     }
     console.error("[api/account/delete/request]", message);
-    return NextResponse.json({ ok: false as const, error: "Impossible d'enregistrer ta demande pour le moment." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false as const, error: "Impossible d'enregistrer ta demande pour le moment." },
+      { status: 500 },
+    );
   }
 
   const payload = data as {

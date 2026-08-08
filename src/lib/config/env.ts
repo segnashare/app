@@ -26,6 +26,10 @@ const serverEnvSchema = z.object({
   TWILIO_FROM_NUMBER: z.string().min(1).optional(),
   /** Si `1`, les notifications en `email+phone` envoient aussi un SMS (alertes délai / retard). */
   SEGNA_NOTIFY_SMS_ALERTS: z.string().optional(),
+  /** Optionnel : Bearer Expo Push API (recommandé en prod). */
+  EXPO_ACCESS_TOKEN: z.string().min(1).optional(),
+  /** Team ID Apple (Universal Links AASA), ex. `ABCD123456`. */
+  APPLE_TEAM_ID: z.string().min(1).optional(),
   /** 1er rappel onboarding in-app incomplet : jours depuis `users.created_at` (défaut 3). */
   SEGNA_REMINDER_ONBOARDING_DAYS: z.string().optional(),
   /** 2e rappel onboarding (défaut 10). */
@@ -97,6 +101,8 @@ export function getServerEnv(): ServerEnv {
     TWILIO_FROM_NUMBER: process.env.TWILIO_FROM_NUMBER,
     SEGNA_EMAIL_PUBLIC_BASE_URL: process.env.SEGNA_EMAIL_PUBLIC_BASE_URL,
     SEGNA_NOTIFY_SMS_ALERTS: process.env.SEGNA_NOTIFY_SMS_ALERTS,
+    EXPO_ACCESS_TOKEN: process.env.EXPO_ACCESS_TOKEN,
+    APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
     SEGNA_REMINDER_ONBOARDING_DAYS: process.env.SEGNA_REMINDER_ONBOARDING_DAYS,
     SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS: process.env.SEGNA_REMINDER_ONBOARDING_FOLLOWUP_DAYS,
     SEGNA_REMINDER_INACTIVE_DAYS: process.env.SEGNA_REMINDER_INACTIVE_DAYS,

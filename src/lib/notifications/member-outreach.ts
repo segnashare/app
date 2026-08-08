@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServerEnv } from "@/lib/config/env";
 import {
   claimNotificationSend,
+  mergeDeliveryChannels,
   releaseNotificationSend,
   setNotificationDeliveryChannels,
   type NotificationDeliveryChannels,
@@ -17,6 +18,7 @@ import { sendTransactionalSms } from "@/lib/notifications/twilio-send";
 import { trackNotificationSentServer } from "@/lib/analytics/track-notification-sent-server";
 import {
   allowsMarketingEmail,
+  allowsMarketingPush,
   allowsMarketingSms,
   isMarketingNotificationKind,
   loadMemberCommsPreferences,
@@ -26,15 +28,23 @@ import {
   isMemberOutreachSmsRequested,
   tryUpgradeMemberOutreachSms,
 } from "@/lib/notifications/member-outreach-sms-upgrade";
+import { buildMemberPushData, sendExpoPushToUser } from "@/lib/notifications/expo-push-send";
 
 export type MemberOutreachChannels = "email" | "email+phone";
 
 export { loadUserContact };
 
+function pushBodyFromOutreach(input: { smsBody?: string; text: string; subject: string }): string {
+  const sms = input.smsBody?.trim() ?? "";
+  if (sms) return sms.slice(0, 240);
+  const text = input.text.trim().replace(/\s+/g, " ");
+  if (text) return text.slice(0, 240);
+  return input.subject.trim().slice(0, 240);
+}
+
 /**
- * Envoi membre générique (journal `notification_send_log` + e-mail HTML ; SMS si
- * `channels === "email+phone"`, `smsBody` renseigné, numéro valide et Twilio OK, et soit
- * `transactionalSms === true` (pas de gate), soit `SEGNA_NOTIFY_SMS_ALERTS=1` (rappels sensibles).
+ * Envoi membre générique (journal `notification_send_log` + e-mail HTML ; push Expo ;
+ * SMS si demandé et push non délivré — fallback).
  */
 export async function sendMemberOutreachNotification(
   admin: SupabaseClient,
@@ -73,8 +83,9 @@ export async function sendMemberOutreachNotification(
     : null;
   const allowMarketingEmail = !prefs || allowsMarketingEmail(prefs, input.kind);
   const allowMarketingSms = !prefs || allowsMarketingSms(prefs, input.kind);
+  const allowMarketingPush = !prefs || allowsMarketingPush(prefs, input.kind);
 
-  if (!allowMarketingEmail && !(smsRequested && allowMarketingSms)) {
+  if (!allowMarketingEmail && !(smsRequested && allowMarketingSms) && !allowMarketingPush) {
     // Opt-out marketing total sur ce kind : ne pas journaliser comme envoyé.
     return;
   }
@@ -126,10 +137,24 @@ export async function sendMemberOutreachNotification(
         await releaseNotificationSend(admin, input.idempotencyKey);
         return;
       }
-      delivery = "email";
+      delivery = mergeDeliveryChannels(delivery, "email");
     }
 
-    let allowSms = smsRequested && allowMarketingSms;
+    let pushDelivered = false;
+    if (allowMarketingPush) {
+      const pushBody = pushBodyFromOutreach(input);
+      pushDelivered = await sendExpoPushToUser(admin, input.userId, {
+        title: input.subject.trim().slice(0, 80) || "Segna",
+        body: pushBody,
+        data: buildMemberPushData({ kind: input.kind, metadata: input.metadata }),
+      });
+      if (pushDelivered) {
+        delivery = mergeDeliveryChannels(delivery, "push");
+      }
+    }
+
+    // SMS = fallback si push non délivré (ou marketing push opt-out).
+    let allowSms = smsRequested && allowMarketingSms && !pushDelivered;
     if (allowSms && input.applyCronSmsDailyCap && !input.skipCronSmsDailyCap) {
       allowSms = await shouldSendMemberCronSms(
         admin,
@@ -145,7 +170,7 @@ export async function sendMemberOutreachNotification(
         try {
           const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsText.slice(0, 320) });
           if (sent) {
-            delivery = delivery === "email" ? "email+phone" : "phone";
+            delivery = mergeDeliveryChannels(delivery, "phone");
             trackNotificationSentServer({
               userId: input.userId,
               kind: input.kind,
@@ -160,7 +185,7 @@ export async function sendMemberOutreachNotification(
       }
     }
 
-    if (!delivery) {
+    if (!delivery || delivery === "none") {
       await releaseNotificationSend(admin, input.idempotencyKey);
       return;
     }
@@ -174,7 +199,7 @@ export async function sendMemberOutreachNotification(
 }
 
 /**
- * SMS seul (journal + `delivery_channels` = `phone`). Pas d’e-mail.
+ * Push + SMS fallback (journal). Pas d’e-mail.
  * Gate SMS identique à `sendMemberOutreachNotification` (`transactionalSms` ou `SEGNA_NOTIFY_SMS_ALERTS`).
  */
 export async function sendMemberSmsOnlyNotification(
@@ -185,24 +210,23 @@ export async function sendMemberSmsOnlyNotification(
     idempotencyKey: string;
     metadata?: Record<string, unknown>;
     smsBody: string;
+    /** Titre push (défaut Segna). */
+    pushTitle?: string;
     transactionalSms?: boolean;
     applyCronSmsDailyCap?: boolean;
     cronSmsNowMs?: number;
   },
 ): Promise<void> {
-  if (isMarketingNotificationKind(input.kind)) {
-    const prefs = await loadMemberCommsPreferences(admin, input.userId);
-    if (!allowsMarketingSms(prefs, input.kind)) return;
-  }
+  const prefs = isMarketingNotificationKind(input.kind)
+    ? await loadMemberCommsPreferences(admin, input.userId)
+    : null;
+  const allowMarketingSms = !prefs || allowsMarketingSms(prefs, input.kind);
+  const allowMarketingPush = !prefs || allowsMarketingPush(prefs, input.kind);
+
+  if (!allowMarketingSms && !allowMarketingPush) return;
 
   if (input.applyCronSmsDailyCap) {
-    const allowed = await shouldSendMemberCronSms(
-      admin,
-      input.userId,
-      input.kind,
-      input.cronSmsNowMs ?? Date.now(),
-    );
-    if (!allowed) return;
+    // Cap appliqué seulement si on risque d’envoyer un SMS (après échec push).
   }
 
   const claimed = await claimNotificationSend(admin, {
@@ -213,34 +237,78 @@ export async function sendMemberSmsOnlyNotification(
   });
   if (!claimed) return;
 
-  const user = await loadUserContact(admin, input.userId);
   const smsAlertsOn = getServerEnv().SEGNA_NOTIFY_SMS_ALERTS?.trim() === "1";
-  const allowSms = Boolean(input.smsBody.trim()) && (input.transactionalSms === true || smsAlertsOn);
-  if (!allowSms) {
-    await releaseNotificationSend(admin, input.idempotencyKey);
-    return;
-  }
-
-  const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
-  if (!phoneE164) {
-    console.warn("[notifications] member-outreach sms-only: pas de téléphone", { userId: input.userId, kind: input.kind });
-    await releaseNotificationSend(admin, input.idempotencyKey);
-    return;
-  }
+  const smsGateOk = Boolean(input.smsBody.trim()) && (input.transactionalSms === true || smsAlertsOn);
 
   try {
-    const sent = await sendTransactionalSms({ toE164: phoneE164, body: input.smsBody.trim().slice(0, 320) });
-    if (!sent) {
+    let delivery: NotificationDeliveryChannels | null = null;
+    let pushDelivered = false;
+
+    if (allowMarketingPush) {
+      pushDelivered = await sendExpoPushToUser(admin, input.userId, {
+        title: (input.pushTitle?.trim() || "Segna").slice(0, 80),
+        body: input.smsBody.trim().slice(0, 240),
+        data: buildMemberPushData({ kind: input.kind, metadata: input.metadata }),
+      });
+      if (pushDelivered) {
+        delivery = mergeDeliveryChannels(delivery, "push");
+      }
+    }
+
+    if (!pushDelivered && allowMarketingSms && smsGateOk) {
+      if (input.applyCronSmsDailyCap) {
+        const allowed = await shouldSendMemberCronSms(
+          admin,
+          input.userId,
+          input.kind,
+          input.cronSmsNowMs ?? Date.now(),
+        );
+        if (!allowed) {
+          if (!delivery) {
+            await releaseNotificationSend(admin, input.idempotencyKey);
+          } else {
+            await setNotificationDeliveryChannels(admin, input.idempotencyKey, delivery);
+          }
+          return;
+        }
+      }
+
+      const user = await loadUserContact(admin, input.userId);
+      const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
+      if (!phoneE164) {
+        console.warn("[notifications] member-outreach sms-only: pas de téléphone", {
+          userId: input.userId,
+          kind: input.kind,
+        });
+        if (!delivery) {
+          await releaseNotificationSend(admin, input.idempotencyKey);
+          return;
+        }
+        await setNotificationDeliveryChannels(admin, input.idempotencyKey, delivery);
+        return;
+      }
+
+      const sent = await sendTransactionalSms({
+        toE164: phoneE164,
+        body: input.smsBody.trim().slice(0, 320),
+      });
+      if (sent) {
+        delivery = mergeDeliveryChannels(delivery, "phone");
+        trackNotificationSentServer({
+          userId: input.userId,
+          kind: input.kind,
+          idempotencyKey: input.idempotencyKey,
+          metadata: input.metadata,
+        });
+      }
+    }
+
+    if (!delivery || delivery === "none") {
       await releaseNotificationSend(admin, input.idempotencyKey);
       return;
     }
-    trackNotificationSentServer({
-      userId: input.userId,
-      kind: input.kind,
-      idempotencyKey: input.idempotencyKey,
-      metadata: input.metadata,
-    });
-    await setNotificationDeliveryChannels(admin, input.idempotencyKey, "phone");
+
+    await setNotificationDeliveryChannels(admin, input.idempotencyKey, delivery);
   } catch (e) {
     await releaseNotificationSend(admin, input.idempotencyKey);
     const msg = e instanceof Error ? e.message : String(e);

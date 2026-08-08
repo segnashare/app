@@ -101,17 +101,20 @@ export async function buildGuestPurchaseCheckoutLineItems(
     console.error("[guest-purchase] fetch cart lines for checkout", params.cartId, e);
   }
   const cartLines = resolvePurchaseItemLines(params.itemsCents, itemLines);
+  const vat = stripeFrVat20TaxParams();
 
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = cartLines.map((line) => ({
     quantity: 1,
     price_data: {
       currency: "eur",
       unit_amount: line.valueCents,
+      ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
       product_data: {
         name: line.label.slice(0, 120),
         description: "Achat définitif",
       },
     },
+    ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
   }));
 
   if (params.shippingTtcCents > 0) {
@@ -120,11 +123,13 @@ export async function buildGuestPurchaseCheckoutLineItems(
       price_data: {
         currency: "eur",
         unit_amount: params.shippingTtcCents,
+        ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
         product_data: {
           name: "Livraison (aller, TTC)",
           description: params.shippingDescription.slice(0, 120),
         },
       },
+      ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
     });
   }
 
@@ -134,10 +139,12 @@ export async function buildGuestPurchaseCheckoutLineItems(
       price_data: {
         currency: "eur",
         unit_amount: params.serviceTtcCents,
+        ...(vat.tax_behavior ? { tax_behavior: vat.tax_behavior } : {}),
         product_data: {
           name: "Frais de service (TTC)",
         },
       },
+      ...(vat.tax_rates ? { tax_rates: vat.tax_rates } : {}),
     });
   }
 

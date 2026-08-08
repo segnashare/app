@@ -3,22 +3,31 @@ import Stripe from "stripe";
 
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
-export async function POST() {
+function resolveMobileReturnUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("segna://") || trimmed.includes("..")) return null;
+  return trimmed;
+}
+
+export async function POST(request: Request) {
   try {
-    const supabase = (await createSupabaseServerClient()) as any;
-    const admin = createSupabaseAdminClient() as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
+    const { user, error: userError } = await resolveRequestUser(request);
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
-    const { data: profileRow, error: profileError } = await admin.from("user_profiles").select("id").eq("user_id", user.id).maybeSingle();
+    const body = (await request.json().catch(() => null)) as { mobileReturnUrl?: unknown } | null;
+    const mobileReturnUrl = resolveMobileReturnUrl(body?.mobileReturnUrl);
+
+    const admin = createSupabaseAdminClient() as any;
+    const { data: profileRow, error: profileError } = await admin
+      .from("user_profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
     if (profileError || !profileRow?.id) {
       return NextResponse.json({ message: "Profil introuvable." }, { status: 400 });
     }
@@ -26,7 +35,8 @@ export async function POST() {
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
 
-    const returnUrl = `${config.returnUrlBase}/profile/kyc?tab=me&kyc=processing`;
+    const returnUrl =
+      mobileReturnUrl ?? `${config.returnUrlBase}/profile/kyc?tab=me&kyc=processing`;
     const verificationSession = await stripe.identity.verificationSessions.create({
       type: "document",
       return_url: returnUrl,

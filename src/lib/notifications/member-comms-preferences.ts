@@ -6,11 +6,13 @@ import { NotificationKind } from "@/lib/notifications/kinds";
 export type MemberCommsPreferences = {
   emailMarketing: boolean;
   smsMarketing: boolean;
+  pushMarketing: boolean;
 };
 
 export const DEFAULT_MEMBER_COMMS_PREFERENCES: MemberCommsPreferences = {
   emailMarketing: true,
   smsMarketing: true,
+  pushMarketing: true,
 };
 
 const PROFILE_KEY = "comms_preferences";
@@ -44,6 +46,10 @@ export function parseMemberCommsPreferences(profileData: unknown): MemberCommsPr
       typeof prefs.sms_marketing === "boolean"
         ? prefs.sms_marketing
         : DEFAULT_MEMBER_COMMS_PREFERENCES.smsMarketing,
+    pushMarketing:
+      typeof prefs.push_marketing === "boolean"
+        ? prefs.push_marketing
+        : DEFAULT_MEMBER_COMMS_PREFERENCES.pushMarketing,
   };
 }
 
@@ -67,6 +73,7 @@ export async function saveMemberCommsPreferences(
         [PROFILE_KEY]: {
           email_marketing: prefs.emailMarketing,
           sms_marketing: prefs.smsMarketing,
+          push_marketing: prefs.pushMarketing,
         },
       },
     },
@@ -84,4 +91,9 @@ export function allowsMarketingEmail(prefs: MemberCommsPreferences, kind: string
 export function allowsMarketingSms(prefs: MemberCommsPreferences, kind: string): boolean {
   if (!isMarketingNotificationKind(kind)) return true;
   return prefs.smsMarketing;
+}
+
+export function allowsMarketingPush(prefs: MemberCommsPreferences, kind: string): boolean {
+  if (!isMarketingNotificationKind(kind)) return true;
+  return prefs.pushMarketing;
 }

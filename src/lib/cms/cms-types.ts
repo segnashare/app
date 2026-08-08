@@ -56,6 +56,8 @@ export type CmsVideoRef = {
   storage_path: string;
   /** Rempli côté serveur après signature Storage */
   signed_url?: string;
+  /** Même convention que l’image hero (`Zoom & position` BO). */
+  position?: CmsPhotoPosition;
 };
 
 export type CmsBackgroundPayload = {

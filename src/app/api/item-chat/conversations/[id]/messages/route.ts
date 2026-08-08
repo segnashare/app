@@ -1,5 +1,4 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { itemChatJson, itemChatOptions } from "@/lib/item-chat/cors";
 import {
   appendVisitorMessage,
@@ -12,6 +11,7 @@ import {
 import type { ItemChatSource } from "@/lib/item-chat/types";
 import { UUID_RE } from "@/lib/item-chat/types";
 import { readVisitorIdFromRequest } from "@/lib/item-chat/visitor";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -29,10 +29,7 @@ export async function GET(request: Request, ctx: RouteContext) {
     return itemChatJson(request, { error: "visitorId requis" }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await resolveRequestUser(request);
 
   const admin = createSupabaseAdminClient();
   const conversation = await getConversationForVisitor({
@@ -81,10 +78,7 @@ export async function POST(request: Request, ctx: RouteContext) {
     return itemChatJson(request, { error: "Message invalide" }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await resolveRequestUser(request);
 
   const admin = createSupabaseAdminClient();
   let conversation = await getConversationForVisitor({

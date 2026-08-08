@@ -6,6 +6,7 @@ import { Check, Plus } from "lucide-react";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 const montserrat = segnaMontserrat;
 
+import { APPAREL_SIZE_BANDS } from "@/lib/sizes/apparel-size-referential";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
@@ -124,9 +125,17 @@ type OnboardingSizeCoreProps = {
   formClassName?: string;
 };
 
-const TOP_OPTIONS = ["XXS", "XS", "S", "M", "L", "XL", "XXL"] as const;
-const BOTTOM_OPTIONS = ["32", "34", "36", "38", "40", "42", "44", "46", "48"] as const;
-/** Pointures affichées (32–45) : 30 et 31 retirées. */
+const TOP_OPTIONS = APPAREL_SIZE_BANDS.map((b) => b.letter);
+const BOTTOM_OPTIONS = APPAREL_SIZE_BANDS.map((b) => b.fr);
+const TOP_LABEL_BY_CODE = Object.fromEntries(APPAREL_SIZE_BANDS.map((b) => [b.letter, b.label])) as Record<
+  string,
+  string
+>;
+const BOTTOM_LABEL_BY_CODE = Object.fromEntries(APPAREL_SIZE_BANDS.map((b) => [b.fr, b.label])) as Record<
+  string,
+  string
+>;
+/** Pointures affichées (33–44). */
 const SHOES_OPTIONS = Array.from({ length: 12 }, (_, i) => String(33 + i)) as readonly string[];
 
 function codesFromInitial(
@@ -158,7 +167,7 @@ function SizePill({
       aria-pressed={selected}
       className={cn(
         montserrat.className,
-        "inline-flex min-h-[44px] items-center gap-2 rounded-full border px-3.5 py-2 text-[14px] font-semibold transition-colors sm:px-4 sm:text-[15px]",
+        "inline-flex min-h-[44px] items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors sm:px-4 sm:text-[14px]",
         selected
           ? "border-black bg-black text-white"
           : "border-zinc-200 bg-white text-zinc-900 shadow-[0_2px_10px_rgba(0,0,0,0.07)] hover:border-zinc-300",
@@ -181,11 +190,13 @@ function SizePill({
 function SizeSection({
   heading,
   options,
+  labelByCode,
   selected,
   onToggle,
 }: {
   heading: string;
   options: readonly string[];
+  labelByCode?: Record<string, string>;
   selected: Set<string>;
   onToggle: (code: string) => void;
 }) {
@@ -194,7 +205,12 @@ function SizeSection({
       <p className={cn(montserrat.className, "mb-2.5 text-left text-[13px] font-semibold uppercase tracking-wide text-[#999999]")}>{heading}</p>
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => (
-          <SizePill key={opt} label={opt} selected={selected.has(opt)} onToggle={() => onToggle(opt)} />
+          <SizePill
+            key={opt}
+            label={labelByCode?.[opt] ?? opt}
+            selected={selected.has(opt)}
+            onToggle={() => onToggle(opt)}
+          />
         ))}
       </div>
     </div>
@@ -333,8 +349,20 @@ export function OnboardingSizeCore({
   return (
     <div className={cn(formClassName ?? "mt-3 w-full")}>
       <form id={formId} onSubmit={onSubmit} noValidate className="flex w-full flex-col gap-6">
-        <SizeSection heading="Haut" options={TOP_OPTIONS} selected={topSelected} onToggle={toggleTop} />
-        <SizeSection heading="Bas" options={BOTTOM_OPTIONS} selected={bottomSelected} onToggle={toggleBottom} />
+        <SizeSection
+          heading="Haut"
+          options={TOP_OPTIONS}
+          labelByCode={TOP_LABEL_BY_CODE}
+          selected={topSelected}
+          onToggle={toggleTop}
+        />
+        <SizeSection
+          heading="Bas"
+          options={BOTTOM_OPTIONS}
+          labelByCode={BOTTOM_LABEL_BY_CODE}
+          selected={bottomSelected}
+          onToggle={toggleBottom}
+        />
         <SizeSection heading="Chaussures" options={SHOES_OPTIONS} selected={shoesSelected} onToggle={toggleShoes} />
       </form>
 

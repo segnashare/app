@@ -3,17 +3,14 @@ import { NextResponse } from "next/server";
 import { openMemberCartDispute } from "@/lib/disputes/open-member-cart-dispute";
 import type { MemberCartDisputeReportKind } from "@/lib/disputes/member-cart-dispute-categories";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
-  const supabase = (await createSupabaseServerClient()) as any;
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { user, error: userError, supabase } = (await resolveRequestUserClient(request)) as any;
   if (userError || !user) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }

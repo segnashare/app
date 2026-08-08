@@ -1,7 +1,7 @@
 /**
  * Identifiants stables pour `notification_send_log.kind` et le suivi produit.
  *
- * **Paiements / abo** : `cart_order_paid` (e-mail + SMS prépa si Twilio + tél.), `cart_order_n8n_declared` (workflow n8n commande confirmée), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`
+ * **Paiements / abo** : `cart_order_paid` (e-mail + SMS prépa si Twilio + tél. ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_order_n8n_declared` (workflow n8n commande confirmée), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
  * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail + SMS (réf. commande, n° suivi, lien suivi)  
