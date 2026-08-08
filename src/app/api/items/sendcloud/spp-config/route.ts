@@ -2,15 +2,12 @@ import { NextResponse } from "next/server";
 
 import { getSendcloudEnv, isSendcloudServicePointPickerEnabled } from "@/lib/sendcloud/config";
 import { resolveSendcloudSppCarriers } from "@/lib/sendcloud/integrations";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 /** Config publique du widget Service Point Picker (clé d’intégration Sendcloud). */
-export async function GET() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+export async function GET(request: Request) {
+  const { user, error: userError } = await resolveRequestUser(request);
+  if (userError || !user) {
     return NextResponse.json({ error: "Authentification requise" }, { status: 401 });
   }
 
