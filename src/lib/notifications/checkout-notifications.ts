@@ -79,9 +79,66 @@ function buildCartOrderCookingSms(itemLabels: string[]): string {
   return `${head}${list}`;
 }
 
+/** Corps SMS confirmation achat (facture Stripe déjà envoyée par e-mail → SMS seul). */
+function buildPurchaseOrderConfirmedSms(itemLabels: string[]): string {
+  const head = "Segna — commande confirmée : ";
+  const tail = " Prépa en cours, suivi par SMS.";
+  const fallback = "Segna — ta commande est confirmée. Prépa en cours, suivi par SMS.";
+  if (itemLabels.length === 0) return fallback;
+
+  const maxTotal = 300;
+  const budget = Math.max(40, maxTotal - head.length - tail.length);
+  let list = itemLabels.join(", ");
+  if (list.length > budget) {
+    list = `${list.slice(0, budget - 1)}…`;
+  }
+  return `${head}${list}.${tail}`;
+}
+
+/**
+ * Achat (mode achat website ou Guest) : SMS de confirmation seul — l’e-mail est couvert
+ * par la facture Stripe (`guest_purchase_invoiced`). Idempotent par `cart_id`.
+ */
+async function notifyPurchaseOrderPaidSms(
+  admin: SupabaseClient,
+  input: { userId: string; cartId: string },
+): Promise<void> {
+  const idempotencyKey = `txn:purchase_order_paid_sms:${input.cartId}`;
+  const claimed = await claimNotificationSend(admin, {
+    idempotencyKey,
+    kind: NotificationKind.cartOrderPaid,
+    userId: input.userId,
+    metadata: { cart_id: input.cartId, purchase: true },
+  });
+  if (!claimed) return;
+
+  const user = await loadUserContact(admin, input.userId);
+  const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
+  if (!phoneE164) {
+    await releaseNotificationSend(admin, idempotencyKey);
+    return;
+  }
+
+  try {
+    const itemLabels = await loadCartOrderItemLabelsForSms(admin, input.cartId);
+    const smsBody = buildPurchaseOrderConfirmedSms(itemLabels);
+    const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsBody.trim().slice(0, 320) });
+    if (!sent) {
+      await releaseNotificationSend(admin, idempotencyKey);
+      return;
+    }
+    await setNotificationDeliveryChannels(admin, idempotencyKey, "phone");
+  } catch (e) {
+    await releaseNotificationSend(admin, idempotencyKey);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[notifications] purchase_order_paid sms failed", msg);
+  }
+}
+
 /**
  * Après confirmation serveur du panier (webhook Stripe, sync retour, ou wallet-only).
  * Déclaration n8n (`N8N_CART_ORDER_WEBHOOK_URL`) + e-mail HTML + SMS optionnel si Twilio et téléphone valides.
+ * Achat : e-mail « cooking » remplacé par la facture Stripe, mais SMS de confirmation quand même.
  * Clés d’idempotence : une déclaration n8n et une notification e-mail/SMS par `cart_id`.
  */
 export async function notifyCartOrderPaidAfterConfirmation(
@@ -97,7 +154,10 @@ export async function notifyCartOrderPaidAfterConfirmation(
 
   const skipMember =
     input.skipMemberNotification === true || (await isGuestPurchaseCartOrder(admin, input.cartId));
-  if (skipMember) return;
+  if (skipMember) {
+    await notifyPurchaseOrderPaidSms(admin, input);
+    return;
+  }
 
   const idempotencyKey = `txn:cart_order_paid:${input.cartId}`;
   const claimed = await claimNotificationSend(admin, {

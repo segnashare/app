@@ -59,7 +59,10 @@ export function AuthRingDotSpinner({
         {Array.from({ length: dotCount }, (_, i) => (
           <span
             key={i}
-            className={cn("absolute rounded-full", i < filled ? active : inactive)}
+            className={cn(
+              "absolute rounded-full",
+              spinning ? active : i < filled ? active : inactive,
+            )}
             style={{
               width: DOT,
               height: DOT,
@@ -67,6 +70,8 @@ export function AuthRingDotSpinner({
               top: "50%",
               marginLeft: -DOT / 2,
               marginTop: -DOT / 2,
+              // Trail opacity while spinning — uniform black ring looks frozen.
+              opacity: spinning ? Math.max(0.22, 1 - i / dotCount) : undefined,
               transform: `rotate(${i * step}deg) translateY(-${R}px)`,
             }}
           />

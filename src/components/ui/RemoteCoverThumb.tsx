@@ -131,20 +131,18 @@ function RemoteCoverThumbImpl({
     }
     const img = new Image();
     img.onload = () => {
-      void (async () => {
-        try {
-          if (typeof img.decode === "function") await img.decode();
-        } catch {
+      if (cancelled) return;
+      // Paint as soon as the browser has dimensions — don't block on decode().
+      setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+      loadedPhotoUrlRef.current = photoUrl;
+      setLoadedPhotoUrl(photoUrl);
+      setFailed(false);
+      setReady(true);
+      if (typeof img.decode === "function") {
+        void img.decode().catch(() => {
           /* ignore */
-        }
-        if (!cancelled) {
-          setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-          loadedPhotoUrlRef.current = photoUrl;
-          setLoadedPhotoUrl(photoUrl);
-          setFailed(false);
-          setReady(true);
-        }
-      })();
+        });
+      }
     };
     img.onerror = () => {
       if (!cancelled && !loadedPhotoUrlRef.current) {

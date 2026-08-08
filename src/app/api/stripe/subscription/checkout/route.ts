@@ -34,8 +34,20 @@ function getFallbackPriceId(planCode: PlanCode): string | null {
   return value.length > 0 ? value : null;
 }
 
+function resolveMobileSuccessUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("segna://") || trimmed.includes("..")) return null;
+  return trimmed.includes("{CHECKOUT_SESSION_ID}")
+    ? trimmed
+    : `${trimmed}${trimmed.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
+}
+
 function resolveCancelUrl(cancelRaw: string, returnUrlBase: string): string {
   const websiteOrigin = getWebsiteOrigin();
+  if (cancelRaw.startsWith("segna://") && !cancelRaw.includes("..")) {
+    return cancelRaw;
+  }
   if (
     (cancelRaw.startsWith(`${websiteOrigin}/`) || cancelRaw === websiteOrigin) &&
     !cancelRaw.includes("..")
@@ -56,6 +68,7 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as {
       planCode?: unknown;
       cancelReturnPath?: unknown;
+      mobileSuccessUrl?: unknown;
       trialPeriodDays?: unknown;
       /** Empreinte bancaire SegnaX (100 €) après validation carte. */
       bankHold?: unknown;
@@ -150,6 +163,7 @@ export async function POST(request: Request) {
 
     const cancelRaw = typeof body?.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
     const cancelUrl = resolveCancelUrl(cancelRaw, config.returnUrlBase);
+    const mobileSuccessUrl = resolveMobileSuccessUrl(body?.mobileSuccessUrl);
     const websiteOrigin = getWebsiteOrigin();
     // Préférer l’origine réelle du cancel URL (ex. localhost:3002) pour le retour succès,
     // plutôt que seulement getWebsiteOrigin() — évite de renvoyer vers le mauvais port en local.
@@ -168,9 +182,11 @@ export async function POST(request: Request) {
     ) {
       successWebsiteOrigin = websiteOrigin;
     }
-    const successUrl = successWebsiteOrigin
-      ? `${successWebsiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
-      : `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`;
+    const successUrl =
+      mobileSuccessUrl ??
+      (successWebsiteOrigin
+        ? `${successWebsiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
+        : `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`);
 
     const frVatTaxRateId = resolveFrVat20TaxRateId();
     const session = await stripe.checkout.sessions.create({

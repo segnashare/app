@@ -32,6 +32,7 @@ export function getItemChatCorsOrigins(): string[] {
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3002",
     "https://app.segnashare.com",
+    "https://staging.app.segnashare.com",
     "https://www.segnashare.com",
     "https://segnashare.com",
   ];

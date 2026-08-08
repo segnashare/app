@@ -9,7 +9,8 @@ import type { RemoteCoverLoadState } from "@/components/ui/RemoteCoverThumb";
 import { GalleryDots } from "@/components/ui/GalleryDots";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { useHeroMediaWarmUrl } from "@/components/home/HeroMediaWarmContext";
-import type { CmsFramePayload, CmsFrameRow } from "@/lib/cms/cms-types";
+import { backgroundStyleCmsPhotoEditorMatch } from "@/lib/cms/cms-editor-photo-style";
+import type { CmsFramePayload, CmsFrameRow, CmsPhotoPosition } from "@/lib/cms/cms-types";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
@@ -66,14 +67,23 @@ function HeroAmbientVideo({
   src,
   active = true,
   className,
+  photoPosition,
   onReady,
 }: {
   src: string;
   active?: boolean;
   className?: string;
+  photoPosition?: CmsPhotoPosition;
   onReady?: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+
+  const ox = Number(photoPosition?.offset?.x ?? 0) || 0;
+  const oy = Number(photoPosition?.offset?.y ?? 0) || 0;
+  const zoom = Number(photoPosition?.zoom ?? 1) || 1;
 
   useEffect(() => {
     const video = ref.current;
@@ -86,19 +96,84 @@ function HeroAmbientVideo({
     video.currentTime = 0;
   }, [active, src]);
 
+  useLayoutEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [src]);
+
+  // Toujours le moteur BO dès que les dimensions sont connues (même zoom=1) —
+  // comme le mobile. Ne pas retomber sur object-cover top-centre.
+  const cropStyle =
+    natural && box.w > 0 && box.h > 0
+      ? backgroundStyleCmsPhotoEditorMatch({
+          photoUrl: src,
+          naturalWidth: natural.w,
+          naturalHeight: natural.h,
+          containerWidth: box.w,
+          containerHeight: box.h,
+          zoom,
+          offsetX: ox,
+          offsetY: oy,
+        })
+      : null;
+
+  // Convert CSS background sizing into absolute video box (same % convention).
+  const videoBox = (() => {
+    if (!cropStyle || !natural || box.w <= 0 || box.h <= 0) return null;
+    const sizeRaw = String(cropStyle.backgroundSize ?? "");
+    const widthPct = Number.parseFloat(sizeRaw);
+    if (!Number.isFinite(widthPct) || widthPct <= 0) return null;
+    const width = (widthPct / 100) * box.w;
+    const height = width / (natural.w / natural.h);
+    const left = (0.5 + ox / 100) * (box.w - width);
+    const top = (0.5 + oy / 100) * (box.h - height);
+    return { width, height, left, top };
+  })();
+
   return (
-    <video
-      ref={ref}
-      src={src}
-      className={cn("pointer-events-none h-full w-full object-cover", className)}
-      autoPlay
-      playsInline
-      muted
-      loop
-      preload="auto"
-      aria-hidden
-      onLoadedData={() => onReady?.()}
-    />
+    <div ref={frameRef} className={cn("pointer-events-none absolute inset-0 overflow-hidden", className)}>
+      <video
+        ref={ref}
+        src={src}
+        className={
+          videoBox
+            ? "pointer-events-none absolute max-w-none object-fill"
+            : "pointer-events-none absolute inset-0 h-full w-full object-cover"
+        }
+        style={
+          videoBox
+            ? {
+                width: videoBox.width,
+                height: videoBox.height,
+                left: videoBox.left,
+                top: videoBox.top,
+              }
+            : undefined
+        }
+        autoPlay
+        playsInline
+        muted
+        loop
+        preload="auto"
+        aria-hidden
+        onLoadedMetadata={(e) => {
+          const v = e.currentTarget;
+          if (v.videoWidth > 0 && v.videoHeight > 0) {
+            setNatural({ w: v.videoWidth, h: v.videoHeight });
+          }
+        }}
+        onLoadedData={() => onReady?.()}
+      />
+    </div>
   );
 }
 
@@ -143,7 +218,8 @@ function HomeHeroSlide({
           <HeroAmbientVideo
             src={displayVideoUrl ?? videoUrl!}
             active={active}
-            className={cn("absolute inset-0 h-full w-full", coverState === "loading" && "opacity-0")}
+            photoPosition={payload.background?.video?.position ?? null}
+            className={cn(coverState === "loading" && "opacity-0")}
             onReady={() => setCoverState("ready")}
           />
         </div>

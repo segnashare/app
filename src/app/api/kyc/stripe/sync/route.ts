@@ -5,7 +5,7 @@ import { getStripeConfig } from "@/lib/social/stripe";
 import { trackOnboardingInAppStepServer } from "@/lib/analytics/track-onboarding-in-app-step-server";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 type VerificationStatus = "not_started" | "pending" | "in_review" | "verified" | "rejected";
 
@@ -16,19 +16,14 @@ function mapStripeStatusToVerificationStatus(status: Stripe.Identity.Verificatio
   return "pending";
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const supabase = (await createSupabaseServerClient()) as any;
-    const admin = createSupabaseAdminClient() as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
+    const { user, error: userError } = await resolveRequestUser(request);
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
 
+    const admin = createSupabaseAdminClient() as any;
     const { data: verificationRow, error: verificationRowError } = await admin
       .from("user_identity_verifications")
       .select("id,payload")

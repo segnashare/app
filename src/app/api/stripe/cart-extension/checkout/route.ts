@@ -10,12 +10,31 @@ import {
 import { fetchMemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function resolveMobileSuccessUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("segna://") || trimmed.includes("..")) return null;
+  return trimmed.includes("{CHECKOUT_SESSION_ID}")
+    ? trimmed
+    : `${trimmed}${trimmed.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
+}
+
+function resolveCancelUrl(cancelRaw: string, returnUrlBase: string, cartId: string): string {
+  if (cancelRaw.startsWith("segna://") && !cancelRaw.includes("..")) {
+    return cancelRaw;
+  }
+  if (cancelRaw.startsWith(`/commande/${cartId}`) && !cancelRaw.includes("..")) {
+    return `${returnUrlBase}${cancelRaw}`;
+  }
+  return `${returnUrlBase}/commande/${cartId}/prolonger?extension=cancelled`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -39,12 +58,8 @@ export async function POST(request: Request) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabase = (await createSupabaseServerClient()) as any;
+    const { user, error: userError, supabase } = (await resolveRequestUserClient(request)) as any;
     const admin = createSupabaseAdminClient() as any;
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
 
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
@@ -110,8 +125,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const successUrl = `${config.returnUrlBase}/api/stripe/cart-extension/sync?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${config.returnUrlBase}/commande/${cartId}/prolonger?extension=cancelled`;
+    const mobileSuccessUrl = resolveMobileSuccessUrl(body.mobileSuccessUrl);
+    const cancelRaw = typeof body.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
+    const successUrl =
+      mobileSuccessUrl ??
+      `${config.returnUrlBase}/api/stripe/cart-extension/sync?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = resolveCancelUrl(cancelRaw, config.returnUrlBase, cartId);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

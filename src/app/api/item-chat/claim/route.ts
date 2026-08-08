@@ -1,8 +1,8 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { itemChatJson, itemChatOptions } from "@/lib/item-chat/cors";
 import { claimVisitorConversations } from "@/lib/item-chat/service";
 import { readVisitorIdFromRequest } from "@/lib/item-chat/visitor";
+import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 export async function OPTIONS(request: Request) {
   return itemChatOptions(request);
@@ -10,10 +10,7 @@ export async function OPTIONS(request: Request) {
 
 /** Rattache les conversations anonymes du visitorId au membre connecté. */
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await resolveRequestUser(request);
   if (!user) {
     return itemChatJson(request, { error: "Non authentifié" }, { status: 401 });
   }

@@ -87,6 +87,7 @@ import { SizeFilterSections } from "@/components/shop/SizeFilterSections";
 import { cn } from "@/lib/utils/cn";
 import {
   initSizeSheetBrowseCategory,
+  toggleAggregatedSizeSelection,
   type SizeFilterCategory,
   type SizeFilterOption,
 } from "@/lib/shop/size-filter-groups";
@@ -97,7 +98,6 @@ export type { SizeFilterOption };
 
 const montserratHubWideCard = segnaMontserrat;
 const montserratPieceBold = segnaMontserrat;
-const montserratPieceItalic = segnaMontserrat;
 const montserratPieceMedium = segnaMontserrat;
 const SHOP_GRID_INITIAL_VISIBLE_COUNT = 48;
 const SHOP_GRID_LOAD_MORE_COUNT = 48;
@@ -339,7 +339,7 @@ function isDefaultCatalogView(filters: ShopFilters, search: string, heartsOnly: 
 
 function pieceCardSizeLine(sizeLabel: string | null | undefined): string {
   const t = sizeLabel?.trim();
-  return t ? `Taille ${t}` : "Taille unique";
+  return t || "Taille unique";
 }
 
 /** @deprecated Préférer {@link PieceCardPriceDisplay} (contexte GuestCashRentalCatalog). */
@@ -480,7 +480,6 @@ function ShopPieceSquareCatalogCard({
   const imageReady = Boolean(cover) || loadState !== "loading" || !hasPhotoPath;
   const showMeta = !hideMetaUntilReady || imageReady;
 
-  const brandName = (item.brand_label ?? "").trim();
   const sizeLine = pieceCardSizeLine(item.size_label);
   const isBlueStatus = item.status === "available" || item.status === "in_cart";
   const isSold = item.status === "sold";
@@ -519,7 +518,7 @@ function ShopPieceSquareCatalogCard({
           <RemoteCoverThumb
             photoUrl={cover}
             frameClassName={cn("absolute inset-0 h-full w-full", noFrameChrome && "bg-white")}
-            className={cn("h-full w-full", isSold && "opacity-[0.72] grayscale-[45%]")}
+            className={cn("h-full w-full", isSold && "grayscale-[35%]")}
             {...catalogThumbRenderProps}
             onLoadStateChange={setLoadState}
           />
@@ -528,6 +527,9 @@ function ShopPieceSquareCatalogCard({
         ) : (
           <div className="h-full w-full bg-zinc-200" aria-hidden />
         )}
+        {isSold ? (
+          <div className="pointer-events-none absolute inset-0 z-[2] bg-black/45" aria-hidden />
+        ) : null}
         <CatalogPieceCardActionButtons
           className={cn("absolute right-2 z-10", compactCard ? "bottom-1.5" : "bottom-2")}
           compact={compactCard}
@@ -584,16 +586,6 @@ function ShopPieceSquareCatalogCard({
             role="img"
           />
         </div>
-        {brandName ? (
-          <p
-            className={cn(
-              montserratPieceItalic.className,
-              "line-clamp-1 text-left text-[13px] italic text-zinc-600",
-            )}
-          >
-            {brandName}
-          </p>
-        ) : null}
         <PieceCardPriceSizeRows
           sizeLine={sizeLine}
           pricePoints={item.price_points}
@@ -667,7 +659,6 @@ function ShopPieceSplitCard({
   const hex = spotlight.bgHex;
   const useLightText = spotlight.textColor === "white";
 
-  const brandName = (item.brand_label ?? "").trim();
   const sizeLine = pieceCardSizeLine(item.size_label);
 
   const textMain = useLightText ? "text-white" : "text-zinc-900";
@@ -690,17 +681,6 @@ function ShopPieceSplitCard({
       >
         {item.title}
       </h3>
-      {brandName ? (
-        <p
-          className={cn(
-            montserratPieceItalic.className,
-            "line-clamp-1 text-left text-[clamp(13px,3.5vw,15px)] italic",
-            textSub,
-          )}
-        >
-          {brandName}
-        </p>
-      ) : null}
       <PieceCardPriceSizeRows
         sizeLine={sizeLine}
         pricePoints={item.price_points}
@@ -1530,10 +1510,6 @@ export function ShopCatalog({
     setModalFilterFamily("category");
   }, []);
 
-  const toggleSizeIds = useCallback((current: string[], id: string) => {
-    return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-  }, []);
-
   const toggleAllSizeIdsInCategory = useCallback((current: string[], categoryIds: string[]) => {
     if (categoryIds.length === 0) return current;
     const allSelected = categoryIds.every((id) => current.includes(id));
@@ -1615,6 +1591,17 @@ export function ShopCatalog({
         const ids = filters[key];
         if (ids.length === 0) return MENU_LABELS[key];
         const opts = optionsByKey[key];
+        if (key === "sizeIds") {
+          const labels = [
+            ...new Set(
+              ids
+                .map((id) => opts.find((o) => o.id === id)?.label)
+                .filter((l): l is string => Boolean(l)),
+            ),
+          ];
+          if (labels.length === 1) return labels[0]!;
+          if (labels.length > 1) return `${labels.length} tailles`;
+        }
         if (ids.length === 1) {
           const opt = opts.find((o) => o.id === ids[0]);
           return opt?.label ?? MENU_LABELS[key];
@@ -1775,8 +1762,11 @@ export function ShopCatalog({
             browseCategory={modalSizeBrowseCategory}
             onBrowseCategoryChange={setModalSizeBrowseCategory}
             onClearAll={() => setModalFilters((f) => ({ ...f, sizeIds: [] }))}
-            onToggle={(id) =>
-              setModalFilters((f) => ({ ...f, sizeIds: toggleSizeIds(f.sizeIds, id) }))
+            onToggleOption={(option) =>
+              setModalFilters((f) => ({
+                ...f,
+                sizeIds: toggleAggregatedSizeSelection(f.sizeIds, option),
+              }))
             }
             onSelectAllInCategory={(categoryIds) =>
               setModalFilters((f) => ({ ...f, sizeIds: toggleAllSizeIdsInCategory(f.sizeIds, categoryIds) }))
@@ -1807,7 +1797,6 @@ export function ShopCatalog({
     brands,
     colors,
     sizes,
-    toggleSizeIds,
     toggleAllSizeIdsInCategory,
   ]);
 
@@ -3010,8 +2999,11 @@ export function ShopCatalog({
                   browseCategory={sizeSheetBrowseCategory}
                   onBrowseCategoryChange={setSizeSheetBrowseCategory}
                   onClearAll={() => setFilterSheetDraft((d) => ({ ...d, sizeIds: [] }))}
-                  onToggle={(id) =>
-                    setFilterSheetDraft((d) => ({ ...d, sizeIds: toggleSizeIds(d.sizeIds, id) }))
+                  onToggleOption={(option) =>
+                    setFilterSheetDraft((d) => ({
+                      ...d,
+                      sizeIds: toggleAggregatedSizeSelection(d.sizeIds, option),
+                    }))
                   }
                   onSelectAllInCategory={(categoryIds) =>
                     setFilterSheetDraft((d) => ({
