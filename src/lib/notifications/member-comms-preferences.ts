@@ -25,6 +25,9 @@ const MARKETING_NOTIFICATION_KINDS = new Set<string>([
 ]);
 
 export function isMarketingNotificationKind(kind: string): boolean {
+  // Règles créées depuis le référentiel BO (`rule:{uuid}`).
+  if (kind.startsWith("rule:")) return true;
+  if (kind === "backoffice_manual_push") return true;
   return MARKETING_NOTIFICATION_KINDS.has(kind);
 }
 
