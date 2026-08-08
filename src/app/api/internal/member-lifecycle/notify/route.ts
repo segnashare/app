@@ -18,8 +18,9 @@ function internalMemberLifecycleSecrets(): string[] {
 /**
  * Déclenche une notification membre pour une étape « pièce » (évaluation / logistique).
  * Auth : Bearer = `SEGNA_INTERNAL_MEMBER_LIFECYCLE_SECRET` (ou repli item-intake / Uber interne).
- * Body JSON : `{ "item_id": "uuid", "event": "item_evaluated" | … | "item_intake_verified" }`
- * `item_intake_verified` : déclenché par le back-office (bouton Vérification), pas par trigger DB.
+ * Body JSON : `{ "item_id": "uuid", "event": "item_evaluated" | … | "item_intake_verified" | "item_became_available" }`
+ * `item_intake_verified` : BO bouton Vérification (SMS propriétaire + règles likers).
+ * `item_became_available` : BO bascule listed → available (règles likers seulement).
  */
 export async function POST(request: Request) {
   const candidates = internalMemberLifecycleSecrets();

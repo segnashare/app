@@ -5,12 +5,15 @@ import { trackServerEvent } from "@/lib/analytics/track-server";
 import { itemEvaluatedEmail, itemReceivedBySegnaEmail, itemValidatedBySegnaEmail } from "@/lib/notifications/lifecycle-item-email";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification, sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
+import { dispatchLikedItemAvailableRules } from "@/lib/notifications/notification-rules";
 
 export const memberLifecycleItemEventCodes = [
   "item_evaluated",
   "item_received_segna",
   "item_validated_segna",
   "item_intake_verified",
+  /** Remise en catalogue (ex. listed → available) : règles BO likers, sans SMS propriétaire. */
+  "item_became_available",
 ] as const;
 export type MemberLifecycleItemEventCode = (typeof memberLifecycleItemEventCodes)[number];
 
@@ -177,5 +180,19 @@ export async function dispatchMemberLifecycleItemEvent(
       },
     );
     await notifyItemIntakeVerifiedSms(admin, { itemId: input.itemId, source: "member_lifecycle_api" });
+    await dispatchLikedItemAvailableRules(admin, {
+      itemId: input.itemId,
+      itemLabel: row.label,
+      ownerUserId: row.userId,
+    });
+    return;
+  }
+
+  if (input.event === "item_became_available") {
+    await dispatchLikedItemAvailableRules(admin, {
+      itemId: input.itemId,
+      itemLabel: row.label,
+      ownerUserId: row.userId,
+    });
   }
 }
