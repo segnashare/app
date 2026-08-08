@@ -12,11 +12,13 @@ import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checko
 import {
   confirmCartPaidFromStripePaymentIntent,
   confirmCartPaidFromStripeSession,
+  confirmCartPaidFromStripeSetupIntent,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import {
   persistStripeCustomerDefaultPaymentMethodFromCheckout,
   persistStripeCustomerDefaultPaymentMethodFromPaymentIntent,
+  persistStripeCustomerDefaultPaymentMethodFromSetupIntent,
 } from "@/lib/stripe/persist-customer-default-payment-method";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -24,21 +26,24 @@ import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 /**
  * Confirmation post-paiement panier (Bearer website ou session app).
- * Body : `{ sessionId }` (Checkout) **ou** `{ paymentIntentId }` (Payment Sheet).
+ * Body : `{ sessionId }` | `{ paymentIntentId }` | `{ setupIntentId }` (Payment Sheet).
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
       sessionId?: unknown;
       paymentIntentId?: unknown;
+      setupIntentId?: unknown;
     } | null;
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
     const paymentIntentId =
       typeof body?.paymentIntentId === "string" ? body.paymentIntentId.trim() : "";
+    const setupIntentId =
+      typeof body?.setupIntentId === "string" ? body.setupIntentId.trim() : "";
 
-    if (!sessionId && !paymentIntentId) {
+    if (!sessionId && !paymentIntentId && !setupIntentId) {
       return NextResponse.json(
-        { message: "session_id ou payment_intent_id manquant." },
+        { message: "session_id, payment_intent_id ou setup_intent_id manquant." },
         { status: 400 },
       );
     }
@@ -51,6 +56,57 @@ export async function POST(request: Request) {
     const admin = createSupabaseAdminClient() as any;
     const { secretKey } = getStripeConfig();
     const stripe = new Stripe(secretKey);
+
+    if (setupIntentId) {
+      const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+      const expectedUserId = setupIntent.metadata?.user_id ?? null;
+      if (expectedUserId && expectedUserId !== user.id) {
+        return NextResponse.json({ message: "user_mismatch", code: "user_mismatch" }, { status: 403 });
+      }
+      if (setupIntent.metadata?.checkout_kind !== "cart_order_wallet_setup") {
+        return NextResponse.json({ message: "Checkout invalide." }, { status: 400 });
+      }
+      if (setupIntent.status !== "succeeded") {
+        return NextResponse.json({ message: "Enregistrement carte non confirmé." }, { status: 400 });
+      }
+
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromSetupIntent(stripe, setupIntent);
+      } catch (e) {
+        console.error("[stripe/cart/confirm] persist default PM from SI", e);
+      }
+
+      try {
+        await confirmCartPaidFromStripeSetupIntent(admin, setupIntent, user.id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "confirm_unknown";
+        console.error("[stripe/cart/confirm] confirm SI failed", msg);
+        return NextResponse.json({ message: msg }, { status: 500 });
+      }
+
+      const cartId = setupIntent.metadata?.cart_id?.trim() || null;
+      if (cartId) {
+        try {
+          await notifyCartOrderPaidAfterConfirmation(admin, {
+            userId: user.id,
+            cartId,
+            skipMemberNotification: setupIntent.metadata?.purchase_mode === "true",
+          });
+        } catch (e) {
+          console.error("[stripe/cart/confirm] notify", e);
+        }
+        trackOrderConfirmedServer(user.id, {
+          cart_id: cartId,
+          checkout_mode: "wallet_setup_payment_sheet",
+          used_included_order: setupIntent.metadata?.used_included_order === "true",
+          item_count: parseOrderConfirmedItemCount(setupIntent.metadata ?? undefined),
+          ...parseOrderCheckoutEconomicsFromMetadata(setupIntent.metadata ?? undefined),
+        });
+        await flushServerAnalytics();
+      }
+
+      return NextResponse.json({ ok: true, cartId, setupIntentId });
+    }
 
     if (paymentIntentId) {
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);

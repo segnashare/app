@@ -762,6 +762,45 @@ export async function POST(request: Request) {
 
       const hasSavedPaymentMethod = await stripeCustomerHasSavedPaymentMethod(stripe, admin, userId);
       if (!hasSavedPaymentMethod) {
+        const wantsPaymentSheetSetup =
+          body.paymentUi === "payment_sheet" || body.paymentUi === "native";
+
+        /** Mobile : SetupIntent + Payment Sheet (évite Checkout URL hors app). */
+        if (wantsPaymentSheetSetup) {
+          if (!config.publishableKey) {
+            return NextResponse.json(
+              { message: "STRIPE_PUBLISHABLE_KEY manquante côté serveur." },
+              { status: 500 },
+            );
+          }
+          const ephemeralKey = await stripe.ephemeralKeys.create(
+            { customer: stripeCustomerId },
+            { apiVersion: "2026-02-25.clover" },
+          );
+          const setupIntent = await stripe.setupIntents.create({
+            customer: stripeCustomerId,
+            payment_method_types: ["card"],
+            usage: "off_session",
+            metadata: checkoutMetadata,
+          });
+          if (!setupIntent.client_secret || !ephemeralKey.secret) {
+            return NextResponse.json(
+              { message: "Stripe n'a pas renvoyé les secrets Setup Payment Sheet." },
+              { status: 500 },
+            );
+          }
+          return NextResponse.json({
+            paymentUi: "payment_sheet",
+            mode: "setup",
+            setupIntentId: setupIntent.id,
+            setupIntentClientSecret: setupIntent.client_secret,
+            customerId: stripeCustomerId,
+            customerEphemeralKeySecret: ephemeralKey.secret,
+            publishableKey: config.publishableKey,
+            amountCents: 0,
+          });
+        }
+
         const setupSession = await stripe.checkout.sessions.create({
           mode: "setup",
           customer: stripeCustomerId,

@@ -97,6 +97,21 @@ export async function persistStripeCustomerDefaultPaymentMethodFromPaymentIntent
   await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
 }
 
+/** Après SetupIntent (Payment Sheet panier 0 €), enregistre la carte par défaut. */
+export async function persistStripeCustomerDefaultPaymentMethodFromSetupIntent(
+  stripe: Stripe,
+  setupIntent: Stripe.SetupIntent,
+): Promise<void> {
+  if (setupIntent.status !== "succeeded") return;
+  const customerId = typeof setupIntent.customer === "string" ? setupIntent.customer.trim() : "";
+  if (!customerId) return;
+  const pm = setupIntent.payment_method;
+  const paymentMethodId =
+    typeof pm === "string" ? pm.trim() : pm && typeof pm === "object" ? String(pm.id).trim() : "";
+  if (!paymentMethodId) return;
+  await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
+}
+
 /**
  * Après un Checkout `mode: setup` (réservation panier 0 €), enregistre la carte
  * pour les prélèvements off-session futurs.
