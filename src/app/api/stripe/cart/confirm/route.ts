@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         }
         trackOrderConfirmedServer(user.id, {
           cart_id: cartId,
-          checkout_mode: "wallet_setup_payment_sheet",
+          checkout_mode: "wallet_setup",
           used_included_order: setupIntent.metadata?.used_included_order === "true",
           item_count: parseOrderConfirmedItemCount(setupIntent.metadata ?? undefined),
           ...parseOrderCheckoutEconomicsFromMetadata(setupIntent.metadata ?? undefined),
