@@ -471,6 +471,83 @@ export async function confirmCartPaidFromStripePaymentIntent(
   return { ok: true, alreadyConfirmed };
 }
 
+/** Débit wallet après SetupIntent Payment Sheet (panier 0 €). */
+export async function debitCartExchangeWalletFromStripeSetupIntent(
+  admin: AdminClient,
+  setupIntent: Stripe.SetupIntent,
+  userId: string,
+): Promise<{ ok: boolean; skipped?: boolean }> {
+  if (!isCartOrderCheckoutKind(setupIntent.metadata?.checkout_kind)) {
+    return { ok: true, skipped: true };
+  }
+
+  const cartId = setupIntent.metadata?.cart_id?.trim();
+  if (!cartId) {
+    throw new Error("cart_order: metadata cart_id manquant");
+  }
+
+  const creditsKind = setupIntent.metadata?.exchange_credits_kind ?? null;
+  const missingRaw = Number(setupIntent.metadata?.missing_exchange_mods ?? 0);
+  const stripeCompPoints = Number.isFinite(missingRaw) ? Math.max(0, Math.trunc(missingRaw)) : 0;
+
+  const { error } = await admin.rpc("wallet_debit_cart_order_stripe", {
+    p_user_id: userId,
+    p_cart_id: cartId,
+    p_checkout_session_id: setupIntent.id,
+    p_idempotency_key: cartOrderWalletDebitIdempotencyKey(cartId),
+    p_metadata: {
+      exchange_credits_kind: creditsKind,
+      stripe_wallet_comp_points: stripeCompPoints,
+      stripe_wallet_comp_credits_kind: stripeCompPoints > 0 ? "consumption" : null,
+      stripe_customer_id: typeof setupIntent.customer === "string" ? setupIntent.customer : null,
+      stripe_setup_intent_id: setupIntent.id,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Panier 0 € via Payment Sheet (SetupIntent) — enregistrement carte + confirmation commande.
+ */
+export async function confirmCartPaidFromStripeSetupIntent(
+  admin: AdminClientWithTable,
+  setupIntent: Stripe.SetupIntent,
+  userId: string,
+): Promise<{ ok: boolean; alreadyConfirmed?: boolean; skipped?: boolean }> {
+  if (setupIntent.metadata?.checkout_kind !== "cart_order_wallet_setup") {
+    return { ok: true, skipped: true };
+  }
+  if (setupIntent.status !== "succeeded") {
+    return { ok: true, skipped: true };
+  }
+
+  const cartId = setupIntent.metadata?.cart_id?.trim();
+  if (!cartId) {
+    throw new Error("cart_order: metadata cart_id manquant");
+  }
+
+  const expectedUserId = setupIntent.metadata?.user_id?.trim();
+  if (expectedUserId && expectedUserId !== userId) {
+    throw new Error("user_mismatch");
+  }
+
+  const { alreadyConfirmed } = await confirmCartPaidFromCheckoutMetadata(admin, {
+    userId,
+    cartId,
+    checkoutSessionId: setupIntent.id,
+    paymentIntentId: null,
+    stripeCustomerId: typeof setupIntent.customer === "string" ? setupIntent.customer : null,
+    metadata: setupIntent.metadata,
+  });
+
+  return { ok: true, alreadyConfirmed };
+}
+
 /** Achat Guest : confirmation après facture Stripe Billing payée. */
 export async function confirmCartPaidFromStripeInvoice(
   admin: AdminClientWithTable,
