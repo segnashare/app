@@ -85,6 +85,54 @@ export async function upsertCartOrderStripeInvoiceFromSession(
   return { ok: true };
 }
 
+/** Snapshot facture après Payment Sheet (PaymentIntent, sans Checkout Session). */
+export function stripeInvoiceRowFromCartOrderPaymentIntent(
+  paymentIntent: Stripe.PaymentIntent,
+  userId: string,
+): Record<string, unknown> | null {
+  const kind = paymentIntent.metadata?.checkout_kind ?? null;
+  if (kind !== "cart_order") return null;
+  if (paymentIntent.status !== "succeeded") return null;
+
+  const cartId = paymentIntent.metadata?.cart_id?.trim();
+  if (!cartId) return null;
+
+  const md = paymentIntent.metadata;
+  const feesTtc = metaCents(md, "fees_ttc_cents");
+  const feesVat = metaCents(md, "fees_vat_cents");
+  const deliveryCh = typeof md?.delivery_channel === "string" ? md.delivery_channel.trim().toLowerCase() : "";
+  const homeSp = typeof md?.home_speed === "string" ? md.home_speed.trim().toLowerCase() : "";
+
+  return {
+    cart_id: cartId,
+    user_id: userId,
+    checkout_session_id: paymentIntent.id,
+    payment_intent_id: paymentIntent.id,
+    amount_total_cents: Math.trunc(paymentIntent.amount_received || paymentIntent.amount || 0),
+    credits_line_cents: metaCents(md, "credits_line_cents"),
+    service_ttc_cents: metaCents(md, "service_ttc_cents"),
+    shipping_ttc_cents: metaCents(md, "shipping_ttc_cents"),
+    fees_ttc_cents: feesTtc > 0 ? feesTtc : null,
+    fees_vat_cents: feesVat > 0 ? feesVat : null,
+    currency: (paymentIntent.currency ?? "eur").toLowerCase(),
+    checkout_delivery_channel: deliveryCh || null,
+    checkout_home_speed: homeSp || null,
+  };
+}
+
+export async function upsertCartOrderStripeInvoiceFromPaymentIntent(
+  admin: AdminLike,
+  paymentIntent: Stripe.PaymentIntent,
+  userId: string,
+): Promise<{ ok: boolean; skipped?: boolean }> {
+  const row = stripeInvoiceRowFromCartOrderPaymentIntent(paymentIntent, userId);
+  if (!row) return { ok: true, skipped: true };
+
+  const { error } = await admin.from("cart_order_stripe_invoices").upsert(row, { onConflict: "cart_id" });
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
 export function stripeInvoiceRowFromGuestPurchaseStripeInvoice(
   invoice: Stripe.Invoice,
   userId: string,

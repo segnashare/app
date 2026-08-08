@@ -1,5 +1,7 @@
 type StripeConfig = {
   secretKey: string;
+  /** Clé publique (Payment Sheet mobile / Elements). */
+  publishableKey: string;
   returnUrlBase: string;
 };
 
@@ -20,12 +22,16 @@ function getReturnUrlBase(): string {
 
 export function getStripeConfig(): StripeConfig {
   const secretKey = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
+  const publishableKey =
+    process.env.STRIPE_PUBLISHABLE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
+    "";
   const returnUrlBase = getReturnUrlBase();
 
   if (!secretKey) throw new Error("STRIPE_SECRET_KEY is missing.");
   if (!returnUrlBase) throw new Error("NEXT_PUBLIC_APP_URL or VERCEL_URL is missing.");
 
-  return { secretKey, returnUrlBase };
+  return { secretKey, publishableKey, returnUrlBase };
 }
 
 export function getStripeWebhookConfig(): StripeWebhookConfig {

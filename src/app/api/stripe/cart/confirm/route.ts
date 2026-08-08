@@ -2,29 +2,45 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import {
+  parseOrderCheckoutEconomicsFromMetadata,
   parseOrderCheckoutEconomicsFromStripeSession,
   parseOrderConfirmedItemCount,
   trackOrderConfirmedServer,
 } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
-import { confirmCartPaidFromStripeSession } from "@/lib/stripe/cart-order-fulfillment";
+import {
+  confirmCartPaidFromStripePaymentIntent,
+  confirmCartPaidFromStripeSession,
+} from "@/lib/stripe/cart-order-fulfillment";
 import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
-import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
+import {
+  persistStripeCustomerDefaultPaymentMethodFromCheckout,
+  persistStripeCustomerDefaultPaymentMethodFromPaymentIntent,
+} from "@/lib/stripe/persist-customer-default-payment-method";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 /**
- * Confirmation post-Checkout panier (Bearer website ou session app).
- * Body : `{ sessionId }`
+ * Confirmation post-paiement panier (Bearer website ou session app).
+ * Body : `{ sessionId }` (Checkout) **ou** `{ paymentIntentId }` (Payment Sheet).
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => null)) as { sessionId?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as {
+      sessionId?: unknown;
+      paymentIntentId?: unknown;
+    } | null;
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
-    if (!sessionId) {
-      return NextResponse.json({ message: "session_id manquant." }, { status: 400 });
+    const paymentIntentId =
+      typeof body?.paymentIntentId === "string" ? body.paymentIntentId.trim() : "";
+
+    if (!sessionId && !paymentIntentId) {
+      return NextResponse.json(
+        { message: "session_id ou payment_intent_id manquant." },
+        { status: 400 },
+      );
     }
 
     const { user, error: userError } = await resolveRequestUser(request);
@@ -35,6 +51,58 @@ export async function POST(request: Request) {
     const admin = createSupabaseAdminClient() as any;
     const { secretKey } = getStripeConfig();
     const stripe = new Stripe(secretKey);
+
+    if (paymentIntentId) {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const expectedUserId = paymentIntent.metadata?.user_id ?? null;
+      if (expectedUserId && expectedUserId !== user.id) {
+        return NextResponse.json({ message: "user_mismatch", code: "user_mismatch" }, { status: 403 });
+      }
+      if (paymentIntent.metadata?.checkout_kind !== "cart_order") {
+        return NextResponse.json({ message: "Checkout invalide." }, { status: 400 });
+      }
+      if (paymentIntent.status !== "succeeded") {
+        return NextResponse.json({ message: "Paiement non confirmé." }, { status: 400 });
+      }
+
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromPaymentIntent(stripe, paymentIntent);
+      } catch (e) {
+        console.error("[stripe/cart/confirm] persist default PM from PI", e);
+      }
+
+      try {
+        await confirmCartPaidFromStripePaymentIntent(admin, paymentIntent, user.id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "confirm_unknown";
+        console.error("[stripe/cart/confirm] confirm PI failed", msg);
+        return NextResponse.json({ message: msg }, { status: 500 });
+      }
+
+      const cartId = paymentIntent.metadata?.cart_id?.trim() || null;
+      if (cartId) {
+        try {
+          await notifyCartOrderPaidAfterConfirmation(admin, {
+            userId: user.id,
+            cartId,
+            skipMemberNotification: paymentIntent.metadata?.purchase_mode === "true",
+          });
+        } catch (e) {
+          console.error("[stripe/cart/confirm] notify", e);
+        }
+        trackOrderConfirmedServer(user.id, {
+          cart_id: cartId,
+          checkout_mode: "stripe_payment_sheet",
+          used_included_order: paymentIntent.metadata?.used_included_order === "true",
+          item_count: parseOrderConfirmedItemCount(paymentIntent.metadata ?? undefined),
+          ...parseOrderCheckoutEconomicsFromMetadata(paymentIntent.metadata ?? undefined),
+        });
+        await flushServerAnalytics();
+      }
+
+      return NextResponse.json({ ok: true, cartId, paymentIntentId });
+    }
+
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     const expectedUserId =

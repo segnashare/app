@@ -84,6 +84,19 @@ export async function persistStripeCustomerDefaultPaymentMethodFromCheckout(
   await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
 }
 
+/** Après Payment Sheet réussi — même persistance de PM par défaut. */
+export async function persistStripeCustomerDefaultPaymentMethodFromPaymentIntent(
+  stripe: Stripe,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  if (paymentIntent.status !== "succeeded") return;
+  const customerId = typeof paymentIntent.customer === "string" ? paymentIntent.customer.trim() : "";
+  if (!customerId) return;
+  const paymentMethodId = resolvePaymentMethodId(paymentIntent);
+  if (!paymentMethodId) return;
+  await persistPaymentMethodOnCustomer(stripe, customerId, paymentMethodId);
+}
+
 /**
  * Après un Checkout `mode: setup` (réservation panier 0 €), enregistre la carte
  * pour les prélèvements off-session futurs.
