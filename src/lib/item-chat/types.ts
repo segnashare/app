@@ -21,6 +21,8 @@ export type ItemChatConversationRow = {
   usefulness_prompted_at: string | null;
   usefulness_rating: ItemChatUsefulnessRating | null;
   discord_thread_deleted_at: string | null;
+  /** Archive inbox membre (null = dans le feed actif). */
+  visitor_archived_at: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -24,11 +24,17 @@ export async function GET(request: Request) {
 
   const { user } = await resolveRequestUser(request);
 
+  const url = new URL(request.url);
+  const archived =
+    url.searchParams.get("archived") === "1" ||
+    url.searchParams.get("archived") === "true";
+
   const admin = createSupabaseAdminClient();
   const conversations = await listConversationsForIdentity({
     admin,
     visitorId,
     userId: user?.id ?? null,
+    archived,
   });
   return itemChatJson(request, { conversations });
 }
