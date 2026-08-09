@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { markLinkedCartDisputeInReviewFromChat } from "@/lib/disputes/mark-cart-dispute-in-review-from-chat";
-import { rehostRemoteChatImage } from "@/lib/item-chat/chat-image-storage";
 import {
-  collectDiscordImageUrls,
   discordFetchThreadMessagesAfter,
   discordGetBotUserId,
   discordStaffProfileFromAuthor,
@@ -16,25 +14,6 @@ type Admin = SupabaseClient;
 
 function asConv(row: unknown): ItemChatConversationRow {
   return row as ItemChatConversationRow;
-}
-
-async function buildStaffMessageBody(
-  admin: Admin,
-  conversationId: string,
-  content: string,
-  remoteImageUrls: string[],
-): Promise<string | null> {
-  const text = content.trim();
-  const hosted: string[] = [];
-  for (const url of remoteImageUrls) {
-    const local = await rehostRemoteChatImage(admin, conversationId, url);
-    if (local) hosted.push(local);
-  }
-  // Si le rehost échoue, garder les URLs Discord pour au moins afficher quelque chose.
-  const images = hosted.length ? hosted : remoteImageUrls;
-  const parts = [text, ...images].filter(Boolean);
-  if (!parts.length) return null;
-  return parts.join("\n").slice(0, 4000);
 }
 
 async function syncOneConversation(
@@ -56,14 +35,7 @@ async function syncOneConversation(
       latestId = msg.id;
       if (msg.author?.bot) continue;
       if (botUserId && msg.author?.id === botUserId) continue;
-
-      const remoteImages = collectDiscordImageUrls(msg);
-      const body = await buildStaffMessageBody(
-        admin,
-        conv.id,
-        msg.content || "",
-        remoteImages,
-      );
+      const body = (msg.content || "").trim();
       if (!body) continue;
 
       const profile = discordStaffProfileFromAuthor(msg.author);
@@ -82,7 +54,7 @@ async function syncOneConversation(
         .insert({
           conversation_id: conv.id,
           role: "staff",
-          body,
+          body: body.slice(0, 4000),
           discord_message_id: msg.id,
           staff_display_name: profile?.displayName ?? null,
           staff_avatar_url: profile?.avatarUrl ?? null,
@@ -120,7 +92,7 @@ async function syncOneConversation(
             userId: conv.user_id,
             conversationId: conv.id,
             messageId,
-            body,
+            body: body.slice(0, 4000),
             staffDisplayName: profile?.displayName ?? null,
           }),
       );
