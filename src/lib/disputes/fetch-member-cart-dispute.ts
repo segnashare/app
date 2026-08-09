@@ -82,20 +82,27 @@ export async function fetchMemberCartOpenDispute(
 
   if (cartErr || !cart || cart.user_id !== userId) return null;
 
-  let disputeQuery = await admin
-    .from("cart_disputes")
-    .select(
-      "id,status,reason,category,scope,details,photo_paths,created_at,updated_at,conversation_id",
-    )
-    .eq("cart_id", id)
-    .is("deleted_at", null)
-    .in("status", ["open", "in_review"])
-    .order("created_at", { ascending: false })
-    .limit(1);
+  let disputeRows: unknown[] | null = null;
+  let disputeErr: { message?: string } | null = null;
+
+  {
+    const res = await admin
+      .from("cart_disputes")
+      .select(
+        "id,status,reason,category,scope,details,photo_paths,created_at,updated_at,conversation_id",
+      )
+      .eq("cart_id", id)
+      .is("deleted_at", null)
+      .in("status", ["open", "in_review"])
+      .order("created_at", { ascending: false })
+      .limit(1);
+    disputeErr = res.error;
+    disputeRows = res.data;
+  }
 
   // Colonne conversation_id absente tant que la migration n’est pas appliquée.
-  if (disputeQuery.error?.message?.includes("conversation_id")) {
-    disputeQuery = await admin
+  if (disputeErr?.message?.includes("conversation_id")) {
+    const res = await admin
       .from("cart_disputes")
       .select("id,status,reason,category,scope,details,photo_paths,created_at,updated_at")
       .eq("cart_id", id)
@@ -103,11 +110,14 @@ export async function fetchMemberCartOpenDispute(
       .in("status", ["open", "in_review"])
       .order("created_at", { ascending: false })
       .limit(1);
+    disputeErr = res.error;
+    disputeRows = res.data;
   }
 
-  if (disputeQuery.error || !disputeQuery.data?.[0]?.id) return null;
+  const first = Array.isArray(disputeRows) ? disputeRows[0] : null;
+  if (disputeErr || !first || typeof (first as { id?: unknown }).id !== "string") return null;
 
-  const base = mapDisputeRow(disputeQuery.data[0] as Parameters<typeof mapDisputeRow>[0]);
+  const base = mapDisputeRow(first as Parameters<typeof mapDisputeRow>[0]);
   let conversationId = base.conversationId;
   if (!conversationId) {
     const { data: chatRow } = await admin
