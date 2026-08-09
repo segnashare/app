@@ -20,6 +20,13 @@ import {
   type ItemChatLocalState,
   type OpenItemChatDetail,
 } from "@/lib/item-chat/client-storage"
+import {
+  findNewInboundChatMessages,
+  isSameChatThreadContinuation,
+  makeOptimisticVisitorMessage,
+  replaceOptimisticVisitorMessage,
+  waitForTypingReveal,
+} from "@/lib/item-chat/chat-timing"
 
 export type ItemChatMessage = {
   id: string
@@ -49,7 +56,7 @@ export type ItemChatConversation = {
   operatorAvatarUrl: string | null
 }
 
-export type ItemChatView = 'list' | 'thread'
+export type ItemChatView = 'list' | 'thread' | 'archives'
 
 type ItemChatContextValue = {
   source: 'web' | 'app'
@@ -58,17 +65,22 @@ type ItemChatContextValue = {
   setPanelOpen: (open: boolean) => void
   view: ItemChatView
   goToList: () => void
+  goToArchives: () => void
   startNewChat: (opts?: {initialMessage?: string}) => Promise<void>
   conversations: ItemChatConversation[]
+  archivedConversations: ItemChatConversation[]
   unreadCount: number
   messages: ItemChatMessage[]
   conversation: ItemChatConversation | null
   pendingItem: OpenItemChatDetail | null
   sending: boolean
+  botTyping: boolean
   error: string | null
   clearError: () => void
   openForItem: (detail: OpenItemChatDetail) => void
   openConversation: (id: string) => void
+  archiveConversation: (id: string) => Promise<void>
+  unarchiveConversation: (id: string) => Promise<void>
   sendMessage: (body: string) => Promise<void>
   submitUsefulnessRating: (rating: 'yes' | 'no') => Promise<void>
   markRead: () => Promise<void>
@@ -107,10 +119,16 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
   const [pendingItem, setPendingItem] = useState<OpenItemChatDetail | null>(null)
   const [conversation, setConversation] = useState<ItemChatConversation | null>(null)
   const [conversations, setConversations] = useState<ItemChatConversation[]>([])
+  const [archivedConversations, setArchivedConversations] = useState<ItemChatConversation[]>([])
   const [messages, setMessages] = useState<ItemChatMessage[]>([])
   const [sending, setSending] = useState(false)
+  const [botTyping, setBotTyping] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const claimedRef = useRef(false)
+  const sendingRef = useRef(false)
+  const botTypingRef = useRef(false)
+  const messagesRef = useRef<ItemChatMessage[]>([])
+  messagesRef.current = messages
 
   useEffect(() => {
     setLocal(loadItemChatLocalState())
@@ -125,6 +143,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
 
   const refreshConversation = useCallback(
     async (conversationId: string, visitorId: string) => {
+      if (sendingRef.current || botTypingRef.current) return
       const res = await apiFetch(
         apiBase,
         `/api/item-chat/conversations/${conversationId}/messages`,
@@ -136,7 +155,30 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         messages?: ItemChatMessage[]
       }
       if (data.conversation) setConversation(data.conversation)
-      if (Array.isArray(data.messages)) setMessages(data.messages)
+      if (!Array.isArray(data.messages)) return
+
+      const prev = messagesRef.current
+      const next = data.messages
+      const newInbound = findNewInboundChatMessages(prev, next)
+      const shouldType =
+        newInbound.length > 0 && isSameChatThreadContinuation(prev, next)
+
+      if (!shouldType) {
+        setMessages(next)
+        return
+      }
+
+      const heldIds = new Set(newInbound.map((m) => m.id))
+      setMessages(next.filter((m) => !heldIds.has(m.id)))
+      botTypingRef.current = true
+      setBotTyping(true)
+      try {
+        await waitForTypingReveal(Date.now())
+        setMessages(next)
+      } finally {
+        botTypingRef.current = false
+        setBotTyping(false)
+      }
     },
     [apiBase],
   )
@@ -151,6 +193,16 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
     [apiBase],
   )
 
+  const refreshArchives = useCallback(
+    async (visitorId: string) => {
+      const res = await apiFetch(apiBase, '/api/item-chat/conversations?archived=1', visitorId)
+      if (!res.ok) return
+      const data = (await res.json()) as {conversations?: ItemChatConversation[]}
+      if (Array.isArray(data.conversations)) setArchivedConversations(data.conversations)
+    },
+    [apiBase],
+  )
+
   const goToList = useCallback(() => {
     setView('list')
     setError(null)
@@ -158,15 +210,81 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
     void refreshList(state.visitorId)
   }, [local, refreshList])
 
+  const goToArchives = useCallback(() => {
+    setView('archives')
+    setError(null)
+    const state = local ?? loadItemChatLocalState()
+    void refreshArchives(state.visitorId)
+  }, [local, refreshArchives])
+
+  const archiveConversation = useCallback(
+    async (id: string) => {
+      const state = local ?? loadItemChatLocalState()
+      const prev = conversations
+      setConversations((list) => list.filter((c) => c.id !== id))
+      try {
+        const res = await apiFetch(
+          apiBase,
+          `/api/item-chat/conversations/${id}/archive`,
+          state.visitorId,
+          {method: 'POST', body: JSON.stringify({archived: true})},
+        )
+        if (!res.ok) {
+          setConversations(prev)
+          setError('Archivage impossible')
+          return
+        }
+        void refreshArchives(state.visitorId)
+      } catch {
+        setConversations(prev)
+        setError('Réseau indisponible')
+      }
+    },
+    [apiBase, conversations, local, refreshArchives],
+  )
+
+  const unarchiveConversation = useCallback(
+    async (id: string) => {
+      const state = local ?? loadItemChatLocalState()
+      const prev = archivedConversations
+      setArchivedConversations((list) => list.filter((c) => c.id !== id))
+      try {
+        const res = await apiFetch(
+          apiBase,
+          `/api/item-chat/conversations/${id}/archive`,
+          state.visitorId,
+          {method: 'POST', body: JSON.stringify({archived: false})},
+        )
+        if (!res.ok) {
+          setArchivedConversations(prev)
+          setError('Restauration impossible')
+          return
+        }
+        void refreshList(state.visitorId)
+      } catch {
+        setArchivedConversations(prev)
+        setError('Réseau indisponible')
+      }
+    },
+    [apiBase, archivedConversations, local, refreshList],
+  )
+
   const startNewChat = useCallback(
     async (opts?: {initialMessage?: string}) => {
       const initialMessage = opts?.initialMessage?.trim() || ''
       setError(null)
       setPendingItem(null)
-      setMessages([])
       setConversation(null)
       setPanelOpen(true)
       setView('thread')
+
+      const optimistic = initialMessage ? makeOptimisticVisitorMessage(initialMessage) : null
+      setMessages(optimistic ? [optimistic as ItemChatMessage] : [])
+      if (optimistic) {
+        sendingRef.current = true
+        setSending(true)
+      }
+
       const state = local ?? loadItemChatLocalState()
       if (!local) setLocal(state)
 
@@ -182,54 +300,73 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         if (!res.ok) {
           const err = (await res.json().catch(() => null)) as {error?: string} | null
           setError(err?.error || 'Impossible d’ouvrir le chat')
+          if (optimistic) setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
           return
         }
         const data = (await res.json()) as {conversation?: ItemChatConversation}
-        if (!data.conversation) return
+        if (!data.conversation) {
+          if (optimistic) setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+          return
+        }
         setConversation(data.conversation)
         persist({...state, conversationId: data.conversation.id})
 
-        if (initialMessage) {
-          setSending(true)
-          try {
-            const msgRes = await apiFetch(
-              apiBase,
-              `/api/item-chat/conversations/${data.conversation.id}/messages`,
-              state.visitorId,
-              {
-                method: 'POST',
-                body: JSON.stringify({
-                  visitorId: state.visitorId,
-                  body: initialMessage,
-                  source,
-                }),
-              },
-            )
-            if (!msgRes.ok) {
-              const err = (await msgRes.json().catch(() => null)) as {error?: string} | null
-              setError(err?.error || 'Envoi impossible')
-              await refreshConversation(data.conversation.id, state.visitorId)
-              return
-            }
-            const msgData = (await msgRes.json()) as {
-              message?: ItemChatMessage
-              ackMessage?: ItemChatMessage | null
-              conversation?: ItemChatConversation
-            }
-            const nextMessages: ItemChatMessage[] = []
-            if (msgData.message) nextMessages.push(msgData.message)
-            if (msgData.ackMessage) nextMessages.push(msgData.ackMessage)
-            setMessages(nextMessages)
-            if (msgData.conversation) setConversation(msgData.conversation)
-          } finally {
-            setSending(false)
+        if (initialMessage && optimistic) {
+          const msgRes = await apiFetch(
+            apiBase,
+            `/api/item-chat/conversations/${data.conversation.id}/messages`,
+            state.visitorId,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                visitorId: state.visitorId,
+                body: initialMessage,
+                source,
+              }),
+            },
+          )
+          if (!msgRes.ok) {
+            const err = (await msgRes.json().catch(() => null)) as {error?: string} | null
+            setError(err?.error || 'Envoi impossible')
+            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+            return
           }
-        } else {
-          await refreshConversation(data.conversation.id, state.visitorId)
+          const msgData = (await msgRes.json()) as {
+            message?: ItemChatMessage
+            ackMessage?: ItemChatMessage | null
+            conversation?: ItemChatConversation
+          }
+          setMessages((prev) =>
+            replaceOptimisticVisitorMessage(prev, optimistic.id, msgData.message),
+          )
+          if (msgData.conversation) setConversation(msgData.conversation)
+          if (msgData.ackMessage) {
+            const typingStartedAt = Date.now()
+            botTypingRef.current = true
+            setBotTyping(true)
+            try {
+              await waitForTypingReveal(typingStartedAt)
+              setMessages((prev) =>
+                prev.some((m) => m.id === msgData.ackMessage!.id)
+                  ? prev
+                  : [...prev, msgData.ackMessage!],
+              )
+            } finally {
+              botTypingRef.current = false
+              setBotTyping(false)
+            }
+          }
         }
+        await refreshConversation(data.conversation.id, state.visitorId)
         void refreshList(state.visitorId)
       } catch {
         setError('Réseau indisponible')
+        if (optimistic) setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+      } finally {
+        if (optimistic) {
+          sendingRef.current = false
+          setSending(false)
+        }
       }
     },
     [apiBase, local, persist, refreshConversation, refreshList, source],
@@ -289,7 +426,12 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
 
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const ce = e as CustomEvent<OpenItemChatDetail>
+      const ce = e as CustomEvent<OpenItemChatDetail & {conversationId?: string}>
+      const conversationId = ce.detail?.conversationId?.trim()
+      if (conversationId) {
+        void openConversation(conversationId)
+        return
+      }
       if (!ce.detail?.itemId) return
       void openForItem(ce.detail)
     }
@@ -304,7 +446,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       window.removeEventListener(ITEM_CHAT_OPEN_EVENT, onOpen)
       window.removeEventListener(ITEM_CHAT_OPEN_PANEL_EVENT, onOpenPanel)
     }
-  }, [clearError, goToList, openForItem])
+  }, [clearError, goToList, openConversation, openForItem])
 
   useEffect(() => {
     if (!local || claimedRef.current) return
@@ -332,11 +474,12 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
     const tick = () => {
       void refreshConversation(id, local.visitorId)
       if (view === 'list') void refreshList(local.visitorId)
+      if (view === 'archives') void refreshArchives(local.visitorId)
     }
     const ms = panelOpen ? 8_000 : 25_000
     const t = window.setInterval(tick, ms)
     return () => window.clearInterval(t)
-  }, [conversation?.id, local, panelOpen, refreshConversation, refreshList, view])
+  }, [conversation?.id, local, panelOpen, refreshArchives, refreshConversation, refreshList, view])
 
   const markRead = useCallback(async () => {
     if (!local || !conversation) return
@@ -364,11 +507,16 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
 
   const sendMessage = useCallback(
     async (body: string) => {
-      if (!local) return
+      if (!local || sendingRef.current) return
       const trimmed = body.trim()
       if (!trimmed) return
+
+      const optimistic = makeOptimisticVisitorMessage(trimmed) as ItemChatMessage
+      setMessages((prev) => [...prev, optimistic])
+      sendingRef.current = true
       setSending(true)
       setError(null)
+
       try {
         let conv = conversation
         if (!conv && pendingItem) {
@@ -376,6 +524,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
           const state = loadItemChatLocalState()
           if (!state.conversationId) {
             setError('Conversation indisponible')
+            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
             return
           }
           conv = {
@@ -399,6 +548,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         }
         if (!conv) {
           setError('Impossible d’envoyer le message')
+          setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
           return
         }
 
@@ -418,6 +568,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         if (!res.ok) {
           const err = (await res.json().catch(() => null)) as {error?: string} | null
           setError(err?.error || 'Envoi impossible')
+          setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
           return
         }
         const data = (await res.json()) as {
@@ -425,23 +576,48 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
           ackMessage?: ItemChatMessage | null
           conversation?: ItemChatConversation
         }
-        if (data.message) {
-          setMessages((prev) => [
-            ...prev,
-            data.message!,
-            ...(data.ackMessage ? [data.ackMessage] : []),
-          ])
-        }
+        setMessages((prev) => replaceOptimisticVisitorMessage(prev, optimistic.id, data.message))
         if (data.conversation) setConversation(data.conversation)
         persist({...local, conversationId: conv.id})
         void refreshList(local.visitorId)
+
+        if (data.ackMessage) {
+          const typingStartedAt = Date.now()
+          botTypingRef.current = true
+          setBotTyping(true)
+          try {
+            await waitForTypingReveal(typingStartedAt)
+            setMessages((prev) =>
+              prev.some((m) => m.id === data.ackMessage!.id) ? prev : [...prev, data.ackMessage!],
+            )
+          } finally {
+            botTypingRef.current = false
+            setBotTyping(false)
+          }
+        }
       } catch {
         setError('Réseau indisponible')
+        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
       } finally {
+        sendingRef.current = false
         setSending(false)
+        const convId = conversation?.id || local.conversationId
+        if (convId) {
+          void refreshConversation(convId, local.visitorId)
+        }
       }
     },
-    [apiBase, conversation, local, openForItem, pendingItem, persist, refreshList, source],
+    [
+      apiBase,
+      conversation,
+      local,
+      openForItem,
+      pendingItem,
+      persist,
+      refreshConversation,
+      refreshList,
+      source,
+    ],
   )
 
   const submitUsefulnessRating = useCallback(
@@ -496,27 +672,36 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       setPanelOpen,
       view,
       goToList,
+      goToArchives,
       startNewChat,
       conversations,
+      archivedConversations,
       unreadCount,
       messages,
       conversation,
       pendingItem,
       sending,
+      botTyping,
       error,
       clearError,
       openForItem,
       openConversation,
+      archiveConversation,
+      unarchiveConversation,
       sendMessage,
       submitUsefulnessRating,
       markRead,
     }),
     [
       apiBase,
+      archiveConversation,
+      archivedConversations,
+      botTyping,
       clearError,
       conversation,
       conversations,
       error,
+      goToArchives,
       goToList,
       startNewChat,
       markRead,
@@ -529,6 +714,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       submitUsefulnessRating,
       sending,
       source,
+      unarchiveConversation,
       unreadCount,
       view,
     ],
