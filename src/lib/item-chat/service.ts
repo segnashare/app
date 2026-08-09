@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { markLinkedCartDisputeInReviewFromChat } from "@/lib/disputes/mark-cart-dispute-in-review-from-chat";
 import { notifyItemChatN8n } from "@/lib/item-chat/notify-item-chat-n8n";
 import { resolveStaffAvatarUrl } from "@/lib/item-chat/staff-avatars";
 import type {
@@ -504,9 +505,26 @@ export async function appendStaffMessage(params: {
     .select("*")
     .single();
 
+  // Réponse staff (Discord / n8n) sur un fil litige → dossier « En traitement ».
+  // L’ack auto n’emprunte pas appendStaffMessage.
+  await markLinkedCartDisputeInReviewFromChat(admin, conversation);
+
+  const message = toMessageDto(asMsg(msgData));
+  const nextConversation = convData ? asConv(convData) : conversation;
+  void import("@/lib/item-chat/notify-item-chat-staff-push").then(({ notifyItemChatStaffMessagePush }) =>
+    notifyItemChatStaffMessagePush({
+      admin,
+      userId: nextConversation.user_id,
+      conversationId: nextConversation.id,
+      messageId: message.id,
+      body: message.body,
+      staffDisplayName: staffDisplayName ?? message.staffDisplayName,
+    }),
+  );
+
   return {
-    message: toMessageDto(asMsg(msgData)),
-    conversation: convData ? asConv(convData) : conversation,
+    message,
+    conversation: nextConversation,
   };
 }
 
