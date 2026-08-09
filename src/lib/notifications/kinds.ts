@@ -68,6 +68,8 @@ export const NotificationKind = {
   itemExchangePriceChanged: "item_exchange_price_changed",
   /** Prix panier actif actualisé après recalibrage. */
   cartExchangePriceChanged: "cart_exchange_price_changed",
+  /** Réponse staff / Discord sur le chatbot membre. */
+  itemChatStaffMessage: "item_chat_staff_message",
 } as const;
 
 export type NotificationKindId = (typeof NotificationKind)[keyof typeof NotificationKind];
