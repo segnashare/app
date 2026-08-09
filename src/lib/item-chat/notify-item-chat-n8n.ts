@@ -2,7 +2,26 @@ import {
   getItemPublicAppUrl,
   getItemPublicWebUrl,
 } from "@/lib/item-chat/config";
+import { splitChatMessageMedia } from "@/lib/item-chat/split-chat-message-media";
 import type { ItemChatConversationRow, ItemChatSource } from "@/lib/item-chat/types";
+
+export type ItemChatThreadKind = "general" | "item" | "dispute";
+
+const THREAD_SUBJECT: Record<ItemChatThreadKind, string> = {
+  general: "Général",
+  item: "Item",
+  dispute: "Litige",
+};
+
+function resolveThreadKind(conversation: ItemChatConversationRow): ItemChatThreadKind {
+  const disputeId =
+    typeof conversation.cart_dispute_id === "string" ? conversation.cart_dispute_id.trim() : "";
+  if (disputeId) return "dispute";
+  const title = typeof conversation.item_title === "string" ? conversation.item_title.trim() : "";
+  if (/^litige\b/i.test(title)) return "dispute";
+  if (typeof conversation.item_id === "string" && conversation.item_id.trim()) return "item";
+  return "general";
+}
 
 export type ItemChatN8nNotifyInput = {
   conversation: ItemChatConversationRow;
@@ -76,6 +95,7 @@ function resolveClientName(input: ItemChatN8nNotifyInput): {
   firstName: string | null;
   lastName: string | null;
   clientName: string;
+  threadKind: ItemChatThreadKind;
   threadName: string;
 } {
   const firstName =
@@ -90,11 +110,16 @@ function resolveClientName(input: ItemChatN8nNotifyInput): {
   const email = input.conversation.contact_email?.trim() || "";
   const emailLocal = email.includes("@") ? email.split("@")[0]!.trim() : email;
   const clientName = fromUser || emailLocal || "Visiteur";
+  const threadKind = resolveThreadKind(input.conversation);
+  const subject = THREAD_SUBJECT[threadKind];
+  // Discord limite le nom de thread à 100 caractères.
+  const threadName = `${subject} - ${clientName}`.slice(0, 100);
   return {
     firstName,
     lastName,
     clientName,
-    threadName: clientName.slice(0, 100),
+    threadKind,
+    threadName,
   };
 }
 
@@ -119,7 +144,9 @@ export async function notifyItemChatN8n(
 
   const conv = input.conversation;
   const bindUrl = replyUrlForSource(input.source).replace(/\/reply$/, "/bind-thread");
-  const { firstName, lastName, clientName, threadName } = resolveClientName(input);
+  const { firstName, lastName, clientName, threadKind, threadName } = resolveClientName(input);
+  const { text: bodyText, imageUrls } = splitChatMessageMedia(input.body);
+  const photoUrls = imageUrls.slice(0, 10);
   const payload = {
     event: input.isFirstVisitorMessage ? "item_chat_opened" : "item_chat_message",
     conversation_id: conv.id,
@@ -127,18 +154,31 @@ export async function notifyItemChatN8n(
     is_first_visitor_message: input.isFirstVisitorMessage,
     discord_thread_id: conv.discord_thread_id,
     body: input.body,
+    /** Corps sans lignes URL image (pour Discord content). */
+    body_text: bodyText,
+    /** URLs images à afficher en embeds Discord (max 10). */
+    photo_urls: photoUrls,
     source: input.source,
     item_id: conv.item_id,
     item_title: conv.item_title,
     item_size_label: conv.item_size_label,
     item_condition_label: conv.item_condition_label,
+    cart_dispute_id:
+      typeof conv.cart_dispute_id === "string" && conv.cart_dispute_id.trim()
+        ? conv.cart_dispute_id.trim()
+        : null,
     contact_email: conv.contact_email,
     visitor_id: conv.visitor_id,
     user_id: conv.user_id,
     client_first_name: firstName,
     client_last_name: lastName,
     client_name: clientName,
-    /** Titre Discord thread (nom client). n8n : Options → Thread Name = `{{ $json.body.thread_name }}` */
+    /** `general` | `item` | `dispute` */
+    thread_kind: threadKind,
+    /**
+     * Titre Discord thread : `Général|Item|Litige - Prénom Nom`.
+     * n8n : create thread name = `{{ $json.body.thread_name }}`
+     */
     thread_name: threadName,
     web_url: getItemPublicWebUrl(conv.item_id),
     app_url: getItemPublicAppUrl(conv.item_id),

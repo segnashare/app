@@ -1,0 +1,219 @@
+{
+  "name": "Item chat → Discord (photos + titre sujet)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "5400ad5a-ac39-49c1-9ff8-4b315a4e57f7",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-320, 144],
+      "id": "f2890aee-94a5-4f27-9ea7-981d069f18a9",
+      "name": "Webhook",
+      "webhookId": "5400ad5a-ac39-49c1-9ff8-4b315a4e57f7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body && typeof raw.body === 'object' ? raw.body : raw;\n\nconst photoUrls = Array.isArray(body.photo_urls)\n  ? body.photo_urls.filter((u) => typeof u === 'string' && /^https?:\\/\\//i.test(u)).slice(0, 10)\n  : [];\n\nlet text = typeof body.body_text === 'string' && body.body_text.trim()\n  ? body.body_text.trim()\n  : typeof body.body === 'string'\n    ? body.body\n    : '';\n\n// Fallback si ancienne app sans body_text/photo_urls : extraire les URLs image du body.\nif (!photoUrls.length && text) {\n  const lines = text.split('\\n');\n  const keep = [];\n  for (const line of lines) {\n    const t = line.trim();\n    if (/^https?:\\/\\//i.test(t) && (/\\.(jpe?g|png|gif|webp)(\\?|#|$)/i.test(t) || /\\/storage\\/v1\\/object\\//i.test(t))) {\n      photoUrls.push(t);\n    } else {\n      keep.push(line);\n    }\n  }\n  text = keep.join('\\n').trim();\n}\n\nconst embeds = photoUrls.map((url) => ({ image: { url } }));\nconst content =\n  (text || (photoUrls.length ? `📷 ${photoUrls.length} photo(s)` : '(message vide)')).slice(0, 1900);\n\nconst threadName = (typeof body.thread_name === 'string' && body.thread_name.trim()\n  ? body.thread_name.trim()\n  : `Général - ${(body.client_name || 'Visiteur')}`).slice(0, 100);\n\nreturn [{\n  json: {\n    ...raw,\n    body: {\n      ...body,\n      thread_name: threadName,\n      discord_content: content,\n      discord_embeds: embeds,\n      photo_urls: photoUrls,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, 144],
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Prepare Discord payload"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "451fa4e3-d348-4ef0-9d9f-d8167bb7f936",
+              "leftValue": "={{ $json.body.discord_thread_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [160, 144],
+      "id": "da2e1f20-5666-480b-b783-1de9539ea8e1",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.body.discord_thread_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.body.discord_content, embeds: $json.body.discord_embeds }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [400, -64],
+      "id": "96546ae7-4bfa-4c06-8232-8c3c73425343",
+      "name": "Reply in thread",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "WRq3I1BoHq7Ogp4B",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/v10/channels/1499796696597659791/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.body.discord_content, embeds: $json.body.discord_embeds }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [400, 320],
+      "id": "6bb1fd49-f907-4eda-8d79-9287382f906c",
+      "name": "Post in chatbot channel",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "WRq3I1BoHq7Ogp4B",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $json.channel_id }}/messages/{{ $json.id }}/threads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Prepare Discord payload').item.json.body.thread_name, auto_archive_duration: 10080 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [640, 320],
+      "id": "3d66a047-d1ea-42ea-bd7a-b0c356e8ee7d",
+      "name": "Create thread",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "WRq3I1BoHq7Ogp4B",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Discord payload').item.json.body.bind_thread_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Prepare Discord payload').item.json.body.conversation_id }}\",\n  \"discord_thread_id\": \"{{ $json.id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [880, 320],
+      "id": "fae294ef-b067-4726-b1a1-c400c0a7a9d7",
+      "name": "Bind thread",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "jIoWIHCeLvbN4rET",
+          "name": "Bearer Auth account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Discord payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Discord payload": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Reply in thread",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post in chatbot channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post in chatbot channel": {
+      "main": [
+        [
+          {
+            "node": "Create thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create thread": {
+      "main": [
+        [
+          {
+            "node": "Bind thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
