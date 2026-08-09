@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { markLinkedCartDisputeInReviewFromChat } from "@/lib/disputes/mark-cart-dispute-in-review-from-chat";
+import { rehostRemoteChatImage } from "@/lib/item-chat/chat-image-storage";
 import {
+  collectDiscordImageUrls,
   discordFetchThreadMessagesAfter,
   discordGetBotUserId,
   discordStaffProfileFromAuthor,
@@ -14,6 +16,25 @@ type Admin = SupabaseClient;
 
 function asConv(row: unknown): ItemChatConversationRow {
   return row as ItemChatConversationRow;
+}
+
+async function buildStaffMessageBody(
+  admin: Admin,
+  conversationId: string,
+  content: string,
+  remoteImageUrls: string[],
+): Promise<string | null> {
+  const text = content.trim();
+  const hosted: string[] = [];
+  for (const url of remoteImageUrls) {
+    const local = await rehostRemoteChatImage(admin, conversationId, url);
+    if (local) hosted.push(local);
+  }
+  // Si le rehost échoue, garder les URLs Discord pour au moins afficher quelque chose.
+  const images = hosted.length ? hosted : remoteImageUrls;
+  const parts = [text, ...images].filter(Boolean);
+  if (!parts.length) return null;
+  return parts.join("\n").slice(0, 4000);
 }
 
 async function syncOneConversation(
@@ -35,7 +56,14 @@ async function syncOneConversation(
       latestId = msg.id;
       if (msg.author?.bot) continue;
       if (botUserId && msg.author?.id === botUserId) continue;
-      const body = (msg.content || "").trim();
+
+      const remoteImages = collectDiscordImageUrls(msg);
+      const body = await buildStaffMessageBody(
+        admin,
+        conv.id,
+        msg.content || "",
+        remoteImages,
+      );
       if (!body) continue;
 
       const profile = discordStaffProfileFromAuthor(msg.author);
@@ -54,7 +82,7 @@ async function syncOneConversation(
         .insert({
           conversation_id: conv.id,
           role: "staff",
-          body: body.slice(0, 4000),
+          body,
           discord_message_id: msg.id,
           staff_display_name: profile?.displayName ?? null,
           staff_avatar_url: profile?.avatarUrl ?? null,
@@ -92,7 +120,7 @@ async function syncOneConversation(
             userId: conv.user_id,
             conversationId: conv.id,
             messageId,
-            body: body.slice(0, 4000),
+            body,
             staffDisplayName: profile?.displayName ?? null,
           }),
       );
@@ -128,6 +156,7 @@ export async function syncItemChatDiscordInboundForConversation(
 /**
  * Pour chaque conversation ouverte avec thread Discord, importe les messages
  * staff (non-bot) absents de la base.
+ * Priorité : litiges panier liés + conversations récentes (évite la famine des threads litige).
  */
 export async function syncItemChatDiscordInbound(admin: Admin): Promise<{
   scanned: number;
@@ -139,15 +168,32 @@ export async function syncItemChatDiscordInbound(admin: Admin): Promise<{
   }
 
   const botUserId = await discordGetBotUserId();
-  const { data } = await admin
-    .from("item_chat_conversations" as never)
-    .select("*")
-    .eq("status", "open")
-    .not("discord_thread_id", "is", null)
-    .order("last_message_at", { ascending: false })
-    .limit(40);
 
-  const rows = Array.isArray(data) ? data.map(asConv) : [];
+  const [{ data: hotRows }, { data: disputeRows }] = await Promise.all([
+    admin
+      .from("item_chat_conversations" as never)
+      .select("*")
+      .eq("status", "open")
+      .not("discord_thread_id", "is", null)
+      .order("last_message_at", { ascending: false })
+      .limit(30),
+    admin
+      .from("item_chat_conversations" as never)
+      .select("*")
+      .eq("status", "open")
+      .not("discord_thread_id", "is", null)
+      .not("cart_dispute_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(40),
+  ]);
+
+  const byId = new Map<string, ItemChatConversationRow>();
+  for (const row of [...(disputeRows ?? []), ...(hotRows ?? [])]) {
+    const conv = asConv(row);
+    if (conv.id) byId.set(conv.id, conv);
+  }
+  const rows = [...byId.values()];
+
   let inserted = 0;
   let errors = 0;
 
@@ -158,4 +204,20 @@ export async function syncItemChatDiscordInbound(admin: Admin): Promise<{
   }
 
   return { scanned: rows.length, inserted, errors };
+}
+
+/** Sync par id (lecture litige membre / BO). */
+export async function syncItemChatDiscordInboundByConversationId(
+  admin: Admin,
+  conversationId: string,
+): Promise<number> {
+  const id = conversationId.trim();
+  if (!id || !isItemChatDiscordSyncEnabled()) return 0;
+  const { data } = await admin
+    .from("item_chat_conversations" as never)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!data) return 0;
+  return syncItemChatDiscordInboundForConversation(admin, asConv(data));
 }
