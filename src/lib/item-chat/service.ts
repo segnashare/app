@@ -201,6 +201,7 @@ export async function findOpenConversation(params: {
       .from("item_chat_conversations" as never)
       .select("*")
       .eq("status", "open")
+      .is("visitor_archived_at", null)
       .eq("user_id", userId);
     const { data } = await (itemId ? base.eq("item_id", itemId) : base.is("item_id", null))
       .order("last_message_at", { ascending: false })
@@ -213,6 +214,7 @@ export async function findOpenConversation(params: {
     .from("item_chat_conversations" as never)
     .select("*")
     .eq("status", "open")
+    .is("visitor_archived_at", null)
     .eq("visitor_id", visitorId);
   const { data } = await (itemId ? base.eq("item_id", itemId) : base.is("item_id", null))
     .order("last_message_at", { ascending: false })
@@ -321,6 +323,8 @@ export async function appendVisitorMessage(params: {
   conversation: ItemChatConversationRow;
   body: string;
   source: ItemChatSource;
+  /** Override de l’accusé staff (1er message). `null` = pas d’ack. */
+  ackBody?: string | null;
 }): Promise<{
   message: ItemChatMessageDto;
   ackMessage?: ItemChatMessageDto;
@@ -355,14 +359,20 @@ export async function appendVisitorMessage(params: {
 
   let ackMessage: ItemChatMessageDto | undefined;
   let lastAt = now;
-  if (isFirstVisitorMessage) {
+  const ackText =
+    params.ackBody === null
+      ? null
+      : typeof params.ackBody === "string" && params.ackBody.trim()
+        ? params.ackBody.trim()
+        : "Merci, on a bien reçu ta question. On te répond très vite.";
+  if (isFirstVisitorMessage && ackText) {
     const ackAt = new Date(Date.parse(now) + 1).toISOString();
     const { data: ackData } = await admin
       .from("item_chat_messages" as never)
       .insert({
         conversation_id: conversation.id,
         role: "staff",
-        body: "Merci, on a bien reçu ta question. On te répond très vite.",
+        body: ackText,
         discord_message_id: null,
         created_at: ackAt,
       } as never)
@@ -382,6 +392,8 @@ export async function appendVisitorMessage(params: {
       // Nouvelle activité client → annule le cycle feedback / suppression Discord
       usefulness_prompted_at: null,
       usefulness_rating: null,
+      // Message depuis les archives → revient dans le feed actif
+      visitor_archived_at: null,
     } as never)
     .eq("id", conversation.id)
     .select("*")
@@ -619,12 +631,19 @@ export async function listConversationsForIdentity(params: {
   admin: Admin;
   visitorId: string;
   userId: string | null;
+  /** `true` = archives membre ; défaut = feed actif. */
+  archived?: boolean;
 }): Promise<ItemChatConversationDto[]> {
   let q = params.admin
     .from("item_chat_conversations" as never)
     .select("*")
     .order("last_message_at", { ascending: false })
-    .limit(20);
+    .limit(40);
+  if (params.archived) {
+    q = q.not("visitor_archived_at", "is", null);
+  } else {
+    q = q.is("visitor_archived_at", null);
+  }
   if (params.userId) {
     q = q.or(`user_id.eq.${params.userId},visitor_id.eq.${params.visitorId}`);
   } else {
@@ -633,4 +652,23 @@ export async function listConversationsForIdentity(params: {
   const { data } = await q;
   const rows = Array.isArray(data) ? data.map(asConv) : [];
   return Promise.all(rows.map((r) => toConversationDto(params.admin, r)));
+}
+
+export async function setConversationVisitorArchived(params: {
+  admin: Admin;
+  conversation: ItemChatConversationRow;
+  archived: boolean;
+}): Promise<ItemChatConversationRow | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await params.admin
+    .from("item_chat_conversations" as never)
+    .update({
+      visitor_archived_at: params.archived ? now : null,
+      updated_at: now,
+    } as never)
+    .eq("id", params.conversation.id)
+    .select("*")
+    .maybeSingle();
+  if (error || !data) return null;
+  return asConv(data);
 }

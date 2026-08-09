@@ -30,13 +30,34 @@ function readItemChatWebhookSecret(): string {
   return process.env.N8N_ITEM_CHAT_WEBHOOK_SECRET?.trim() ?? "";
 }
 
+/**
+ * URL publique joignable par n8n pour reply/bind-thread.
+ * Doit pointer vers l’environnement qui partage la même DB que ce process
+ * (sinon bind → `conversation_not_found`).
+ */
 function replyUrlForSource(_source: ItemChatSource): string {
-  // Toujours l’app : même DB + secret interne déjà configuré en prod.
   const override = process.env.ITEM_CHAT_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
   if (override) return `${override}/api/internal/item-chat/reply`;
 
-  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+  const vercelEnv = process.env.VERCEL_ENV?.trim();
+  if (vercelEnv === "production") {
     return "https://app.segnashare.com/api/internal/item-chat/reply";
+  }
+  if (vercelEnv === "preview") {
+    return "https://staging.app.segnashare.com/api/internal/item-chat/reply";
+  }
+
+  // Local / NODE_ENV=production mal configuré : déduire depuis le projet Supabase.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+  if (supabaseUrl.includes("lzdtipwxueczbwpmwyye")) {
+    return "https://app.segnashare.com/api/internal/item-chat/reply";
+  }
+  // Staging (ptkeulrf…) ou inconnu en dev → staging (n8n cloud ne peut pas joindre localhost).
+  if (
+    supabaseUrl.includes("ptkeulrfiiiuiqgwhnap") ||
+    process.env.NODE_ENV !== "production"
+  ) {
+    return "https://staging.app.segnashare.com/api/internal/item-chat/reply";
   }
 
   const base = (
@@ -45,8 +66,8 @@ function replyUrlForSource(_source: ItemChatSource): string {
     process.env.NEXT_PUBLIC_APP_URL ||
     "https://app.segnashare.com"
   ).replace(/\/+$/, "");
-  if (base.includes("localhost") || base.includes("127.0.0.1")) {
-    return "https://app.segnashare.com/api/internal/item-chat/reply";
+  if (base.includes("localhost") || base.includes("127.0.0.1") || base.includes("192.168.")) {
+    return "https://staging.app.segnashare.com/api/internal/item-chat/reply";
   }
   return `${base}/api/internal/item-chat/reply`;
 }

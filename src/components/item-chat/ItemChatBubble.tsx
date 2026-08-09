@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Maximize2, Minimize2, Send, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronLeft, Maximize2, Minimize2, Send, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { useItemChat } from "@/components/item-chat/ItemChatProvider";
@@ -107,16 +107,21 @@ export function ItemChatBubble() {
     setPanelOpen,
     view,
     goToList,
+    goToArchives,
     startNewChat,
     conversations,
+    archivedConversations,
     unreadCount,
     messages,
     conversation,
     pendingItem,
     sending,
+    botTyping,
     error,
     clearError,
     openConversation,
+    archiveConversation,
+    unarchiveConversation,
     sendMessage,
     submitUsefulnessRating,
   } = useItemChat();
@@ -149,7 +154,7 @@ export function ItemChatBubble() {
     if (!panelOpen || view !== "thread") return;
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [panelOpen, view, messages.length]);
+  }, [panelOpen, view, messages.length, botTyping]);
 
   useEffect(() => {
     if (!panelOpen || !expanded) return;
@@ -179,14 +184,16 @@ export function ItemChatBubble() {
     e.preventDefault();
     const text = draft.trim();
     if (!text || sending) return;
-    void sendMessage(text).then(() => setDraft(""));
+    setDraft("");
+    void sendMessage(text);
   };
 
   const onListNewChat = (e: FormEvent) => {
     e.preventDefault();
     const text = listDraft.trim();
     if (!text || sending) return;
-    void startNewChat({ initialMessage: text }).then(() => setListDraft(""));
+    setListDraft("");
+    void startNewChat({ initialMessage: text });
   };
 
   return (
@@ -213,7 +220,100 @@ export function ItemChatBubble() {
           role="dialog"
           aria-label="Chat Segna"
         >
-          {view === "list" ? (
+          {view === "archives" ? (
+              <>
+                <div className="flex items-center justify-between border-b border-zinc-100 px-2.5 py-2.5">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Retour aux discussions"
+                      onClick={goToList}
+                      className="rounded-full p-1.5 text-zinc-900 hover:bg-zinc-100"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <p className="text-[16px] font-bold text-zinc-900">Archives</p>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      aria-label={expanded ? "Réduire le chat" : "Agrandir le chat"}
+                      aria-pressed={expanded}
+                      onClick={() => setExpanded((v) => !v)}
+                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    >
+                      {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Fermer"
+                      className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                      onClick={() => {
+                        setExpanded(false);
+                        setPanelOpen(false);
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {archivedConversations.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-[13px] text-zinc-500">
+                      Aucune discussion archivée.
+                    </p>
+                  ) : (
+                    archivedConversations.map((c) => {
+                      const operatorName = c.operatorDisplayName?.trim() || null;
+                      const listTitle = operatorName || "Chatbot";
+                      const preview =
+                        c.lastMessagePreview?.trim() ||
+                        (c.usefulnessRating ? "Merci pour ton retour" : "Ouvrir la discussion");
+                      return (
+                        <div
+                          key={c.id}
+                          className="flex w-full items-center gap-2 border-b border-zinc-50 px-3 py-3.5 hover:bg-zinc-50"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void openConversation(c.id)}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          >
+                            <ConversationAvatar
+                              name={operatorName}
+                              url={c.operatorAvatarUrl}
+                              className="h-9 w-9"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-baseline justify-between gap-2">
+                                <span className="truncate text-[14px] font-semibold text-zinc-900">
+                                  {listTitle}
+                                </span>
+                                <span className="shrink-0 text-[11px] text-zinc-400">
+                                  {formatWhen(c.lastMessageAt)}
+                                </span>
+                              </span>
+                              <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
+                                {preview}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Restaurer"
+                            onClick={() => void unarchiveConversation(c.id)}
+                            className="shrink-0 rounded-full p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                {error ? <p className="px-4 pb-2 text-[11px] text-red-600">{error}</p> : null}
+              </>
+          ) : view === "list" ? (
             showEmptyWelcome ? (
               <>
                 <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-2.5 py-2.5">
@@ -299,7 +399,17 @@ export function ItemChatBubble() {
             ) : (
             <>
               <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3.5">
-                <p className="text-[16px] font-bold text-zinc-900">Chat</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="text-[16px] font-bold text-zinc-900">Chat</p>
+                  <button
+                    type="button"
+                    onClick={goToArchives}
+                    className="inline-flex items-center gap-1 rounded-full bg-zinc-50 px-2.5 py-1 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    Archives
+                  </button>
+                </div>
                 <div className="flex items-center gap-0.5">
                   <button
                     type="button"
@@ -341,11 +451,14 @@ export function ItemChatBubble() {
                         c.lastMessagePreview?.trim() ||
                         (c.usefulnessRating ? "Merci pour ton retour" : "Ouvrir la discussion");
                       return (
-                        <button
+                        <div
                           key={c.id}
+                          className="flex w-full items-center gap-2 border-b border-zinc-50 px-3 py-3.5 hover:bg-zinc-50"
+                        >
+                        <button
                           type="button"
                           onClick={() => void openConversation(c.id)}
-                          className="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-3.5 text-left hover:bg-zinc-50.5"
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           <span className="relative shrink-0">
                             {c.unreadStaffCount > 0 ? (
@@ -374,6 +487,15 @@ export function ItemChatBubble() {
                             </span>
                           </span>
                         </button>
+                          <button
+                            type="button"
+                            aria-label="Archiver"
+                            onClick={() => void archiveConversation(c.id)}
+                            className="shrink-0 rounded-full p-2 text-zinc-400 hover:bg-sky-50 hover:text-sky-600"
+                          >
+                            <Archive className="h-4 w-4" />
+                          </button>
+                        </div>
                       );
                     })
                   )}
@@ -528,6 +650,21 @@ export function ItemChatBubble() {
                     </div>
                   );
                 })}
+                {botTyping ? (
+                  <div
+                    className="max-w-[92%] rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-3 text-[13px] leading-snug text-zinc-900"
+                    aria-label="Segna écrit"
+                  >
+                    <p className="mb-1.5 text-[12px] font-semibold">Segna</p>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.24s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:-0.12s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0.12s]" />
+                    </span>
+                  </div>
+                ) : null}
+
                 {awaitingUsefulness ? (
                   <div className="mt-1 flex justify-center gap-2">
                     <button
@@ -547,7 +684,8 @@ export function ItemChatBubble() {
                       Non
                     </button>
                   </div>
-                ) : !conversation?.usefulnessRating &&
+                ) : !botTyping &&
+                  !conversation?.usefulnessRating &&
                   messages.some((m) => m.role === "visitor") &&
                   !messages.some(
                     (m) =>
