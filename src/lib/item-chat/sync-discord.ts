@@ -49,15 +49,19 @@ async function syncOneConversation(
           beforeIso: createdAt,
         });
       }
-      const { error } = await admin.from("item_chat_messages" as never).insert({
-        conversation_id: conv.id,
-        role: "staff",
-        body: body.slice(0, 4000),
-        discord_message_id: msg.id,
-        staff_display_name: profile?.displayName ?? null,
-        staff_avatar_url: profile?.avatarUrl ?? null,
-        created_at: createdAt,
-      } as never);
+      const { data: insertedRow, error } = await admin
+        .from("item_chat_messages" as never)
+        .insert({
+          conversation_id: conv.id,
+          role: "staff",
+          body: body.slice(0, 4000),
+          discord_message_id: msg.id,
+          staff_display_name: profile?.displayName ?? null,
+          staff_avatar_url: profile?.avatarUrl ?? null,
+          created_at: createdAt,
+        } as never)
+        .select("id")
+        .single();
 
       if (error) {
         if (!/duplicate|unique/i.test(error.message || "")) {
@@ -76,6 +80,22 @@ async function syncOneConversation(
         } as never)
         .eq("id", conv.id);
       await markLinkedCartDisputeInReviewFromChat(admin, conv);
+
+      const messageId =
+        insertedRow && typeof (insertedRow as { id?: unknown }).id === "string"
+          ? String((insertedRow as { id: string }).id)
+          : msg.id;
+      void import("@/lib/item-chat/notify-item-chat-staff-push").then(
+        ({ notifyItemChatStaffMessagePush }) =>
+          notifyItemChatStaffMessagePush({
+            admin,
+            userId: conv.user_id,
+            conversationId: conv.id,
+            messageId,
+            body: body.slice(0, 4000),
+            staffDisplayName: profile?.displayName ?? null,
+          }),
+      );
     }
 
     if (latestId && latestId !== conv.discord_last_message_id) {
