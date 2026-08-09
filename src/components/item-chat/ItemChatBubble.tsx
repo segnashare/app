@@ -1,7 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, ChevronLeft, Maximize2, Minimize2, Send, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronLeft,
+  Maximize2,
+  Minimize2,
+  Paperclip,
+  Send,
+  X,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { ChatMessageBody } from "@/components/item-chat/ChatMessageBody";
@@ -124,6 +133,7 @@ export function ItemChatBubble() {
     archiveConversation,
     unarchiveConversation,
     sendMessage,
+    uploadChatPhotos,
     submitUsefulnessRating,
   } = useItemChat();
 
@@ -132,11 +142,14 @@ export function ItemChatBubble() {
   const [tabBarVisible, setTabBarVisible] = useState(true);
   const [draft, setDraft] = useState("");
   const [listDraft, setListDraft] = useState("");
+  const [pendingUrls, setPendingUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [browseEmptyList, setBrowseEmptyList] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const awaitingUsefulness =
     Boolean(conversation?.usefulnessPromptedAt) && !conversation?.usefulnessRating;
@@ -181,21 +194,83 @@ export function ItemChatBubble() {
     ? "Qu'est-ce que tu aimerais savoir sur cette pièce ?"
     : "Qu'est-ce que tu aimerais savoir ?";
 
+  const composeBody = (text: string, urls: string[]) => {
+    const t = text.trim();
+    return [...(t ? [t] : []), ...urls].join("\n").trim();
+  };
+
+  const onPickFiles = async (files: FileList | null) => {
+    if (!files?.length || sending || uploading) return;
+    const images = Array.from(files)
+      .filter((f) => f.type.startsWith("image/"))
+      .slice(0, Math.max(0, 6 - pendingUrls.length));
+    if (!images.length) return;
+    setUploading(true);
+    clearError();
+    try {
+      const urls = await uploadChatPhotos(images);
+      if (urls.length) setPendingUrls((prev) => [...prev, ...urls].slice(0, 6));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    const text = draft.trim();
-    if (!text || sending) return;
+    const body = composeBody(draft, pendingUrls);
+    if (!body || sending || uploading) return;
     setDraft("");
-    void sendMessage(text);
+    setPendingUrls([]);
+    void sendMessage(body);
   };
 
   const onListNewChat = (e: FormEvent) => {
     e.preventDefault();
-    const text = listDraft.trim();
-    if (!text || sending) return;
+    const body = composeBody(listDraft, pendingUrls);
+    if (!body || sending || uploading) return;
     setListDraft("");
-    void startNewChat({ initialMessage: text });
+    setPendingUrls([]);
+    if (conversation?.id) {
+      void sendMessage(body);
+      return;
+    }
+    void startNewChat({ initialMessage: body });
   };
+
+  const canSendThread = Boolean(composeBody(draft, pendingUrls)) && !sending && !uploading;
+  const canSendList = Boolean(composeBody(listDraft, pendingUrls)) && !sending && !uploading;
+
+  const pendingPreview = pendingUrls.length ? (
+    <div className="mb-2 flex gap-2 overflow-x-auto pb-0.5">
+      {pendingUrls.map((uri) => (
+        <div key={uri} className="relative shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={uri} alt="" className="h-14 w-14 rounded-[10px] bg-zinc-100 object-contain" />
+          <button
+            type="button"
+            aria-label="Retirer la photo"
+            onClick={() => setPendingUrls((prev) => prev.filter((u) => u !== uri))}
+            className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-zinc-900 text-white"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  const attachBtn = (
+    <button
+      type="button"
+      aria-label="Joindre une image"
+      disabled={sending || uploading || pendingUrls.length >= 6}
+      onClick={() => fileInputRef.current?.click()}
+      className="flex size-9 shrink-0 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100 disabled:opacity-35"
+    >
+      <Paperclip className="h-4 w-4" />
+    </button>
+  );
 
   return (
     <div
@@ -221,6 +296,14 @@ export function ItemChatBubble() {
           role="dialog"
           aria-label="Chat Segna"
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => void onPickFiles(e.target.files)}
+          />
           {view === "archives" ? (
               <>
                 <div className="flex items-center justify-between border-b border-zinc-100 px-2.5 py-2.5">
@@ -372,7 +455,9 @@ export function ItemChatBubble() {
                   onSubmit={onListNewChat}
                   className="border-t border-zinc-100 bg-white px-3 py-2.5.5"
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
+                  {pendingPreview}
+                  <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white py-1 pl-1 pr-1">
+                    {attachBtn}
                     <input
                       ref={listInputRef}
                       value={listDraft}
@@ -382,12 +467,12 @@ export function ItemChatBubble() {
                       }}
                       placeholder="Demande-nous n’importe quoi…"
                       maxLength={4000}
-                      disabled={sending}
+                      disabled={sending || uploading}
                       className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
-                      disabled={sending || !listDraft.trim()}
+                      disabled={!canSendList}
                       aria-label="Envoyer"
                       className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                     >
@@ -461,31 +546,29 @@ export function ItemChatBubble() {
                           onClick={() => void openConversation(c.id)}
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
-                          <span className="relative shrink-0">
-                            {c.unreadStaffCount > 0 ? (
-                              <span
-                                className="absolute -left-1 top-1/2 z-[1] h-2 w-2 -translate-y-1/2 rounded-full bg-sky-500"
-                                aria-label="Nouvelle réponse"
-                              />
-                            ) : null}
-                            <ConversationAvatar
-                              name={operatorName}
-                              url={c.operatorAvatarUrl}
-                              className="h-9 w-9"
-                            />
-                          </span>
+                          <ConversationAvatar
+                            name={operatorName}
+                            url={c.operatorAvatarUrl}
+                            className="h-9 w-9 shrink-0"
+                          />
                           <span className="min-w-0 flex-1">
-                            <span className="flex items-baseline justify-between gap-2">
-                              <span className="truncate text-[14px] font-semibold text-zinc-900">
-                                {listTitle}
-                              </span>
-                              <span className="shrink-0 text-[11px] text-zinc-400">
-                                {formatWhen(c.lastMessageAt)}
-                              </span>
+                            <span className="truncate text-[14px] font-semibold text-zinc-900">
+                              {listTitle}
                             </span>
                             <span className="mt-0.5 block truncate text-[12px] text-zinc-500">
                               {preview}
                             </span>
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end self-start pt-0.5">
+                            <span className="text-[11px] text-zinc-400">
+                              {formatWhen(c.lastMessageAt)}
+                            </span>
+                            {c.unreadStaffCount > 0 ? (
+                              <span
+                                className="mt-1.5 h-2 w-2 rounded-full bg-sky-500"
+                                aria-label="Nouvelle réponse"
+                              />
+                            ) : null}
                           </span>
                         </button>
                           <button
@@ -505,7 +588,9 @@ export function ItemChatBubble() {
                   onSubmit={onListNewChat}
                   className="shrink-0 border-t border-zinc-100 bg-white px-3 py-2.5.5"
                 >
-                  <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
+                  {pendingPreview}
+                  <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white py-1 pl-1 pr-1">
+                    {attachBtn}
                     <input
                       ref={listInputRef}
                       value={listDraft}
@@ -515,12 +600,12 @@ export function ItemChatBubble() {
                       }}
                       placeholder="Nouveau chat…"
                       maxLength={4000}
-                      disabled={sending}
+                      disabled={sending || uploading}
                       className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                     />
                     <button
                       type="submit"
-                      disabled={sending || !listDraft.trim()}
+                      disabled={!canSendList}
                       aria-label="Envoyer"
                       className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                     >
@@ -704,7 +789,9 @@ export function ItemChatBubble() {
                 onSubmit={onSubmit}
                 className="border-t border-zinc-100 bg-white px-3 py-2.5.5"
               >
-                <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white py-1 pl-3.5 pr-1">
+                {pendingPreview}
+                <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white py-1 pl-1 pr-1">
+                  {attachBtn}
                   <input
                     ref={inputRef}
                     value={draft}
@@ -714,11 +801,12 @@ export function ItemChatBubble() {
                     }}
                     placeholder="Demande-nous n’importe quoi…"
                     maxLength={4000}
+                    disabled={uploading}
                     className="min-w-0 flex-1 bg-transparent py-2 text-[16px] outline-none"
                   />
                   <button
                     type="submit"
-                    disabled={sending || !draft.trim()}
+                    disabled={!canSendThread}
                     aria-label="Envoyer"
                     className="flex size-9 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white disabled:opacity-35"
                   >

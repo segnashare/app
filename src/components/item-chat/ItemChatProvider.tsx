@@ -82,6 +82,8 @@ type ItemChatContextValue = {
   archiveConversation: (id: string) => Promise<void>
   unarchiveConversation: (id: string) => Promise<void>
   sendMessage: (body: string) => Promise<void>
+  /** Crée une discussion vide si besoin, puis upload des photos → URLs. */
+  uploadChatPhotos: (files: File[]) => Promise<string[]>
   submitUsefulnessRating: (rating: 'yes' | 'no') => Promise<void>
   markRead: () => Promise<void>
 }
@@ -96,7 +98,8 @@ async function apiFetch(
 ): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Segna-Chat-Visitor', visitorId)
-  if (init?.body && !headers.has('Content-Type')) {
+  const isForm = typeof FormData !== 'undefined' && init?.body instanceof FormData
+  if (init?.body && !isForm && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
   return fetch(`${apiBase}${path}`, {
@@ -127,6 +130,11 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
   const claimedRef = useRef(false)
   const sendingRef = useRef(false)
   const botTypingRef = useRef(false)
+  /** Fil réellement ouvert — ignore les réponses async d’un ancien thread. */
+  const activeThreadIdRef = useRef<string | null>(null)
+  /** Cache messages par conversation — ouverture instantanée + prefetch liste. */
+  const messagesCacheRef = useRef<Map<string, ItemChatMessage[]>>(new Map())
+  const prefetchInFlightRef = useRef<Set<string>>(new Set())
   const messagesRef = useRef<ItemChatMessage[]>([])
   messagesRef.current = messages
 
@@ -141,12 +149,50 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
 
   const clearError = useCallback(() => setError(null), [])
 
-  const refreshConversation = useCallback(
-    async (conversationId: string, visitorId: string) => {
-      if (sendingRef.current || botTypingRef.current) return
+  const applyMessagesToUi = useCallback(async (wantedId: string, next: ItemChatMessage[]) => {
+    if (activeThreadIdRef.current && activeThreadIdRef.current !== wantedId) return
+    if (sendingRef.current || botTypingRef.current) return
+
+    const prev = messagesRef.current
+    const newInbound = findNewInboundChatMessages(prev, next)
+    const shouldType =
+      newInbound.length > 0 && isSameChatThreadContinuation(prev, next)
+
+    if (!shouldType) {
+      setMessages(next)
+      return
+    }
+
+    const heldIds = new Set(newInbound.map((m) => m.id))
+    setMessages(next.filter((m) => !heldIds.has(m.id)))
+    botTypingRef.current = true
+    setBotTyping(true)
+    try {
+      await waitForTypingReveal(Date.now())
+      if (!activeThreadIdRef.current || activeThreadIdRef.current === wantedId) {
+        setMessages(next)
+      }
+    } finally {
+      botTypingRef.current = false
+      setBotTyping(false)
+    }
+  }, [])
+
+  const loadConversationMessages = useCallback(
+    async (
+      conversationId: string,
+      visitorId: string,
+      opts?: {applyToUi?: boolean; syncDiscord?: boolean},
+    ) => {
+      const wantedId = conversationId.trim()
+      if (!wantedId) return
+      const applyToUi = opts?.applyToUi !== false
+      const syncDiscord = opts?.syncDiscord !== false
+      if (applyToUi && (sendingRef.current || botTypingRef.current)) return
+      const qs = syncDiscord ? '' : '?sync=0'
       const res = await apiFetch(
         apiBase,
-        `/api/item-chat/conversations/${conversationId}/messages`,
+        `/api/item-chat/conversations/${wantedId}/messages${qs}`,
         visitorId,
       )
       if (!res.ok) return
@@ -154,33 +200,52 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         conversation?: ItemChatConversation
         messages?: ItemChatMessage[]
       }
-      if (data.conversation) setConversation(data.conversation)
-      if (!Array.isArray(data.messages)) return
-
-      const prev = messagesRef.current
-      const next = data.messages
-      const newInbound = findNewInboundChatMessages(prev, next)
-      const shouldType =
-        newInbound.length > 0 && isSameChatThreadContinuation(prev, next)
-
-      if (!shouldType) {
-        setMessages(next)
-        return
+      if (Array.isArray(data.messages)) {
+        messagesCacheRef.current.set(wantedId, data.messages)
       }
-
-      const heldIds = new Set(newInbound.map((m) => m.id))
-      setMessages(next.filter((m) => !heldIds.has(m.id)))
-      botTypingRef.current = true
-      setBotTyping(true)
-      try {
-        await waitForTypingReveal(Date.now())
-        setMessages(next)
-      } finally {
-        botTypingRef.current = false
-        setBotTyping(false)
+      const isActive =
+        !activeThreadIdRef.current || activeThreadIdRef.current === wantedId
+      if (!applyToUi || !isActive) return
+      if (data.conversation && data.conversation.id === wantedId) {
+        setConversation(data.conversation)
+      }
+      if (Array.isArray(data.messages)) {
+        await applyMessagesToUi(wantedId, data.messages)
       }
     },
-    [apiBase],
+    [apiBase, applyMessagesToUi],
+  )
+
+  const refreshConversation = useCallback(
+    async (conversationId: string, visitorId: string) => {
+      await loadConversationMessages(conversationId, visitorId, {
+        applyToUi: true,
+        syncDiscord: true,
+      })
+    },
+    [loadConversationMessages],
+  )
+
+  const prefetchConversations = useCallback(
+    async (visitorId: string, list: ItemChatConversation[]) => {
+      const ids = list.map((c) => c.id).filter(Boolean)
+      await Promise.all(
+        ids.map(async (id) => {
+          if (prefetchInFlightRef.current.has(id)) return
+          if (messagesCacheRef.current.has(id)) return
+          prefetchInFlightRef.current.add(id)
+          try {
+            await loadConversationMessages(id, visitorId, {
+              applyToUi: false,
+              syncDiscord: false,
+            })
+          } finally {
+            prefetchInFlightRef.current.delete(id)
+          }
+        }),
+      )
+    },
+    [loadConversationMessages],
   )
 
   const refreshList = useCallback(
@@ -188,9 +253,11 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       const res = await apiFetch(apiBase, '/api/item-chat/conversations', visitorId)
       if (!res.ok) return
       const data = (await res.json()) as {conversations?: ItemChatConversation[]}
-      if (Array.isArray(data.conversations)) setConversations(data.conversations)
+      if (!Array.isArray(data.conversations)) return
+      setConversations(data.conversations)
+      void prefetchConversations(visitorId, data.conversations)
     },
-    [apiBase],
+    [apiBase, prefetchConversations],
   )
 
   const refreshArchives = useCallback(
@@ -308,6 +375,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
           if (optimistic) setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
           return
         }
+        activeThreadIdRef.current = data.conversation.id
         setConversation(data.conversation)
         persist({...state, conversationId: data.conversation.id})
 
@@ -374,14 +442,44 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
 
   const openConversation = useCallback(
     async (id: string) => {
+      const wantedId = id.trim()
+      if (!wantedId) return
       const state = local ?? loadItemChatLocalState()
       setError(null)
       setView('thread')
       setPanelOpen(true)
-      persist({...state, conversationId: id})
-      await refreshConversation(id, state.visitorId)
+      // Verrouille tout de suite le fil cible (évite le poll / réponses stale d’un autre chat).
+      activeThreadIdRef.current = wantedId
+      const fromList =
+        conversations.find((c) => c.id === wantedId) ||
+        archivedConversations.find((c) => c.id === wantedId) ||
+        null
+      setConversation(
+        fromList ?? {
+          id: wantedId,
+          itemId: null,
+          itemTitle: null,
+          itemSizeLabel: null,
+          itemConditionLabel: null,
+          contactEmail: null,
+          status: 'open',
+          lastMessageAt: new Date().toISOString(),
+          lastReadAt: null,
+          unreadStaffCount: 0,
+          hasVisitorMessage: false,
+          usefulnessPromptedAt: null,
+          usefulnessRating: null,
+          lastMessagePreview: null,
+          operatorDisplayName: null,
+          operatorAvatarUrl: null,
+        },
+      )
+      const cached = messagesCacheRef.current.get(wantedId)
+      setMessages(cached ? cached : [])
+      persist({...state, conversationId: wantedId})
+      void refreshConversation(wantedId, state.visitorId)
     },
-    [local, persist, refreshConversation],
+    [archivedConversations, conversations, local, persist, refreshConversation],
   )
 
   const openForItem = useCallback(
@@ -413,6 +511,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
         }
         const data = (await res.json()) as {conversation?: ItemChatConversation}
         if (!data.conversation) return
+        activeThreadIdRef.current = data.conversation.id
         setConversation(data.conversation)
         persist({...state, conversationId: data.conversation.id})
         await refreshConversation(data.conversation.id, state.visitorId)
@@ -468,13 +567,25 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
   }, [apiBase, local, refreshConversation, refreshList])
 
   useEffect(() => {
+    if (!panelOpen || !local || conversations.length === 0) return
+    void prefetchConversations(local.visitorId, conversations)
+  }, [conversations, local, panelOpen, prefetchConversations])
+
+  useEffect(() => {
     if (!local) return
-    const id = conversation?.id || local.conversationId
+    // Préférer le conversationId persisté (source de vérité après openConversation),
+    // pas conversation?.id qui peut encore être l’ancien fil le temps du switch.
+    const id =
+      (view === 'thread' ? local.conversationId || conversation?.id : conversation?.id) ||
+      local.conversationId
     if (!id) return
+    if (view === 'thread') activeThreadIdRef.current = id
+    const visitorId = local.visitorId
     const tick = () => {
-      void refreshConversation(id, local.visitorId)
-      if (view === 'list') void refreshList(local.visitorId)
-      if (view === 'archives') void refreshArchives(local.visitorId)
+      const current = activeThreadIdRef.current || id
+      void refreshConversation(current, visitorId)
+      if (view === 'list') void refreshList(visitorId)
+      if (view === 'archives') void refreshArchives(visitorId)
     }
     const ms = panelOpen ? 8_000 : 25_000
     const t = window.setInterval(tick, ms)
@@ -576,7 +687,11 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
           ackMessage?: ItemChatMessage | null
           conversation?: ItemChatConversation
         }
-        setMessages((prev) => replaceOptimisticVisitorMessage(prev, optimistic.id, data.message))
+        setMessages((prev) => {
+          const next = replaceOptimisticVisitorMessage(prev, optimistic.id, data.message)
+          messagesCacheRef.current.set(conv.id, next)
+          return next
+        })
         if (data.conversation) setConversation(data.conversation)
         persist({...local, conversationId: conv.id})
         void refreshList(local.visitorId)
@@ -587,9 +702,13 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
           setBotTyping(true)
           try {
             await waitForTypingReveal(typingStartedAt)
-            setMessages((prev) =>
-              prev.some((m) => m.id === data.ackMessage!.id) ? prev : [...prev, data.ackMessage!],
-            )
+            setMessages((prev) => {
+              const next = prev.some((m) => m.id === data.ackMessage!.id)
+                ? prev
+                : [...prev, data.ackMessage!]
+              messagesCacheRef.current.set(conv.id, next)
+              return next
+            })
           } finally {
             botTypingRef.current = false
             setBotTyping(false)
@@ -601,7 +720,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       } finally {
         sendingRef.current = false
         setSending(false)
-        const convId = conversation?.id || local.conversationId
+        const convId = activeThreadIdRef.current || local.conversationId || conversation?.id
         if (convId) {
           void refreshConversation(convId, local.visitorId)
         }
@@ -618,6 +737,64 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       refreshList,
       source,
     ],
+  )
+
+  const uploadChatPhotos = useCallback(
+    async (files: File[]): Promise<string[]> => {
+      const state = local ?? loadItemChatLocalState()
+      if (!local) setLocal(state)
+      let convId = conversation?.id || activeThreadIdRef.current || state.conversationId || null
+
+      if (!convId) {
+        setError(null)
+        setPendingItem(null)
+        setPanelOpen(true)
+        setView('thread')
+        const res = await apiFetch(apiBase, '/api/item-chat/conversations', state.visitorId, {
+          method: 'POST',
+          body: JSON.stringify({
+            visitorId: state.visitorId,
+            source,
+            forceNew: true,
+          }),
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as {error?: string} | null
+          setError(err?.error || 'Impossible d’ouvrir le chat')
+          return []
+        }
+        const data = (await res.json()) as {conversation?: ItemChatConversation}
+        if (!data.conversation) {
+          setError('Impossible d’ouvrir le chat')
+          return []
+        }
+        convId = data.conversation.id
+        activeThreadIdRef.current = convId
+        setConversation(data.conversation)
+        setMessages([])
+        persist({...state, conversationId: convId})
+      }
+
+      const form = new FormData()
+      form.append('visitorId', state.visitorId)
+      for (const file of files.slice(0, 6)) {
+        form.append('photos', file)
+      }
+      const res = await apiFetch(
+        apiBase,
+        `/api/item-chat/conversations/${convId}/media`,
+        state.visitorId,
+        {method: 'POST', body: form},
+      )
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as {error?: string} | null
+        setError(err?.error || 'Upload impossible')
+        return []
+      }
+      const data = (await res.json()) as {urls?: string[]}
+      return Array.isArray(data.urls) ? data.urls.filter((u) => typeof u === 'string') : []
+    },
+    [apiBase, conversation?.id, local, persist, source],
   )
 
   const submitUsefulnessRating = useCallback(
@@ -689,6 +866,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       archiveConversation,
       unarchiveConversation,
       sendMessage,
+      uploadChatPhotos,
       submitUsefulnessRating,
       markRead,
     }),
@@ -711,6 +889,7 @@ export function ItemChatProvider({children, source, apiBase = ''}: ProviderProps
       panelOpen,
       pendingItem,
       sendMessage,
+      uploadChatPhotos,
       submitUsefulnessRating,
       sending,
       source,

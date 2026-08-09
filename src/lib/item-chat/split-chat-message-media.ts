@@ -1,9 +1,10 @@
-/** Détecte une URL d’image (extension ou URL signée Storage Supabase). */
+/** Détecte une URL d’image (extension, Storage Supabase, CDN Discord). */
 export function isLikelyChatImageUrl(value: string): boolean {
   const s = value.trim();
   if (!/^https?:\/\//i.test(s)) return false;
   if (/\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(s)) return true;
   if (/\/storage\/v1\/object\//i.test(s)) return true;
+  if (/(?:cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(s)) return true;
   return false;
 }
 
