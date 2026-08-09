@@ -29,7 +29,7 @@ export function ChatMessageBody({ body, className, imageClassName }: Props) {
               <img
                 src={uri}
                 alt="Photo du litige"
-                className={cn("h-24 w-24 object-cover", imageClassName)}
+                className={cn("h-24 w-24 object-contain bg-zinc-100", imageClassName)}
               />
             </a>
           ))}
