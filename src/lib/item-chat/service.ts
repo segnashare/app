@@ -509,9 +509,22 @@ export async function appendStaffMessage(params: {
   // L’ack auto n’emprunte pas appendStaffMessage.
   await markLinkedCartDisputeInReviewFromChat(admin, conversation);
 
+  const message = toMessageDto(asMsg(msgData));
+  const nextConversation = convData ? asConv(convData) : conversation;
+  void import("@/lib/item-chat/notify-item-chat-staff-push").then(({ notifyItemChatStaffMessagePush }) =>
+    notifyItemChatStaffMessagePush({
+      admin,
+      userId: nextConversation.user_id,
+      conversationId: nextConversation.id,
+      messageId: message.id,
+      body: message.body,
+      staffDisplayName: staffDisplayName ?? message.staffDisplayName,
+    }),
+  );
+
   return {
-    message: toMessageDto(asMsg(msgData)),
-    conversation: convData ? asConv(convData) : conversation,
+    message,
+    conversation: nextConversation,
   };
 }
 
