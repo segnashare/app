@@ -13,6 +13,8 @@ export type CartDisputeN8nNotifyInput = {
   reason: string;
   itemIds: string[];
   photoPaths: string[];
+  /** URLs signées pour Discord / n8n (embeds, pièces jointes). */
+  photoUrls?: string[];
   cartStatus: string | null;
   updated: boolean;
 };
@@ -64,6 +66,7 @@ export async function notifyCartDisputeN8n(
     scope: input.scope,
     item_ids: input.itemIds,
     photo_paths: input.photoPaths,
+    photo_urls: input.photoUrls ?? [],
     report_kind: input.reportKind,
     reason: input.reason,
     cart_status: input.cartStatus,

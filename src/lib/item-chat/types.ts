@@ -23,6 +23,8 @@ export type ItemChatConversationRow = {
   discord_thread_deleted_at: string | null;
   /** Archive inbox membre (null = dans le feed actif). */
   visitor_archived_at: string | null;
+  /** Litige panier lié (signalement réception / emprunt), si ouvert via ensureDisputeItemChat. */
+  cart_dispute_id?: string | null;
   created_at: string;
   updated_at: string;
 };

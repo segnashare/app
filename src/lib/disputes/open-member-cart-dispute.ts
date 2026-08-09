@@ -7,7 +7,10 @@ import {
   type MemberCartDisputeReportKind,
   type MemberCartDisputeScope,
 } from "@/lib/disputes/member-cart-dispute-categories";
+import { ensureDisputeItemChat } from "@/lib/disputes/ensure-dispute-item-chat";
 import { notifyCartDisputeN8n } from "@/lib/disputes/notify-cart-dispute-n8n";
+import type { ItemChatSource } from "@/lib/item-chat/types";
+import { createSignedUrlsForStoragePaths } from "@/lib/supabase/storage-resolve-signed-url";
 
 const DISPUTE_PHOTO_BUCKET = "bucket_items";
 const MAX_DETAILS_LEN = 4000;
@@ -24,10 +27,11 @@ export type OpenMemberCartDisputeInput = {
   details: string;
   itemIds: string[];
   photoFiles: File[];
+  chatSource?: ItemChatSource;
 };
 
 export type OpenMemberCartDisputeResult =
-  | { ok: true; disputeId: string; updated: boolean }
+  | { ok: true; disputeId: string; updated: boolean; conversationId: string | null }
   | { ok: false; status: number; error: string };
 
 async function uploadDisputePhotos(
@@ -133,23 +137,41 @@ export async function openMemberCartDispute(
 
   const nowIso = new Date().toISOString();
 
-  const { data: existing, error: existingErr } = await admin
+  let existingQuery = await admin
     .from("cart_disputes")
-    .select("id,status,photo_paths")
+    .select("id,status,photo_paths,conversation_id")
     .eq("cart_id", input.cartId)
     .eq("reason", reason)
     .is("deleted_at", null)
     .in("status", ["open", "in_review"])
     .maybeSingle();
 
-  if (existingErr) {
-    console.error("[open-member-cart-dispute] select dispute", existingErr.message);
+  // Colonne conversation_id absente tant que la migration n’est pas appliquée.
+  if (existingQuery.error?.message?.includes("conversation_id")) {
+    existingQuery = await admin
+      .from("cart_disputes")
+      .select("id,status,photo_paths")
+      .eq("cart_id", input.cartId)
+      .eq("reason", reason)
+      .is("deleted_at", null)
+      .in("status", ["open", "in_review"])
+      .maybeSingle();
+  }
+
+  if (existingQuery.error) {
+    console.error("[open-member-cart-dispute] select dispute", existingQuery.error.message);
     return { ok: false, status: 500, error: "Enregistrement impossible. Réessaie." };
   }
+
+  const existing = existingQuery.data;
 
   let disputeId: string;
   let updated: boolean;
   let photoPaths: string[] = [];
+  let existingConversationId: string | null =
+    existing && typeof (existing as { conversation_id?: unknown }).conversation_id === "string"
+      ? ((existing as { conversation_id: string }).conversation_id)
+      : null;
 
   if (existing?.id) {
     disputeId = existing.id as string;
@@ -212,6 +234,42 @@ export async function openMemberCartDispute(
     await syncItemDisputes(admin, disputeId, input.itemIds, reason, input.category, details);
   }
 
+  // Signing best-effort : ne doit jamais empêcher l’ouverture du fil chatbot.
+  let photoUrls: string[] = [];
+  if (photoPaths.length > 0) {
+    try {
+      const signedPhotoMap = await createSignedUrlsForStoragePaths(
+        admin,
+        photoPaths,
+        60 * 60 * 24 * 7,
+        { explicitBucket: DISPUTE_PHOTO_BUCKET },
+      );
+      photoUrls = photoPaths
+        .map((p) => signedPhotoMap.get(p) ?? null)
+        .filter((u): u is string => Boolean(u));
+    } catch (err) {
+      console.warn(
+        "[open-member-cart-dispute] photo signed urls",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const conversationId = await ensureDisputeItemChat({
+    admin,
+    cartId: input.cartId,
+    disputeId,
+    existingConversationId,
+    userId: input.userId,
+    userEmail: input.userEmail,
+    reportKind: input.reportKind,
+    category: input.category,
+    details,
+    photoUrls,
+    updated,
+    source: input.chatSource ?? "app",
+  });
+
   const n8n = await notifyCartDisputeN8n({
     cartId: input.cartId,
     disputeId,
@@ -224,6 +282,7 @@ export async function openMemberCartDispute(
     reason,
     itemIds: input.scope === "selected_items" ? input.itemIds : [],
     photoPaths,
+    photoUrls,
     cartStatus: typeof cart.status === "string" ? cart.status : null,
     updated,
   });
@@ -243,5 +302,5 @@ export async function openMemberCartDispute(
     };
   }
 
-  return { ok: true, disputeId, updated };
+  return { ok: true, disputeId, updated, conversationId };
 }

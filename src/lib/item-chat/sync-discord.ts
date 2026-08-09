@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { markLinkedCartDisputeInReviewFromChat } from "@/lib/disputes/mark-cart-dispute-in-review-from-chat";
 import {
   discordFetchThreadMessagesAfter,
   discordGetBotUserId,
@@ -74,6 +75,7 @@ async function syncOneConversation(
           updated_at: new Date().toISOString(),
         } as never)
         .eq("id", conv.id);
+      await markLinkedCartDisputeInReviewFromChat(admin, conv);
     }
 
     if (latestId && latestId !== conv.discord_last_message_id) {

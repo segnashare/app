@@ -73,6 +73,21 @@ export function memberCartDisputeCategoryLabel(
   return all.find((c) => c.id === id)?.label ?? id.replace(/_/g, " ");
 }
 
+export function cartDisputeStatusLabel(status: string): string {
+  switch (status) {
+    case "open":
+      return "Ouvert";
+    case "in_review":
+      return "En traitement";
+    case "resolved":
+      return "Résolu";
+    case "closed":
+      return "Clôturé";
+    default:
+      return status;
+  }
+}
+
 export function memberCartDisputeReasonForKind(kind: MemberCartDisputeReportKind): string {
   return kind === "borrow" ? "member_borrow_report" : "member_reception_report";
 }

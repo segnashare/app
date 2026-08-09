@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, ChevronLeft, Maximize2, Minimize2, Send, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 
+import { ChatMessageBody } from "@/components/item-chat/ChatMessageBody";
 import { useItemChat } from "@/components/item-chat/ItemChatProvider";
 import { shouldShowMemberFeedbackFab, shouldShowTabBar } from "@/components/layout/navigation";
 import { usePageChromeHidden } from "@/components/layout/PageChromeLoadingContext";
@@ -602,7 +603,7 @@ export function ItemChatBubble() {
                         key={m.id}
                         className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-zinc-900 px-3.5 py-2.5 text-[13px] leading-snug text-white"
                       >
-                        {m.body}
+                        <ChatMessageBody body={m.body} />
                       </div>
                     );
                   }
@@ -636,7 +637,7 @@ export function ItemChatBubble() {
                         <StaffAvatar name={name} url={m.staffAvatarUrl} />
                         <div className="min-w-0 rounded-2xl rounded-tl-md bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900">
                           <p className="mb-1 text-[12px] font-semibold">{name}</p>
-                          {m.body}
+                          <ChatMessageBody body={m.body} />
                         </div>
                       </div>
                     );
@@ -646,7 +647,7 @@ export function ItemChatBubble() {
                       key={m.id}
                       className="mr-auto max-w-[85%] rounded-2xl bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-snug text-zinc-900"
                     >
-                      {m.body}
+                      <ChatMessageBody body={m.body} />
                     </div>
                   );
                 })}

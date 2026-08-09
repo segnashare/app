@@ -49,6 +49,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Identifiant de commande invalide" }, { status: 400 });
     }
 
+    const chatSourceRaw = String(formData.get("chatSource") ?? "web").trim();
+    const chatSource = chatSourceRaw === "app" ? "app" : "web";
+
     const result = await openMemberCartDispute(supabase, admin, {
       cartId,
       userId,
@@ -59,12 +62,18 @@ export async function POST(request: Request) {
       details,
       itemIds,
       photoFiles,
+      chatSource,
     });
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ ok: true, disputeId: result.disputeId, updated: result.updated });
+    return NextResponse.json({
+      ok: true,
+      disputeId: result.disputeId,
+      updated: result.updated,
+      conversationId: result.conversationId,
+    });
   }
 
   let body: unknown;
@@ -93,6 +102,12 @@ export async function POST(request: Request) {
       : "borrow";
   const reportKind = reportKindRaw === "reception" ? "reception" : "borrow";
 
+  const chatSourceRaw =
+    typeof (body as { chatSource?: unknown })?.chatSource === "string"
+      ? (body as { chatSource: string }).chatSource
+      : "web";
+  const chatSource = chatSourceRaw === "app" ? "app" : "web";
+
   const result = await openMemberCartDispute(supabase, admin, {
     cartId,
     userId,
@@ -103,10 +118,16 @@ export async function POST(request: Request) {
     details: detailsRaw,
     itemIds,
     photoFiles: [],
+    chatSource,
   });
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  return NextResponse.json({ ok: true, disputeId: result.disputeId, updated: result.updated });
+  return NextResponse.json({
+    ok: true,
+    disputeId: result.disputeId,
+    updated: result.updated,
+    conversationId: result.conversationId,
+  });
 }
