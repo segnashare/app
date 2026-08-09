@@ -80,10 +80,8 @@ export async function ensureDisputeItemChat(params: {
 }): Promise<string | null> {
   const source = params.source ?? "app";
   const orderCompact = formatOrderNumberCompact(params.cartId);
-  const title =
-    params.reportKind === "reception"
-      ? `Litige réception · ${orderCompact}`
-      : `Litige emprunt · ${orderCompact}`;
+  // Titre conversation / Discord : particularité = n° commande compact.
+  const title = `Litige · ${orderCompact}`;
   const ackBody =
     params.reportKind === "reception"
       ? "Merci, on a bien reçu ta déclaration de litige. L’équipe Segna te répond très vite ici."

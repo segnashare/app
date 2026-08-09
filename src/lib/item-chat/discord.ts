@@ -1,3 +1,4 @@
+import { buildItemChatThreadName } from "@/lib/item-chat/build-item-chat-thread-name";
 import {
   getDiscordBotToken,
   getDiscordItemChatChannelId,
@@ -67,7 +68,7 @@ function threadNameFromConversation(conv: ItemChatConversationRow, clientName?: 
   const who =
     (clientName && clientName.trim()) ||
     (conv.contact_email || conv.visitor_id.slice(0, 8)).trim();
-  return who.slice(0, 100);
+  return buildItemChatThreadName({ conversation: conv, clientName: who }).threadName;
 }
 
 export async function discordCreateThreadAndPost(params: {
@@ -95,7 +96,7 @@ export async function discordCreateThreadAndPost(params: {
   }
 
   const embed = {
-    title: conv.item_title || (conv.item_id ? "Question pièce" : "Question générale"),
+    title: conv.item_title || (conv.item_id ? "Item" : "Général"),
     description: params.body.slice(0, 2000),
     color: 0x6b6560,
     fields,

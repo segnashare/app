@@ -1,27 +1,15 @@
 import {
+  buildItemChatThreadName,
+  type ItemChatThreadKind,
+} from "@/lib/item-chat/build-item-chat-thread-name";
+import {
   getItemPublicAppUrl,
   getItemPublicWebUrl,
 } from "@/lib/item-chat/config";
 import { splitChatMessageMedia } from "@/lib/item-chat/split-chat-message-media";
 import type { ItemChatConversationRow, ItemChatSource } from "@/lib/item-chat/types";
 
-export type ItemChatThreadKind = "general" | "item" | "dispute";
-
-const THREAD_SUBJECT: Record<ItemChatThreadKind, string> = {
-  general: "Général",
-  item: "Item",
-  dispute: "Litige",
-};
-
-function resolveThreadKind(conversation: ItemChatConversationRow): ItemChatThreadKind {
-  const disputeId =
-    typeof conversation.cart_dispute_id === "string" ? conversation.cart_dispute_id.trim() : "";
-  if (disputeId) return "dispute";
-  const title = typeof conversation.item_title === "string" ? conversation.item_title.trim() : "";
-  if (/^litige\b/i.test(title)) return "dispute";
-  if (typeof conversation.item_id === "string" && conversation.item_id.trim()) return "item";
-  return "general";
-}
+export type { ItemChatThreadKind };
 
 export type ItemChatN8nNotifyInput = {
   conversation: ItemChatConversationRow;
@@ -110,10 +98,10 @@ function resolveClientName(input: ItemChatN8nNotifyInput): {
   const email = input.conversation.contact_email?.trim() || "";
   const emailLocal = email.includes("@") ? email.split("@")[0]!.trim() : email;
   const clientName = fromUser || emailLocal || "Visiteur";
-  const threadKind = resolveThreadKind(input.conversation);
-  const subject = THREAD_SUBJECT[threadKind];
-  // Discord limite le nom de thread à 100 caractères.
-  const threadName = `${subject} - ${clientName}`.slice(0, 100);
+  const { threadKind, threadName } = buildItemChatThreadName({
+    conversation: input.conversation,
+    clientName,
+  });
   return {
     firstName,
     lastName,

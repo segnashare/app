@@ -52,7 +52,10 @@ export function normalizeStaffAvatarUrl(raw: unknown): string | null {
   return t;
 }
 
-/** Événement « Prénom a rejoint la conversation » — une fois par opérateur, juste avant sa 1re réponse. */
+/**
+ * Événement « Prénom a rejoint la conversation » — une seule fois par conversation,
+ * à la première réponse humaine (pas un join par opérateur).
+ */
 export async function ensureStaffJoinedEvent(params: {
   admin: Admin;
   conversationId: string;
@@ -70,7 +73,7 @@ export async function ensureStaffJoinedEvent(params: {
     .eq("conversation_id", params.conversationId)
     .eq("role", "system")
     .eq("body", ITEM_CHAT_STAFF_JOINED_BODY)
-    .eq("staff_display_name", name)
+    .limit(1)
     .maybeSingle();
   if (existing) return;
 
@@ -304,7 +307,7 @@ export async function openOrCreateConversation(params: {
       contact_email: params.contactEmail,
       source: params.source,
       status: "open",
-      item_title: params.itemTitle || (params.itemId ? null : "Question générale"),
+      item_title: params.itemTitle || (params.itemId ? null : "Général"),
       item_size_label: params.itemSizeLabel,
       item_condition_label: params.itemConditionLabel,
       last_message_at: now,
