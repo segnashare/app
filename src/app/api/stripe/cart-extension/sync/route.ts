@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.redirect(
-      new URL(`/commande/${cartId}/prolonger?extension=success&days=${extensionDays}`, url.origin),
+      new URL(`/exchange/emprunt/${cartId}?extension=success&days=${extensionDays}`, url.origin),
     );
   } catch {
     return NextResponse.redirect(new URL("/exchange?extension=error&reason=sync_failed", url.origin));

@@ -125,6 +125,64 @@ export async function POST(request: Request) {
       );
     }
 
+    const extensionMetadata = {
+      checkout_kind: "cart_borrow_extension",
+      user_id: userId,
+      cart_id: cartId,
+      extension_days: String(extensionDays),
+      credits_charged: String(creditsTotal),
+      amount_cents: String(amountCents),
+      cart_item_ids: JSON.stringify(cartItemIds),
+    };
+
+    const wantsPaymentSheet =
+      body.paymentUi === "payment_sheet" || body.paymentUi === "native";
+
+    /** Mobile in-app : PaymentIntent + Payment Sheet (Apple Pay / carte), pas de Checkout URL. */
+    if (wantsPaymentSheet) {
+      if (!config.publishableKey) {
+        return NextResponse.json(
+          { message: "STRIPE_PUBLISHABLE_KEY manquante côté serveur." },
+          { status: 500 },
+        );
+      }
+      if (amountCents < 50) {
+        return NextResponse.json({ message: "Montant trop faible pour Stripe." }, { status: 400 });
+      }
+
+      const ephemeralKey = await stripe.ephemeralKeys.create(
+        { customer: stripeCustomerId },
+        { apiVersion: "2026-02-25.clover" },
+      );
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: "eur",
+        customer: stripeCustomerId,
+        automatic_payment_methods: { enabled: true },
+        setup_future_usage: "off_session",
+        metadata: extensionMetadata,
+        description: `Prolongation location (${extensionDays} jour${extensionDays > 1 ? "s" : ""}) · commande ${detail.orderNumberCompact}`,
+      });
+
+      if (!paymentIntent.client_secret || !ephemeralKey.secret) {
+        return NextResponse.json(
+          { message: "Stripe n'a pas renvoyé les secrets Payment Sheet." },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        paymentUi: "payment_sheet",
+        paymentIntentId: paymentIntent.id,
+        paymentIntentClientSecret: paymentIntent.client_secret,
+        customerId: stripeCustomerId,
+        customerEphemeralKeySecret: ephemeralKey.secret,
+        publishableKey: config.publishableKey,
+        amountCents,
+      });
+    }
+
     const mobileSuccessUrl = resolveMobileSuccessUrl(body.mobileSuccessUrl);
     const cancelRaw = typeof body.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
     const successUrl =
@@ -154,15 +212,7 @@ export async function POST(request: Request) {
       success_url: successUrl,
       cancel_url: cancelUrl,
       client_reference_id: userId,
-      metadata: {
-        checkout_kind: "cart_borrow_extension",
-        user_id: userId,
-        cart_id: cartId,
-        extension_days: String(extensionDays),
-        credits_charged: String(creditsTotal),
-        amount_cents: String(amountCents),
-        cart_item_ids: JSON.stringify(cartItemIds),
-      },
+      metadata: extensionMetadata,
     });
 
     if (!session.url) {
