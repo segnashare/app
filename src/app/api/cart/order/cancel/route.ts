@@ -9,7 +9,7 @@ import { sendMemberOutreachNotification } from "@/lib/notifications/member-outre
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
 import { ensureCartOrderStripeInvoiceForCancel } from "@/lib/stripe/ensure-cart-order-stripe-invoice-for-cancel";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -27,13 +27,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Identifiant de commande invalide" }, { status: 400 });
   }
 
-  const supabase = (await createSupabaseServerClient()) as any;
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- client Bearer (mobile) ou cookies (web)
+  const { user, error: userError, supabase } = (await resolveRequestUserClient(request)) as any;
   if (userError || !user) {
-    return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    const hasBearer = Boolean(request.headers.get("authorization")?.toLowerCase().startsWith("bearer "));
+    console.warn("[api/cart/order/cancel] auth failed", {
+      hasBearer,
+      message: userError instanceof Error ? userError.message : userError ?? "no user",
+    });
+    return NextResponse.json(
+      {
+        error: hasBearer
+          ? "Session expirée — reconnecte-toi puis réessaie d’annuler."
+          : "Non authentifié",
+      },
+      { status: 401 },
+    );
   }
 
   const { data: shipSummary, error: shipErr } = await supabase.rpc("get_cart_outbound_shipment_summary", {
