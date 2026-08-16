@@ -27,6 +27,7 @@ import {
   notifyWalletCreditsPurchased,
 } from "@/lib/notifications/checkout-notifications";
 import { notifySegnaXSubscriptionWelcomeIfApplicable } from "@/lib/notifications/subscription-notifications";
+import { applySubscriptionCancelAtPeriodEndEffects } from "@/lib/subscription/apply-cancel-at-period-end-effects";
 import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
 
 async function resolveUserIdFromCustomer(admin: any, stripeCustomerId: string): Promise<string | null> {
@@ -241,6 +242,13 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
         await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
       } catch (e) {
         console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (subscription event)", e);
+      }
+      if (subscription.cancel_at_period_end) {
+        try {
+          await applySubscriptionCancelAtPeriodEndEffects(admin, userId, subscription, { notify: true });
+        } catch (e) {
+          console.error("[stripe/webhook] applySubscriptionCancelAtPeriodEndEffects", e);
+        }
       }
       return "processed";
     }

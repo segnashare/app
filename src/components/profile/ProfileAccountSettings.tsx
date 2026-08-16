@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { SettingsAdminPhantomRow } from "@/components/profile/SettingsAdminPhantomRow";
@@ -76,53 +76,24 @@ function SettingsLinkRow({
   );
 }
 
-function subscriberPlanBadge(label: MembershipLabel): string | null {
-  if (label === "Membre X") return "SegnaX";
-  if (label === "Membre +") return "Segna+";
-  return null;
-}
-
 export function ProfileAccountSettings({
   backTab,
   isSubscriber,
-  membershipLabel,
+  membershipLabel: _membershipLabel,
   kycVerified,
   supportEmail,
   isStaffAdmin,
   initialAdminPhantomMode,
 }: ProfileAccountSettingsProps) {
-  const [portalBusy, setPortalBusy] = useState(false);
-  const [portalError, setPortalError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
-  const planBadge = subscriberPlanBadge(membershipLabel);
-  const packageChangeHref = membershipLabel === "Membre X" ? "/package?plan=x" : "/package";
 
   const profileHref = `/profile?tab=${encodeURIComponent(backTab)}`;
   const profileSubflowTabQuery = `tab=${encodeURIComponent(backTab)}`;
   const kycHref = `/profile/kyc?${profileSubflowTabQuery}`;
   const packageSegnaXHref = "/package?plan=x";
-
-  const openBillingPortal = async () => {
-    if (portalBusy) return;
-    setPortalError(null);
-    setPortalBusy(true);
-    try {
-      const res = await fetch("/api/stripe/subscription/portal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnTab: backTab }),
-      });
-      const payload = (await res.json().catch(() => null)) as { url?: string; message?: string } | null;
-      if (!res.ok || !payload?.url) {
-        throw new Error(payload?.message ?? "Impossible d'ouvrir le portail de facturation.");
-      }
-      window.location.assign(payload.url);
-    } catch (e) {
-      setPortalError(e instanceof Error ? e.message : "Une erreur est survenue.");
-      setPortalBusy(false);
-    }
-  };
+  const facturesHref = `/profile/settings/factures?${profileSubflowTabQuery}`;
+  const abonnementHref = `/profile/settings/abonnement?${profileSubflowTabQuery}`;
 
   const requestDeleteAccount = async () => {
     if (deleteBusy) return;
@@ -259,6 +230,11 @@ export function ProfileAccountSettings({
         <SectionBlock title="Sécurité" ariaLabel="Sécurité">
           {isStaffAdmin ? <SettingsAdminPhantomRow initialEnabled={initialAdminPhantomMode} /> : null}
           <SettingsLinkRow
+            href={`/profile/password?${profileSubflowTabQuery}`}
+            title="Mot de passe"
+            subtitle="Modifie le mot de passe de ton compte."
+          />
+          <SettingsLinkRow
             href={`/profile/kyc?${profileSubflowTabQuery}`}
             title="Vérification d'identité"
             subtitle="Selfie et document : sécurise ton compte."
@@ -286,39 +262,14 @@ export function ProfileAccountSettings({
 
         <SectionBlock title="Abonnement" ariaLabel="Abonnement">
           {isSubscriber ? (
-            <div className="px-5 py-5">
-              <p className="text-balance text-[16px] font-semibold leading-snug text-zinc-900">
-                Merci pour ton abonnement Segna
-                {planBadge ? (
-                  <span className="ml-2 inline-block align-middle rounded-full bg-sky-100 px-2.5 py-0.5 text-[12px] font-bold tracking-tight text-sky-950">
-                    {planBadge}
-                  </span>
-                ) : null}
-              </p>
-              <p className="mt-2 text-balance text-[13px] leading-snug text-zinc-500">
-                Profite de tes avantages membre (points mensuels, échanges…).{" "}
-                <Link href={packageChangeHref} className="font-medium text-zinc-800 underline underline-offset-2">
-                  Découvrir les offres
-                </Link>
-              </p>
-              <div className="mt-5 flex flex-col gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => void openBillingPortal()}
-                  disabled={portalBusy}
-                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full border border-zinc-300 bg-white px-4 text-center text-[15px] font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {portalBusy ? "Ouverture…" : "Voir la facturation"}
-                  <ExternalLink className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-                </button>
-                <Link
-                  href={packageChangeHref}
-                  className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-zinc-950 px-4 text-center text-[15px] font-semibold text-white transition hover:bg-zinc-800"
-                >
-                  Changer d’offre
-                </Link>
-              </div>
-            </div>
+            <>
+              <SettingsLinkRow href={facturesHref} title="Voir mes factures" subtitle="Historique et prochain paiement." />
+              <SettingsLinkRow
+                href={abonnementHref}
+                title="Gérer mon abonnement"
+                subtitle="Changer d’offre ou résilier."
+              />
+            </>
           ) : (
             <>
               <SettingsLinkRow
@@ -351,7 +302,6 @@ export function ProfileAccountSettings({
               {deleteBusy ? "Envoi de la demande..." : "Supprimer ou suspendre le compte"}
             </button>
           </div>
-          {portalError ? <p className="border-t border-zinc-100 px-5 py-3 text-center text-sm text-red-600">{portalError}</p> : null}
           {deleteFeedback ? (
             <p className="border-t border-zinc-100 px-5 py-3 text-center text-sm text-zinc-700">
               {deleteFeedback}{" "}

@@ -14,6 +14,7 @@ import { BorrowReturnJjDayBanner } from "@/components/exchange/BorrowReturnJjDay
 import { ExchangeHeader } from "@/components/exchange/ExchangeHeader";
 import { ExchangeWalletAnnouncementProvider } from "@/components/exchange/ExchangeWalletAnnouncementContext";
 import { ExchangeWalletTransactionAnnounceLayer } from "@/components/exchange/ExchangeWalletTransactionAnnounceLayer";
+import { SubscriptionCancelSheetGate } from "@/components/subscription/SubscriptionCancelSheetGate";
 import { ExchangeInteractionsSection } from "@/components/exchange/ExchangeInteractionsSection";
 import { ExchangeLendsDetailPrefetch } from "@/components/exchange/ExchangeLendsDetailPrefetch";
 import { ExchangeDynamicCmsSection } from "@/components/exchange/ExchangeDynamicCmsSection";
@@ -1192,6 +1193,7 @@ export default async function ExchangePage() {
         <ExchangeLendsDetailPrefetch itemIds={eagerLendDetailPrefetchIds} />
       ) : null}
       <ExchangeWalletTransactionAnnounceLayer userId={userId} membershipLabel={membershipLabel} />
+      <SubscriptionCancelSheetGate />
       {transferDepositQueue.length > 0 ? (
         <MemberIntakeTransferDepositConfirmModal initialQueue={transferDepositQueue} />
       ) : null}
