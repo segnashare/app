@@ -35,7 +35,7 @@ import { fetchMemberBorrowReturnJjAlerts } from "@/lib/cart/fetch-member-borrow-
 import { formatBorrowOverdueDaysLabelFr } from "@/lib/cart/format-borrow-overdue-copy";
 import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { fetchSignedFirstPhotoUrlsByCartIds } from "@/lib/cart/fetch-cart-order-thumbnail-urls";
-import { memberOrderTypeLabel, resolveMemberOrderKindFromCart } from "@/lib/cart/member-order-kind";
+import { exchangeComplementCentsFromCartOrder, isSegnaXLocationWithoutExchangeComplement, memberOrderTypeLabel, resolveMemberOrderKindFromCart } from "@/lib/cart/member-order-kind";
 import { checkoutMetaIndicatesUberDirect } from "@/lib/cart/cart-outbound-delivery-kind";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
 import { fetchLatestConfirmedCartOutboundShipmentSummary } from "@/lib/cart/fetch-outbound-shipment-summary";
@@ -249,7 +249,7 @@ export default async function ExchangePage() {
     perf.measure("subscription.latest", () =>
     supabase
       .from("user_subscriptions")
-      .select("plan_code,status")
+      .select("plan_code,status,cancel_at_period_end")
       .eq("user_id", userId)
       .eq("provider", "stripe")
       .order("updated_at", { ascending: false })
@@ -292,7 +292,7 @@ export default async function ExchangePage() {
     supabase
       .from("carts")
       .select(
-        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id)",
+        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id,credits_line_cents)",
       )
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -304,7 +304,7 @@ export default async function ExchangePage() {
     supabase
       .from("carts")
       .select(
-        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id)",
+        "id,status,created_at,updated_at,checkout_borrow_duration_days,checkout_purchase_mode,cart_order_stripe_invoices(guest_purchase_stripe_invoice_id,credits_line_cents)",
       )
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -329,7 +329,12 @@ export default async function ExchangePage() {
 
   const roles: string[] = (rolesRes.data ?? []).map((entry: { role?: string | null }) => entry.role ?? "").filter(Boolean);
   const membershipLabelFromRpc = toMembershipLabelFromBilling((membershipStateRes.data ?? null) as MembershipState | null);
-  const subRow = subscriptionRowRes.data as { plan_code?: string | null; status?: string | null } | null;
+  const subRow = subscriptionRowRes.data as {
+    plan_code?: string | null;
+    status?: string | null;
+    cancel_at_period_end?: boolean | null;
+  } | null;
+  const cancelAtPeriodEnd = Boolean(subRow?.cancel_at_period_end);
   const membershipLabelFromSubscriptionTable =
     subscriptionRowRes.error == null && subRow
       ? toMembershipLabelFromBilling({
@@ -366,8 +371,8 @@ export default async function ExchangePage() {
     checkout_purchase_mode?: boolean | null;
     guest_purchase_stripe_invoice_id?: string | null;
     cart_order_stripe_invoices?:
-      | { guest_purchase_stripe_invoice_id?: string | null }
-      | { guest_purchase_stripe_invoice_id?: string | null }[]
+      | { guest_purchase_stripe_invoice_id?: string | null; credits_line_cents?: number | null }
+      | { guest_purchase_stripe_invoice_id?: string | null; credits_line_cents?: number | null }[]
       | null;
   };
   const ongoingCartRows = (ongoingRes.data ?? []) as CartOrderListRow[];
@@ -879,7 +884,12 @@ export default async function ExchangePage() {
     opts: { historyFallback: boolean },
   ) {
     const orderKind = resolveMemberOrderKindFromCart(order);
-    const orderTypeLabel = memberOrderTypeLabel(orderKind, order.checkout_borrow_duration_days);
+    const isPurchase = orderKind === "achat";
+    const orderTypeLabel = memberOrderTypeLabel(orderKind, order.checkout_borrow_duration_days, {
+      membershipLabel,
+      exchangeComplementCents: exchangeComplementCentsFromCartOrder(order),
+      cancelAtPeriodEnd,
+    });
     const orderNumberCompact = formatOrderNumberCompact(order.id);
     const orderBase = { id: order.id, orderKind, orderTypeLabel, orderNumberCompact };
 
@@ -906,7 +916,17 @@ export default async function ExchangePage() {
     }
     const ship = outboundShipmentByCartId.get(order.id);
     const returnCommitmentMet = ret != null && isCartReturnCommitmentMet(ret.status);
-    const borrowReturnDeadlineMs = ship ? borrowReturnDeadlineMsForShip(ship, order.id) : Number.NaN;
+    const segnaXUnlimitedBorrow = isSegnaXLocationWithoutExchangeComplement({
+      membershipLabel,
+      exchangeComplementCents: exchangeComplementCentsFromCartOrder(order),
+      checkoutBorrowDurationDays: order.checkout_borrow_duration_days,
+      isPurchaseOrder: isPurchase,
+      cancelAtPeriodEnd,
+    });
+    const borrowReturnDeadlineMs =
+      !isPurchase && !segnaXUnlimitedBorrow && ship
+        ? borrowReturnDeadlineMsForShip(ship, order.id)
+        : Number.NaN;
     const borrowReturnUrgentRaw =
       ship != null &&
       Number.isFinite(borrowReturnDeadlineMs) &&

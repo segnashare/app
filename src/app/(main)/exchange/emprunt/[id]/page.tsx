@@ -13,6 +13,7 @@ import { fetchCartBorrowExtensionDaysTotal } from "@/lib/cart/fetch-cart-borrow-
 import { fetchMemberCartBorrowOverdue } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import { syncMemberBorrowOverdueAccrual } from "@/lib/cart/sync-member-borrow-overdue-accrual";
 import { resolveMembershipLabel } from "@/lib/user/resolve-membership-label";
+import { resolveSubscriptionCancelAtPeriodEnd } from "@/lib/subscription/resolve-cancel-at-period-end";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { walletCreditKindForMembership } from "@/lib/wallet/credit-kind";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -43,7 +44,10 @@ export default async function EmpruntPage({ params }: PageProps) {
   }
 
   const userId = user.id as string;
-  const membershipLabel = await resolveMembershipLabel(supabase, userId);
+  const [membershipLabel, cancelAtPeriodEnd] = await Promise.all([
+    resolveMembershipLabel(supabase, userId),
+    resolveSubscriptionCancelAtPeriodEnd(supabase, userId),
+  ]);
   const detail = await fetchMemberCartOrderDetail(
     supabase,
     userId,
@@ -93,6 +97,7 @@ export default async function EmpruntPage({ params }: PageProps) {
     <EmpruntDetailView
       detail={detail}
       membershipLabel={membershipLabel}
+      cancelAtPeriodEnd={cancelAtPeriodEnd}
       borrowExtensionDaysTotal={borrowExtensionDaysTotal}
       borrowOverdue={borrowOverdue}
     />

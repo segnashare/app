@@ -5,10 +5,12 @@ import { X } from "lucide-react";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
 import { EmpruntBorrowCountdown } from "@/components/emprunt/EmpruntBorrowCountdown";
 import { EmpruntBorrowSummarySection } from "@/components/emprunt/EmpruntBorrowSummarySection";
+import { EmpruntRentalProgressBar } from "@/components/emprunt/EmpruntRentalProgressBar";
 import { resolveMemberCartBorrowReturnDueMs } from "@/lib/cart/cart-borrow-return-due";
 import type { MemberCartBorrowOverdueSnapshot } from "@/lib/cart/fetch-member-cart-borrow-overdue";
 import type { MemberCartOrderDetail } from "@/lib/cart/fetch-member-cart-order-detail";
 import { isCartReturnCommitmentMet } from "@/lib/cart/fetch-member-cart-order-detail";
+import { isSegnaXLocationWithoutExchangeComplement } from "@/lib/cart/member-order-kind";
 import { resolveOutboundBorrowDeliveredAtIso, type SegnaBorrowMembershipLabel } from "@/lib/emprunt/borrow-period";
 import {
   isGuestCashRentalOrderDisplay,
@@ -22,6 +24,8 @@ import { cn } from "@/lib/utils/cn";
 type EmpruntDetailViewProps = {
   detail: MemberCartOrderDetail;
   membershipLabel: SegnaBorrowMembershipLabel;
+  /** Résiliation abo programmée → locations X en durée limitée. */
+  cancelAtPeriodEnd?: boolean;
   borrowExtensionDaysTotal?: number;
   borrowOverdue?: MemberCartBorrowOverdueSnapshot | null;
 };
@@ -36,6 +40,7 @@ function formatEuros(n: number): string {
 export function EmpruntDetailView({
   detail,
   membershipLabel,
+  cancelAtPeriodEnd = false,
   borrowExtensionDaysTotal = 0,
   borrowOverdue = null,
 }: EmpruntDetailViewProps) {
@@ -45,8 +50,21 @@ export function EmpruntDetailView({
     detail.shipment?.deliveredAt,
     detail.shipment?.updatedAt,
   );
-  const returnDueMs = resolveMemberCartBorrowReturnDueMs(detail, membershipLabel, borrowExtensionDaysTotal);
+  const returnDueMsRaw = resolveMemberCartBorrowReturnDueMs(
+    detail,
+    membershipLabel,
+    borrowExtensionDaysTotal,
+  );
+  const segnaXUnlimitedBorrow = isSegnaXLocationWithoutExchangeComplement({
+    membershipLabel,
+    exchangeComplementEuros: detail.paymentBreakdown?.euroDetail?.complementCreditsEuros ?? null,
+    checkoutBorrowDurationDays: detail.checkoutBorrowDurationDays,
+    isPurchaseOrder: detail.isPurchaseOrder,
+    cancelAtPeriodEnd,
+  });
+  const returnDueMs = segnaXUnlimitedBorrow ? Number.NaN : returnDueMsRaw;
   const hasReturnDue = Number.isFinite(returnDueMs);
+  const rentalStartMs = borrowDeliveredAtIso ? Date.parse(borrowDeliveredAtIso) : Number.NaN;
   const showBorrowOverdue = Boolean(borrowOverdue && !returnCommitmentMet);
   const guestCashRental = isGuestCashRentalOrderDisplay(membershipLabel, detail);
   const guestRentalEuros = guestCashRental ? resolveGuestOrderRentalEuros(detail) : 0;
@@ -86,6 +104,13 @@ export function EmpruntDetailView({
               Commande {detail.orderNumberCompact} — pièces livrées chez toi
             </p>
           )}
+          {hasReturnDue && Number.isFinite(rentalStartMs) && !returnCommitmentMet ? (
+            <EmpruntRentalProgressBar
+              startMs={rentalStartMs}
+              dueMs={returnDueMs}
+              extensionDays={borrowExtensionDaysTotal}
+            />
+          ) : null}
         </div>
       </header>
 
