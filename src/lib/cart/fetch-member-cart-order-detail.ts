@@ -40,6 +40,10 @@ export type MemberCartOrderLine = {
   pricePoints: number;
   photoUrl: string | null;
   photoPosition: CartLineRowData["photoPosition"];
+  /** Litige pièce dans le panier (retour anticipé, perte, …). */
+  disputeLineStatus: string | null;
+  /** `items.status` — ex. reserved / sold (buyout). */
+  itemStatus: string | null;
 };
 
 /** Snapshot du devis Uber au moment de la création de la course (métadonnées `shipment_destinations` domicile). */
@@ -241,7 +245,7 @@ export async function fetchMemberCartOrderDetail(
     supabase
       .from("cart_items")
       .select(
-        "id, item_id, items(id, title, description, price_points, photos, item_custom_brand_label, item_size_id, item_brands(label))",
+        "id, item_id, dispute_line_status, items(id, title, description, price_points, photos, status, item_custom_brand_label, item_size_id, item_brands(label))",
       )
       .eq("cart_id", cartId)
       .is("deleted_at", null)
@@ -290,6 +294,7 @@ export async function fetchMemberCartOrderDetail(
     description?: string | null;
     price_points?: number | null;
     photos?: unknown;
+    status?: string | null;
     item_custom_brand_label?: string | null;
     item_size_id?: string | null;
     item_brands?: { label?: string | null } | null;
@@ -298,6 +303,7 @@ export async function fetchMemberCartOrderDetail(
   const rawLines = (linesRes.error ? [] : (linesRes.data ?? [])) as {
     id: string;
     item_id: string;
+    dispute_line_status?: string | null;
     items: ItemJoin;
   }[];
 
@@ -349,6 +355,11 @@ export async function fetchMemberCartOrderDetail(
       pricePoints: Number(item?.price_points ?? 0),
       photoUrl,
       photoPosition: photoData.position,
+      disputeLineStatus:
+        typeof row.dispute_line_status === "string" && row.dispute_line_status.trim()
+          ? row.dispute_line_status.trim()
+          : null,
+      itemStatus: item?.status?.trim() || null,
     };
   });
 
