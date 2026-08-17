@@ -7,6 +7,7 @@ import {
   computeRentalBuyoutRetailEuroCents,
   resolveRentalBuyoutDiscountPercent,
 } from "@/lib/billing/rental-buyout-pricing";
+import { applyCartBuyout } from "@/lib/cart/apply-cart-buyout";
 import {
   assertCartEligibleForBuyout,
   resolveSelectedBuyoutLines,
@@ -17,6 +18,8 @@ import {
   isMemberReceiptValidated,
   memberReceiptAnchorFromOrderShipment,
 } from "@/lib/cart/member-receipt-validation";
+import { tryChargeCartOrderOffSession } from "@/lib/stripe/charge-cart-order-off-session";
+import { persistStripeCustomerDefaultPaymentMethodFromPaymentIntent } from "@/lib/stripe/persist-customer-default-payment-method";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUserClient } from "@/lib/supabase/request-user";
@@ -174,6 +177,7 @@ export async function POST(request: Request) {
     }
 
     const pieceCount = selected.lines.length;
+    const paymentDescription = `Achat fin de location (${pieceCount} pièce${pieceCount > 1 ? "s" : ""}) · commande ${detail.orderNumberCompact}`;
     const buyoutMetadata = {
       checkout_kind: "cart_rental_buyout",
       user_id: userId,
@@ -184,6 +188,62 @@ export async function POST(request: Request) {
       cart_item_ids: JSON.stringify(selectedCartItemIds),
       item_ids: JSON.stringify(itemIds),
     };
+
+    /** Carte déjà connue (location) : prélèvement off-session ; sinon / 3DS → Sheet / Checkout. */
+    const offSession = await tryChargeCartOrderOffSession({
+      stripe,
+      admin,
+      userId,
+      amountCents,
+      metadata: buyoutMetadata,
+      description: paymentDescription,
+    });
+
+    if (!offSession.ok) {
+      console.info("[stripe/cart-buyout/checkout] off_session skipped", offSession.reason);
+    }
+
+    if (offSession.ok) {
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromPaymentIntent(
+          stripe,
+          offSession.paymentIntent,
+        );
+      } catch (e) {
+        console.error("[stripe/cart-buyout/checkout] persist default PM off_session", e);
+      }
+
+      const applyResult = await applyCartBuyout(admin, {
+        userId,
+        cartId,
+        amountCents,
+        discountPercent,
+        retailCents,
+        cartItemIds: selectedCartItemIds,
+        itemIds,
+        checkoutSessionId: offSession.paymentIntent.id,
+        paymentIntentId: offSession.paymentIntent.id,
+      });
+
+      if (!applyResult.applied) {
+        return NextResponse.json(
+          {
+            message: applyResult.reason ?? "Paiement reçu mais achat non enregistré.",
+            code: applyResult.reason,
+          },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({
+        checkoutMode: "off_session",
+        paymentIntentId: offSession.paymentIntent.id,
+        amountCents,
+        discountPercent,
+        retailCents,
+        archived: Boolean(applyResult.archived),
+      });
+    }
 
     const wantsPaymentSheet =
       body.paymentUi === "payment_sheet" || body.paymentUi === "native";
@@ -201,15 +261,26 @@ export async function POST(request: Request) {
         { apiVersion: "2026-02-25.clover" },
       );
 
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: amountCents,
-        currency: "eur",
-        customer: stripeCustomerId,
-        automatic_payment_methods: { enabled: true },
-        setup_future_usage: "off_session",
-        metadata: buyoutMetadata,
-        description: `Achat fin de location (${pieceCount} pièce${pieceCount > 1 ? "s" : ""}) · commande ${detail.orderNumberCompact}`,
-      });
+      /** 3DS après tentative off-session : réutiliser le PI (carte déjà attachée). */
+      const reuseOffSessionPi =
+        !offSession.ok &&
+        offSession.paymentIntent &&
+        Boolean(offSession.paymentIntent.client_secret) &&
+        (offSession.reason === "authentication_required" ||
+          offSession.reason === "payment_intent_requires_action" ||
+          offSession.reason === "payment_intent_requires_confirmation");
+
+      const paymentIntent = reuseOffSessionPi
+        ? offSession.paymentIntent!
+        : await stripe.paymentIntents.create({
+            amount: amountCents,
+            currency: "eur",
+            customer: stripeCustomerId,
+            automatic_payment_methods: { enabled: true },
+            setup_future_usage: "off_session",
+            metadata: buyoutMetadata,
+            description: paymentDescription,
+          });
 
       if (!paymentIntent.client_secret || !ephemeralKey.secret) {
         return NextResponse.json(
