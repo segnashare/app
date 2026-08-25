@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import {
+  getWebsiteOrigin,
   isWebsiteCheckoutTunnelComplete,
   websiteOnboardingResumeUrl,
 } from "@/lib/auth/website-checkout-onboarding";
@@ -92,13 +93,18 @@ async function resolvePostAuthPath(
 }
 
 /** Handoff session app → website (hash, lu côté client website). */
-function redirectToWebsiteWithSession(returnTo: string, accessToken: string, refreshToken: string) {
+function redirectToWebsiteWithSession(
+  returnTo: string,
+  accessToken: string,
+  refreshToken: string,
+  type = "website_oauth",
+) {
   const target = new URL(returnTo);
   const hash = new URLSearchParams({
     access_token: accessToken,
     refresh_token: refreshToken,
     token_type: "bearer",
-    type: "website_oauth",
+    type,
   });
   target.hash = hash.toString();
   const res = NextResponse.redirect(target);
@@ -110,6 +116,7 @@ export async function GET(request: NextRequest) {
   const intent = normalizeIntent(request.nextUrl.searchParams.get("intent"));
   const returnToRaw = request.nextUrl.searchParams.get("return_to");
   const returnTo = returnToRaw && isAllowedWebsiteReturnTo(returnToRaw) ? returnToRaw.trim() : null;
+  const authType = request.nextUrl.searchParams.get("type");
 
   if (request.nextUrl.searchParams.has("error")) {
     return redirectWithOAuthError(request, intent, "provider_error", returnTo);
@@ -124,6 +131,31 @@ export async function GET(request: NextRequest) {
   const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
   if (exchangeError) {
     return redirectWithOAuthError(request, intent, "exchange_failed", returnTo);
+  }
+
+  // Recovery PKCE : ne pas router vers onboarding website (« Qui es-tu ? »).
+  if (authType === "recovery") {
+    const accessToken = exchangeData.session?.access_token;
+    const refreshToken = exchangeData.session?.refresh_token;
+    if (accessToken && refreshToken) {
+      return redirectToWebsiteWithSession(
+        `${getWebsiteOrigin()}/reset-password`,
+        accessToken,
+        refreshToken,
+        "recovery",
+      );
+    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token && sessionData.session.refresh_token) {
+      return redirectToWebsiteWithSession(
+        `${getWebsiteOrigin()}/reset-password`,
+        sessionData.session.access_token,
+        sessionData.session.refresh_token,
+        "recovery",
+      );
+    }
+    const target = new URL("/auth/reset-password", request.nextUrl.origin);
+    return NextResponse.redirect(target);
   }
 
   const {
