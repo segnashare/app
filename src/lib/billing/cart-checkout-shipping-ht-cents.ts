@@ -66,6 +66,13 @@ export function computeCartCheckoutRoundTripShippingHtCents(args: {
   includedKind: IncludedExchangeShippingKind;
   /** Livraison relais offerte si location ≥ 50 € ou achat ≥ 200 € (hors abonnement). */
   complementRelayFree?: boolean;
+  /**
+   * Website achat ≥ 200 € : Chronopost domicile offert (0 HT), y compris si échange inclus
+   * aurait autrement facturé le supplément après abattement 10 € TTC.
+   */
+  websitePurchaseFreeHomeShipping?: boolean;
+  /** Code promo actif (ex. 120972) : frais de port offerts. */
+  promoFreeShipping?: boolean;
   /** Plan domicile Sendcloud (`domestic` = Mondial Relay, `chronopost` = Chrono). */
   homePlanKind?: CartCheckoutHomePlanKind | null;
   relayRoundTrip: ExchangeRoundTripShipping;
@@ -74,6 +81,20 @@ export function computeCartCheckoutRoundTripShippingHtCents(args: {
   outboundOnly?: boolean;
 }): number {
   const outboundOnly = args.outboundOnly === true;
+
+  if (args.promoFreeShipping) {
+    return 0;
+  }
+
+  // Site vitrine : Chronopost domicile gratuit dès le seuil achat (pas Uber / Coursier).
+  if (
+    args.websitePurchaseFreeHomeShipping &&
+    args.deliveryChannel === "home" &&
+    args.homeSpeedBilling === "standard" &&
+    (args.homePlanKind == null || args.homePlanKind === "chronopost")
+  ) {
+    return 0;
+  }
 
   if (args.includedKind === "member_all_modes") {
     // Relais + Mondial Relay domicile : offert. Express / Chrono : supplément = devis − 10 €.
