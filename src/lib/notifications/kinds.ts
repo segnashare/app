@@ -1,7 +1,7 @@
 /**
  * Identifiants stables pour `notification_send_log.kind` et le suivi produit.
  *
- * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_order_n8n_declared` (workflow n8n commande confirmée), `user_registered_n8n_declared` (Discord / n8n nouveau compte), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`, `subscription_cancel_scheduled` (annulation fin de période)
+ * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; SMS « Segna is cooking » transactionnel ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_rental_buyout` (achat pièce(s) en location), `cart_order_n8n_declared` (workflow n8n activité : commande confirmée), `user_registered_n8n_declared` / `subscription_activated_n8n_declared` / `subscription_cancel_n8n_declared` (même webhook Discord), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`, `subscription_cancel_scheduled` (annulation fin de période)
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
  * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail (détail suivi) + SMS/push phrase courte  
@@ -47,9 +47,15 @@
  */
 export const NotificationKind = {
   cartOrderPaid: "cart_order_paid",
+  /** Achat de pièce(s) en fin de location (buyout full / partial). */
+  cartRentalBuyout: "cart_rental_buyout",
   cartOrderN8nDeclared: "cart_order_n8n_declared",
   /** Nouveau compte membre → Discord / n8n (même webhook activité). */
   userRegisteredN8nDeclared: "user_registered_n8n_declared",
+  /** Nouvel abonnement actif → Discord / n8n. */
+  subscriptionActivatedN8nDeclared: "subscription_activated_n8n_declared",
+  /** Résiliation abo → Discord / n8n. */
+  subscriptionCancelN8nDeclared: "subscription_cancel_n8n_declared",
   /** Annulation BO avant expédition (aller encore « en préparation ») : e-mail + SMS transactionnel. */
   cartOrderCanceledBackofficePrep: "cart_order_canceled_backoffice_prep",
   /** Annulation membre (app) avant prise en charge transporteur : e-mail + SMS transactionnel. */

@@ -8,6 +8,8 @@ import {
   setNotificationDeliveryChannels,
 } from "@/lib/notifications/idempotency";
 import { NotificationKind } from "@/lib/notifications/kinds";
+import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
+import { buildMemberPushData, sendExpoPushToUser } from "@/lib/notifications/expo-push-send";
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
 import { declareCartOrderToN8n } from "@/lib/notifications/notify-cart-order-n8n";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
@@ -35,7 +37,7 @@ type CartItemJoinForSms = {
   item_brands?: { label?: string | null } | null;
 } | null;
 
-/** Libellés courts pour SMS (aligné page commande : titre + marque si dispo). */
+/** Libellés courts pour push / SMS (aligné page commande : titre + marque si dispo). */
 async function loadCartOrderItemLabelsForSms(admin: SupabaseClient, cartId: string): Promise<string[]> {
   const { data, error } = await admin
     .from("cart_items")
@@ -64,7 +66,22 @@ async function loadCartOrderItemLabelsForSms(admin: SupabaseClient, cartId: stri
   });
 }
 
-/** Corps SMS (≤ ~300 car. utiles pour rester en 1–2 segments GSM). */
+/** Corps push « cooking » (≤ 240 car. Expo). */
+function buildCartOrderCookingPushBody(itemLabels: string[]): string {
+  const head = "Commande en prépa : ";
+  const fallback = "Ta commande Segna est en préparation.";
+  if (itemLabels.length === 0) return fallback;
+
+  const maxTotal = 240;
+  const budget = Math.max(40, maxTotal - head.length);
+  let list = itemLabels.join(", ");
+  if (list.length > budget) {
+    list = `${list.slice(0, budget - 1)}…`;
+  }
+  return `${head}${list}`;
+}
+
+/** Corps SMS « cooking » (fallback si push non délivré ; ≤ ~300 car.). */
 function buildCartOrderCookingSms(itemLabels: string[]): string {
   const head = "Segna is cooking — commande en prépa : ";
   const fallback = "Segna is cooking — ta commande Segna est en préparation.";
@@ -81,9 +98,9 @@ function buildCartOrderCookingSms(itemLabels: string[]): string {
 
 /** Corps SMS confirmation achat (facture Stripe déjà envoyée par e-mail → SMS seul). */
 function buildPurchaseOrderConfirmedSms(itemLabels: string[]): string {
-  const head = "Segna — commande confirmée : ";
-  const tail = " Prépa en cours, suivi par SMS.";
-  const fallback = "Segna — ta commande est confirmée. Prépa en cours, suivi par SMS.";
+  const head = "Segna is cooking — commande en prépa : ";
+  const tail = " Suivi par SMS.";
+  const fallback = "Segna is cooking — ta commande Segna est en préparation. Suivi par SMS.";
   if (itemLabels.length === 0) return fallback;
 
   const maxTotal = 300;
@@ -137,9 +154,10 @@ async function notifyPurchaseOrderPaidSms(
 
 /**
  * Après confirmation serveur du panier (webhook Stripe, sync retour, ou wallet-only).
- * Déclaration n8n (`N8N_CART_ORDER_WEBHOOK_URL`) + e-mail HTML + SMS optionnel si Twilio et téléphone valides.
+ * Déclaration n8n (`N8N_OPS_ACTIVITY_WEBHOOK_URL` / legacy cart-order) + e-mail HTML + push « cooking »
+ * (deep link commande) ; SMS « Segna is cooking » si push non délivré.
  * Achat : e-mail « cooking » remplacé par la facture Stripe, mais SMS de confirmation quand même.
- * Clés d’idempotence : une déclaration n8n et une notification e-mail/SMS par `cart_id`.
+ * Clés d’idempotence : une déclaration n8n et une notification e-mail/push/SMS par `cart_id`.
  */
 export async function notifyCartOrderPaidAfterConfirmation(
   admin: SupabaseClient,
@@ -159,60 +177,123 @@ export async function notifyCartOrderPaidAfterConfirmation(
     return;
   }
 
-  const idempotencyKey = `txn:cart_order_paid:${input.cartId}`;
-  const claimed = await claimNotificationSend(admin, {
-    idempotencyKey,
-    kind: NotificationKind.cartOrderPaid,
-    userId: input.userId,
-    metadata: { cart_id: input.cartId },
-  });
-  if (!claimed) return;
-
   const user = await loadUserContact(admin, input.userId);
   const prenom = firstNameOrBonjour(user?.first_name ?? null);
   const { text, html } = cartOrderPaidEmailBlocks(prenom, `${input.cartId.slice(0, 8)}`);
-  const subject = "Commande Segna enregistrée";
   const itemLabels = await loadCartOrderItemLabelsForSms(admin, input.cartId);
+  const pushBody = buildCartOrderCookingPushBody(itemLabels);
   const smsBody = buildCartOrderCookingSms(itemLabels);
 
-  try {
-    const email = user?.email?.trim();
-    if (!email) {
-      console.warn("[notifications] cart_order_paid: pas d’e-mail utilisateur", { userId: input.userId });
-      await releaseNotificationSend(admin, idempotencyKey);
-      return;
-    }
+  await sendMemberOutreachNotification(admin, {
+    userId: input.userId,
+    kind: NotificationKind.cartOrderPaid,
+    idempotencyKey: `txn:cart_order_paid:${input.cartId}`,
+    metadata: { cart_id: input.cartId },
+    subject: "Commande Segna enregistrée",
+    text,
+    html,
+    channels: "email+phone",
+    pushTitle: "Segna is cooking",
+    pushBody,
+    smsBody,
+    transactionalSms: true,
+    // Permission OS coupée mais token encore actif → Expo « OK » sans affichage ; SMS obligatoire.
+    smsEvenIfPushDelivered: true,
+  });
+}
 
-    const sent = await sendTransactionalEmail({
-      to: email,
-      subject,
-      text,
-      html,
+/**
+ * Après buyout location → achat (full = même commande ; partial = nouvelle commande à valider).
+ */
+export async function notifyCartRentalBuyout(
+  admin: SupabaseClient,
+  input: {
+    userId: string;
+    rentalCartId: string;
+    purchaseCartId: string;
+    full: boolean;
+    itemCount: number;
+    /** Si true : push seulement (l’e-mail facture Stripe couvre la conf). */
+    skipEmail?: boolean;
+  },
+): Promise<void> {
+  const purchaseCartId = input.purchaseCartId.trim();
+  if (!purchaseCartId) return;
+
+  const user = await loadUserContact(admin, input.userId);
+  const prenom = firstNameOrBonjour(user?.first_name ?? null);
+  const n = Math.max(1, Math.trunc(input.itemCount));
+  const singular = n === 1;
+
+  const subject = singular ? "Elle est à toi" : "Elles sont à toi";
+  const pushBody = singular
+    ? input.full
+      ? "Ton achat est confirmé. Ta location est clôturée, la pièce t’appartient."
+      : "Ton achat est confirmé. Cette pièce t’appartient — les autres restent en location."
+    : "Ton paiement est confirmé : ces pièces sont maintenant à toi.";
+
+  const text = singular
+    ? input.full
+      ? `${prenom},\n\nElle est à toi\n\nTon achat est confirmé. Parce que tu as déjà emprunté cette pièce, ta réduction membre a été appliquée au prix d’achat.\n\nTa location est maintenant clôturée et la pièce t’appartient.\n\nÀ bientôt,\nSegna`
+      : `${prenom},\n\nElle est à toi\n\nTon achat est confirmé. Parce que tu as déjà emprunté cette pièce, ta réduction membre a été appliquée au prix d’achat.\n\nCette pièce ne fait plus partie de ta location, elle t’appartient. Les autres restent en location.\n\nÀ bientôt,\nSegna`
+    : `${prenom},\n\nElles sont à toi\n\nTon paiement est confirmé : ces pièces ne font plus partie de ta location, elles sont maintenant à toi.\n\nTa réduction membre a bien été appliquée à chaque pièce que tu as choisi de garder.${input.full ? "" : " Les autres restent en location."}\n\nÀ bientôt,\nSegna`;
+
+  const html = singular
+    ? input.full
+      ? `<p>${prenom},</p><p><strong>Elle est à toi</strong></p><p>Ton achat est confirmé. Parce que tu as déjà emprunté cette pièce, ta réduction membre a été appliquée au prix d’achat.</p><p>Ta location est maintenant clôturée et la pièce t’appartient.</p><p>À bientôt,<br/>Segna</p>`
+      : `<p>${prenom},</p><p><strong>Elle est à toi</strong></p><p>Ton achat est confirmé. Parce que tu as déjà emprunté cette pièce, ta réduction membre a été appliquée au prix d’achat.</p><p>Cette pièce ne fait plus partie de ta location, elle t’appartient. Les autres restent en location.</p><p>À bientôt,<br/>Segna</p>`
+    : `<p>${prenom},</p><p><strong>Elles sont à toi</strong></p><p>Ton paiement est confirmé : ces pièces ne font plus partie de ta location, elles sont maintenant à toi.</p><p>Ta réduction membre a bien été appliquée à chaque pièce que tu as choisi de garder.${input.full ? "" : " Les autres restent en location."}</p><p>À bientôt,<br/>Segna</p>`;
+
+  if (input.skipEmail) {
+    const idempotencyKey = `txn:cart_rental_buyout_push:${purchaseCartId}`;
+    const claimed = await claimNotificationSend(admin, {
       idempotencyKey,
+      kind: NotificationKind.cartRentalBuyout,
+      userId: input.userId,
+      metadata: {
+        cart_id: purchaseCartId,
+        rental_cart_id: input.rentalCartId,
+        buyout_scope: input.full ? "full" : "partial",
+        push_only: true,
+      },
     });
-    if (!sent) {
-      await releaseNotificationSend(admin, idempotencyKey);
-      return;
+    if (!claimed) return;
+    try {
+      await sendExpoPushToUser(admin, input.userId, {
+        title: subject,
+        body: pushBody,
+        data: buildMemberPushData({
+          kind: NotificationKind.cartRentalBuyout,
+          metadata: {
+            cart_id: purchaseCartId,
+            deep_link: "commande",
+          },
+        }),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[notifications] cart_rental_buyout push-only failed", msg);
     }
-
-    let delivery: "email" | "email+phone" = "email";
-    const phoneE164 = tryNormalizePhoneToE164(user?.phone ?? null);
-    if (phoneE164 && smsBody.trim()) {
-      try {
-        const smsSent = await sendTransactionalSms({ toE164: phoneE164, body: smsBody.trim().slice(0, 320) });
-        if (smsSent) delivery = "email+phone";
-      } catch (smsErr) {
-        const smsMsg = smsErr instanceof Error ? smsErr.message : String(smsErr);
-        console.error("[notifications] cart_order_paid sms failed", smsMsg);
-      }
-    }
-
-    await setNotificationDeliveryChannels(admin, idempotencyKey, delivery);
-  } catch (e) {
-    await releaseNotificationSend(admin, idempotencyKey);
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[notifications] cart_order_paid send failed", msg);
+    return;
   }
+
+  await sendMemberOutreachNotification(admin, {
+    userId: input.userId,
+    kind: NotificationKind.cartRentalBuyout,
+    idempotencyKey: `txn:cart_rental_buyout:${purchaseCartId}`,
+    metadata: {
+      cart_id: purchaseCartId,
+      rental_cart_id: input.rentalCartId,
+      buyout_scope: input.full ? "full" : "partial",
+      deep_link: "commande",
+    },
+    subject,
+    text,
+    html,
+    channels: "email",
+    pushTitle: subject,
+    pushBody,
+  });
 }
 
 /**

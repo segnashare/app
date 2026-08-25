@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getServerEnv } from "@/lib/config/env";
 import {
+  mergeDeliveryChannels,
   setNotificationDeliveryChannels,
   type NotificationDeliveryChannels,
 } from "@/lib/notifications/idempotency";
@@ -37,14 +38,15 @@ export function isMemberOutreachFullyDelivered(
   smsDeliverable: boolean,
 ): boolean {
   const ch = String(deliveryChannels ?? "none");
-  if (ch === "email+phone" || ch === "phone") return true;
+  if (ch.includes("phone")) return true;
   if (ch === "email" && (!smsRequested || !smsDeliverable)) return true;
   return false;
 }
 
 /**
- * Rattrapage SMS quand l'e-mail est déjà journalisé (`delivery_channels = email`)
- * — ex. plafond SMS journalier, échec Twilio transitoire.
+ * Rattrapage SMS quand l’envoi est journalisé sans canal phone
+ * (`email`, `push`, `email+push`) — ex. push ticket OK puis DeviceNotRegistered,
+ * plafond SMS journalier, échec Twilio transitoire.
  */
 export async function tryUpgradeMemberOutreachSms(
   admin: SupabaseClient,
@@ -67,8 +69,8 @@ export async function tryUpgradeMemberOutreachSms(
     .maybeSingle();
 
   const channels = String((log as { delivery_channels?: string } | null)?.delivery_channels ?? "none");
-  if (channels === "email+phone" || channels === "phone") return true;
-  if (channels !== "email") return false;
+  if (channels.includes("phone")) return true;
+  if (channels !== "email" && channels !== "push" && channels !== "email+push") return false;
 
   if (
     !isMemberOutreachSmsRequested({
@@ -107,7 +109,11 @@ export async function tryUpgradeMemberOutreachSms(
     const sent = await sendTransactionalSms({ toE164: phoneE164, body: smsText });
     if (!sent) return false;
 
-    await setNotificationDeliveryChannels(admin, input.idempotencyKey, "email+phone");
+    const nextChannels = mergeDeliveryChannels(
+      channels as NotificationDeliveryChannels,
+      "phone",
+    );
+    await setNotificationDeliveryChannels(admin, input.idempotencyKey, nextChannels);
     trackNotificationSentServer({
       userId: input.userId,
       kind: input.kind,

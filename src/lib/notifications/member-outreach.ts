@@ -29,12 +29,20 @@ import {
   tryUpgradeMemberOutreachSms,
 } from "@/lib/notifications/member-outreach-sms-upgrade";
 import { buildMemberPushData, sendExpoPushToUser } from "@/lib/notifications/expo-push-send";
+import { isNotificationKindEnabled } from "@/lib/notifications/notification-kind-settings";
 
 export type MemberOutreachChannels = "email" | "email+phone";
 
 export { loadUserContact };
 
-function pushBodyFromOutreach(input: { smsBody?: string; text: string; subject: string }): string {
+function pushBodyFromOutreach(input: {
+  pushBody?: string;
+  smsBody?: string;
+  text: string;
+  subject: string;
+}): string {
+  const dedicated = input.pushBody?.trim() ?? "";
+  if (dedicated) return dedicated.slice(0, 240);
   const sms = input.smsBody?.trim() ?? "";
   if (sms) return sms.slice(0, 240);
   const text = input.text.trim().replace(/\s+/g, " ");
@@ -57,6 +65,10 @@ export async function sendMemberOutreachNotification(
     text: string;
     html: string;
     channels: MemberOutreachChannels;
+    /** Titre push (défaut = `subject`). */
+    pushTitle?: string;
+    /** Corps push (sans lien). Si absent, retombe sur `smsBody` puis `text`. */
+    pushBody?: string;
     /** SMS court (obligatoire si `channels` = email+phone et envoi SMS souhaité). */
     smsBody?: string;
     /**
@@ -64,6 +76,8 @@ export async function sendMemberOutreachNotification(
      * Si absent / `false` : SMS seulement avec `SEGNA_NOTIFY_SMS_ALERTS=1`.
      */
     transactionalSms?: boolean;
+    /** Si `true` : envoie le SMS même quand le push a été délivré (ex. J-J, MED). */
+    smsEvenIfPushDelivered?: boolean;
     /** Plafond SMS crons (2/jour Paris, emprunt prioritaire). */
     applyCronSmsDailyCap?: boolean;
     /** Dev / re-test : ignore le plafond SMS journalier. */
@@ -72,6 +86,8 @@ export async function sendMemberOutreachNotification(
     emailAttachments?: TransactionalEmailAttachment[];
   },
 ): Promise<void> {
+  if (!(await isNotificationKindEnabled(admin, input.kind))) return;
+
   const smsRequested = isMemberOutreachSmsRequested({
     channels: input.channels,
     smsBody: input.smsBody,
@@ -115,11 +131,6 @@ export async function sendMemberOutreachNotification(
 
   const user = await loadUserContact(admin, input.userId);
   const email = user?.email?.trim();
-  if (allowMarketingEmail && !email) {
-    console.warn("[notifications] member-outreach: pas d’e-mail", { userId: input.userId, kind: input.kind });
-    await releaseNotificationSend(admin, input.idempotencyKey);
-    return;
-  }
 
   try {
     let delivery: NotificationDeliveryChannels | null = null;
@@ -133,18 +144,22 @@ export async function sendMemberOutreachNotification(
         idempotencyKey: input.idempotencyKey,
         attachments: input.emailAttachments,
       });
-      if (!sent) {
-        await releaseNotificationSend(admin, input.idempotencyKey);
-        return;
+      if (sent) {
+        delivery = mergeDeliveryChannels(delivery, "email");
       }
-      delivery = mergeDeliveryChannels(delivery, "email");
+    } else if (allowMarketingEmail && !email) {
+      console.warn("[notifications] member-outreach: pas d’e-mail (push/SMS possibles)", {
+        userId: input.userId,
+        kind: input.kind,
+      });
     }
 
     let pushDelivered = false;
     if (allowMarketingPush) {
       const pushBody = pushBodyFromOutreach(input);
       pushDelivered = await sendExpoPushToUser(admin, input.userId, {
-        title: input.subject.trim().slice(0, 80) || "Segna",
+        title:
+          (input.pushTitle?.trim() || input.subject.trim()).slice(0, 80) || "Segna",
         body: pushBody,
         data: buildMemberPushData({ kind: input.kind, metadata: input.metadata }),
       });
@@ -153,8 +168,11 @@ export async function sendMemberOutreachNotification(
       }
     }
 
-    // SMS = fallback si push non délivré (ou marketing push opt-out).
-    let allowSms = smsRequested && allowMarketingSms && !pushDelivered;
+    // SMS = fallback si push non délivré, sauf `smsEvenIfPushDelivered` (J-J / MED).
+    let allowSms =
+      smsRequested &&
+      allowMarketingSms &&
+      (input.smsEvenIfPushDelivered === true || !pushDelivered);
     if (allowSms && input.applyCronSmsDailyCap && !input.skipCronSmsDailyCap) {
       allowSms = await shouldSendMemberCronSms(
         admin,
@@ -212,11 +230,17 @@ export async function sendMemberSmsOnlyNotification(
     smsBody: string;
     /** Titre push (défaut Segna). */
     pushTitle?: string;
+    /** Corps push (défaut = `smsBody`). */
+    pushBody?: string;
     transactionalSms?: boolean;
+    /** Si `true` : SMS même quand le push a un ticket OK (permission OS coupée mais token encore actif). */
+    smsEvenIfPushDelivered?: boolean;
     applyCronSmsDailyCap?: boolean;
     cronSmsNowMs?: number;
   },
 ): Promise<void> {
+  if (!(await isNotificationKindEnabled(admin, input.kind))) return;
+
   const prefs = isMarketingNotificationKind(input.kind)
     ? await loadMemberCommsPreferences(admin, input.userId)
     : null;
@@ -239,15 +263,16 @@ export async function sendMemberSmsOnlyNotification(
 
   const smsAlertsOn = getServerEnv().SEGNA_NOTIFY_SMS_ALERTS?.trim() === "1";
   const smsGateOk = Boolean(input.smsBody.trim()) && (input.transactionalSms === true || smsAlertsOn);
+  const pushBody = (input.pushBody?.trim() || input.smsBody.trim()).slice(0, 240);
 
   try {
     let delivery: NotificationDeliveryChannels | null = null;
     let pushDelivered = false;
 
-    if (allowMarketingPush) {
+    if (allowMarketingPush && pushBody) {
       pushDelivered = await sendExpoPushToUser(admin, input.userId, {
         title: (input.pushTitle?.trim() || "Segna").slice(0, 80),
-        body: input.smsBody.trim().slice(0, 240),
+        body: pushBody,
         data: buildMemberPushData({ kind: input.kind, metadata: input.metadata }),
       });
       if (pushDelivered) {
@@ -255,7 +280,12 @@ export async function sendMemberSmsOnlyNotification(
       }
     }
 
-    if (!pushDelivered && allowMarketingSms && smsGateOk) {
+    const allowSms =
+      allowMarketingSms &&
+      smsGateOk &&
+      (input.smsEvenIfPushDelivered === true || !pushDelivered);
+
+    if (allowSms) {
       if (input.applyCronSmsDailyCap) {
         const allowed = await shouldSendMemberCronSms(
           admin,

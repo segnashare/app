@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
+import { CART_ORDER_CANCEL_STRIPE_FEE_RATE_MEMBER } from "@/lib/cart/cart-order-cancel-stripe-fee";
 import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
 import { cartOrderCancelNotificationCopy } from "@/lib/notifications/cart-order-cancel-notification-copy";
 import { NotificationKind } from "@/lib/notifications/kinds";
@@ -167,6 +167,7 @@ export async function POST(request: Request) {
       stripe,
       cartId,
       invoice: invoiceForRefund,
+      feeRate: CART_ORDER_CANCEL_STRIPE_FEE_RATE_MEMBER,
     });
     if (!refundRes.ok) {
       return NextResponse.json({ error: refundRes.error }, { status: 502 });
@@ -176,7 +177,7 @@ export async function POST(request: Request) {
   await archiveCartShipmentsAfterCancel(admin, cartId);
 
   const hadStripePayment = cents > 0;
-  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);
+  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE_MEMBER * 100);
   const notifyCopy = cartOrderCancelNotificationCopy({
     source: "member",
     hadStripePayment,
@@ -196,6 +197,7 @@ export async function POST(request: Request) {
     channels: "email+phone",
     smsBody: notifyCopy.smsBody,
     transactionalSms: true,
+    smsEvenIfPushDelivered: true,
   });
 
   return NextResponse.json({ ok: true, data: data ?? null });
