@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createBorrowOverdueCheckoutSession } from "@/lib/stripe/borrow-overdue-checkout";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,13 +15,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Panier invalide." }, { status: 400 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabase = (await createSupabaseServerClient()) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bearer (mobile) ou cookies (web)
+    const { user, error: userError } = (await resolveRequestUserClient(request)) as any;
     const admin = createSupabaseAdminClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
 
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
