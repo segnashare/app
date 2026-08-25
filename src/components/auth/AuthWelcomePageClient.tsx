@@ -23,6 +23,7 @@ const LAUNCH_AT_MS = (() => {
   const ms = Date.parse(raw);
   return Number.isNaN(ms) ? null : ms;
 })();
+const APP_STORE_URL = process.env.NEXT_PUBLIC_SEGNA_APP_STORE_URL?.trim() || null;
 
 /** Au-delà de ce délai, on affiche quand même la page (évite blocage infini). */
 const COLLAGE_PRELOAD_TIMEOUT_MS = 12_000;
@@ -240,14 +241,39 @@ export function AuthWelcomePageClient({ initialCollageFrames }: AuthWelcomePageC
             {showAuthTeaser && LAUNCH_AT_MS !== null ? (
               <AuthTeaserCountdown launchAtMs={LAUNCH_AT_MS} />
             ) : AUTH_TEASER_MODE && LAUNCH_AT_MS === null ? (
-              <p
-                className={cn(
-                  montserrat.className,
-                  "px-4 text-center text-[13px] font-semibold leading-snug text-zinc-500 md:text-[14px]",
+              <div className="flex w-full flex-col items-center gap-3 px-4 pb-2">
+                <p
+                  className={cn(
+                    montserrat.className,
+                    "text-center text-[13px] font-semibold leading-snug text-zinc-500 md:text-[14px]",
+                  )}
+                >
+                  Segna est disponible sur iPhone
+                </p>
+                {APP_STORE_URL ? (
+                  <a
+                    href={APP_STORE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      montserrat.className,
+                      themeClassNames.auth.pillCtaTextSize,
+                      "flex h-[48px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity hover:opacity-90 md:h-[52px]",
+                    )}
+                  >
+                    Télécharger sur l&apos;App Store
+                  </a>
+                ) : (
+                  <p
+                    className={cn(
+                      montserrat.className,
+                      "text-center text-[13px] font-semibold leading-snug text-zinc-400 md:text-[14px]",
+                    )}
+                  >
+                    Bientôt sur l&apos;App Store
+                  </p>
                 )}
-              >
-                Ouverture prochaine.
-              </p>
+              </div>
             ) : (
               <>
                 <p
