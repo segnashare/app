@@ -20,11 +20,11 @@ export async function fetchPurchaseDiscountPercentForMembership(
       .eq("plan_code", planCode)
       .eq("is_active", true)
       .maybeSingle();
-    if (error) return planCode === "segna_x" ? 30 : 0;
+    if (error) return planCode === "segna_x" ? 20 : 0;
     const raw = Number(data?.purchase_discount_percent ?? 0);
-    if (!Number.isFinite(raw)) return planCode === "segna_x" ? 30 : 0;
+    if (!Number.isFinite(raw)) return planCode === "segna_x" ? 20 : 0;
     return Math.min(100, Math.max(0, Math.trunc(raw)));
   } catch {
-    return planCode === "segna_x" ? 30 : 0;
+    return planCode === "segna_x" ? 20 : 0;
   }
 }

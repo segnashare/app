@@ -268,7 +268,7 @@ const SEGNA_X_COMPARE_ROWS: Array<{
   {
     label: "Achat des pièces",
     guestCell: "Prix standard",
-    memberCell: "30 % de réduction",
+    memberCell: "20 % de réduction",
   },
 ];
 
