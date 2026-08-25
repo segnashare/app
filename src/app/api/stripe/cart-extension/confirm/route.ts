@@ -4,20 +4,75 @@ import Stripe from "stripe";
 import { applyCartBorrowExtension } from "@/lib/cart/apply-cart-borrow-extension";
 import { computeBorrowExtensionAmountCents } from "@/lib/cart/borrow-extension-pricing";
 import { getStripeConfig } from "@/lib/social/stripe";
-import { persistStripeCustomerDefaultPaymentMethodFromCheckout } from "@/lib/stripe/persist-customer-default-payment-method";
+import {
+  persistStripeCustomerDefaultPaymentMethodFromCheckout,
+  persistStripeCustomerDefaultPaymentMethodFromPaymentIntent,
+} from "@/lib/stripe/persist-customer-default-payment-method";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
+function parseCartItemIds(raw: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(raw ?? "[]") as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((v): v is string => typeof v === "string");
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+function parseExtensionMeta(meta: Stripe.Metadata | null | undefined): {
+  cartId: string;
+  extensionDays: number;
+  creditsCharged: number;
+  amountCentsMeta: number;
+  amountCentsExpected: number;
+  cartItemIds: string[];
+  valid: boolean;
+} {
+  const cartId = typeof meta?.cart_id === "string" ? meta.cart_id : "";
+  const extensionDays = Math.trunc(Number(meta?.extension_days ?? 0));
+  const creditsCharged = Math.trunc(Number(meta?.credits_charged ?? 0));
+  const amountCentsMeta = Math.trunc(Number(meta?.amount_cents ?? 0));
+  const amountCentsExpected = computeBorrowExtensionAmountCents(creditsCharged, extensionDays);
+  const valid =
+    Boolean(cartId) &&
+    extensionDays >= 1 &&
+    creditsCharged > 0 &&
+    amountCentsMeta > 0 &&
+    amountCentsMeta === amountCentsExpected;
+  return {
+    cartId,
+    extensionDays,
+    creditsCharged,
+    amountCentsMeta,
+    amountCentsExpected,
+    cartItemIds: parseCartItemIds(meta?.cart_item_ids),
+    valid,
+  };
+}
+
 /**
- * Confirmation post-Checkout prolongation (Bearer mobile / cookie).
- * Body : `{ sessionId }`
+ * Confirmation post-paiement prolongation (Bearer mobile / cookie).
+ * Body : `{ sessionId }` (Checkout) | `{ paymentIntentId }` (Payment Sheet).
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => null)) as { sessionId?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as {
+      sessionId?: unknown;
+      paymentIntentId?: unknown;
+    } | null;
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
-    if (!sessionId) {
-      return NextResponse.json({ message: "session_id manquant." }, { status: 400 });
+    const paymentIntentId =
+      typeof body?.paymentIntentId === "string" ? body.paymentIntentId.trim() : "";
+
+    if (!sessionId && !paymentIntentId) {
+      return NextResponse.json(
+        { message: "session_id ou payment_intent_id manquant." },
+        { status: 400 },
+      );
     }
 
     const { user, error: userError } = await resolveRequestUser(request);
@@ -28,6 +83,61 @@ export async function POST(request: Request) {
     const admin = createSupabaseAdminClient() as any;
     const { secretKey } = getStripeConfig();
     const stripe = new Stripe(secretKey);
+
+    if (paymentIntentId) {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const expectedUserId = paymentIntent.metadata?.user_id ?? null;
+      if (expectedUserId && expectedUserId !== user.id) {
+        return NextResponse.json({ message: "Session Stripe invalide." }, { status: 403 });
+      }
+      if (paymentIntent.metadata?.checkout_kind !== "cart_borrow_extension") {
+        return NextResponse.json({ message: "Type de paiement invalide." }, { status: 400 });
+      }
+      if (paymentIntent.status !== "succeeded") {
+        return NextResponse.json({ message: "Paiement non confirmé." }, { status: 400 });
+      }
+
+      const parsed = parseExtensionMeta(paymentIntent.metadata);
+      if (!parsed.valid) {
+        return NextResponse.json({ message: "Métadonnées de prolongation invalides." }, { status: 400 });
+      }
+
+      try {
+        await persistStripeCustomerDefaultPaymentMethodFromPaymentIntent(stripe, paymentIntent);
+      } catch (e) {
+        console.error("[stripe/cart-extension/confirm] persist default PM from PI", e);
+      }
+
+      /**
+       * Idempotence : pas de Checkout Session — on réutilise l’id PaymentIntent
+       * comme clé unique `stripe_checkout_session_id` (contrainte existante).
+       */
+      const applyResult = await applyCartBorrowExtension(admin, {
+        userId: user.id,
+        cartId: parsed.cartId,
+        extensionDays: parsed.extensionDays,
+        creditsCharged: parsed.creditsCharged,
+        amountCents: parsed.amountCentsMeta,
+        cartItemIds: parsed.cartItemIds,
+        checkoutSessionId: paymentIntent.id,
+        paymentIntentId: paymentIntent.id,
+      });
+
+      if (!applyResult.applied) {
+        return NextResponse.json(
+          { message: applyResult.reason ?? "Prolongation non appliquée.", code: applyResult.reason },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        cartId: parsed.cartId,
+        extensionDays: parsed.extensionDays,
+        paymentIntentId: paymentIntent.id,
+      });
+    }
+
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     const expectedUserId =
@@ -41,26 +151,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Type de paiement invalide." }, { status: 400 });
     }
 
-    const cartId = typeof session.metadata?.cart_id === "string" ? session.metadata.cart_id : "";
-    if (!cartId) {
-      return NextResponse.json({ message: "Commande manquante." }, { status: 400 });
-    }
-
     if (session.payment_status !== "paid") {
       return NextResponse.json({ message: "Paiement non confirmé." }, { status: 400 });
     }
 
-    const extensionDays = Math.trunc(Number(session.metadata?.extension_days ?? 0));
-    const creditsCharged = Math.trunc(Number(session.metadata?.credits_charged ?? 0));
-    const amountCentsMeta = Math.trunc(Number(session.metadata?.amount_cents ?? 0));
-    const amountCentsExpected = computeBorrowExtensionAmountCents(creditsCharged, extensionDays);
-
-    if (
-      extensionDays < 1 ||
-      creditsCharged <= 0 ||
-      amountCentsMeta <= 0 ||
-      amountCentsMeta !== amountCentsExpected
-    ) {
+    const parsed = parseExtensionMeta(session.metadata);
+    if (!parsed.valid) {
       return NextResponse.json({ message: "Métadonnées de prolongation invalides." }, { status: 400 });
     }
 
@@ -70,23 +166,13 @@ export async function POST(request: Request) {
       console.error("[stripe/cart-extension/confirm] persist default payment method", e);
     }
 
-    let cartItemIds: string[] = [];
-    try {
-      const parsed = JSON.parse(session.metadata?.cart_item_ids ?? "[]") as unknown;
-      if (Array.isArray(parsed)) {
-        cartItemIds = parsed.filter((v): v is string => typeof v === "string");
-      }
-    } catch {
-      cartItemIds = [];
-    }
-
     const applyResult = await applyCartBorrowExtension(admin, {
       userId: user.id,
-      cartId,
-      extensionDays,
-      creditsCharged,
-      amountCents: amountCentsMeta,
-      cartItemIds,
+      cartId: parsed.cartId,
+      extensionDays: parsed.extensionDays,
+      creditsCharged: parsed.creditsCharged,
+      amountCents: parsed.amountCentsMeta,
+      cartItemIds: parsed.cartItemIds,
       checkoutSessionId: session.id,
       paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
     });
@@ -98,7 +184,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, cartId, extensionDays });
+    return NextResponse.json({ ok: true, cartId: parsed.cartId, extensionDays: parsed.extensionDays });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Impossible de confirmer la prolongation.";
     return NextResponse.json({ message }, { status: 500 });
