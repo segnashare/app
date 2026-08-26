@@ -143,6 +143,13 @@ function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
   const lat = typeof o.lat === "number" ? o.lat : Number(o.lat);
   const lon = typeof o.lon === "number" ? o.lon : Number(o.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const postalRaw =
+    typeof o.postalCode === "string"
+      ? o.postalCode
+      : typeof o.postcode === "string"
+        ? o.postcode
+        : "";
+  const postalCode = postalRaw.replace(/\D/g, "").slice(0, 5);
   return {
     label: o.label.trim(),
     lat,
@@ -150,6 +157,7 @@ function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
     city: typeof o.city === "string" ? o.city : null,
     relativeCity: typeof o.relativeCity === "string" ? o.relativeCity : null,
     timezone: typeof o.timezone === "string" ? o.timezone : "Europe/Paris",
+    ...(postalCode.length === 5 ? { postalCode } : {}),
   };
 }
 
@@ -538,6 +546,22 @@ export async function POST(request: Request) {
         { message: "Choisis un transporteur pour l’expédition aller." },
         { status: 400 },
       );
+    }
+
+    // Achat domicile : l’option Sendcloud doit être persistée (BO emballage / étiquette).
+    // Ne pas laisser passer un panier « payé » sans transporteur enregistré.
+    if (
+      purchaseMode &&
+      deliveryChannel === "home" &&
+      homeSpeedBilling === "standard" &&
+      !activeOutboundOptionCode &&
+      Boolean(getSendcloudEnv()?.checkoutConfigurationId)
+    ) {
+      const hint =
+        memberPostalCode.length === 5
+          ? "Impossible de déterminer le transporteur Sendcloud pour cette adresse."
+          : "Code postal de livraison manquant — impossible d’enregistrer l’expédition Sendcloud.";
+      return NextResponse.json({ message: hint }, { status: 400 });
     }
 
     const shippingRoundTrips = await resolveCartCheckoutShippingRoundTrips({
