@@ -24,6 +24,8 @@ export type CheckoutDeliveryAddress = {
   city: string | null;
   relativeCity: string | null;
   timezone: string;
+  /** CP explicite (website achat) — prioritaire sur l’extraction depuis `label`. */
+  postalCode?: string | null;
 };
 
 export type CheckoutRelaySelection = {
