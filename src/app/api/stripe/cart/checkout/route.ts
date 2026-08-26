@@ -14,6 +14,7 @@ import {
   type CartCheckoutHomePlanKind,
 } from "@/lib/billing/cart-checkout-shipping-ht-cents";
 import { complementQualifiesForFreeRelay } from "@/lib/cart/cart-complement-relay-offer";
+import { purchasePromoGrantsFreeShipping } from "@/lib/cart/purchase-promo-codes";
 import { resolveIncludedExchangeShippingKind } from "@/lib/billing/included-exchange-shipping";
 import {
   centsPerMissingCreditForDuration,
@@ -393,6 +394,9 @@ export async function POST(request: Request) {
 
     const guestCashRental = isGuestCashRentalMode(membershipLabel);
     const purchaseMode = body.purchaseMode === true;
+    /** Proxy website : Chronopost domicile offert dès 200 € (sinon app = relais seulement / supplément Chrono). */
+    const websitePurchaseCheckout = body.websitePurchaseCheckout === true;
+    const promoFreeShipping = purchasePromoGrantsFreeShipping(body.promoCode);
     const outboundOnly = purchaseMode;
     const availableWalletMods =
       guestCashRental || purchaseMode
@@ -410,7 +414,9 @@ export async function POST(request: Request) {
           : 0;
 
     let purchaseDiscountPercent = 0;
-    if (!guestCashRental && purchaseMode) {
+    // Website : prix catalogue plein (`applyMemberPurchaseDiscount: false`). App : réduction membre.
+    const applyMemberPurchaseDiscount = body.applyMemberPurchaseDiscount !== false;
+    if (!guestCashRental && purchaseMode && applyMemberPurchaseDiscount) {
       const planCode = membershipLabel === "Membre X" ? "segna_x" : membershipLabel === "Membre +" ? "segna_plus" : null;
       if (planCode) {
         const { data: limitRow } = await admin
@@ -421,6 +427,7 @@ export async function POST(request: Request) {
           .maybeSingle();
         const raw = Number(limitRow?.purchase_discount_percent ?? 0);
         purchaseDiscountPercent = Number.isFinite(raw) ? Math.min(100, Math.max(0, Math.trunc(raw))) : 0;
+        if (planCode === "segna_x" && purchaseDiscountPercent <= 0) purchaseDiscountPercent = 20;
       }
     }
 
@@ -674,6 +681,9 @@ export async function POST(request: Request) {
         homeSpeedBilling,
         includedKind: includedExchangeShipping,
         complementRelayFree,
+        websitePurchaseFreeHomeShipping:
+          websitePurchaseCheckout && purchaseMode && complementRelayFree,
+        promoFreeShipping: purchaseMode && promoFreeShipping,
         homePlanKind,
         relayRoundTrip,
         currentRoundTrip,

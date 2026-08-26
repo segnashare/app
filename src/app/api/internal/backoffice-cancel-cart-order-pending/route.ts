@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import { NotificationKind } from "@/lib/notifications/kinds";
+import { CART_ORDER_CANCEL_STRIPE_FEE_RATE_BACKOFFICE } from "@/lib/cart/cart-order-cancel-stripe-fee";
+import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
 import { cartOrderCancelNotificationCopy } from "@/lib/notifications/cart-order-cancel-notification-copy";
+import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendMemberOutreachNotification } from "@/lib/notifications/member-outreach";
 import { refundCartOrderStripePaymentIfNeeded } from "@/lib/stripe/refund-cart-order-checkout-payment";
 import { ensureCartOrderStripeInvoiceForCancel } from "@/lib/stripe/ensure-cart-order-stripe-invoice-for-cancel";
-import { cancelCartSendcloudOrdersForCart, archiveCartShipmentsAfterCancel } from "@/lib/cart/cancel-cart-sendcloud-orders-on-cancel";
-import { CART_ORDER_CANCEL_STRIPE_FEE_RATE } from "@/lib/cart/cart-order-cancel-stripe-fee";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -162,6 +162,7 @@ export async function POST(request: Request) {
       stripe,
       cartId,
       invoice,
+      feeRate: CART_ORDER_CANCEL_STRIPE_FEE_RATE_BACKOFFICE,
     });
     if (!refundRes.ok) {
       return NextResponse.json({ ok: false as const, error: refundRes.error }, { status: 502 });
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
   await archiveCartShipmentsAfterCancel(admin, cartId);
 
   const hadStripePayment = cents > 0;
-  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE * 100);
+  const feePct = Math.round(CART_ORDER_CANCEL_STRIPE_FEE_RATE_BACKOFFICE * 100);
   const notifyCopy = cartOrderCancelNotificationCopy({
     source: "backoffice",
     hadStripePayment,
@@ -191,6 +192,7 @@ export async function POST(request: Request) {
     channels: "email+phone",
     smsBody: notifyCopy.smsBody,
     transactionalSms: true,
+    smsEvenIfPushDelivered: true,
   });
 
   return NextResponse.json({ ok: true as const, cart_id: cartId, rpc: rpcData ?? null });

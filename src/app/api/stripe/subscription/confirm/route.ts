@@ -1,22 +1,31 @@
 import { NextResponse } from "next/server";
 
-import { confirmSubscriptionCheckoutSession } from "@/lib/stripe/confirm-subscription-checkout";
+import {
+  confirmSubscriptionById,
+  confirmSubscriptionCheckoutSession,
+} from "@/lib/stripe/confirm-subscription-checkout";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 /**
- * Confirmation post-Checkout (Bearer website ou session app).
- * Body : `{ sessionId, planCode? }`
+ * Confirmation post-Checkout ou post-Payment Sheet (Bearer website ou session app).
+ * Body : `{ sessionId, planCode? }` ou `{ subscriptionId, planCode? }`
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
       sessionId?: unknown;
+      subscriptionId?: unknown;
       planCode?: unknown;
     } | null;
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
-    if (!sessionId) {
-      return NextResponse.json({ message: "session_id manquant." }, { status: 400 });
+    const subscriptionId =
+      typeof body?.subscriptionId === "string" ? body.subscriptionId.trim() : "";
+    if (!sessionId && !subscriptionId) {
+      return NextResponse.json(
+        { message: "session_id ou subscription_id manquant." },
+        { status: 400 },
+      );
     }
 
     const { user, error: userError } = await resolveRequestUser(request);
@@ -25,13 +34,22 @@ export async function POST(request: Request) {
     }
 
     const admin = createSupabaseAdminClient() as any;
-    const result = await confirmSubscriptionCheckoutSession({
-      admin,
-      userId: user.id,
-      sessionId,
-      fallbackPlan: typeof body?.planCode === "string" ? body.planCode : null,
-      checkoutMode: "sync",
-    });
+    const fallbackPlan = typeof body?.planCode === "string" ? body.planCode : null;
+
+    const result = subscriptionId
+      ? await confirmSubscriptionById({
+          admin,
+          userId: user.id,
+          subscriptionId,
+          fallbackPlan,
+        })
+      : await confirmSubscriptionCheckoutSession({
+          admin,
+          userId: user.id,
+          sessionId,
+          fallbackPlan,
+          checkoutMode: "sync",
+        });
 
     if (!result.ok) {
       return NextResponse.json(

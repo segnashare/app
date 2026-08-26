@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
+import { AuthRingDotSpinner } from "@/components/ui/AuthRingDotSpinner";
 import {
   isWebsiteCheckoutTunnelComplete,
   websiteOnboardingResumeUrl,
@@ -23,7 +24,7 @@ const HANDOFF_NEXT_KEY = "segna_website_handoff_next";
  */
 export default function AuthHandoffPage() {
   const router = useRouter();
-  const [message, setMessage] = useState("Connexion en cours…");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +87,7 @@ export default function AuthHandoffPage() {
         } = await supabase.auth.getUser();
         if (!user) {
           if (!cancelled) {
-            setMessage("Session manquante. Redirection…");
+            setErrorMessage("Session manquante. Redirection…");
             router.replace("/auth/login?from=member");
           }
           return;
@@ -95,7 +96,6 @@ export default function AuthHandoffPage() {
         const websiteReady = await isWebsiteCheckoutTunnelComplete(supabase, user.id);
         if (!websiteReady) {
           if (!cancelled) {
-            setMessage("Finalise ton inscription…");
             const { data } = await supabase.auth.getSession();
             const at = data.session?.access_token;
             const rt = data.session?.refresh_token;
@@ -120,7 +120,6 @@ export default function AuthHandoffPage() {
             // ignore
           }
           if (!cancelled) {
-            setMessage("Activation SegnaX…");
             router.replace("/package/activate-segnax");
           }
           return;
@@ -133,7 +132,6 @@ export default function AuthHandoffPage() {
             // ignore
           }
           if (!cancelled) {
-            setMessage("Bienvenue…");
             router.replace("/exchange?subscription=success&plan=segna_x");
           }
           return;
@@ -173,7 +171,7 @@ export default function AuthHandoffPage() {
         if (!cancelled) router.replace(nextPath);
       } catch {
         if (!cancelled) {
-          setMessage("Connexion impossible. Redirection…");
+          setErrorMessage("Connexion impossible. Redirection…");
           router.replace("/auth/login?from=member");
         }
       }
@@ -186,8 +184,18 @@ export default function AuthHandoffPage() {
   }, [router]);
 
   return (
-    <main className="flex min-h-[100dvh] items-center justify-center bg-white px-6">
-      <p className="text-sm font-medium text-zinc-700">{message}</p>
+    <main className="flex min-h-[100dvh] items-center justify-center bg-white px-6" aria-busy={!errorMessage}>
+      {errorMessage ? (
+        <p className="text-sm font-medium text-zinc-700">{errorMessage}</p>
+      ) : (
+        <AuthRingDotSpinner
+          variant="onLight"
+          dotCount={6}
+          filledDots={6}
+          spinning
+          aria-label="Connexion en cours"
+        />
+      )}
     </main>
   );
 }

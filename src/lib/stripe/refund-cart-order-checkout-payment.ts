@@ -15,6 +15,8 @@ export async function refundCartOrderStripePaymentIfNeeded(opts: {
   stripe: Stripe;
   cartId: string;
   invoice: CartOrderInvoiceForRefund | null;
+  /** Taux retenu (ex. membre 0.2, BO 0). Défaut = taux membre. */
+  feeRate?: number;
 }): Promise<{ ok: true; didRefund: boolean } | { ok: false; error: string }> {
   const cents = Math.trunc(Number(opts.invoice?.amount_total_cents ?? 0));
   if (!opts.invoice || cents <= 0) {
@@ -44,7 +46,7 @@ export async function refundCartOrderStripePaymentIfNeeded(opts: {
     return { ok: false, error: "Intent de paiement introuvable pour le remboursement." };
   }
 
-  const { refundCents } = stripeCancelFeeBreakdownFromTotalCents(cents);
+  const { refundCents } = stripeCancelFeeBreakdownFromTotalCents(cents, opts.feeRate);
   if (refundCents <= 0) {
     return { ok: true, didRefund: false };
   }

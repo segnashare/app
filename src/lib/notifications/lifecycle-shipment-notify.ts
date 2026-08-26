@@ -257,6 +257,7 @@ export async function sendOutboundDeliveredRecap(
     metadata: recapMeta,
     smsBody: buildOutboundDeliveredSms(input.cartId),
     transactionalSms: true,
+    smsEvenIfPushDelivered: true,
   });
 
   return { ok: true, emailAttempted: true, smsAttempted: true };
@@ -366,6 +367,7 @@ export async function notifyShipmentLifecycleAfterTransition(
       channels: "email+phone",
       smsBody: buildOutboundReadySmsBody(tracking),
       transactionalSms: true,
+      smsEvenIfPushDelivered: true,
     });
     return;
   }
@@ -392,6 +394,7 @@ export async function notifyShipmentLifecycleAfterTransition(
       },
       smsBody: buildOutboundTransitPartnerSmsBody({ itemLabels, tracking }),
       transactionalSms: true,
+      smsEvenIfPushDelivered: true,
     });
     return;
   }
@@ -412,6 +415,7 @@ export async function notifyShipmentLifecycleAfterTransition(
       channels: "email+phone",
       smsBody: SMS_OUTBOUND_RELAY_AVAILABLE,
       transactionalSms: true,
+      smsEvenIfPushDelivered: true,
     });
     return;
   }

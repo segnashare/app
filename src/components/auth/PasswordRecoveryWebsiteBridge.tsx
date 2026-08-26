@@ -20,6 +20,9 @@ function forwardRecoverySessionToWebsite(accessToken: string, refreshToken: stri
  * Si un reset website n’est pas dans la allowlist Supabase, le lien tombe sur le
  * Site URL (= app, souvent `/`). On renvoie alors vers le website.
  * Les resets initiés depuis l’app (`/auth/reset-password`) restent sur l’app.
+ *
+ * Aussi : si `type=recovery` sans tokens (hash déjà consommé / code flow),
+ * rester sur `/auth/reset-password` plutôt que l’onboarding.
  */
 export function PasswordRecoveryWebsiteBridge() {
   useEffect(() => {
@@ -41,13 +44,21 @@ export function PasswordRecoveryWebsiteBridge() {
       return;
     }
 
+    // Recovery sans hash tokens (ex. déjà échangé) → écran reset app, pas onboarding.
+    if (!onAppResetPage && isRecoveryLink) {
+      window.location.replace("/auth/reset-password");
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event !== "PASSWORD_RECOVERY") return;
-      if (!session?.access_token || !session.refresh_token) return;
-      // Reset app natif : ne pas détourner.
       if (window.location.pathname.startsWith("/auth/reset-password")) return;
-      forwardRecoverySessionToWebsite(session.access_token, session.refresh_token);
+      if (session?.access_token && session.refresh_token) {
+        forwardRecoverySessionToWebsite(session.access_token, session.refresh_token);
+        return;
+      }
+      window.location.replace("/auth/reset-password");
     });
 
     return () => {

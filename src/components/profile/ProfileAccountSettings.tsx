@@ -98,7 +98,7 @@ export function ProfileAccountSettings({
   const requestDeleteAccount = async () => {
     if (deleteBusy) return;
     const confirmed = window.confirm(
-      "Confirmer la demande de suppression du compte ?\n\nLa suppression sera bloquée automatiquement tant que tes commandes/retours ne sont pas entièrement clôturés.",
+      "Confirmer la suppression du compte ?\n\nTon profil, tes looks et tes médias seront supprimés. L’historique de tes commandes est conservé par Segna.\n\nImpossible tant que des commandes ou retours sont encore ouverts.",
     );
     if (!confirmed) return;
 
@@ -114,6 +114,7 @@ export function ProfileAccountSettings({
         | {
             ok?: boolean;
             blocked?: boolean;
+            softDeleted?: boolean;
             blockers?: {
               open_carts?: number;
               open_outbound_shipments?: number;
@@ -125,7 +126,7 @@ export function ProfileAccountSettings({
         | null;
 
       if (!res.ok) {
-        throw new Error(payload?.error ?? "Impossible d'envoyer la demande.");
+        throw new Error(payload?.error ?? "Impossible de supprimer ton compte.");
       }
 
       const blocked = Boolean(payload?.blocked);
@@ -147,7 +148,9 @@ export function ProfileAccountSettings({
           `Suppression bloquée pour l'instant: ${details || "des opérations de location sont encore actives"}. Termine les retours et la vérification des pièces, puis réessaie.`,
         );
       } else {
-        setDeleteFeedback("Demande de suppression enregistrée. Notre équipe va te recontacter pour finaliser le processus.");
+        const { createSupabaseBrowserClient } = await import("@/lib/supabase/client");
+        await createSupabaseBrowserClient().auth.signOut();
+        window.location.href = "/auth/login?deleted=1";
       }
     } catch (e) {
       setDeleteFeedback(e instanceof Error ? e.message : "Une erreur est survenue.");
@@ -299,7 +302,7 @@ export function ProfileAccountSettings({
               disabled={deleteBusy}
               className="flex min-h-[52px] w-full items-center justify-center px-5 py-4 text-center text-[16px] font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {deleteBusy ? "Envoi de la demande..." : "Supprimer ou suspendre le compte"}
+              {deleteBusy ? "Suppression..." : "Supprimer le compte"}
             </button>
           </div>
           {deleteFeedback ? (

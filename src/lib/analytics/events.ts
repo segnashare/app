@@ -140,11 +140,15 @@ export type AnalyticsEventProperties = {
   subscription_checkout_started: {
     plan_code: string;
     trial_period_days?: number;
+    first_month_percent_off?: number;
+    bank_hold_amount_cents?: number;
+    checkout_ui?: "payment_sheet" | "hosted_checkout";
   };
   subscription_confirmed: {
     plan_code: string;
-    checkout_mode?: "stripe" | "webhook" | "sync";
+    checkout_mode?: "stripe" | "webhook" | "sync" | "payment_sheet";
     stripe_session_id?: string;
+    stripe_subscription_id?: string;
   };
   notification_sent: {
     kind: string;

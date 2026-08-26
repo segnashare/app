@@ -7,12 +7,18 @@ import { getStripeConfig } from "@/lib/social/stripe";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { resolveFrVat20TaxRateId } from "@/lib/stripe/fr-vat-tax-rate";
 import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
+import {
+  normalizeFirstMonthPercentOff,
+  resolveFirstMonthPercentOffCouponId,
+} from "@/lib/stripe/subscription-first-month-coupon";
 import { syncStripeCustomerBillingAddressFromProfile } from "@/lib/stripe/sync-customer-billing-address-from-profile";
 import { isPhoneVerified } from "@/lib/phone/phone-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 type PlanCode = "segna_plus" | "segna_x";
+
+const STRIPE_EPHEMERAL_KEY_API_VERSION = "2026-02-25.clover" as const;
 
 function isPlanCode(value: unknown): value is PlanCode {
   return value === "segna_plus" || value === "segna_x";
@@ -63,6 +69,26 @@ function resolveCancelUrl(cancelRaw: string, returnUrlBase: string): string {
   return `${returnUrlBase}/package?checkout=cancelled`;
 }
 
+function paymentIntentIdFromClientSecret(secret: string): string | undefined {
+  const match = /^(pi_[A-Za-z0-9]+)_secret_/.exec(secret);
+  return match?.[1];
+}
+
+async function cancelIncompleteSubscriptionsForCustomer(stripe: Stripe, customerId: string) {
+  const listed = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "incomplete",
+    limit: 10,
+  });
+  await Promise.all(
+    listed.data.map((sub) =>
+      stripe.subscriptions.cancel(sub.id).catch((error) => {
+        console.warn("[stripe/subscription/checkout] cancel incomplete", sub.id, error);
+      }),
+    ),
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
@@ -70,16 +96,21 @@ export async function POST(request: Request) {
       cancelReturnPath?: unknown;
       mobileSuccessUrl?: unknown;
       trialPeriodDays?: unknown;
+      firstMonthPercentOff?: unknown;
       /** Empreinte bancaire SegnaX (100 €) après validation carte. */
       bankHold?: unknown;
+      /** Mobile : Payment Sheet in-app (pas d’URL Checkout). */
+      paymentUi?: unknown;
     } | null;
     const planCode = body?.planCode;
     if (!isPlanCode(planCode)) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
     const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
+    const firstMonthPercentOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
     const bankHoldAmountCents =
       planCode === "segna_x" && body?.bankHold === true ? SEGNAX_BANK_HOLD_AMOUNT_CENTS : undefined;
+    const wantsPaymentSheet = body?.paymentUi === "payment_sheet" || body?.paymentUi === "native";
 
     const admin = createSupabaseAdminClient() as any;
     const { user, error: userError } = await resolveRequestUser(request);
@@ -161,6 +192,130 @@ export async function POST(request: Request) {
       console.warn("[stripe/subscription/checkout] sync billing address from profile", error);
     }
 
+    let discountCouponId: string | undefined;
+    if (firstMonthPercentOff != null) {
+      try {
+        discountCouponId = await resolveFirstMonthPercentOffCouponId(stripe, firstMonthPercentOff);
+      } catch (error) {
+        console.error("[stripe/subscription/checkout] first month coupon", error);
+        return NextResponse.json(
+          { message: "Impossible de préparer la remise 1er mois." },
+          { status: 500 },
+        );
+      }
+    }
+
+    const subscriptionMetadata: Record<string, string> = {
+      user_id: user.id,
+      plan_code: planCode,
+      ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
+      ...(firstMonthPercentOff != null
+        ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
+        : {}),
+      ...(bankHoldAmountCents != null
+        ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
+        : {}),
+    };
+
+    const frVatTaxRateId = resolveFrVat20TaxRateId();
+
+    trackServerEvent(
+      "subscription_checkout_started",
+      { distinctId: user.id },
+      {
+        plan_code: planCode,
+        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        ...(firstMonthPercentOff != null ? { first_month_percent_off: firstMonthPercentOff } : {}),
+        ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
+        checkout_ui: wantsPaymentSheet ? "payment_sheet" : "hosted_checkout",
+      },
+    );
+
+    /** Mobile in-app : Subscription incomplete + Payment Sheet (pas d’URL Checkout). */
+    if (wantsPaymentSheet) {
+      if (!config.publishableKey) {
+        return NextResponse.json(
+          { message: "STRIPE_PUBLISHABLE_KEY manquante côté serveur." },
+          { status: 500 },
+        );
+      }
+
+      await cancelIncompleteSubscriptionsForCustomer(stripe, stripeCustomerId);
+
+      const subscription = await stripe.subscriptions.create({
+        customer: stripeCustomerId,
+        items: [
+          {
+            price: resolvedPriceId,
+            ...(frVatTaxRateId ? { tax_rates: [frVatTaxRateId] } : {}),
+          },
+        ],
+        payment_behavior: "default_incomplete",
+        payment_settings: {
+          save_default_payment_method: "on_subscription",
+          payment_method_types: ["card"],
+        },
+        ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
+        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
+        metadata: subscriptionMetadata,
+        expand: ["latest_invoice.confirmation_secret", "pending_setup_intent"],
+      });
+
+      const ephemeralKey = await stripe.ephemeralKeys.create(
+        { customer: stripeCustomerId },
+        { apiVersion: STRIPE_EPHEMERAL_KEY_API_VERSION },
+      );
+      if (!ephemeralKey.secret) {
+        return NextResponse.json(
+          { message: "Stripe n'a pas renvoyé la clé éphémère Payment Sheet." },
+          { status: 500 },
+        );
+      }
+
+      const pendingSetup =
+        typeof subscription.pending_setup_intent === "object" && subscription.pending_setup_intent
+          ? subscription.pending_setup_intent
+          : null;
+      const setupIntentClientSecret = pendingSetup?.client_secret ?? null;
+      const setupIntentId = pendingSetup?.id ?? null;
+
+      const latestInvoice =
+        typeof subscription.latest_invoice === "object" && subscription.latest_invoice
+          ? subscription.latest_invoice
+          : null;
+      const confirmationSecret = latestInvoice?.confirmation_secret?.client_secret?.trim() || null;
+      const paymentIntentClientSecret = setupIntentClientSecret ? null : confirmationSecret;
+      const paymentIntentId = paymentIntentClientSecret
+        ? paymentIntentIdFromClientSecret(paymentIntentClientSecret)
+        : undefined;
+
+      if (!setupIntentClientSecret && !paymentIntentClientSecret) {
+        return NextResponse.json(
+          {
+            message:
+              "Stripe n'a pas renvoyé de secret Payment Sheet pour cet abonnement. Réessaie ou contacte le support.",
+          },
+          { status: 500 },
+        );
+      }
+
+      await flushServerAnalytics();
+
+      return NextResponse.json({
+        paymentUi: "payment_sheet",
+        mode: setupIntentClientSecret ? "setup" : "payment",
+        subscriptionId: subscription.id,
+        ...(paymentIntentId ? { paymentIntentId } : {}),
+        ...(paymentIntentClientSecret ? { paymentIntentClientSecret } : {}),
+        ...(setupIntentId ? { setupIntentId } : {}),
+        ...(setupIntentClientSecret ? { setupIntentClientSecret } : {}),
+        customerId: stripeCustomerId,
+        customerEphemeralKeySecret: ephemeralKey.secret,
+        publishableKey: config.publishableKey,
+      });
+    }
+
     const cancelRaw = typeof body?.cancelReturnPath === "string" ? body.cancelReturnPath.trim() : "";
     const cancelUrl = resolveCancelUrl(cancelRaw, config.returnUrlBase);
     const mobileSuccessUrl = resolveMobileSuccessUrl(body?.mobileSuccessUrl);
@@ -188,7 +343,6 @@ export async function POST(request: Request) {
         ? `${successWebsiteOrigin}/abonnement/succes?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`
         : `${config.returnUrlBase}/api/stripe/subscription/sync?session_id={CHECKOUT_SESSION_ID}&plan=${planCode}`);
 
-    const frVatTaxRateId = resolveFrVat20TaxRateId();
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
@@ -207,7 +361,10 @@ export async function POST(request: Request) {
       },
       success_url: successUrl,
       cancel_url: cancelUrl,
-      allow_promotion_codes: true,
+      // Stripe : `discounts` et `allow_promotion_codes` sont mutuellement exclusifs.
+      ...(discountCouponId
+        ? { discounts: [{ coupon: discountCouponId }] }
+        : { allow_promotion_codes: true }),
       client_reference_id: user.id,
       metadata: {
         user_id: user.id,
@@ -215,16 +372,12 @@ export async function POST(request: Request) {
         ...(bankHoldAmountCents != null
           ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
           : {}),
+        ...(firstMonthPercentOff != null
+          ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
+          : {}),
       },
       subscription_data: {
-        metadata: {
-          user_id: user.id,
-          plan_code: planCode,
-          ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
-          ...(bankHoldAmountCents != null
-            ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
-            : {}),
-        },
+        metadata: subscriptionMetadata,
         ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
         // Renouvellements : même TVA sur les factures suivantes.
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
@@ -235,15 +388,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Stripe n'a pas renvoyé d'URL de paiement." }, { status: 500 });
     }
 
-    trackServerEvent(
-      "subscription_checkout_started",
-      { distinctId: user.id },
-      {
-        plan_code: planCode,
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
-        ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
-      },
-    );
     await flushServerAnalytics();
 
     return NextResponse.json({ url: session.url });

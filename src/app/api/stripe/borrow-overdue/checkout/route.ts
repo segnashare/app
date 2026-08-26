@@ -7,6 +7,11 @@ import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 const CART_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function hasBearer(request: Request): boolean {
+  const auth = request.headers.get("authorization")?.trim() ?? "";
+  return auth.toLowerCase().startsWith("bearer ") && auth.length > 7;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as { cartId?: unknown } | null;
@@ -15,12 +20,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Panier invalide." }, { status: 400 });
     }
 
+    const bearerPresent = hasBearer(request);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bearer (mobile) ou cookies (web)
     const { user, error: userError } = (await resolveRequestUserClient(request)) as any;
     const admin = createSupabaseAdminClient();
 
     if (userError || !user) {
-      return NextResponse.json({ message: "Session invalide." }, { status: 401 });
+      const errMsg = userError instanceof Error ? userError.message : String(userError ?? "none");
+      console.warn(
+        `[borrow-overdue/checkout] auth failed bearer=${bearerPresent ? "yes" : "no"} err=${errMsg}`,
+      );
+      return NextResponse.json(
+        {
+          message: "Session invalide.",
+          code: bearerPresent ? "auth_bearer_rejected" : "auth_missing",
+        },
+        { status: 401 },
+      );
     }
 
     const userId = user.id as string;
