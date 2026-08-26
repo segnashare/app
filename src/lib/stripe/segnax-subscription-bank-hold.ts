@@ -38,10 +38,11 @@ async function resolveSubscriptionPaymentMethodId(
 /**
  * Crée une empreinte bancaire (PaymentIntent `capture_method: manual`) après checkout SegnaX.
  * Idempotent via `subscription.metadata.bank_hold_payment_intent_id`.
+ * `session` optionnel : Payment Sheet in-app n’a pas de Checkout Session.
  */
 export async function createSegnaXSubscriptionBankHoldIfNeeded(params: {
   stripe: Stripe;
-  session: Stripe.Checkout.Session;
+  session?: Stripe.Checkout.Session | null;
   subscription: Stripe.Subscription;
   userId: string;
   customerId: string;
@@ -49,7 +50,7 @@ export async function createSegnaXSubscriptionBankHoldIfNeeded(params: {
   const { stripe, session, subscription, userId, customerId } = params;
 
   const holdCentsRaw =
-    session.metadata?.bank_hold_amount_cents ?? subscription.metadata?.bank_hold_amount_cents ?? "";
+    session?.metadata?.bank_hold_amount_cents ?? subscription.metadata?.bank_hold_amount_cents ?? "";
   const holdCents = Number.parseInt(String(holdCentsRaw).trim(), 10);
   if (!Number.isFinite(holdCents) || holdCents !== SEGNAX_BANK_HOLD_AMOUNT_CENTS) {
     return null;
@@ -66,6 +67,7 @@ export async function createSegnaXSubscriptionBankHoldIfNeeded(params: {
     return null;
   }
 
+  const sessionId = session?.id?.trim() || null;
   const paymentIntent = await stripe.paymentIntents.create(
     {
       amount: SEGNAX_BANK_HOLD_AMOUNT_CENTS,
@@ -80,12 +82,14 @@ export async function createSegnaXSubscriptionBankHoldIfNeeded(params: {
         user_id: userId,
         plan_code: "segna_x",
         kind: "segnax_bank_hold",
-        stripe_checkout_session_id: session.id,
+        ...(sessionId ? { stripe_checkout_session_id: sessionId } : {}),
         stripe_subscription_id: subscription.id,
       },
     },
     {
-      idempotencyKey: `segnax_bank_hold:${session.id}`,
+      idempotencyKey: sessionId
+        ? `segnax_bank_hold:${sessionId}`
+        : `segnax_bank_hold:sub:${subscription.id}`,
     },
   );
 

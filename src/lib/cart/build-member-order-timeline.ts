@@ -73,10 +73,12 @@ export function buildMemberOrderTimeline(
 
   events.sort((a, b) => a.t - b.t);
 
+  // Une ligne par statut affiché consécutif : les re-réservations checkout
+  // rejouent `checkout_pending` sans intérêt membre.
   const dedup: Ev[] = [];
   for (const e of events) {
     const prev = dedup[dedup.length - 1];
-    if (prev && prev.label === e.label && Math.abs(prev.t - e.t) < 2_000) continue;
+    if (prev && prev.label === e.label) continue;
     dedup.push(e);
   }
 
