@@ -35,8 +35,15 @@ function normalizeSubscriptionTrialPeriodDays(planCode: PlanCode, raw: unknown):
 }
 
 function getFallbackPriceId(planCode: PlanCode): string | null {
-  const key = planCode === "segna_plus" ? process.env.STRIPE_PRICE_SEGNA_PLUS : process.env.STRIPE_PRICE_SEGNA_X;
-  const value = key?.trim() ?? "";
+  if (planCode === "segna_plus") {
+    const value = process.env.STRIPE_PRICE_SEGNA_PLUS?.trim() ?? "";
+    return value.length > 0 ? value : null;
+  }
+  // Prod Vercel historique : `STRIPE_PRICE_SEGNAX` (sans `_` avant X).
+  const value =
+    process.env.STRIPE_PRICE_SEGNA_X?.trim() ||
+    process.env.STRIPE_PRICE_SEGNAX?.trim() ||
+    "";
   return value.length > 0 ? value : null;
 }
 
@@ -154,7 +161,10 @@ export async function POST(request: Request) {
     if (activePriceError) {
       return NextResponse.json({ message: activePriceError.message }, { status: 500 });
     }
-    const resolvedPriceId = activePriceRow?.stripe_price_id ?? getFallbackPriceId(planCode);
+    // Env d’abord (prod live vs preview test), puis mapping DB.
+    const resolvedPriceId =
+      getFallbackPriceId(planCode) ??
+      (typeof activePriceRow?.stripe_price_id === "string" ? activePriceRow.stripe_price_id.trim() : null);
     if (!resolvedPriceId) {
       const envHint = planCode === "segna_plus" ? "STRIPE_PRICE_SEGNA_PLUS" : "STRIPE_PRICE_SEGNA_X";
       return NextResponse.json(
