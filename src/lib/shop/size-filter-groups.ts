@@ -80,7 +80,7 @@ export function inferSizeCode(label: string, code?: string | null): string | nul
   if (BOTTOM_SET.has(raw)) return `bottom:${raw}`;
   if (SHOES_SET.has(raw)) return `shoes:${raw}`;
 
-  // Libellé agrégé « M / 38 / 10 »
+  // Ancien libellé agrégé « M / 38 / 10 » ou range « XS/S/M »
   const parts = raw.split("/").map((p) => p.trim()).filter(Boolean);
   if (parts.length >= 2) {
     const letterBand = apparelBandFromLetter(parts[0]!);
@@ -112,11 +112,73 @@ export function groupSizesByCategory(sizes: SizeFilterOption[]): Record<SizeFilt
 
   const apparel = aggregateApparelSizeFacets(
     apparelRaw.map((s) => ({ id: s.id, label: s.label, code: s.code })),
-  ).map(toAggregatedOption);
+  )
+    .map(toAggregatedOption)
+    .filter((s) => !isTuSizeCode(s.code));
 
   shoes.sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }));
 
   return { apparel, shoes };
+}
+
+function isTuSizeCode(code: string): boolean {
+  const c = code.trim().toLowerCase();
+  return c === "apparel:tu" || c === "top:tu" || c === "bottom:tu" || c.endsWith(":tu");
+}
+
+export type SizeFilterLayout = {
+  showApparel: boolean;
+  showShoes: boolean;
+  /** Accessoires / sacs : taille unique, filtre inactif. */
+  disabled: boolean;
+};
+
+function normalizeCategorySlug(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function sizeKindFromCategoryLabel(label: string): "apparel" | "shoes" | "onesize" {
+  const slug = normalizeCategorySlug(label);
+  if (slug === "chaussures") return "shoes";
+  if (slug === "accessoires" || slug === "sacs") return "onesize";
+  return "apparel";
+}
+
+export function sizeFilterLayoutForCategoryLabels(labels: string[]): SizeFilterLayout {
+  if (labels.length === 0) {
+    return { showApparel: true, showShoes: true, disabled: false };
+  }
+  const kinds = new Set(labels.map(sizeKindFromCategoryLabel));
+  const showApparel = kinds.has("apparel");
+  const showShoes = kinds.has("shoes");
+  if (!showApparel && !showShoes) {
+    return { showApparel: false, showShoes: false, disabled: true };
+  }
+  return { showApparel, showShoes, disabled: false };
+}
+
+export function pruneSizeIdsForLayout(
+  selectedIds: string[],
+  sizes: SizeFilterOption[],
+  layout: SizeFilterLayout,
+): string[] {
+  if (layout.disabled) return [];
+  if (selectedIds.length === 0) return selectedIds;
+  const grouped = groupSizesByCategory(sizes);
+  const keep = new Set<string>();
+  if (layout.showApparel) {
+    for (const id of allSizeIdsInCategory(grouped, "apparel")) keep.add(id);
+  }
+  if (layout.showShoes) {
+    for (const id of allSizeIdsInCategory(grouped, "shoes")) keep.add(id);
+  }
+  return selectedIds.filter((id) => keep.has(id));
 }
 
 /** Rayon actif à l’ouverture de la feuille taille (d’après la sélection ou le premier rayon non vide). */

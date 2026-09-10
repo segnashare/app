@@ -52,7 +52,7 @@ async function fetchShopFilterFacetsAdminUncached(): Promise<Record<string, unkn
   return data as Record<string, unknown>;
 }
 
-const fetchShopFilterFacetsAdminCached = unstable_cache(fetchShopFilterFacetsAdminUncached, ["shop-boutique-filter-facets-v3"], {
+const fetchShopFilterFacetsAdminCached = unstable_cache(fetchShopFilterFacetsAdminUncached, ["shop-boutique-filter-facets-v5"], {
   revalidate: 120,
   tags: ["shop-boutique-filter-facets"],
 });
@@ -98,7 +98,7 @@ export async function loadShopBoutiqueFilterFacetResponses(
   if (isDemoMode) {
     const db = await catalogClientForFilters(true);
     const [c, s, b, col, m] = await Promise.all([
-      db.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
+      db.from("item_categories").select("id,name,sort_order").order("sort_order", { ascending: true }),
       db.from("sizes").select("id,label,code").order("code", { ascending: true }),
       db.from("item_brands").select("id,label").order("label", { ascending: true }),
       db.from("item_couleurs").select("id,label").order("label", { ascending: true }),
@@ -136,7 +136,7 @@ export async function loadShopBoutiqueFilterFacetResponses(
 
   const db = await catalogClientForFilters(false);
   const [c, s, b, col, m] = await Promise.all([
-    db.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true }),
+      db.from("item_categories").select("id,name,sort_order").order("sort_order", { ascending: true }),
     db.from("sizes").select("id,label,code").order("code", { ascending: true }),
     db.from("item_brands").select("id,label").order("label", { ascending: true }),
     db.from("item_couleurs").select("id,label").order("label", { ascending: true }),
@@ -153,7 +153,7 @@ export async function loadShopBoutiqueFilterFacetResponses(
 
 export async function fetchShopFilterCategoriesCached(isDemoMode: boolean) {
   const db = await catalogClientForFilters(isDemoMode);
-  return db.from("item_categories").select("id,name,parent_category_id").order("name", { ascending: true });
+  return db.from("item_categories").select("id,name,sort_order").order("sort_order", { ascending: true });
 }
 
 export async function fetchShopFilterSizesCached(isDemoMode: boolean) {

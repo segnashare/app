@@ -1,5 +1,6 @@
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import type { CategoryFilterOption } from "@/components/shop/ShopCatalog";
+import { itemIntersectsSizeFilter } from "@/lib/shop/shop-catalog-item-flags";
 
 export const SHOP_CATALOG_FILTER_KINDS = ["brand", "material", "category", "color", "size"] as const;
 
@@ -57,24 +58,13 @@ export function parseShopCatalogFilterHref(
   }
 }
 
-function getCategoryPath(categories: CategoryFilterOption[], id: string): string[] {
-  const byId = new Map(categories.map((c) => [c.id, c]));
-  const path: string[] = [];
-  let cur = byId.get(id);
-  while (cur) {
-    path.unshift(cur.id);
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-  }
-  return path;
-}
-
 function itemMatchesCategoryFilter(
   itemCategoryId: string | null | undefined,
   filterCategoryId: string,
-  categories: CategoryFilterOption[],
+  _categories: CategoryFilterOption[],
 ): boolean {
   if (!itemCategoryId) return false;
-  return getCategoryPath(categories, itemCategoryId).includes(filterCategoryId);
+  return itemCategoryId === filterCategoryId;
 }
 
 export function itemMatchesShopCatalogFilter(
@@ -94,7 +84,7 @@ export function itemMatchesShopCatalogFilter(
     case "color":
       return Boolean(item.item_couleur_id && allow.has(item.item_couleur_id));
     case "size":
-      return Boolean(item.item_size_id && allow.has(item.item_size_id));
+      return itemIntersectsSizeFilter(item, [...allow]);
     case "category":
       if (!item.item_category_id) return false;
       for (const categoryId of allow) {

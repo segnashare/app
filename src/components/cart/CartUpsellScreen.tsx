@@ -34,7 +34,8 @@ type CartUpsellScreenProps = {
 
 function upsellCardSizeLine(sizeLabel: string | null | undefined): string {
   const t = sizeLabel?.trim();
-  return t ? `Taille ${t}` : "Taille unique";
+  if (!t) return "";
+  return /^taille\s+/i.test(t) ? t : `Taille ${t}`;
 }
 
 function UpsellGridCard({
@@ -121,12 +122,14 @@ function UpsellGridCard({
             {brandName ? (
               <>
                 <span className="min-w-0 truncate italic">{brandName}</span>
-                <span className="shrink-0 text-zinc-400" aria-hidden>
-                  |
-                </span>
+                {sizeLine ? (
+                  <span className="shrink-0 text-zinc-400" aria-hidden>
+                    |
+                  </span>
+                ) : null}
               </>
             ) : null}
-            <span className="shrink-0 font-medium">{sizeLine}</span>
+            {sizeLine ? <span className="shrink-0 font-medium">{sizeLine}</span> : null}
           </p>
         ) : null}
         <p

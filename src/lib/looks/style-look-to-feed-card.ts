@@ -13,6 +13,7 @@ export function styleLookSummaryToFeedCard(look: ItemStyleLookSummary): Inspirat
     cover_aspect: look.cover_aspect,
     cover_transform: look.cover_transform,
     video_poster_path: look.video_poster_path,
+    entry_kind: look.entry_kind,
     author_user_id: null,
     author_display_name: look.author_display_name,
     author_avatar_path: null,

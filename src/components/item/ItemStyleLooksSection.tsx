@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { InspirationMediaViewer } from "@/components/community/InspirationMediaViewer";
 import { isVideoMediaUrl } from "@/lib/community/inspiration-media-path";
-import { inspirationMemberTag } from "@/lib/community/inspiration-member-tag";
+import { inspirationCredit } from "@/lib/community/inspiration-member-tag";
 import { styleLookHref } from "@/lib/looks/style-look-href";
 import type { ItemStyleLookSummary } from "@/lib/items/fetch-item-style-looks";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
@@ -66,10 +66,11 @@ export function ItemStyleLooksSection({ looks }: ItemStyleLooksSectionProps) {
   if (!selectedLook) return null;
 
   const lookHref = styleLookHref(selectedLook.id);
-  const memberTag = inspirationMemberTag(
-    selectedLook.author_display_name,
-    selectedLook.author_instagram_username,
-  );
+  const memberTag = inspirationCredit({
+    entryKind: selectedLook.entry_kind,
+    displayName: selectedLook.author_display_name,
+    instagramUsername: selectedLook.author_instagram_username,
+  }).label;
 
   return (
     <section aria-label="Inspire-toi de ces looks" className="pt-6">

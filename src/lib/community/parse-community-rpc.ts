@@ -2,6 +2,7 @@ import {
   parseInspirationCoverAspect,
   parseInspirationCoverTransform,
 } from "@/lib/community/inspiration-cover-aspect";
+import { parseStyleLookEntryKind } from "@/lib/community/inspiration-member-tag";
 import type {
   CommunityFeedCursor,
   CommunityFeedPayload,
@@ -44,6 +45,7 @@ export function parseInspirationFeedCard(raw: unknown): InspirationFeedCard | nu
     cover_aspect: parseInspirationCoverAspect(row.cover_aspect),
     cover_transform: parseInspirationCoverTransform(row.cover_transform),
     video_poster_path: typeof row.video_poster_path === "string" ? row.video_poster_path : null,
+    entry_kind: parseStyleLookEntryKind(row.entry_kind),
     author_user_id: typeof row.author_user_id === "string" ? row.author_user_id : null,
     author_display_name: typeof row.author_display_name === "string" ? row.author_display_name : "Membre Segna",
     author_avatar_path: typeof row.author_avatar_path === "string" ? row.author_avatar_path : null,
@@ -129,6 +131,7 @@ export function parseInspirationDetail(data: unknown): InspirationDetail | null 
     cover_aspect: parseInspirationCoverAspect(row.cover_aspect),
     cover_transform: parseInspirationCoverTransform(row.cover_transform),
     video_poster_path: typeof row.video_poster_path === "string" ? row.video_poster_path : null,
+    entry_kind: parseStyleLookEntryKind(row.entry_kind),
     author_user_id: typeof row.author_user_id === "string" ? row.author_user_id : null,
     author_display_name: typeof row.author_display_name === "string" ? row.author_display_name : "Membre Segna",
     author_avatar_path: typeof row.author_avatar_path === "string" ? row.author_avatar_path : null,

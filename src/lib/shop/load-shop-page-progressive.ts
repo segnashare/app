@@ -11,6 +11,7 @@ import type {
 export type { ShopCatalogFilterProps, ShopPageCatalogPayload, ShopProgressiveChunk } from "@/lib/shop/shop-page-progressive-shared";
 export { mergeShopProgressivePayload } from "@/lib/shop/shop-page-progressive-shared";
 import { fetchShopCatalogItemsByIds } from "@/lib/shop/fetch-shop-catalog-items-by-ids";
+import { withShopCatalogItemFlags } from "@/lib/shop/shop-catalog-item-flags";
 import { resolveShopCatalogCoverUrlsServer } from "@/lib/shop/resolve-shop-catalog-cover-urls-server";
 import {
   fetchBoutiqueHubSectionOrderCached,
@@ -60,8 +61,10 @@ export type ShopPageLoadContext = {
 };
 
 function parseCatalogItems(data: unknown): ShopCatalogItem[] {
-  const payload = (data ?? { items: [] }) as { items?: ShopCatalogItem[] };
-  return Array.isArray(payload.items) ? payload.items : [];
+  const payload = (data ?? { items: [] }) as {
+    items?: Array<ShopCatalogItem & { is_new?: boolean; is_archive?: boolean }>;
+  };
+  return Array.isArray(payload.items) ? payload.items.map((row) => withShopCatalogItemFlags(row)) : [];
 }
 
 function collectItemIdsFromHubBundles(

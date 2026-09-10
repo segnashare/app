@@ -8,7 +8,8 @@ import { InspirationFeedCardLikeButton } from "@/components/community/Inspiratio
 import { InspirationMediaViewer } from "@/components/community/InspirationMediaViewer";
 import { SegnaSkeletonBlock } from "@/components/ui/SegnaSkeletonBlock";
 import { inspirationHref } from "@/lib/community/community-source";
-import { inspirationMemberTag } from "@/lib/community/inspiration-member-tag";
+import { InspirationKindPill } from "@/components/community/InspirationKindPill";
+import { inspirationCredit } from "@/lib/community/inspiration-member-tag";
 import { inspirationCoverAspectClass } from "@/lib/community/inspiration-cover-aspect";
 import type { InspirationFeedCard } from "@/lib/community/types";
 import { cn } from "@/lib/utils/cn";
@@ -44,12 +45,18 @@ function InspirationCardPhotoOverlays({
   showLike?: boolean;
   likeMode?: "button" | "count";
 }) {
-  const memberTag = inspirationMemberTag(card.author_display_name, card.author_instagram_username);
+  const memberTag = inspirationCredit({
+    entryKind: card.entry_kind,
+    authorUserId: card.author_user_id,
+    displayName: card.author_display_name,
+    instagramUsername: card.author_instagram_username,
+  }).label;
   const multiPhoto = card.media_type === "dump" || (card.media_paths?.length ?? 0) > 1;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10">
       <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
+      <InspirationKindPill className="absolute left-2.5 top-2.5" entryKind={card.entry_kind} />
       {multiPhoto ? (
         <Copy
           className="absolute right-2.5 top-2.5 h-4 w-4 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
@@ -58,9 +65,13 @@ function InspirationCardPhotoOverlays({
         />
       ) : null}
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2.5">
-        <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
-          {memberTag}
-        </span>
+        {memberTag ? (
+          <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
+            {memberTag}
+          </span>
+        ) : (
+          <span />
+        )}
         {showLike ? (
           likeMode === "count" ? (
             <InspirationCardLikeCount count={card.like_count} />
@@ -123,7 +134,9 @@ export function InspirationCard({
               showLike
               likeMode={likeMode}
             />
-          ) : null}
+          ) : (
+            <InspirationKindPill className="absolute left-2.5 top-2.5" entryKind={card.entry_kind} />
+          )}
         </div>
       ) : (
         <div className={cn("relative w-full", inspirationCoverAspectClass(card.cover_aspect))}>
@@ -135,7 +148,9 @@ export function InspirationCard({
               showLike
               likeMode={likeMode}
             />
-          ) : null}
+          ) : (
+            <InspirationKindPill className="absolute left-2.5 top-2.5" entryKind={card.entry_kind} />
+          )}
         </div>
       )}
       {!compact ? (
@@ -143,7 +158,12 @@ export function InspirationCard({
           <p className="line-clamp-2 text-[13px] font-medium leading-snug text-zinc-900">{card.title}</p>
           <div className="flex items-center justify-between gap-2 text-[12px] text-zinc-500">
             <span className="truncate">
-              {inspirationMemberTag(card.author_display_name, card.author_instagram_username)}
+              {inspirationCredit({
+                entryKind: card.entry_kind,
+                authorUserId: card.author_user_id,
+                displayName: card.author_display_name,
+                instagramUsername: card.author_instagram_username,
+              }).label}
             </span>
             <span className="inline-flex shrink-0 items-center gap-1 text-zinc-500">
               <Heart

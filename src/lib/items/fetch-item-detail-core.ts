@@ -127,7 +127,7 @@ export async function fetchItemDetailPayloadForUser(
   const { data: itemRow, error: itemError } = await supabase
     .from("items")
     .select(
-      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_recommended_size_id,item_size_description,item_era,item_fitting,item_dimensions,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id",
+      "id,title,description,photos,price_points,owner_user_id,status,item_category_id,item_brand_id,item_custom_brand_label,item_size_id,item_size_ids,item_size_range_key,item_recommended_size_id,item_size_description,item_era,item_fitting,item_dimensions,photographed_on_mannequin,item_mannequin_id,item_materiaux_id,item_couleur_id",
     )
     .eq("id", trimmed)
     .is("deleted_at", null)
@@ -198,7 +198,8 @@ export async function fetchItemDetailPayloadForUser(
     : isAutreBrand && titleAsBrandHint
       ? titleAsBrandHint
       : brandFallback;
-  const rawSizeLabel = (sizeRes.data as { label?: string } | null)?.label?.trim();
+  const rangeKey = typeof row.item_size_range_key === "string" ? row.item_size_range_key.trim() : "";
+  const rawSizeLabel = rangeKey || (sizeRes.data as { label?: string } | null)?.label?.trim();
   const sizeLabel = rawSizeLabel ? rawSizeLabel : "";
   const rawRecommendedSizeLabel = (recommendedSizeRes.data as { label?: string } | null)?.label?.trim();
   const recommendedSizeLabel = rawRecommendedSizeLabel ? rawRecommendedSizeLabel : "";
@@ -217,9 +218,9 @@ export async function fetchItemDetailPayloadForUser(
       : "";
   const sizeDescription = [sizeDescriptionRaw, mannequinHint].filter(Boolean).join(" · ");
 
-  const photoEntries = getPhotoEntriesFromJson(row.photos).slice(0, 6);
+  const photoEntries = getPhotoEntriesFromJson(row.photos);
   const photosLayout = parseItemPhotosLayout(row.photos);
-  const slots: Array<ItemViewSlot | null> = [null, null, null, null, null, null];
+  const slots: Array<ItemViewSlot | null> = photoEntries.map(() => null);
 
   const slotTasks = photoEntries.map(async (entry, index) => {
     const storagePathRaw = entry.storage_path ?? entry.storagePath ?? entry.url ?? entry.photo_url ?? entry.photoUrl;

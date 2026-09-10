@@ -1,5 +1,5 @@
 /**
- * Référentiel tailles vêtements (lettre / FR / US).
+ * Référentiel tailles vêtements : affichage lettre seule.
  * Une bande = équivalence top (lettre) ↔ bottom (FR).
  */
 export type ApparelSizeBand = {
@@ -14,18 +14,18 @@ export type ApparelSizeBand = {
 };
 
 export const APPAREL_SIZE_BANDS: readonly ApparelSizeBand[] = [
-  { key: "XXXS", letter: "XXXS", fr: "30", us: "2", label: "XXXS / 30 / 2", topCode: "top:XXXS", bottomCode: "bottom:30", sortOrder: 0 },
-  { key: "XXS", letter: "XXS", fr: "32", us: "4", label: "XXS / 32 / 4", topCode: "top:XXS", bottomCode: "bottom:32", sortOrder: 1 },
-  { key: "XS", letter: "XS", fr: "34", us: "6", label: "XS / 34 / 6", topCode: "top:XS", bottomCode: "bottom:34", sortOrder: 2 },
-  { key: "S", letter: "S", fr: "36", us: "8", label: "S / 36 / 8", topCode: "top:S", bottomCode: "bottom:36", sortOrder: 3 },
-  { key: "M", letter: "M", fr: "38", us: "10", label: "M / 38 / 10", topCode: "top:M", bottomCode: "bottom:38", sortOrder: 4 },
-  { key: "L", letter: "L", fr: "40", us: "12", label: "L / 40 / 12", topCode: "top:L", bottomCode: "bottom:40", sortOrder: 5 },
-  { key: "XL", letter: "XL", fr: "42", us: "14", label: "XL / 42 / 14", topCode: "top:XL", bottomCode: "bottom:42", sortOrder: 6 },
-  { key: "XXL", letter: "XXL", fr: "44", us: "16", label: "XXL / 44 / 16", topCode: "top:XXL", bottomCode: "bottom:44", sortOrder: 7 },
-  { key: "XXXL", letter: "XXXL", fr: "46", us: "18", label: "XXXL / 46 / 18", topCode: "top:XXXL", bottomCode: "bottom:46", sortOrder: 8 },
-  { key: "4XL", letter: "4XL", fr: "48", us: "20", label: "4XL / 48 / 20", topCode: "top:4XL", bottomCode: "bottom:48", sortOrder: 9 },
-  { key: "5XL", letter: "5XL", fr: "50", us: "22", label: "5XL / 50 / 22", topCode: "top:5XL", bottomCode: "bottom:50", sortOrder: 10 },
-  { key: "6XL", letter: "6XL", fr: "52", us: "24", label: "6XL / 52 / 24", topCode: "top:6XL", bottomCode: "bottom:52", sortOrder: 11 },
+  { key: "XXXS", letter: "XXXS", fr: "30", us: "2", label: "XXXS", topCode: "top:XXXS", bottomCode: "bottom:30", sortOrder: 0 },
+  { key: "XXS", letter: "XXS", fr: "32", us: "4", label: "XXS", topCode: "top:XXS", bottomCode: "bottom:32", sortOrder: 1 },
+  { key: "XS", letter: "XS", fr: "34", us: "6", label: "XS", topCode: "top:XS", bottomCode: "bottom:34", sortOrder: 2 },
+  { key: "S", letter: "S", fr: "36", us: "8", label: "S", topCode: "top:S", bottomCode: "bottom:36", sortOrder: 3 },
+  { key: "M", letter: "M", fr: "38", us: "10", label: "M", topCode: "top:M", bottomCode: "bottom:38", sortOrder: 4 },
+  { key: "L", letter: "L", fr: "40", us: "12", label: "L", topCode: "top:L", bottomCode: "bottom:40", sortOrder: 5 },
+  { key: "XL", letter: "XL", fr: "42", us: "14", label: "XL", topCode: "top:XL", bottomCode: "bottom:42", sortOrder: 6 },
+  { key: "XXL", letter: "XXL", fr: "44", us: "16", label: "XXL", topCode: "top:XXL", bottomCode: "bottom:44", sortOrder: 7 },
+  { key: "XXXL", letter: "XXXL", fr: "46", us: "18", label: "XXXL", topCode: "top:XXXL", bottomCode: "bottom:46", sortOrder: 8 },
+  { key: "4XL", letter: "4XL", fr: "48", us: "20", label: "4XL", topCode: "top:4XL", bottomCode: "bottom:48", sortOrder: 9 },
+  { key: "5XL", letter: "5XL", fr: "50", us: "22", label: "5XL", topCode: "top:5XL", bottomCode: "bottom:50", sortOrder: 10 },
+  { key: "6XL", letter: "6XL", fr: "52", us: "24", label: "6XL", topCode: "top:6XL", bottomCode: "bottom:52", sortOrder: 11 },
 ] as const;
 
 const BY_TOP = new Map(APPAREL_SIZE_BANDS.map((b) => [b.topCode.toLowerCase(), b]));
@@ -103,7 +103,7 @@ export function aggregateApparelSizeFacets<T extends ApparelSizeFacetLike>(
       return {
         ...primary,
         id: primary.id,
-        label: band.label,
+        label: band.letter,
         code: `apparel:${band.key}`,
         memberIds: members.map((m) => m.id),
         bandKey: band.key,

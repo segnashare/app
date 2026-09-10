@@ -48,9 +48,9 @@ export function mapCategoryFilterRows(rows: unknown): CategoryFilterOption[] {
         (typeof r.name === "string" && r.name.trim()) ||
         null;
       if (!id || !label) return null;
-      const rawParent = r.parent_category_id;
-      const parentId = typeof rawParent === "string" && rawParent.trim() ? rawParent.trim() : null;
-      return { id, label, parentId };
+      const rawOrder = r.sort_order;
+      const sortOrder = typeof rawOrder === "number" && Number.isFinite(rawOrder) ? rawOrder : 0;
+      return { id, label, sortOrder };
     })
     .filter((x): x is CategoryFilterOption => x !== null);
 }

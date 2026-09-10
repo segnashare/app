@@ -58,15 +58,15 @@ export function ItemSegnaDetentionSection({ pricePoints, sizeLabel, className }:
         ) : (
           <span className="font-semibold text-zinc-700">—</span>
         )}
-        <>
-          <span aria-hidden className="text-zinc-400">
-            {" "}
-            •{" "}
-          </span>
-          <span className="font-semibold text-zinc-700">
-            {hasSize ? formatItemSizeLabel(sizeLabel) : "Taille unique"}
-          </span>
-        </>
+        {hasSize ? (
+          <>
+            <span aria-hidden className="text-zinc-400">
+              {" "}
+              •{" "}
+            </span>
+            <span className="font-semibold text-zinc-700">{formatItemSizeLabel(sizeLabel)}</span>
+          </>
+        ) : null}
       </p>
     </div>
   );

@@ -1,16 +1,46 @@
 import type { CmsFrameRow } from "@/lib/cms/cms-types";
 
-/** Même forme que `CategoryFilterOption` (évite import circulaire avec ShopCatalog). */
-export type ShopCategoryTreeNode = { id: string; label: string; parentId: string | null };
+export type ShopCategoryTreeNode = { id: string; label: string; sortOrder?: number };
 
-/** Ordre d’affichage sur le hub boutique (URLs `/shop/{slug}`). */
-export const SHOP_DEPARTMENT_SLUG_ORDER = ["vetements", "accessoires", "chaussures", "sacs"] as const;
+export const SHOP_FLAT_CATEGORY_SLUG_ORDER = [
+  "robes",
+  "hauts",
+  "vestes-gilets",
+  "manteaux",
+  "jupes",
+  "pantalons",
+  "ensembles",
+  "shorts",
+  "accessoires",
+  "chaussures",
+  "sacs",
+] as const;
+
+export type ShopFlatCategorySlug = (typeof SHOP_FLAT_CATEGORY_SLUG_ORDER)[number];
+
+/** Rayon CMS `/shop/vetements` : tout le vestiaire hors accessoires / chaussures / sacs. */
+export const SHOP_LEGACY_DEPARTMENT_SLUGS = ["vetements"] as const;
+
+export const SHOP_ACCESSORY_DEPARTMENT_SLUGS = ["accessoires", "chaussures", "sacs"] as const;
+
+export const SHOP_DEPARTMENT_SLUG_ORDER = [
+  ...SHOP_FLAT_CATEGORY_SLUG_ORDER,
+  ...SHOP_LEGACY_DEPARTMENT_SLUGS,
+] as const;
 
 export type ShopDepartmentSlug = (typeof SHOP_DEPARTMENT_SLUG_ORDER)[number];
 
 export const SHOP_DEPARTMENT_PAGE_TITLE: Record<ShopDepartmentSlug, string> = {
-  vetements: "Vêtements",
+  robes: "Robes",
+  hauts: "Hauts",
+  "vestes-gilets": "Vestes & gilets",
+  manteaux: "Manteaux",
+  jupes: "Jupes",
+  pantalons: "Pantalons",
+  ensembles: "Ensembles",
+  shorts: "Shorts",
   accessoires: "Accessoires",
+  vetements: "Vêtements",
   chaussures: "Chaussures",
   sacs: "Sacs",
 };
@@ -20,32 +50,22 @@ function normalizeCategoryLabel(raw: string): string {
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
-    .trim();
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
-
-/** Libellés racine possibles en base → slug département (parent uniquement). */
-const ROOT_LABEL_TO_SLUG: Record<string, ShopDepartmentSlug> = {
-  vetements: "vetements",
-  vetement: "vetements",
-  accessoires: "accessoires",
-  accessoire: "accessoires",
-  chaussures: "chaussures",
-  chaussure: "chaussures",
-  sacs: "sacs",
-  sac: "sacs",
-  maroquinerie: "sacs",
-};
 
 export function departmentSlugFromRootLabel(label: string): ShopDepartmentSlug | null {
   const key = normalizeCategoryLabel(label);
-  return ROOT_LABEL_TO_SLUG[key] ?? null;
+  if ((SHOP_DEPARTMENT_SLUG_ORDER as readonly string[]).includes(key)) {
+    return key as ShopDepartmentSlug;
+  }
+  return null;
 }
 
-/** Racines département présentes en base (parentId null + libellé reconnu). */
 export function departmentRootsBySlug(categories: ShopCategoryTreeNode[]): Map<ShopDepartmentSlug, ShopCategoryTreeNode> {
   const map = new Map<ShopDepartmentSlug, ShopCategoryTreeNode>();
   for (const c of categories) {
-    if (c.parentId != null) continue;
     const slug = departmentSlugFromRootLabel(c.label);
     if (!slug || map.has(slug)) continue;
     map.set(slug, c);
@@ -53,8 +73,6 @@ export function departmentRootsBySlug(categories: ShopCategoryTreeNode[]): Map<S
   return map;
 }
 
-/** Remonte aux parents jusqu’à la racine puis renvoie le slug département si reconnu. */
-/** Slug département depuis une URL ou un chemin du type `/shop/vetements`. */
 export function departmentSlugFromShopHref(raw: string): ShopDepartmentSlug | null {
   const s = raw.trim();
   if (!s) return null;
@@ -63,12 +81,10 @@ export function departmentSlugFromShopHref(raw: string): ShopDepartmentSlug | nu
       s.startsWith("http://") || s.startsWith("https://")
         ? new URL(s).pathname
         : (s.split("?")[0]?.split("#")[0] ?? "");
-    /** Tolère `/shop/x`, `shop/x` (saisie BO sans slash initial). */
     const path = pathname.replace(/\/+$/, "").replace(/^\/+/, "");
     const m = path.match(/(?:^|\/)shop\/([^/]+)$/i);
     const rawSeg = m?.[1];
     if (!rawSeg) return null;
-    /** Même logique que les libellés catégories : « vêtements » → vetements (sinon slug non reconnu). */
     const seg = normalizeCategoryLabel(rawSeg);
     if (!seg) return null;
     return (SHOP_DEPARTMENT_SLUG_ORDER as readonly string[]).includes(seg)
@@ -83,65 +99,59 @@ export function departmentSlugForCategoryId(
   categoryId: string,
   categories: ShopCategoryTreeNode[],
 ): ShopDepartmentSlug | null {
-  const byId = new Map(categories.map((c) => [c.id, c] as const));
-  const seen = new Set<string>();
-  let id: string | null = categoryId;
-  while (id && !seen.has(id)) {
-    seen.add(id);
-    const node = byId.get(id);
-    if (!node) return null;
-    if (node.parentId == null) {
-      return departmentSlugFromRootLabel(node.label);
-    }
-    id = node.parentId;
-  }
-  return null;
+  const node = categories.find((c) => c.id === categoryId);
+  if (!node) return null;
+  return departmentSlugFromRootLabel(node.label);
 }
 
-/** IDs catégorie (racine + descendants) pour filtrer le catalogue sur un département. */
 export function collectDescendantCategoryIds(
   rootId: string,
-  categories: ShopCategoryTreeNode[],
+  _categories: ShopCategoryTreeNode[],
 ): Set<string> {
-  const byParent = new Map<string | null, string[]>();
-  for (const c of categories) {
-    const p = c.parentId;
-    const arr = byParent.get(p) ?? [];
-    arr.push(c.id);
-    byParent.set(p, arr);
+  return new Set([rootId]);
+}
+
+export function itemMatchesShopDepartmentSlug(
+  itemCategoryId: string | null | undefined,
+  slug: ShopDepartmentSlug,
+  categories: ShopCategoryTreeNode[],
+): boolean {
+  if (!itemCategoryId) return false;
+  const ids = categoryIdsForDepartmentSlug(slug, categories);
+  return ids.includes(itemCategoryId);
+}
+
+/** Ids à filtrer pour un rayon hub (`/shop/vetements` → tout sauf accessoires/chaussures/sacs). */
+export function categoryIdsForDepartmentSlug(
+  slug: ShopDepartmentSlug,
+  categories: ShopCategoryTreeNode[],
+): string[] {
+  const accessory = new Set<string>(SHOP_ACCESSORY_DEPARTMENT_SLUGS);
+  if (slug === "vetements") {
+    return categories
+      .filter((c) => {
+        const s = departmentSlugFromRootLabel(c.label);
+        return !s || !accessory.has(s);
+      })
+      .map((c) => c.id);
   }
-  const out = new Set<string>();
-  const stack = [rootId];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    out.add(cur);
-    const children = byParent.get(cur) ?? [];
-    for (const ch of children) stack.push(ch);
-  }
-  return out;
+  const root = departmentRootsBySlug(categories).get(slug);
+  return root ? [root.id] : [];
 }
 
 export type ShopDepartmentHubCard = {
   slug: ShopDepartmentSlug;
   label: string;
-  /** Racine `item_categories` pour ce département ; null si absente en base (carte CMS affichée quand même). */
   rootCategoryId: string | null;
-  /** Frame `shop_link_card` source : rendu app = même bloc que les autres grandes cartes (payload CMS). */
   linkFrame?: CmsFrameRow;
 };
 
-/**
- * Rail hub : uniquement les cartes définies par les frames CMS publiées (grande carte lien ou ref. catégorie).
- * Pas de complément automatique depuis l’arbre catégories — aligné sur le contenu édité en back-office.
- */
 export function buildShopDepartmentHubRail(
   categories: ShopCategoryTreeNode[],
   cmsCategoryRefFrames: CmsFrameRow[],
 ): ShopDepartmentHubCard[] {
   const roots = departmentRootsBySlug(categories);
-  /** Slugs déjà couverts par une grande carte lien (évite doublon avec shop_category_ref). */
   const slugUsedByLinkCard = new Set<ShopDepartmentSlug>();
-  /** Un seul shop_category_ref par slug département. */
   const seenCategoryRefSlug = new Set<ShopDepartmentSlug>();
   const out: ShopDepartmentHubCard[] = [];
 
@@ -154,20 +164,10 @@ export function buildShopDepartmentHubRail(
       const href = typeof f.payload.target_url === "string" ? f.payload.target_url.trim() : "";
       const slug = href ? departmentSlugFromShopHref(href) : null;
       if (!slug) continue;
-      /**
-       * Ne pas dédupliquer par slug entre plusieurs shop_link_card : le BO peut avoir copié la même URL
-       * par erreur, mais surtout chaque frame publiée doit produire une carte (sinon une seule image réseau).
-       * Les doublons de slug restent visibles jusqu’à correction des liens dans le CMS.
-       */
       const root = roots.get(slug);
       const titleFromPayload =
         typeof f.payload.title === "string" ? f.payload.title.trim() : "";
       slugUsedByLinkCard.add(slug);
-      /**
-       * Avant : on exigeait une racine catégorie en base (`roots.get(slug)`), sinon la frame était ignorée.
-       * Résultat : une seule carte (ex. Vêtements) si les autres départements n’existent pas comme racines.
-       * Les grandes cartes CMS portent déjà titre + lien + visuel : on les garde même sans racine.
-       */
       out.push({
         slug,
         label: titleFromPayload || root?.label || SHOP_DEPARTMENT_PAGE_TITLE[slug],
@@ -189,4 +189,3 @@ export function buildShopDepartmentHubRail(
 
   return out;
 }
-
