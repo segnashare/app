@@ -1452,7 +1452,6 @@ export function ShopCatalog({
   const openFilterModal = useCallback(() => {
     setModalFilters({ ...filters });
     setModalFilterFamily("category");
-    setModalCategoryBrowseParentId(null);
     setFilterModalOpen(true);
     setFilterDetailSheet(null);
   }, [filters]);
@@ -1460,7 +1459,6 @@ export function ShopCatalog({
   const selectModalFilterFamily = useCallback((id: ModalFilterFamily) => {
     if (id === "size" && shopSizeLayout(modalFilters.categoryId, categories).disabled) return;
     setModalFilterFamily(id);
-    setModalCategoryBrowseParentId(null);
   }, [modalFilters.categoryId, categories]);
 
   const openFilterDetailSheet = useCallback((key: MenuKey) => {
@@ -1522,7 +1520,6 @@ export function ShopCatalog({
     setFilterModalOpen(false);
     setFilterDetailSheet(null);
     setModalFilters({ ...emptyShopCatalogFilters });
-    setModalCategoryBrowseParentId(null);
     setModalFilterFamily("category");
   }, []);
 
@@ -1552,8 +1549,6 @@ export function ShopCatalog({
     }
     if (filterDetailSheet === "categoryId") {
       setFilterSheetDraft((d) => ({ ...d, categoryId: null }));
-      setCategorySheetBrowseL1(null);
-      setCategorySheetBrowseL2(null);
       return;
     }
     if (filterDetailSheet === "sizeIds") {

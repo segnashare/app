@@ -39,18 +39,18 @@ export function mapSizeFilterRows(rows: unknown): SizeFilterOption[] {
 
 export function mapCategoryFilterRows(rows: unknown): CategoryFilterOption[] {
   if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const r = row as Record<string, unknown>;
-      const id = typeof r.id === "string" ? r.id : null;
-      const label =
-        (typeof r.label === "string" && r.label.trim()) ||
-        (typeof r.name === "string" && r.name.trim()) ||
-        null;
-      if (!id || !label) return null;
-      const rawOrder = r.sort_order;
-      const sortOrder = typeof rawOrder === "number" && Number.isFinite(rawOrder) ? rawOrder : 0;
-      return { id, label, sortOrder };
-    })
-    .filter((x): x is CategoryFilterOption => x !== null);
+  const out: CategoryFilterOption[] = [];
+  for (const row of rows) {
+    const r = row as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : null;
+    const label =
+      (typeof r.label === "string" && r.label.trim()) ||
+      (typeof r.name === "string" && r.name.trim()) ||
+      null;
+    if (!id || !label) continue;
+    const rawOrder = r.sort_order;
+    const sortOrder = typeof rawOrder === "number" && Number.isFinite(rawOrder) ? rawOrder : 0;
+    out.push({ id, label, sortOrder });
+  }
+  return out;
 }
