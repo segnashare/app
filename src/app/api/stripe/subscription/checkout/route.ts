@@ -8,9 +8,14 @@ import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-custome
 import { resolveFrVat20TaxRateId } from "@/lib/stripe/fr-vat-tax-rate";
 import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
 import {
+  isAppleReviewCompCheckoutEmail,
+  resolveAppleReviewCompCouponId,
+} from "@/lib/stripe/apple-review-comp-checkout";
+import {
   normalizeFirstMonthPercentOff,
   resolveFirstMonthPercentOffCouponId,
 } from "@/lib/stripe/subscription-first-month-coupon";
+import { upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { syncStripeCustomerBillingAddressFromProfile } from "@/lib/stripe/sync-customer-billing-address-from-profile";
 import { isPhoneVerified } from "@/lib/phone/phone-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -115,8 +120,6 @@ export async function POST(request: Request) {
     }
     const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
     const firstMonthPercentOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
-    const bankHoldAmountCents =
-      planCode === "segna_x" && body?.bankHold === true ? SEGNAX_BANK_HOLD_AMOUNT_CENTS : undefined;
     const wantsPaymentSheet = body?.paymentUi === "payment_sheet" || body?.paymentUi === "native";
 
     const admin = createSupabaseAdminClient() as any;
@@ -125,6 +128,13 @@ export async function POST(request: Request) {
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
+
+    /** App Review (`review@…`) : abonnement offert au checkout, pas de SegnaX pré-attribué. */
+    const appleReviewComp = isAppleReviewCompCheckoutEmail(user.email);
+    const bankHoldAmountCents =
+      !appleReviewComp && planCode === "segna_x" && body?.bankHold === true
+        ? SEGNAX_BANK_HOLD_AMOUNT_CENTS
+        : undefined;
 
     const [{ data: memberRow }, { data: profileRow }] = await Promise.all([
       admin.from("users").select("phone").eq("id", user.id).maybeSingle(),
@@ -203,7 +213,17 @@ export async function POST(request: Request) {
     }
 
     let discountCouponId: string | undefined;
-    if (firstMonthPercentOff != null) {
+    if (appleReviewComp) {
+      try {
+        discountCouponId = await resolveAppleReviewCompCouponId(stripe);
+      } catch (error) {
+        console.error("[stripe/subscription/checkout] apple review coupon", error);
+        return NextResponse.json(
+          { message: "Impossible de préparer l’abonnement offert (review)." },
+          { status: 500 },
+        );
+      }
+    } else if (firstMonthPercentOff != null) {
       try {
         discountCouponId = await resolveFirstMonthPercentOffCouponId(stripe, firstMonthPercentOff);
       } catch (error) {
@@ -219,9 +239,10 @@ export async function POST(request: Request) {
       user_id: user.id,
       plan_code: planCode,
       ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
-      ...(firstMonthPercentOff != null
+      ...(firstMonthPercentOff != null && !appleReviewComp
         ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
         : {}),
+      ...(appleReviewComp ? { apple_review_comp: "1" } : {}),
       ...(bankHoldAmountCents != null
         ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
         : {}),
@@ -235,7 +256,10 @@ export async function POST(request: Request) {
       {
         plan_code: planCode,
         ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
-        ...(firstMonthPercentOff != null ? { first_month_percent_off: firstMonthPercentOff } : {}),
+        ...(firstMonthPercentOff != null && !appleReviewComp
+          ? { first_month_percent_off: firstMonthPercentOff }
+          : {}),
+        ...(appleReviewComp ? { apple_review_comp: true } : {}),
         ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
         checkout_ui: wantsPaymentSheet ? "payment_sheet" : "hosted_checkout",
       },
@@ -252,6 +276,50 @@ export async function POST(request: Request) {
 
       await cancelIncompleteSubscriptionsForCustomer(stripe, stripeCustomerId);
 
+      /**
+       * App Review : coupon 100 % forever → facture à 0 €.
+       * Création « normale » (pas default_incomplete) pour activer tout de suite sans carte.
+       */
+      if (appleReviewComp && discountCouponId) {
+        const subscription = await stripe.subscriptions.create({
+          customer: stripeCustomerId,
+          items: [
+            {
+              price: resolvedPriceId,
+              ...(frVatTaxRateId ? { tax_rates: [frVatTaxRateId] } : {}),
+            },
+          ],
+          ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
+          ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
+          metadata: subscriptionMetadata,
+        });
+
+        if (subscription.status === "active" || subscription.status === "trialing") {
+          try {
+            await upsertSubscriptionAndEntitlements(admin, user.id, stripeCustomerId, subscription);
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] apple review upsert", error);
+            return NextResponse.json(
+              { message: "Abonnement offert créé mais synchronisation échouée." },
+              { status: 500 },
+            );
+          }
+          await flushServerAnalytics();
+          return NextResponse.json({
+            paymentUi: "comp_activated",
+            planCode,
+            subscriptionId: subscription.id,
+          });
+        }
+        // Si Stripe exige quand même un moyen de paiement, on retombe sur la Payment Sheet ci-dessous.
+        console.warn(
+          "[stripe/subscription/checkout] apple review sub not active",
+          subscription.id,
+          subscription.status,
+        );
+        await stripe.subscriptions.cancel(subscription.id).catch(() => undefined);
+      }
+
       const subscription = await stripe.subscriptions.create({
         customer: stripeCustomerId,
         items: [
@@ -266,7 +334,7 @@ export async function POST(request: Request) {
           payment_method_types: ["card"],
         },
         ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        ...(trialPeriodDays != null && !appleReviewComp ? { trial_period_days: trialPeriodDays } : {}),
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
         metadata: subscriptionMetadata,
         expand: ["latest_invoice.confirmation_secret", "pending_setup_intent"],
@@ -301,6 +369,24 @@ export async function POST(request: Request) {
         : undefined;
 
       if (!setupIntentClientSecret && !paymentIntentClientSecret) {
+        // $0 / déjà payé : activer localement si Stripe a déjà rendu l’abo actif.
+        if (subscription.status === "active" || subscription.status === "trialing") {
+          try {
+            await upsertSubscriptionAndEntitlements(admin, user.id, stripeCustomerId, subscription);
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] zero-amount upsert", error);
+            return NextResponse.json(
+              { message: "Abonnement créé mais synchronisation échouée." },
+              { status: 500 },
+            );
+          }
+          await flushServerAnalytics();
+          return NextResponse.json({
+            paymentUi: "comp_activated",
+            planCode,
+            subscriptionId: subscription.id,
+          });
+        }
         return NextResponse.json(
           {
             message:
@@ -382,13 +468,14 @@ export async function POST(request: Request) {
         ...(bankHoldAmountCents != null
           ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
           : {}),
-        ...(firstMonthPercentOff != null
+        ...(firstMonthPercentOff != null && !appleReviewComp
           ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
           : {}),
+        ...(appleReviewComp ? { apple_review_comp: "1" } : {}),
       },
       subscription_data: {
         metadata: subscriptionMetadata,
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        ...(trialPeriodDays != null && !appleReviewComp ? { trial_period_days: trialPeriodDays } : {}),
         // Renouvellements : même TVA sur les factures suivantes.
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
       },
