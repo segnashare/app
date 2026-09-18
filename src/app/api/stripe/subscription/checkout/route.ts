@@ -119,7 +119,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
     const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
-    const firstMonthPercentOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
+    const requestedFirstMonthOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
+    /** Offre −50 % 1er mois retirée : tarif plein (les anciens clients qui envoient encore 50 sont ignorés). */
+    const firstMonthPercentOff = requestedFirstMonthOff === 50 ? undefined : requestedFirstMonthOff;
     const wantsPaymentSheet = body?.paymentUi === "payment_sheet" || body?.paymentUi === "native";
 
     const admin = createSupabaseAdminClient() as any;
