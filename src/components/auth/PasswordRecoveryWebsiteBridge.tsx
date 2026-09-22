@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { AUTH_TEASER_MODE } from "@/lib/auth/auth-teaser";
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -43,6 +44,9 @@ export function PasswordRecoveryWebsiteBridge() {
       forwardRecoverySessionToWebsite(accessFromHash, refreshFromHash);
       return;
     }
+
+    // App web fermée : ne pas ouvrir le reset in-app.
+    if (AUTH_TEASER_MODE) return;
 
     // Recovery sans hash tokens (ex. déjà échangé) → écran reset app, pas onboarding.
     if (!onAppResetPage && isRecoveryLink) {

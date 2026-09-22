@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import { AuthLandingCollage } from "@/components/auth/AuthLandingCollage";
 import { AppPageLoading } from "@/components/ui/AppPageLoading";
+import { AUTH_TEASER_MODE } from "@/lib/auth/auth-teaser";
 import type { AuthCollageFrameRow } from "@/lib/cms/fetch-auth-landing-collage";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { preloadRemoteImages } from "@/lib/ui/preload-remote-images";
@@ -15,8 +16,6 @@ import { cn } from "@/lib/utils/cn";
 import { themeClassNames } from "@/styles/theme";
 
 const montserrat = segnaMontserrat;
-
-const AUTH_TEASER_MODE = process.env.NEXT_PUBLIC_AUTH_TEASER_MODE === "true";
 const LAUNCH_AT_MS = (() => {
   const raw = process.env.NEXT_PUBLIC_LAUNCH_AT?.trim();
   if (!raw) return null;
@@ -79,7 +78,7 @@ function AuthAppStoreCta() {
             "flex h-[48px] w-full max-w-[280px] items-center justify-center rounded-full bg-zinc-950 font-bold text-white transition-opacity hover:opacity-90 md:h-[52px]",
           )}
         >
-          Télécharger sur l&apos;App Store
+          Télécharger l&apos;app iOS
         </a>
       ) : (
         <p
