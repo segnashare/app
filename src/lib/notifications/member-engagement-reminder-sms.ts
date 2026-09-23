@@ -1,37 +1,30 @@
-/** SMS rappels engagement membre (cron, gate `SEGNA_NOTIFY_SMS_ALERTS=1`). */
-
-import {
-  appendSmsAppLink,
-  memberAppHomeUrl,
-  memberAppShopUrl,
-} from "@/lib/notifications/member-app-links";
+/** Copy relances engagement (cron). Push only — plus de SMS marketing. */
 
 /** 1er rappel — compte entre J+3 et J+9, onboarding in-app ≠ `finished`. */
-export function buildOnboardingIncompleteReminderSms(): string {
-  return appendSmsAppLink(
-    "Ton onboarding n’est pas terminé. Finalise-le pour emprunter ton premier panier gratuitement !",
-    memberAppHomeUrl(),
-  );
+export function buildOnboardingIncompleteReminderPush(): string {
+  return "Ton onboarding n’est pas terminé. Finalise-le pour emprunter ton premier panier gratuitement !";
 }
 
 /** 2e rappel — compte ≥ J+10, même critère onboarding. */
-export function buildOnboardingIncompleteFollowupReminderSms(): string {
-  return appendSmsAppLink(
-    "Il te reste quelques étapes pour finir ton onboarding et emprunter ton 1er panier. On t’attend sur l’app !",
-    memberAppHomeUrl(),
-  );
+export function buildOnboardingIncompleteFollowupReminderPush(): string {
+  return "Il te reste quelques étapes pour finir ton onboarding et emprunter ton 1er panier. On t’attend sur l’app !";
 }
 
-export function buildAbandonedCartReminderSms(): string {
-  return appendSmsAppLink(
-    "Ton panier t'attend. Finalise-le et profite de l'échange gratuit.",
-    memberAppShopUrl(),
-  );
+export function buildAbandonedCartReminderPush(): string {
+  return "Ton panier t'attend. Finalise-le et profite de l'échange gratuit.";
 }
+
+/** @deprecated Conservé pour les tests / copies existantes — plus envoyé en SMS. */
+export const buildOnboardingIncompleteReminderSms = buildOnboardingIncompleteReminderPush;
+/** @deprecated Conservé pour les tests / copies existantes — plus envoyé en SMS. */
+export const buildOnboardingIncompleteFollowupReminderSms =
+  buildOnboardingIncompleteFollowupReminderPush;
+/** @deprecated Conservé pour les tests / copies existantes — plus envoyé en SMS. */
+export const buildAbandonedCartReminderSms = buildAbandonedCartReminderPush;
 
 /** Exemples statiques (validation produit / copy). */
 export const MEMBER_ENGAGEMENT_REMINDER_SMS_COPY = {
-  onboardingIncompleteFirst: buildOnboardingIncompleteReminderSms(),
-  onboardingIncompleteSecond: buildOnboardingIncompleteFollowupReminderSms(),
-  abandonedCart: buildAbandonedCartReminderSms(),
+  onboardingIncompleteFirst: buildOnboardingIncompleteReminderPush(),
+  onboardingIncompleteSecond: buildOnboardingIncompleteFollowupReminderPush(),
+  abandonedCart: buildAbandonedCartReminderPush(),
 } as const;

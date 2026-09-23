@@ -26,7 +26,10 @@ import {
   notifyCartOrderPaidAfterConfirmation,
   notifyWalletCreditsPurchased,
 } from "@/lib/notifications/checkout-notifications";
-import { notifySegnaXSubscriptionWelcomeIfApplicable } from "@/lib/notifications/subscription-notifications";
+import {
+  notifySegnaXSubscriptionWelcomeIfApplicable,
+  stripeInvoiceSubscriptionId,
+} from "@/lib/notifications/subscription-notifications";
 import { applySubscriptionCancelAtPeriodEndEffects } from "@/lib/subscription/apply-cancel-at-period-end-effects";
 import { normalizeWalletCreditKind } from "@/lib/wallet/credit-kind";
 
@@ -167,7 +170,10 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           },
         );
         try {
-          await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
+          await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription, {
+            stripe,
+            checkoutPaymentStatus: session.payment_status,
+          });
         } catch (e) {
           console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (checkout.session)", e);
         }
@@ -239,7 +245,7 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       await upsertBillingCustomer(admin, userId, stripeCustomerId, subscription.metadata ?? {});
       await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
       try {
-        await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription);
+        await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription, { stripe });
       } catch (e) {
         console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (subscription event)", e);
       }
@@ -260,7 +266,30 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       const invoice = event.data.object as Stripe.Invoice;
       const guestPurchase = await processGuestPurchaseStripeInvoiceEvent(admin, invoice, event.type);
       if (guestPurchase === "processed") return "processed";
-      return processBorrowNonRestitutionStripeInvoiceEvent(admin, invoice, event.type);
+      const borrowResult = await processBorrowNonRestitutionStripeInvoiceEvent(admin, invoice, event.type);
+      if (event.type === "invoice.paid") {
+        const subscriptionId = stripeInvoiceSubscriptionId(invoice);
+        if (subscriptionId) {
+          const stripeCustomerId =
+            typeof invoice.customer === "string" ? invoice.customer : null;
+          let userId = stripeCustomerId ? await resolveUserIdFromCustomer(admin, stripeCustomerId) : null;
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          if (!userId && subscription.metadata?.user_id) {
+            userId = subscription.metadata.user_id;
+          }
+          if (userId) {
+            try {
+              await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription, {
+                stripe,
+                invoiceAlreadyPaid: true,
+              });
+            } catch (e) {
+              console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (invoice.paid)", e);
+            }
+          }
+        }
+      }
+      return borrowResult;
     }
 
     default:

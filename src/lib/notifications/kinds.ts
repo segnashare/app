@@ -40,7 +40,7 @@
  * **Paiement Stripe litige pièce** (webhook / sync)  
  * - `item_dispute_invoice_paid` — deep link `/commande/[cartId]`
  *
- * **Engagement** (crons séparés, `SEGNA_NOTIFY_SMS_ALERTS=1`, max 2 SMS/jour Paris — emprunt prioritaire)  
+ * **Engagement** (crons séparés, push only — pas de SMS marketing)  
  * - `onboarding_incomplete_reminder` — 15h Paris (`member-onboarding-reminders`)  
  * - `onboarding_incomplete_reminder_followup` — idem  
  * - `abandoned_cart_reminder` — 18h Paris (`member-abandoned-cart-reminders`)

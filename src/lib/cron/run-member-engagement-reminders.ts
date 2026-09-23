@@ -7,11 +7,11 @@ import {
 } from "@/lib/cron/member-engagement-reminder-config";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import {
-  buildAbandonedCartReminderSms,
-  buildOnboardingIncompleteFollowupReminderSms,
-  buildOnboardingIncompleteReminderSms,
+  buildAbandonedCartReminderPush,
+  buildOnboardingIncompleteFollowupReminderPush,
+  buildOnboardingIncompleteReminderPush,
 } from "@/lib/notifications/member-engagement-reminder-sms";
-import { sendMemberSmsOnlyNotification } from "@/lib/notifications/member-outreach";
+import { sendMemberPushOnlyNotification } from "@/lib/notifications/member-outreach";
 
 export type EngagementReminderRunStats = {
   scanned: number;
@@ -48,7 +48,6 @@ async function fetchOnboardingIncompleteCandidates(
     .eq("status", "active")
     .is("deleted_at", null)
     .not("onboarding_completed_at", "is", null)
-    .not("phone", "is", null)
     .lte("created_at", opts.createdAtLte)
     .or("onboarding_process.is.null,onboarding_process.neq.finished")
     .order("created_at", { ascending: true })
@@ -84,14 +83,12 @@ async function runOnboardingIncompleteReminders(
     scanned++;
     if (!row.id || isOnboardingInAppFinished(row.onboarding_process)) continue;
     eligible++;
-    await sendMemberSmsOnlyNotification(admin, {
+    await sendMemberPushOnlyNotification(admin, {
       userId: row.id,
       kind: NotificationKind.onboardingIncompleteReminder,
       idempotencyKey: `eng:onboarding_incomplete:1:${row.id}`,
       metadata: { onboarding_process: row.onboarding_process ?? null, phase: "first" },
-      smsBody: buildOnboardingIncompleteReminderSms(),
-      applyCronSmsDailyCap: true,
-      cronSmsNowMs: nowMs,
+      pushBody: buildOnboardingIncompleteReminderPush(),
     });
     notifyCalls++;
   }
@@ -122,9 +119,8 @@ async function runOnboardingIncompleteFollowupReminders(
       kind: NotificationKind.onboardingIncompleteReminderFollowup,
       idempotencyKey: `eng:onboarding_incomplete:2:${row.id}`,
       metadata: { onboarding_process: row.onboarding_process ?? null, phase: "followup" },
-      smsBody: buildOnboardingIncompleteFollowupReminderSms(),
-      applyCronSmsDailyCap: true,
-      cronSmsNowMs: nowMs,
+      smsBody: buildOnboardingIncompleteFollowupReminderPush(),
+      pushBody: buildOnboardingIncompleteFollowupReminderPush(),
     });
     notifyCalls++;
   }
@@ -180,7 +176,6 @@ export async function runAbandonedCartReminders(
       .eq("onboarding_mode", "real")
       .eq("status", "active")
       .is("deleted_at", null)
-      .not("phone", "is", null)
       .maybeSingle();
     if (uErr) throw new Error(uErr.message);
     if (!userRow?.id) continue;
@@ -200,14 +195,12 @@ export async function runAbandonedCartReminders(
     if (!hasBorrowable) continue;
 
     eligible++;
-    await sendMemberSmsOnlyNotification(admin, {
+    await sendMemberPushOnlyNotification(admin, {
       userId,
       kind: NotificationKind.abandonedCartReminder,
       idempotencyKey: `eng:abandoned_cart:${cartId}`,
       metadata: { cart_id: cartId, cart_created_at: (cart as { created_at?: string }).created_at ?? null },
-      smsBody: buildAbandonedCartReminderSms(),
-      applyCronSmsDailyCap: true,
-      cronSmsNowMs: nowMs,
+      pushBody: buildAbandonedCartReminderPush(),
     });
     notifyCalls++;
   }
