@@ -21,6 +21,8 @@ const PUBLIC_PREFIXES = [
   "/auth/login",
   "/auth/forgot-password",
   "/auth/reset-password",
+  "/auth/mobile-password-reset",
+  "/auth/callback",
   "/auth/sign-up/email",
   "/auth/sign-up/verify",
   "/auth/emprunt-suspendu",

@@ -20,5 +20,8 @@ export function isAuthTeaserAllowedPath(pathname: string) {
   if (path === AUTH_TEASER_LANDING_PATH) return true;
   if (path === "/api" || path.startsWith("/api/")) return true;
   if (path.startsWith("/.well-known")) return true;
+  if (path === "/auth/callback") return true;
+  if (path === "/auth/mobile-password-reset") return true;
+  if (path === "/auth/reset-password") return true;
   return false;
 }

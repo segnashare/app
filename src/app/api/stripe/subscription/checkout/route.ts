@@ -6,7 +6,6 @@ import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-se
 import { getStripeConfig } from "@/lib/social/stripe";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { resolveFrVat20TaxRateId } from "@/lib/stripe/fr-vat-tax-rate";
-import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
 import {
   isAppleReviewCompCheckoutEmail,
   resolveAppleReviewCompCouponId,
@@ -107,8 +106,6 @@ export async function POST(request: Request) {
       /** Pack 3 mois / 80 € (2 mois achetés + 1 offert). Pas un essai Stripe. */
       billingTerm?: unknown;
       firstMonthPercentOff?: unknown;
-      /** Empreinte bancaire SegnaX (100 €) après validation carte. */
-      bankHold?: unknown;
       /** Mobile : Payment Sheet in-app (pas d’URL Checkout). */
       paymentUi?: unknown;
     } | null;
@@ -131,10 +128,6 @@ export async function POST(request: Request) {
 
     /** App Review (`review@…`) : abonnement offert au checkout, pas de SegnaX pré-attribué. */
     const appleReviewComp = isAppleReviewCompCheckoutEmail(user.email);
-    const bankHoldAmountCents =
-      !appleReviewComp && planCode === "segna_x" && body?.bankHold === true
-        ? SEGNAX_BANK_HOLD_AMOUNT_CENTS
-        : undefined;
 
     const [{ data: memberRow }, { data: profileRow }] = await Promise.all([
       admin.from("users").select("phone").eq("id", user.id).maybeSingle(),
@@ -264,9 +257,6 @@ export async function POST(request: Request) {
         ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
         : {}),
       ...(appleReviewComp ? { apple_review_comp: "1" } : {}),
-      ...(bankHoldAmountCents != null
-        ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
-        : {}),
     };
 
     const frVatTaxRateId = resolveFrVat20TaxRateId();
@@ -281,7 +271,6 @@ export async function POST(request: Request) {
           ? { first_month_percent_off: firstMonthPercentOff }
           : {}),
         ...(appleReviewComp ? { apple_review_comp: true } : {}),
-        ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
         checkout_ui: wantsPaymentSheet ? "payment_sheet" : "hosted_checkout",
       },
     );
@@ -486,9 +475,6 @@ export async function POST(request: Request) {
         user_id: user.id,
         plan_code: planCode,
         billing_term: billingTerm,
-        ...(bankHoldAmountCents != null
-          ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
-          : {}),
         ...(firstMonthPercentOff != null && !appleReviewComp
           ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
           : {}),

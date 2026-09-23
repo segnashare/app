@@ -51,6 +51,7 @@ import { exchangeOrderSuccessUrl, orderCheckoutEconomicsDirect, trackOrderConfir
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
+import { createRentalDepositHoldAfterCartConfirm } from "@/lib/stripe/rental-deposit-hold";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { stripeFrVat20TaxParams } from "@/lib/stripe/fr-vat-tax-rate";
@@ -898,6 +899,18 @@ export async function POST(request: Request) {
         });
       } catch (e) {
         console.error("[stripe/cart/checkout] notifyCartOrderPaidAfterConfirmation", e);
+      }
+
+      try {
+        await createRentalDepositHoldAfterCartConfirm({
+          stripe,
+          admin,
+          userId,
+          cartId: activeCart.cartId,
+          purchaseMode,
+        });
+      } catch (e) {
+        console.error("[stripe/cart/checkout] rental deposit hold", e);
       }
 
       trackOrderConfirmedServer(userId, {

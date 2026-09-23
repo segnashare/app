@@ -28,7 +28,8 @@ function forwardRecoverySessionToWebsite(accessToken: string, refreshToken: stri
 export function PasswordRecoveryWebsiteBridge() {
   useEffect(() => {
     const path = window.location.pathname;
-    const onAppResetPage = path.startsWith("/auth/reset-password");
+    const onAppResetPage =
+      path.startsWith("/auth/reset-password") || path.startsWith("/auth/mobile-password-reset");
 
     const hash = window.location.hash.startsWith("#")
       ? window.location.hash.slice(1)
@@ -58,6 +59,7 @@ export function PasswordRecoveryWebsiteBridge() {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event !== "PASSWORD_RECOVERY") return;
       if (window.location.pathname.startsWith("/auth/reset-password")) return;
+      if (window.location.pathname.startsWith("/auth/mobile-password-reset")) return;
       if (session?.access_token && session.refresh_token) {
         forwardRecoverySessionToWebsite(session.access_token, session.refresh_token);
         return;

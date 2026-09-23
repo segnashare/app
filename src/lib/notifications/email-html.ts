@@ -139,20 +139,37 @@ export function walletCreditsEmailBlocks(prenom: string, creditsAmount: number):
   return { text, html };
 }
 
-export function segnaXWelcomeEmailBlocks(prenom: string): { text: string; html: string } {
+export function segnaXWelcomeEmailBlocks(
+  prenom: string,
+  opts?: { invoiceAttached?: boolean; hostedInvoiceUrl?: string | null },
+): { text: string; html: string } {
   const p = escapeHtml(prenom);
+  const hosted = opts?.hostedInvoiceUrl?.trim() || "";
+  const hostedEsc = hosted ? escapeHtml(hosted) : "";
+  const invoiceText = opts?.invoiceAttached
+    ? "Ta facture Stripe est jointe à cet e-mail au format PDF."
+    : hosted
+      ? `Retrouve ta facture Stripe ici : ${hosted}`
+      : null;
+  const invoiceHtml = opts?.invoiceAttached
+    ? `<p style="margin:0 0 16px;">Ta <strong>facture Stripe</strong> est jointe à cet e-mail au format PDF.</p>`
+    : hostedEsc
+      ? `<p style="margin:0 0 16px;">Retrouve ta <strong>facture Stripe</strong> ici : <a href="${hostedEsc}" style="color:#18181b;">ouvrir la facture</a>.</p>`
+      : "";
   const text =
     `${prenom},\n\n` +
     `Bienvenue dans Segna X : tu bénéficies désormais de l’offre membre la plus complète (avantages, plafonds et accompagnement adaptés).\n\n` +
+    (invoiceText ? `${invoiceText}\n\n` : "") +
     `Retrouve les détails de ton abonnement dans l’app (profil / offre).\n\n` +
     `L’équipe Segna`;
   const bodyHtml = `
     <p style="margin:0 0 16px;">Bonjour ${p},</p>
     <p style="margin:0 0 16px;">Bienvenue dans <strong>Segna&nbsp;X</strong> : tu bénéficies désormais de notre offre membre la plus complète.</p>
+    ${invoiceHtml}
     <p style="margin:0 0 16px;">Retrouve le détail de ton abonnement et tes avantages dans l’application (rubrique profil / offre).</p>
     <p style="margin:0;">À très vite,<br /><span style="font-style:italic;">L’équipe Segna</span></p>`;
   const html = segnaTransactionalEmailShell({
-    preheader: "Bienvenue dans Segna X",
+    preheader: opts?.invoiceAttached ? "Bienvenue dans Segna X — facture jointe" : "Bienvenue dans Segna X",
     title: "Bienvenue dans Segna X",
     bodyHtml,
   });
