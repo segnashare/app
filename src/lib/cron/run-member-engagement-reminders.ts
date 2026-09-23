@@ -114,12 +114,11 @@ async function runOnboardingIncompleteFollowupReminders(
     scanned++;
     if (!row.id || isOnboardingInAppFinished(row.onboarding_process)) continue;
     eligible++;
-    await sendMemberSmsOnlyNotification(admin, {
+    await sendMemberPushOnlyNotification(admin, {
       userId: row.id,
       kind: NotificationKind.onboardingIncompleteReminderFollowup,
       idempotencyKey: `eng:onboarding_incomplete:2:${row.id}`,
       metadata: { onboarding_process: row.onboarding_process ?? null, phase: "followup" },
-      smsBody: buildOnboardingIncompleteFollowupReminderPush(),
       pushBody: buildOnboardingIncompleteFollowupReminderPush(),
     });
     notifyCalls++;
