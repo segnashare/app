@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { declareSubscriptionActivatedToN8n } from "@/lib/notifications/notify-ops-activity-n8n";
 import { getStripeConfig } from "@/lib/social/stripe";
+import { createSegnaXSubscriptionBankHoldIfNeeded } from "@/lib/stripe/segnax-subscription-bank-hold";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 
 function isPlanCode(value: string | null | undefined): value is "guest" | "segna_plus" | "segna_x" {
@@ -73,6 +74,19 @@ async function finalizeConfirmedSubscription(params: {
     return { ok: false, reason: "subscription_upsert_failed", status: 500, detail: message };
   }
 
+  try {
+    await createSegnaXSubscriptionBankHoldIfNeeded({
+      stripe,
+      session: session ?? null,
+      subscription,
+      userId,
+      customerId: stripeCustomerId,
+    });
+  } catch (e) {
+    // L’abonnement est déjà sync : ne pas faire échouer la confirmation pour l’empreinte.
+    console.error("[stripe] subscription bank hold", e);
+  }
+
   const resolvedPlan = resolvePlanCode({
     subscription,
     sessionPlan: typeof session?.metadata?.plan_code === "string" ? session.metadata.plan_code : null,
@@ -100,7 +114,7 @@ async function finalizeConfirmedSubscription(params: {
 }
 
 /**
- * Synchronise un Checkout Session abonnement Stripe → entitlements.
+ * Synchronise un Checkout Session abonnement Stripe → entitlements (+ empreinte si demandée).
  */
 export async function confirmSubscriptionCheckoutSession(params: {
   admin: any;
