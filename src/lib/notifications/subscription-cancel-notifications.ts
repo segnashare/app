@@ -124,12 +124,12 @@ function cancelImmediateBlocks(prenom: string): { text: string; html: string; su
   const subject = "Ton abonnement Segna est résilié";
   const text =
     `${prenom},\n\n` +
-    `Ton abonnement a été résilié immédiatement. Tes avantages membre s’arrêtent aujourd’hui et ton compte repasse en Guest.\n\n` +
+    `Ton abonnement a été résilié immédiatement. Tes avantages membre s’arrêtent aujourd’hui, tes crédits sont remis à zéro et ton compte repasse en Guest.\n\n` +
     `L’équipe Segna`;
   const bodyHtml = `
     <p style="margin:0 0 16px;">Bonjour ${p},</p>
     <p style="margin:0 0 16px;">Ton abonnement a été <strong>résilié immédiatement</strong>.</p>
-    <p style="margin:0 0 16px;">Tes avantages membre s’arrêtent aujourd’hui et ton compte repasse en <strong>Guest</strong>.</p>
+    <p style="margin:0 0 16px;">Tes avantages membre s’arrêtent aujourd’hui, tes crédits sont remis à zéro et ton compte repasse en <strong>Guest</strong>.</p>
     <p style="margin:0;">À bientôt,<br /><span style="font-style:italic;">L’équipe Segna</span></p>`;
   const html = segnaTransactionalEmailShell({
     preheader: "Résiliation immédiate — accès arrêté",

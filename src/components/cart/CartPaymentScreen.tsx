@@ -10,7 +10,9 @@ import type { CartLineRowData } from "@/lib/cart/cart-line-row-data";
 import { SendcloudRelayPointCard } from "@/components/cart/SendcloudRelayPointCard";
 import { SendcloudServicePointPicker } from "@/components/cart/SendcloudServicePointPicker";
 import { CommandeOrderLineRows } from "@/components/commande/CommandeOrderLineRows";
+import { SegnaAppBottomSheet, SegnaDialogSheetHandle } from "@/components/ui/SegnaAppBottomSheet";
 import { segnaDialogBodyClass, segnaDialogTitleClass, SEGNA_DIALOG_SHEET_CLASS } from "@/components/ui/SegnaAppDialog";
+import type { RentalDepositPreview } from "@/lib/stripe/rental-deposit-hold";
 import {
   readCheckoutCoursierSlotKey,
   readCheckoutDeliveryAddress,
@@ -251,6 +253,9 @@ function CartPaymentScreenContent({
   const [instructionsDraft, setInstructionsDraft] = useState("");
   const [instructionsSaved, setInstructionsSaved] = useState("");
   const [feesModalOpen, setFeesModalOpen] = useState(false);
+  const [depositSheetOpen, setDepositSheetOpen] = useState(false);
+  const [depositPreview, setDepositPreview] = useState<RentalDepositPreview | null>(null);
+  const depositAcknowledgedRef = useRef(false);
   const [rentalTermsAccepted, setRentalTermsAccepted] = useState(false);
   const [remainingMs, setRemainingMs] = useState(TIMER_MS);
   const [stripeCheckoutBusy, setStripeCheckoutBusy] = useState(false);
@@ -1207,6 +1212,27 @@ function CartPaymentScreenContent({
       : deliveryAddress != null && carrierPickReady;
   const deliveryReady = outboundDeliveryReady;
 
+  useEffect(() => {
+    depositAcknowledgedRef.current = false;
+    if (purchaseOutboundOnly) {
+      setDepositPreview(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/stripe/cart/deposit-preview");
+        const json = (await res.json().catch(() => null)) as RentalDepositPreview | null;
+        if (!cancelled && res.ok && json) setDepositPreview(json);
+      } catch {
+        if (!cancelled) setDepositPreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [purchaseOutboundOnly]);
+
   const startStripeCheckout = useCallback(async () => {
     setStripeCheckoutError(null);
     if (!outboundDeliveryReady) {
@@ -1250,6 +1276,18 @@ function CartPaymentScreenContent({
     }
     if (deliveryChannel === "home" && homeSpeed === "standard" && !homeSendcloudPlanSelected) {
       setStripeCheckoutError("Choisis une offre de livraison à domicile.");
+      return;
+    }
+    const currentCartValueCents = initialLines.reduce(
+      (sum, line) => sum + Math.max(0, Math.trunc(line.pricePoints)) * 100,
+      0,
+    );
+    const depositRequired =
+      !purchaseOutboundOnly &&
+      (depositPreview?.required === true ||
+        (depositPreview == null && currentCartValueCents > 50_000));
+    if (depositRequired && !depositAcknowledgedRef.current) {
+      setDepositSheetOpen(true);
       return;
     }
     const sendcloudOutboundSelection =
@@ -1321,6 +1359,9 @@ function CartPaymentScreenContent({
     purchaseOutboundOnly,
     guestCashRental,
     isPurchaseMode,
+    purchaseOutboundOnly,
+    depositPreview,
+    initialLines,
   ]);
 
   const searchRelayPoints = useCallback(async () => {
@@ -2230,6 +2271,39 @@ function CartPaymentScreenContent({
           </div>
         </div>
       ) : null}
+
+      <SegnaAppBottomSheet
+        open={depositSheetOpen}
+        onClose={() => setDepositSheetOpen(false)}
+        labelledBy="rental-deposit-title"
+      >
+        <SegnaDialogSheetHandle />
+        <h2 id="rental-deposit-title" className={segnaDialogTitleClass()}>
+          Caution de 100 €
+        </h2>
+        <div className={cn(segnaDialogBodyClass(), "mt-3 space-y-3")}>
+          <p>Pour les locations de plus de 500 €, une caution de 100 € est demandée.</p>
+          <p>
+            Ce n’est pas un prélèvement : Segna pose une préautorisation sur ta carte. Le montant est
+            temporairement réservé, pas encaissé.
+          </p>
+          <p>
+            Elle n’est utilisée qu’en cas de gros défaut (non-restitution ou gros incident). Sinon, la
+            préautorisation est simplement levée.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            depositAcknowledgedRef.current = true;
+            setDepositSheetOpen(false);
+            void startStripeCheckout();
+          }}
+          className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-zinc-950 text-[15px] font-bold text-white shadow-sm transition hover:bg-zinc-900"
+        >
+          Compris, continuer
+        </button>
+      </SegnaAppBottomSheet>
     </div>
   );
 }

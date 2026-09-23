@@ -19,12 +19,13 @@ import { processBorrowNonRestitutionStripeInvoiceEvent } from "@/lib/stripe/borr
 import { processGuestPurchaseStripeInvoiceEvent } from "@/lib/stripe/guest-purchase-invoice-webhook";
 import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { persistStripeCustomerDefaultPaymentMethodFromCheckoutSession } from "@/lib/stripe/persist-customer-default-payment-method";
-import { createSegnaXSubscriptionBankHoldIfNeeded } from "@/lib/stripe/segnax-subscription-bank-hold";
+import { createRentalDepositHoldAfterCartConfirm } from "@/lib/stripe/rental-deposit-hold";
 import {
   getMappedPlanCodeFromSubscription,
   upsertBillingCustomer,
   upsertSubscriptionAndEntitlements,
 } from "@/lib/stripe/subscription-state";
+import { forfeitWalletOnImmediateSubscriptionCancel } from "@/lib/wallet/forfeit-wallet-on-immediate-subscription-cancel";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   notifyCartOrderPaidAfterConfirmation,
@@ -124,6 +125,17 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           } catch (e) {
             console.error("[stripe/webhook] notifyCartOrderPaidAfterConfirmation", e);
           }
+          try {
+            await createRentalDepositHoldAfterCartConfirm({
+              stripe,
+              admin,
+              userId,
+              cartId,
+              purchaseMode: session.metadata?.purchase_mode === "true",
+            });
+          } catch (e) {
+            console.error("[stripe/webhook] rental deposit hold", e);
+          }
           if (!confirmResult.alreadyConfirmed) {
             trackOrderConfirmedServer(userId, {
               cart_id: cartId,
@@ -155,17 +167,6 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
       if (typeof session.subscription === "string") {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);
         await upsertSubscriptionAndEntitlements(admin, userId, stripeCustomerId, subscription);
-        try {
-          await createSegnaXSubscriptionBankHoldIfNeeded({
-            stripe,
-            session,
-            subscription,
-            userId,
-            customerId: stripeCustomerId,
-          });
-        } catch (e) {
-          console.error("[stripe/webhook] segnax bank hold", e);
-        }
         const planCode =
           (typeof session.metadata?.plan_code === "string" && session.metadata.plan_code) ||
           (typeof subscription.metadata?.plan_code === "string" && subscription.metadata.plan_code) ||
@@ -280,6 +281,13 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           console.error("[stripe/webhook] applySubscriptionCancelAtPeriodEndEffects", e);
         }
       } else if (isCanceledNow) {
+        await forfeitWalletOnImmediateSubscriptionCancel(admin, {
+          userId,
+          subscriptionId: subscription.id,
+          source: event.type,
+          skipIfScheduled: true,
+          periodEndIso: periodEndIsoFromStripeSubscription(subscription),
+        });
         try {
           await notifySubscriptionCancelImmediate(admin, {
             userId,
@@ -383,7 +391,15 @@ export async function POST(request: Request) {
     }
 
     if (eventInsertError?.code === "23505") {
-      return NextResponse.json({ received: true, duplicate: true });
+      const { data: existing } = await admin
+        .from("billing_webhook_events")
+        .select("status")
+        .eq("provider_event_id", event.id)
+        .maybeSingle();
+      const existingStatus = String(existing?.status ?? "");
+      if (existingStatus === "processed" || existingStatus === "ignored") {
+        return NextResponse.json({ received: true, duplicate: true });
+      }
     }
 
     try {

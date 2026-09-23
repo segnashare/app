@@ -13,7 +13,9 @@ import {
   upsertSubscriptionAndEntitlements,
 } from "@/lib/stripe/subscription-state";
 import { applySubscriptionCancelAtPeriodEndEffects } from "@/lib/subscription/apply-cancel-at-period-end-effects";
+import { refundLatestSubscriptionInvoiceIfNeeded } from "@/lib/stripe/refund-subscription-latest-invoice";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { forfeitWalletOnImmediateSubscriptionCancel } from "@/lib/wallet/forfeit-wallet-on-immediate-subscription-cancel";
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -76,6 +78,11 @@ async function notifyBackofficeCancelSideEffects(
     return;
   }
 
+  await forfeitWalletOnImmediateSubscriptionCancel(admin, {
+    userId: input.userId,
+    subscriptionId: input.subscriptionId,
+    source: "backoffice",
+  });
   try {
     await notifySubscriptionCancelImmediate(admin, {
       userId: input.userId,
@@ -98,6 +105,54 @@ async function notifyBackofficeCancelSideEffects(
   }
 }
 
+function forfeitFailedResponse(error: unknown) {
+  const detail = error instanceof Error ? error.message : "wallet_forfeit_failed";
+  console.error("[internal/backoffice-cancel-subscription] wallet forfeit FAILED", detail);
+  return NextResponse.json(
+    {
+      ok: false as const,
+      error: "wallet_forfeit_failed",
+      detail,
+      canceled: true as const,
+    },
+    { status: 500 },
+  );
+}
+
+function refundFailedResponse(detail: string) {
+  return NextResponse.json(
+    {
+      ok: false as const,
+      error: "refund_failed",
+      detail,
+      canceled: true as const,
+      forfeited: true as const,
+    },
+    { status: 502 },
+  );
+}
+
+async function runCancelSideEffects(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  input: Parameters<typeof notifyBackofficeCancelSideEffects>[1],
+): Promise<NextResponse | null> {
+  try {
+    await notifyBackofficeCancelSideEffects(admin, input);
+    return null;
+  } catch (error) {
+    return forfeitFailedResponse(error);
+  }
+}
+
+async function refundCanceledSubscription(
+  stripe: Stripe,
+  subscription: Stripe.Subscription,
+): Promise<{ refunded: boolean; refundId?: string; error?: string }> {
+  const result = await refundLatestSubscriptionInvoiceIfNeeded({ stripe, subscription });
+  if (!result.ok) return { refunded: false, error: result.error };
+  return { refunded: result.didRefund, refundId: result.refundId };
+}
+
 function internalBackofficeSecrets(): string[] {
   const dedicated = process.env.SEGNA_INTERNAL_BACKOFFICE_CART_CANCEL_SECRET?.trim() ?? "";
   const ship = process.env.SEGNA_INTERNAL_SHIPMENT_LIFECYCLE_SECRET?.trim() ?? "";
@@ -109,7 +164,7 @@ function internalBackofficeSecrets(): string[] {
  * Annulation d’abonnement depuis le back-office.
  *
  * Auth : mêmes secrets que `backoffice-cancel-cart-order-pending`.
- * Body : `{ user_id, mode?: "at_period_end" | "immediate", actor_user_id? }`
+ * Body : `{ user_id, mode?: "at_period_end" | "immediate", refund?: boolean, actor_user_id? }`
  */
 export async function POST(request: Request) {
   const candidates = internalBackofficeSecrets();
@@ -123,7 +178,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 
-  let body: { user_id?: unknown; mode?: unknown; actor_user_id?: unknown };
+  let body: { user_id?: unknown; mode?: unknown; refund?: unknown; actor_user_id?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -137,6 +192,7 @@ export async function POST(request: Request) {
 
   const modeRaw = typeof body.mode === "string" ? body.mode.trim() : "at_period_end";
   const mode = modeRaw === "immediate" ? "immediate" : "at_period_end";
+  const refund = mode === "immediate" && body.refund === true;
 
   const admin = createSupabaseAdminClient() as any;
 
@@ -161,6 +217,36 @@ export async function POST(request: Request) {
 
   const status = String(subRow?.status ?? "").toLowerCase();
   if (status === "canceled" || status === "incomplete_expired") {
+    if (mode === "immediate") {
+      const fail = await runCancelSideEffects(admin, {
+        userId,
+        subscriptionId,
+        mode,
+        periodEndIso: null,
+        planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+        subscription: null,
+      });
+      if (fail) return fail;
+      if (refund) {
+        try {
+          const { secretKey } = getStripeConfig();
+          const stripe = new Stripe(secretKey);
+          const existing = await stripe.subscriptions.retrieve(subscriptionId);
+          const refundResult = await refundCanceledSubscription(stripe, existing);
+          if (refundResult.error) return refundFailedResponse(refundResult.error);
+          return NextResponse.json({
+            ok: true as const,
+            skipped: true as const,
+            reason: "already_canceled",
+            refunded: refundResult.refunded,
+            refund_id: refundResult.refundId ?? null,
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "refund_failed";
+          return refundFailedResponse(detail);
+        }
+      }
+    }
     return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_canceled" });
   }
 
@@ -201,7 +287,7 @@ export async function POST(request: Request) {
 
         const localMissingResponse = async (customerId: string) => {
           await markSubscriptionCanceledLocally(admin, userId, customerId, subscriptionId);
-          await notifyBackofficeCancelSideEffects(admin, {
+          const fail = await runCancelSideEffects(admin, {
             userId,
             subscriptionId,
             mode,
@@ -209,6 +295,7 @@ export async function POST(request: Request) {
             planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
             subscription: null,
           });
+          if (fail) return fail;
           return NextResponse.json({
             ok: true as const,
             mode,
@@ -216,6 +303,7 @@ export async function POST(request: Request) {
             cancel_at_period_end: false,
             plan_code: "guest",
             synced_from: "local_missing" as const,
+            refunded: false,
           });
         };
 
@@ -259,7 +347,17 @@ export async function POST(request: Request) {
 
     await upsertSubscriptionAndEntitlements(admin, userId, customerId, subscription);
 
-    await notifyBackofficeCancelSideEffects(admin, {
+    let refunded = false;
+    let refundId: string | undefined;
+    let refundError: string | undefined;
+    if (refund) {
+      const refundResult = await refundCanceledSubscription(stripe, subscription);
+      refunded = refundResult.refunded;
+      refundId = refundResult.refundId;
+      refundError = refundResult.error;
+    }
+
+    const fail = await runCancelSideEffects(admin, {
       userId,
       subscriptionId: subscription.id,
       mode,
@@ -269,6 +367,8 @@ export async function POST(request: Request) {
         (await getMappedPlanCodeFromSubscription(admin, subscription)),
       subscription,
     });
+    if (fail) return fail;
+    if (refundError) return refundFailedResponse(refundError);
 
     return NextResponse.json({
       ok: true as const,
@@ -277,11 +377,13 @@ export async function POST(request: Request) {
       cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
       plan_code: subRow?.plan_code ?? null,
       synced_from: syncedFrom,
+      refunded,
+      refund_id: refundId ?? null,
     });
   } catch (error) {
     if (isStripeResourceMissing(error)) {
       await markSubscriptionCanceledLocally(admin, userId, customerIdFromDb, subscriptionId);
-      await notifyBackofficeCancelSideEffects(admin, {
+      const fail = await runCancelSideEffects(admin, {
         userId,
         subscriptionId,
         mode,
@@ -289,6 +391,7 @@ export async function POST(request: Request) {
         planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
         subscription: null,
       });
+      if (fail) return fail;
       return NextResponse.json({
         ok: true as const,
         mode,
@@ -296,6 +399,7 @@ export async function POST(request: Request) {
         cancel_at_period_end: false,
         plan_code: "guest",
         synced_from: "local_missing" as const,
+        refunded: false,
       });
     }
     const message = error instanceof Error ? error.message : "stripe_cancel_failed";
