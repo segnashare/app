@@ -118,3 +118,98 @@ export async function notifySubscriptionCancelScheduled(
     console.error("[notifications] subscription_cancel_scheduled", e);
   }
 }
+
+function cancelImmediateBlocks(prenom: string): { text: string; html: string; subject: string } {
+  const p = escapeHtml(prenom);
+  const subject = "Ton abonnement Segna est résilié";
+  const text =
+    `${prenom},\n\n` +
+    `Ton abonnement a été résilié immédiatement. Tes avantages membre s’arrêtent aujourd’hui et ton compte repasse en Guest.\n\n` +
+    `L’équipe Segna`;
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Bonjour ${p},</p>
+    <p style="margin:0 0 16px;">Ton abonnement a été <strong>résilié immédiatement</strong>.</p>
+    <p style="margin:0 0 16px;">Tes avantages membre s’arrêtent aujourd’hui et ton compte repasse en <strong>Guest</strong>.</p>
+    <p style="margin:0;">À bientôt,<br /><span style="font-style:italic;">L’équipe Segna</span></p>`;
+  const html = segnaTransactionalEmailShell({
+    preheader: "Résiliation immédiate — accès arrêté",
+    title: subject,
+    bodyHtml,
+  });
+  return { text, html, subject };
+}
+
+/**
+ * Notif après résiliation immédiate (BO / portail Stripe / webhook deleted).
+ * Ignorée si une résiliation fin de période a déjà été notifiée pour le même abo.
+ */
+export async function notifySubscriptionCancelImmediate(
+  admin: SupabaseClient,
+  input: {
+    userId: string;
+    subscriptionId: string;
+  },
+): Promise<void> {
+  const { data: alreadyScheduled } = await admin
+    .from("notification_send_log")
+    .select("idempotency_key")
+    .eq("idempotency_key", `txn:subscription_cancel_scheduled:${input.subscriptionId}`)
+    .maybeSingle();
+  if (alreadyScheduled) return;
+
+  const idempotencyKey = `txn:subscription_cancel_immediate:${input.subscriptionId}`;
+  const claimed = await claimNotificationSend(admin, {
+    idempotencyKey,
+    kind: NotificationKind.subscriptionCancelImmediate,
+    userId: input.userId,
+    metadata: {
+      stripe_subscription_id: input.subscriptionId,
+      mode: "immediate",
+    },
+  });
+  if (!claimed) return;
+
+  const { data: user } = await admin
+    .from("users")
+    .select("email, first_name")
+    .eq("id", input.userId)
+    .maybeSingle();
+
+  const prenom = firstNameOrBonjour(user?.first_name ?? null);
+  const { text, html, subject } = cancelImmediateBlocks(prenom);
+
+  let delivery: NotificationDeliveryChannels | null = null;
+  try {
+    const email = typeof user?.email === "string" ? user.email.trim() : "";
+    if (email) {
+      const sent = await sendTransactionalEmail({
+        to: email,
+        subject,
+        text,
+        html,
+        idempotencyKey,
+      });
+      if (sent) {
+        delivery = mergeDeliveryChannels(delivery, "email");
+      }
+    }
+
+    const pushOk = await sendExpoPushToUser(admin, input.userId, {
+      title: "Abonnement résilié",
+      body: "Tes avantages membre s’arrêtent aujourd’hui.",
+      data: { href: "/exchange", kind: NotificationKind.subscriptionCancelImmediate },
+    });
+    if (pushOk) {
+      delivery = mergeDeliveryChannels(delivery, "push");
+    }
+
+    if (!delivery || delivery === "none") {
+      await releaseNotificationSend(admin, idempotencyKey);
+      return;
+    }
+    await setNotificationDeliveryChannels(admin, idempotencyKey, delivery);
+  } catch (e) {
+    await releaseNotificationSend(admin, idempotencyKey);
+    console.error("[notifications] subscription_cancel_immediate", e);
+  }
+}

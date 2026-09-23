@@ -1,7 +1,7 @@
 /**
  * Identifiants stables pour `notification_send_log.kind` et le suivi produit.
  *
- * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; SMS « Segna is cooking » transactionnel ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_rental_buyout` (achat pièce(s) en location), `cart_order_n8n_declared` (workflow n8n activité : commande confirmée), `user_registered_n8n_declared` / `subscription_activated_n8n_declared` / `subscription_cancel_n8n_declared` (même webhook Discord), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome`, `subscription_cancel_scheduled` (annulation fin de période)
+ * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; SMS « Segna is cooking » transactionnel ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_rental_buyout` (achat pièce(s) en location), `cart_order_n8n_declared` (workflow n8n activité : commande confirmée), `user_registered_n8n_declared` / `subscription_activated_n8n_declared` / `subscription_cancel_n8n_declared` (même webhook Discord), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome` (e-mail + facture Stripe PDF), `subscription_cancel_scheduled` (résiliation fin de période), `subscription_cancel_immediate` (résiliation immédiate)
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
  * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail (détail suivi) + SMS/push phrase courte  
@@ -64,6 +64,8 @@ export const NotificationKind = {
   subscriptionSegnaXWelcome: "subscription_segna_x_welcome",
   /** Annulation programmée fin de période (membre / webhook). */
   subscriptionCancelScheduled: "subscription_cancel_scheduled",
+  /** Résiliation immédiate (BO / Stripe) — accès arrêté tout de suite. */
+  subscriptionCancelImmediate: "subscription_cancel_immediate",
   orderOutboundReadyToShip: "order_outbound_ready_to_ship",
   orderOutboundTransitPartner: "order_outbound_transit_partner",
   orderOutboundRelayPickupReady: "order_outbound_relay_pickup_ready",

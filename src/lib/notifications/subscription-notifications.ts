@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
+import StripeLib from "stripe";
 
 import { segnaXWelcomeEmailBlocks } from "@/lib/notifications/email-html";
 import { claimNotificationSend, releaseNotificationSend, setNotificationDeliveryChannels } from "@/lib/notifications/idempotency";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { sendTransactionalEmail } from "@/lib/notifications/resend-send";
+import type { TransactionalEmailAttachment } from "@/lib/notifications/resend-send";
+import { getStripeConfig } from "@/lib/social/stripe";
+import { fetchStripeInvoicePdfBuffer } from "@/lib/stripe/fetch-stripe-invoice-pdf";
 import { getMappedPlanCodeFromSubscription } from "@/lib/stripe/subscription-state";
 
 async function loadUserContact(admin: SupabaseClient, userId: string) {
@@ -58,6 +62,35 @@ export async function subscriptionHasCollectedWelcomePayment(
     return invoiceIsPaid(invoice);
   }
   return false;
+}
+
+function invoicePdfFilename(invoice: Stripe.Invoice): string {
+  const raw = (typeof invoice.number === "string" && invoice.number.trim()) || invoice.id || "abonnement";
+  const safe = raw.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 48);
+  return `facture-segna-${safe}.pdf`;
+}
+
+async function resolveSubscriptionInvoiceForWelcome(
+  stripe: Stripe,
+  subscription: Stripe.Subscription,
+): Promise<{ pdf: Buffer | null; hostedUrl: string | null; filename: string }> {
+  let invoice = subscription.latest_invoice;
+  if (typeof invoice === "string") {
+    try {
+      invoice = await stripe.invoices.retrieve(invoice);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[notifications] subscription welcome: invoice retrieve failed", msg);
+      return { pdf: null, hostedUrl: null, filename: "facture-segna-abonnement.pdf" };
+    }
+  }
+  if (!invoice || typeof invoice !== "object" || ("deleted" in invoice && invoice.deleted)) {
+    return { pdf: null, hostedUrl: null, filename: "facture-segna-abonnement.pdf" };
+  }
+  const hostedUrl = invoice.hosted_invoice_url?.trim() || null;
+  const pdfUrl = invoice.invoice_pdf?.trim() || "";
+  const pdf = pdfUrl ? await fetchStripeInvoicePdfBuffer(pdfUrl) : null;
+  return { pdf, hostedUrl, filename: invoicePdfFilename(invoice) };
 }
 
 export function stripeInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
@@ -125,8 +158,6 @@ export async function notifySegnaXSubscriptionWelcomeIfApplicable(
 
   const user = await loadUserContact(admin, userId);
   const prenom = firstNameOrBonjour(user?.first_name ?? null);
-  const { text, html } = segnaXWelcomeEmailBlocks(prenom);
-  const subject = "Bienvenue dans Segna X";
 
   try {
     const email = user?.email?.trim();
@@ -136,12 +167,31 @@ export async function notifySegnaXSubscriptionWelcomeIfApplicable(
       return;
     }
 
+    const stripe = options?.stripe ?? new StripeLib(getStripeConfig().secretKey);
+    const invoice = await resolveSubscriptionInvoiceForWelcome(stripe, subscription);
+    const attachments: TransactionalEmailAttachment[] | undefined = invoice.pdf
+      ? [
+          {
+            filename: invoice.filename,
+            content: invoice.pdf,
+            contentType: "application/pdf",
+          },
+        ]
+      : undefined;
+
+    const { text, html } = segnaXWelcomeEmailBlocks(prenom, {
+      invoiceAttached: Boolean(invoice.pdf),
+      hostedInvoiceUrl: invoice.hostedUrl,
+    });
+    const subject = "Bienvenue dans Segna X";
+
     const sent = await sendTransactionalEmail({
       to: email,
       subject,
       text,
       html,
       idempotencyKey,
+      attachments,
     });
     if (!sent) {
       await releaseNotificationSend(admin, idempotencyKey);

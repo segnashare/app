@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import {
+  declareSubscriptionCancelToN8n,
+  periodEndIsoFromStripeSubscription,
+} from "@/lib/notifications/notify-ops-activity-n8n";
+import { notifySubscriptionCancelImmediate } from "@/lib/notifications/subscription-cancel-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import {
+  getMappedPlanCodeFromSubscription,
   markSubscriptionCanceledLocally,
   upsertSubscriptionAndEntitlements,
 } from "@/lib/stripe/subscription-state";
+import { applySubscriptionCancelAtPeriodEndEffects } from "@/lib/subscription/apply-cancel-at-period-end-effects";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -29,6 +36,66 @@ async function applyStripeCancel(
     return stripe.subscriptions.cancel(subscriptionId, { prorate: false });
   }
   return stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+}
+
+async function notifyBackofficeCancelSideEffects(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  input: {
+    userId: string;
+    subscriptionId: string;
+    mode: "immediate" | "at_period_end";
+    periodEndIso: string | null;
+    planCode: string | null;
+    subscription: Stripe.Subscription | null;
+  },
+): Promise<void> {
+  if (input.mode === "at_period_end" && input.subscription) {
+    try {
+      await applySubscriptionCancelAtPeriodEndEffects(admin, input.userId, input.subscription, {
+        notify: true,
+      });
+    } catch (e) {
+      console.error("[internal/backoffice-cancel-subscription] cancel-at-period-end effects", e);
+    }
+    return;
+  }
+
+  if (input.mode === "at_period_end") {
+    try {
+      await declareSubscriptionCancelToN8n(admin, {
+        userId: input.userId,
+        subscriptionId: input.subscriptionId,
+        periodEndIso: input.periodEndIso,
+        mode: "at_period_end",
+        planCode: input.planCode,
+        source: "backoffice",
+      });
+    } catch (e) {
+      console.error("[internal/backoffice-cancel-subscription] declare cancel n8n scheduled", e);
+    }
+    return;
+  }
+
+  try {
+    await notifySubscriptionCancelImmediate(admin, {
+      userId: input.userId,
+      subscriptionId: input.subscriptionId,
+    });
+  } catch (e) {
+    console.error("[internal/backoffice-cancel-subscription] notify immediate", e);
+  }
+  try {
+    await declareSubscriptionCancelToN8n(admin, {
+      userId: input.userId,
+      subscriptionId: input.subscriptionId,
+      periodEndIso: input.periodEndIso,
+      mode: "immediate",
+      planCode: input.planCode,
+      source: "backoffice",
+    });
+  } catch (e) {
+    console.error("[internal/backoffice-cancel-subscription] declare cancel n8n immediate", e);
+  }
 }
 
 function internalBackofficeSecrets(): string[] {
@@ -134,6 +201,14 @@ export async function POST(request: Request) {
 
         const localMissingResponse = async (customerId: string) => {
           await markSubscriptionCanceledLocally(admin, userId, customerId, subscriptionId);
+          await notifyBackofficeCancelSideEffects(admin, {
+            userId,
+            subscriptionId,
+            mode,
+            periodEndIso: null,
+            planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+            subscription: null,
+          });
           return NextResponse.json({
             ok: true as const,
             mode,
@@ -184,6 +259,17 @@ export async function POST(request: Request) {
 
     await upsertSubscriptionAndEntitlements(admin, userId, customerId, subscription);
 
+    await notifyBackofficeCancelSideEffects(admin, {
+      userId,
+      subscriptionId: subscription.id,
+      mode,
+      periodEndIso: periodEndIsoFromStripeSubscription(subscription),
+      planCode:
+        (typeof subRow?.plan_code === "string" && subRow.plan_code) ||
+        (await getMappedPlanCodeFromSubscription(admin, subscription)),
+      subscription,
+    });
+
     return NextResponse.json({
       ok: true as const,
       mode,
@@ -195,6 +281,14 @@ export async function POST(request: Request) {
   } catch (error) {
     if (isStripeResourceMissing(error)) {
       await markSubscriptionCanceledLocally(admin, userId, customerIdFromDb, subscriptionId);
+      await notifyBackofficeCancelSideEffects(admin, {
+        userId,
+        subscriptionId,
+        mode,
+        periodEndIso: null,
+        planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+        subscription: null,
+      });
       return NextResponse.json({
         ok: true as const,
         mode,
