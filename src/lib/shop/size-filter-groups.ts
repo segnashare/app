@@ -2,6 +2,7 @@ import {
   aggregateApparelSizeFacets,
   apparelBandFromLetter,
   apparelBandFromFr,
+  compareApparelSizeFacets,
   expandApparelSizeMemberIds,
   type AggregatedApparelSizeFacet,
 } from "@/lib/sizes/apparel-size-referential";
@@ -114,7 +115,8 @@ export function groupSizesByCategory(sizes: SizeFilterOption[]): Record<SizeFilt
     apparelRaw.map((s) => ({ id: s.id, label: s.label, code: s.code })),
   )
     .map(toAggregatedOption)
-    .filter((s) => !isTuSizeCode(s.code));
+    .filter((s) => !isTuSizeCode(s.code))
+    .sort(compareApparelSizeFacets);
 
   shoes.sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }));
 

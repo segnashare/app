@@ -139,7 +139,7 @@ export type AnalyticsEventProperties = {
   };
   subscription_checkout_started: {
     plan_code: string;
-    trial_period_days?: number;
+    billing_term?: "monthly" | "3_month";
     first_month_percent_off?: number;
     bank_hold_amount_cents?: number;
     checkout_ui?: "payment_sheet" | "hosted_checkout";

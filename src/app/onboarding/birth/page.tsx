@@ -29,7 +29,7 @@ export default function OnboardingBirthPage() {
   return (
     <OnboardingScreenShell
       currentStep="/onboarding/birth"
-      nextStep="/onboarding/size"
+      nextStep="/onboarding/2"
       showStepTracker={true}
       persistProgressOnNext={false}
       centeredAuthLayout

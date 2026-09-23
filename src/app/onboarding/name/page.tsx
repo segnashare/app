@@ -24,7 +24,7 @@ export default function OnboardingNamePage() {
   return (
     <OnboardingScreenShell
       currentStep="/onboarding/name"
-      nextStep="/onboarding/2"
+      nextStep="/onboarding/birth"
       showStepTracker={true}
       persistProgressOnNext={false}
       centeredAuthLayout

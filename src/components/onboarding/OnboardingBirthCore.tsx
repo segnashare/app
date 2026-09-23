@@ -137,7 +137,7 @@ export function OnboardingBirthCore({
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/size",
+      p_current_step: "/onboarding/2",
       p_progress_json: { checkpoint: "/onboarding/birth" },
       p_request_id: crypto.randomUUID(),
     });
@@ -148,7 +148,7 @@ export function OnboardingBirthCore({
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/size");
+    router.push(redirectPath ?? "/onboarding/2");
   };
 
   return (

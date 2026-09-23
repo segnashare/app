@@ -57,6 +57,54 @@ export function apparelDisplayLabelForCode(code: string | null | undefined, fall
   return raw.includes(":") ? (raw.split(":").pop() ?? raw) : raw;
 }
 
+export type ApparelSizeSortable = {
+  label?: string | null;
+  code?: string | null;
+};
+
+function apparelCodeToken(code: string): string {
+  const i = code.indexOf(":");
+  return i >= 0 ? code.slice(i + 1).trim() : code.trim();
+}
+
+/** Taille unique (TU / onesize), par code ou libellé. */
+export function isUniqueApparelSizeFacet(size: ApparelSizeSortable): boolean {
+  const code = (size.code ?? "").trim().toLowerCase();
+  if (code === "apparel:tu" || code === "top:tu" || code === "bottom:tu" || code.endsWith(":tu")) {
+    return true;
+  }
+  const label = (size.label ?? "").trim().toLowerCase();
+  return label === "tu" || label === "taille unique" || label === "taille-unique";
+}
+
+function apparelBandFromFacet(size: ApparelSizeSortable): ApparelSizeBand | null {
+  const code = (size.code ?? "").trim();
+  const lower = code.toLowerCase();
+  if (lower.startsWith("apparel:")) {
+    return apparelBandFromLetter(apparelCodeToken(code));
+  }
+  const fromCode = apparelBandFromSizeCode(code);
+  if (fromCode) return fromCode;
+  const label = (size.label ?? "").trim();
+  if (!label) return null;
+  return apparelBandFromLetter(label) ?? apparelBandFromFr(label);
+}
+
+/** Rang filtre : Taille unique, puis XXXS → 6XL, puis le reste. */
+export function apparelSizeFacetSortRank(size: ApparelSizeSortable): number {
+  if (isUniqueApparelSizeFacet(size)) return -1;
+  const band = apparelBandFromFacet(size);
+  if (band) return band.sortOrder;
+  return 1000;
+}
+
+export function compareApparelSizeFacets(a: ApparelSizeSortable, b: ApparelSizeSortable): number {
+  const ra = apparelSizeFacetSortRank(a);
+  const rb = apparelSizeFacetSortRank(b);
+  if (ra !== rb) return ra - rb;
+  return (a.label ?? "").localeCompare(b.label ?? "", "fr", { numeric: true, sensitivity: "base" });
+}
+
 export type ApparelSizeFacetLike = {
   id: string;
   label: string;
@@ -81,8 +129,7 @@ export function aggregateApparelSizeFacets<T extends ApparelSizeFacetLike>(
 
   for (const size of sizes) {
     const code = (size.code ?? "").trim();
-    const lower = code.toLowerCase();
-    if (lower === "top:tu" || lower === "bottom:tu") {
+    if (isUniqueApparelSizeFacet(size)) {
       passthrough.push(size);
       continue;
     }
@@ -110,35 +157,27 @@ export function aggregateApparelSizeFacets<T extends ApparelSizeFacetLike>(
       };
     });
 
-  const uniquePassthrough = (() => {
-    const tuMembers = passthrough.filter((s) => {
-      const c = (s.code ?? "").trim().toLowerCase();
-      return c === "top:tu" || c === "bottom:tu";
+  const tuMembers = passthrough.filter(isUniqueApparelSizeFacet);
+  const others = passthrough.filter((s) => !isUniqueApparelSizeFacet(s));
+  const tuOut: Array<T & { memberIds: string[]; bandKey: string }> = [];
+  if (tuMembers.length > 0) {
+    const primary = tuMembers[0]!;
+    tuOut.push({
+      ...primary,
+      id: primary.id,
+      label: "Taille unique",
+      code: "apparel:TU",
+      memberIds: tuMembers.map((m) => m.id),
+      bandKey: "TU",
     });
-    const others = passthrough.filter((s) => {
-      const c = (s.code ?? "").trim().toLowerCase();
-      return c !== "top:tu" && c !== "bottom:tu";
-    });
-    const out: Array<T & { memberIds: string[]; bandKey: string }> = others.map((s) => ({
-      ...s,
-      memberIds: [s.id],
-      bandKey: (s.code ?? s.id).trim() || s.id,
-    }));
-    if (tuMembers.length > 0) {
-      const primary = tuMembers[0]!;
-      out.unshift({
-        ...primary,
-        id: primary.id,
-        label: "Taille unique",
-        code: "apparel:TU",
-        memberIds: tuMembers.map((m) => m.id),
-        bandKey: "TU",
-      });
-    }
-    return out;
-  })();
+  }
+  const otherOut: Array<T & { memberIds: string[]; bandKey: string }> = others.map((s) => ({
+    ...s,
+    memberIds: [s.id],
+    bandKey: (s.code ?? s.id).trim() || s.id,
+  }));
 
-  return [...aggregated, ...uniquePassthrough];
+  return [...tuOut, ...aggregated, ...otherOut];
 }
 
 /** Étend une sélection d’ids (représentants ou membres) à tous les ids équivalents. */

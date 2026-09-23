@@ -12,6 +12,11 @@ import {
   resolveAppleReviewCompCouponId,
 } from "@/lib/stripe/apple-review-comp-checkout";
 import {
+  isThreeMonthPriceMetadata,
+  normalizeSubscriptionBillingTerm,
+  resolveSegnaXThreeMonthPriceId,
+} from "@/lib/stripe/resolve-segna-x-three-month-price";
+import {
   normalizeFirstMonthPercentOff,
   resolveFirstMonthPercentOffCouponId,
 } from "@/lib/stripe/subscription-first-month-coupon";
@@ -29,15 +34,6 @@ function isPlanCode(value: unknown): value is PlanCode {
   return value === "segna_plus" || value === "segna_x";
 }
 
-/** Période d’essai Stripe (jours) : seulement `segna_x`, plage 1–45 pour limiter les abus. */
-function normalizeSubscriptionTrialPeriodDays(planCode: PlanCode, raw: unknown): number | undefined {
-  if (planCode !== "segna_x" || raw == null) return undefined;
-  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(String(raw).trim(), 10) : NaN;
-  if (!Number.isFinite(n)) return undefined;
-  const days = Math.floor(n);
-  if (days < 1 || days > 45) return undefined;
-  return days;
-}
 
 function getFallbackPriceId(planCode: PlanCode): string | null {
   if (planCode === "segna_plus") {
@@ -108,6 +104,8 @@ export async function POST(request: Request) {
       cancelReturnPath?: unknown;
       mobileSuccessUrl?: unknown;
       trialPeriodDays?: unknown;
+      /** Pack 3 mois / 80 € (2 mois achetés + 1 offert). Pas un essai Stripe. */
+      billingTerm?: unknown;
       firstMonthPercentOff?: unknown;
       /** Empreinte bancaire SegnaX (100 €) après validation carte. */
       bankHold?: unknown;
@@ -118,7 +116,7 @@ export async function POST(request: Request) {
     if (!isPlanCode(planCode)) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
-    const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
+    const billingTerm = normalizeSubscriptionBillingTerm(body);
     const requestedFirstMonthOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
     /** Offre −50 % 1er mois retirée : tarif plein (les anciens clients qui envoient encore 50 sont ignorés). */
     const firstMonthPercentOff = requestedFirstMonthOff === 50 ? undefined : requestedFirstMonthOff;
@@ -160,24 +158,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: activePriceRow, error: activePriceError } = await admin
+    const { data: activePriceRows, error: activePriceError } = await admin
       .from("billing_plan_prices")
-      .select("stripe_price_id")
+      .select("stripe_price_id, metadata")
       .eq("provider", "stripe")
       .eq("plan_code", planCode)
       .eq("is_active", true)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("updated_at", { ascending: false });
 
     if (activePriceError) {
       return NextResponse.json({ message: activePriceError.message }, { status: 500 });
     }
-    // Env d’abord (prod live vs preview test), puis mapping DB.
-    const resolvedPriceId =
+    const monthlyPriceRow = (Array.isArray(activePriceRows) ? activePriceRows : []).find(
+      (row) => !isThreeMonthPriceMetadata(row?.metadata),
+    );
+    // Env d’abord (prod live vs preview test), puis mapping DB mensuel.
+    const monthlyPriceId =
       getFallbackPriceId(planCode) ??
-      (typeof activePriceRow?.stripe_price_id === "string" ? activePriceRow.stripe_price_id.trim() : null);
-    if (!resolvedPriceId) {
+      (typeof monthlyPriceRow?.stripe_price_id === "string" ? monthlyPriceRow.stripe_price_id.trim() : null);
+    if (!monthlyPriceId) {
       const envHint = planCode === "segna_plus" ? "STRIPE_PRICE_SEGNA_PLUS" : "STRIPE_PRICE_SEGNA_X";
       return NextResponse.json(
         { message: `Aucun prix Stripe actif pour ce plan. Configure billing_plan_prices ou la variable ${envHint}.` },
@@ -187,6 +186,26 @@ export async function POST(request: Request) {
 
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
+
+    let resolvedPriceId = monthlyPriceId;
+    if (billingTerm === "3_month") {
+      if (planCode !== "segna_x") {
+        return NextResponse.json({ message: "L’offre 3 mois n’est disponible que pour SegnaX." }, { status: 400 });
+      }
+      try {
+        resolvedPriceId = await resolveSegnaXThreeMonthPriceId({
+          stripe,
+          admin,
+          monthlyPriceId,
+        });
+      } catch (error) {
+        console.error("[stripe/subscription/checkout] 3-month price", error);
+        return NextResponse.json(
+          { message: "Impossible de préparer l’offre 3 mois (80 €)." },
+          { status: 500 },
+        );
+      }
+    }
 
     let stripeCustomerId: string;
     try {
@@ -240,7 +259,7 @@ export async function POST(request: Request) {
     const subscriptionMetadata: Record<string, string> = {
       user_id: user.id,
       plan_code: planCode,
-      ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
+      billing_term: billingTerm,
       ...(firstMonthPercentOff != null && !appleReviewComp
         ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
         : {}),
@@ -257,7 +276,7 @@ export async function POST(request: Request) {
       { distinctId: user.id },
       {
         plan_code: planCode,
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
+        billing_term: billingTerm,
         ...(firstMonthPercentOff != null && !appleReviewComp
           ? { first_month_percent_off: firstMonthPercentOff }
           : {}),
@@ -336,7 +355,6 @@ export async function POST(request: Request) {
           payment_method_types: ["card"],
         },
         ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
-        ...(trialPeriodDays != null && !appleReviewComp ? { trial_period_days: trialPeriodDays } : {}),
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
         metadata: subscriptionMetadata,
         expand: ["latest_invoice.confirmation_secret", "pending_setup_intent"],
@@ -467,6 +485,7 @@ export async function POST(request: Request) {
       metadata: {
         user_id: user.id,
         plan_code: planCode,
+        billing_term: billingTerm,
         ...(bankHoldAmountCents != null
           ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
           : {}),
@@ -477,7 +496,6 @@ export async function POST(request: Request) {
       },
       subscription_data: {
         metadata: subscriptionMetadata,
-        ...(trialPeriodDays != null && !appleReviewComp ? { trial_period_days: trialPeriodDays } : {}),
         // Renouvellements : même TVA sur les factures suivantes.
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
       },

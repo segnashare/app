@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 
-/** Essai gratuit « 1 mois offert » côté Stripe. */
-const TRIAL_PERIOD_DAYS = 30;
-
 /**
- * Entrée website → Stripe Checkout SegnaX (trial 30 j + empreinte 100 €).
+ * Entrée website → Stripe Checkout SegnaX (40 € / mois + empreinte 100 €).
  * Utilisée après handoff `/auth/handoff#…&type=website_activate_segnax`.
  */
 export default function ActivateSegnaXPage() {
@@ -29,7 +26,6 @@ export default function ActivateSegnaXPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             planCode: "segna_x",
-            trialPeriodDays: TRIAL_PERIOD_DAYS,
             bankHold: true,
             cancelReturnPath,
           }),

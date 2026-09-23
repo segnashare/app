@@ -4,7 +4,11 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import type { SubscriptionOfferTier, SubscriptionPlanLandingContent } from "@/lib/cms/subscription-plan-landing";
+import {
+  isThreeMonthPrepaidOffer,
+  type SubscriptionOfferTier,
+  type SubscriptionPlanLandingContent,
+} from "@/lib/cms/subscription-plan-landing";
 import { trackClientEvent } from "@/lib/analytics/track-client";
 import { IncludedCreditsSummaryText } from "@/components/onboarding/IncludedCreditsSummaryText";
 import {
@@ -79,8 +83,8 @@ export function PackageSegnaXLandingClient({
       if (selectedCheckout) {
         trackClientEvent("subscription_checkout_started", {
           plan_code: selectedCheckout,
-          ...(offerTiers[selectedOfferIndex]?.trialPeriodDays != null
-            ? { trial_period_days: offerTiers[selectedOfferIndex]!.trialPeriodDays }
+          ...(offerTiers[selectedOfferIndex] && isThreeMonthPrepaidOffer(offerTiers[selectedOfferIndex]!)
+            ? { billing_term: "3_month" as const }
             : {}),
         });
       }
@@ -90,8 +94,8 @@ export function PackageSegnaXLandingClient({
         body: JSON.stringify({
           planCode: selectedCheckout,
           cancelReturnPath: `/package?plan=${planQuery}&checkout=cancelled`,
-          ...(offerTiers[selectedOfferIndex]?.trialPeriodDays != null
-            ? { trialPeriodDays: offerTiers[selectedOfferIndex]!.trialPeriodDays }
+          ...(offerTiers[selectedOfferIndex] && isThreeMonthPrepaidOffer(offerTiers[selectedOfferIndex]!)
+            ? { billingTerm: "3_month" }
             : {}),
         }),
       });
