@@ -148,9 +148,28 @@ async function refundCanceledSubscription(
   stripe: Stripe,
   subscription: Stripe.Subscription,
 ): Promise<{ refunded: boolean; refundId?: string; error?: string }> {
-  const result = await refundLatestSubscriptionInvoiceIfNeeded({ stripe, subscription });
-  if (!result.ok) return { refunded: false, error: result.error };
-  return { refunded: result.didRefund, refundId: result.refundId };
+  try {
+    const result = await refundLatestSubscriptionInvoiceIfNeeded({ stripe, subscription });
+    if (!result.ok) return { refunded: false, error: result.error };
+    return { refunded: result.didRefund, refundId: result.refundId };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "refund_failed";
+    console.error("[internal/backoffice-cancel-subscription] refund threw", detail);
+    return { refunded: false, error: detail };
+  }
+}
+
+async function refundBySubscriptionId(
+  stripe: Stripe,
+  subscriptionId: string,
+): Promise<{ refunded: boolean; refundId?: string; error?: string }> {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return refundCanceledSubscription(stripe, subscription);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "refund_failed";
+    return { refunded: false, error: detail };
+  }
 }
 
 function internalBackofficeSecrets(): string[] {
@@ -228,23 +247,17 @@ export async function POST(request: Request) {
       });
       if (fail) return fail;
       if (refund) {
-        try {
-          const { secretKey } = getStripeConfig();
-          const stripe = new Stripe(secretKey);
-          const existing = await stripe.subscriptions.retrieve(subscriptionId);
-          const refundResult = await refundCanceledSubscription(stripe, existing);
-          if (refundResult.error) return refundFailedResponse(refundResult.error);
-          return NextResponse.json({
-            ok: true as const,
-            skipped: true as const,
-            reason: "already_canceled",
-            refunded: refundResult.refunded,
-            refund_id: refundResult.refundId ?? null,
-          });
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : "refund_failed";
-          return refundFailedResponse(detail);
-        }
+        const { secretKey } = getStripeConfig();
+        const stripe = new Stripe(secretKey);
+        const refundResult = await refundBySubscriptionId(stripe, subscriptionId);
+        if (refundResult.error) return refundFailedResponse(refundResult.error);
+        return NextResponse.json({
+          ok: true as const,
+          skipped: true as const,
+          reason: "already_canceled",
+          refunded: refundResult.refunded,
+          refund_id: refundResult.refundId ?? null,
+        });
       }
     }
     return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_canceled" });
@@ -296,6 +309,20 @@ export async function POST(request: Request) {
             subscription: null,
           });
           if (fail) return fail;
+          if (refund) {
+            const refundResult = await refundBySubscriptionId(stripe, subscriptionId);
+            if (refundResult.error) return refundFailedResponse(refundResult.error);
+            return NextResponse.json({
+              ok: true as const,
+              mode,
+              status: "canceled",
+              cancel_at_period_end: false,
+              plan_code: "guest",
+              synced_from: "local_missing" as const,
+              refunded: refundResult.refunded,
+              refund_id: refundResult.refundId ?? null,
+            });
+          }
           return NextResponse.json({
             ok: true as const,
             mode,
@@ -347,16 +374,6 @@ export async function POST(request: Request) {
 
     await upsertSubscriptionAndEntitlements(admin, userId, customerId, subscription);
 
-    let refunded = false;
-    let refundId: string | undefined;
-    let refundError: string | undefined;
-    if (refund) {
-      const refundResult = await refundCanceledSubscription(stripe, subscription);
-      refunded = refundResult.refunded;
-      refundId = refundResult.refundId;
-      refundError = refundResult.error;
-    }
-
     const fail = await runCancelSideEffects(admin, {
       userId,
       subscriptionId: subscription.id,
@@ -368,7 +385,15 @@ export async function POST(request: Request) {
       subscription,
     });
     if (fail) return fail;
-    if (refundError) return refundFailedResponse(refundError);
+
+    let refunded = false;
+    let refundId: string | undefined;
+    if (refund) {
+      const refundResult = await refundCanceledSubscription(stripe, subscription);
+      if (refundResult.error) return refundFailedResponse(refundResult.error);
+      refunded = refundResult.refunded;
+      refundId = refundResult.refundId;
+    }
 
     return NextResponse.json({
       ok: true as const,
