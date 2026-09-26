@@ -58,3 +58,23 @@ export function e164ToFrenchNationalDigits(e164: string): string {
   if (d.startsWith("33") && d.length >= 11) return d.slice(2);
   return normalizeFrenchLocalNumber(e164);
 }
+
+/** Saisie nationale à côté de +33 : « 6 12 34 56 78 » (1er chiffre isolé, puis paires). */
+export function formatFrenchNationalGrouped(raw: string): string {
+  const digits = normalizeFrenchLocalNumber(raw).slice(0, 9);
+  if (!digits) return "";
+  const parts = [digits[0]];
+  for (let i = 1; i < digits.length; i += 2) {
+    parts.push(digits.slice(i, i + 2));
+  }
+  return parts.join(" ");
+}
+
+export function formatPhoneDisplay(e164: string): string {
+  const d = e164.replace(/\D/g, "");
+  if (d.startsWith("33") && d.length >= 11) {
+    const grouped = formatFrenchNationalGrouped(d.slice(2));
+    return grouped ? `+33 ${grouped}` : "+33";
+  }
+  return e164.trim() || "";
+}
