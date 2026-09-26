@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 
+import { classifySubscription, trackPaymentCompletedServer } from "@/lib/analytics/payment-completed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { declareSubscriptionActivatedToN8n } from "@/lib/notifications/notify-ops-activity-n8n";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -77,6 +78,24 @@ async function finalizeConfirmedSubscription(params: {
     fallbackPlan,
   });
 
+  // Analytics : engagement (mensuel vs 3 mois), montant 1ʳᵉ facture, surface d'origine.
+  const meta = { ...(subscription.metadata ?? {}), ...(session?.metadata ?? {}) } as Record<string, string | undefined>;
+  const billingTerm = meta.billing_term?.trim() || "monthly";
+  const firstMonthPercentOffRaw = Number.parseInt(meta.checkout_first_month_percent_off ?? "", 10);
+  const firstItemPrice = subscription.items?.data?.[0]?.price?.unit_amount;
+  const amountCents =
+    session?.amount_total != null
+      ? session.amount_total
+      : typeof firstItemPrice === "number"
+        ? firstItemPrice * (subscription.items?.data?.[0]?.quantity ?? 1)
+        : undefined;
+  const clientSurface = meta.client_surface?.trim();
+  const surfaceProps =
+    clientSurface === "website" || clientSurface === "mobile" || clientSurface === "webapp"
+      ? { surface: clientSurface as "website" | "mobile" | "webapp" }
+      : {};
+  const classification = classifySubscription(billingTerm);
+
   trackServerEvent(
     "subscription_confirmed",
     { distinctId: userId, insertId: analyticsInsertId },
@@ -85,8 +104,23 @@ async function finalizeConfirmedSubscription(params: {
       checkout_mode: checkoutMode,
       ...(session?.id ? { stripe_session_id: session.id } : {}),
       stripe_subscription_id: subscription.id,
+      billing_term: billingTerm,
+      ...(Number.isFinite(firstMonthPercentOffRaw) ? { first_month_percent_off: firstMonthPercentOffRaw } : {}),
+      ...(amountCents != null ? { amount_cents: amountCents } : {}),
+      ...surfaceProps,
+      ...classification,
     },
   );
+  trackPaymentCompletedServer(userId, `subscription:${subscription.id}`, {
+    ...classification,
+    plan_code: resolvedPlan,
+    billing_term: billingTerm,
+    ...(Number.isFinite(firstMonthPercentOffRaw) ? { first_month_percent_off: firstMonthPercentOffRaw } : {}),
+    ...(amountCents != null ? { amount_cents: amountCents } : {}),
+    stripe_subscription_id: subscription.id,
+    checkout_mode: checkoutMode,
+    ...surfaceProps,
+  });
   try {
     await declareSubscriptionActivatedToN8n(admin, userId, subscription);
   } catch (e) {

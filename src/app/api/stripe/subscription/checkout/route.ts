@@ -249,10 +249,16 @@ export async function POST(request: Request) {
       }
     }
 
+    /** Analytics : surface d'origine (en-tête posé par le proxy website et le client mobile). */
+    const surfaceHeader = request.headers.get("x-segna-surface")?.trim().toLowerCase();
+    const clientSurface =
+      surfaceHeader === "website" || surfaceHeader === "mobile" ? surfaceHeader : "webapp";
+
     const subscriptionMetadata: Record<string, string> = {
       user_id: user.id,
       plan_code: planCode,
       billing_term: billingTerm,
+      client_surface: clientSurface,
       ...(firstMonthPercentOff != null && !appleReviewComp
         ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
         : {}),
@@ -475,6 +481,7 @@ export async function POST(request: Request) {
         user_id: user.id,
         plan_code: planCode,
         billing_term: billingTerm,
+        client_surface: clientSurface,
         ...(firstMonthPercentOff != null && !appleReviewComp
           ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
           : {}),

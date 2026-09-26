@@ -5,6 +5,8 @@ import { applyCartBuyout } from "@/lib/cart/apply-cart-buyout";
 import {
   computeRentalBuyoutEuroCents,
 } from "@/lib/billing/rental-buyout-pricing";
+import { trackPaymentCompletedServer } from "@/lib/analytics/payment-completed";
+import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
 import { getStripeConfig } from "@/lib/social/stripe";
 import {
   persistStripeCustomerDefaultPaymentMethodFromCheckout,
@@ -63,6 +65,43 @@ function parseBuyoutMeta(meta: Stripe.Metadata | null | undefined): {
     itemIds,
     valid,
   };
+}
+
+/** Analytics : rachat d'une pièce louée = conversion « achat catalogue ». */
+async function trackBuyoutConfirmed(
+  request: Request,
+  userId: string,
+  parsed: ReturnType<typeof parseBuyoutMeta>,
+  paymentRef: string,
+  checkoutMode: "stripe" | "stripe_payment_sheet",
+): Promise<void> {
+  const header = request.headers.get("x-segna-surface")?.trim().toLowerCase();
+  trackServerEvent(
+    "order_confirmed",
+    { distinctId: userId, insertId: `order_confirmed:buyout:${paymentRef}` },
+    {
+      cart_id: parsed.cartId,
+      checkout_mode: checkoutMode,
+      order_kind: "buyout",
+      product_type: "piece_buyout",
+      product_family: "purchase",
+      customer_type: "member",
+      item_count: parsed.itemIds.length,
+      cash_paid_cents: parsed.amountCentsMeta,
+      ...(header === "mobile" || header === "website" ? { surface: header } : {}),
+    },
+  );
+  trackPaymentCompletedServer(userId, `buyout:${paymentRef}`, {
+    product_type: "piece_buyout",
+    product_family: "purchase",
+    customer_type: "member",
+    cart_id: parsed.cartId,
+    checkout_mode: checkoutMode,
+    amount_cents: parsed.amountCentsMeta,
+    item_count: parsed.itemIds.length,
+    ...(header === "mobile" || header === "website" ? { surface: header } : {}),
+  });
+  await flushServerAnalytics();
 }
 
 /**
@@ -138,6 +177,8 @@ export async function POST(request: Request) {
         );
       }
 
+      await trackBuyoutConfirmed(request, user.id, parsed, paymentIntent.id, "stripe_payment_sheet");
+
       return NextResponse.json({
         ok: true,
         cartId: parsed.cartId,
@@ -192,6 +233,14 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+
+    await trackBuyoutConfirmed(
+      request,
+      user.id,
+      parsed,
+      typeof session.payment_intent === "string" ? session.payment_intent : session.id,
+      "stripe",
+    );
 
     return NextResponse.json({
       ok: true,

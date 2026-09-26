@@ -1,3 +1,10 @@
+import type {
+  PaymentCompletedProps,
+  PaymentCustomerType,
+  PaymentProductFamily,
+  PaymentProductType,
+} from "@/lib/analytics/payment-completed";
+
 /** PostHog custom events for Segna product funnels. */
 export const ANALYTICS_EVENTS = {
   userSignedUp: "user_signed_up",
@@ -21,6 +28,8 @@ export const ANALYTICS_EVENTS = {
   subscriptionCheckoutStarted: "subscription_checkout_started",
   subscriptionConfirmed: "subscription_confirmed",
   notificationSent: "notification_sent",
+  /** Agrégé : tout paiement / consommation (achat, location, abonnement, emprunt abonné). */
+  paymentCompleted: "payment_completed",
 } as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
@@ -36,6 +45,7 @@ export type OnboardingInAppStep =
   | "finished";
 
 export type AnalyticsEventProperties = {
+  payment_completed: PaymentCompletedProps;
   user_signed_up: {
     method: "email" | "oauth";
     referral_code_present?: boolean;
@@ -83,6 +93,14 @@ export type AnalyticsEventProperties = {
     borrow_duration_days?: number;
     /** `7_jours` | `14_jours` | `1_mois` — breakdown PostHog */
     borrow_duration_label?: string;
+    /** `purchase` = achat de pièce, `rental` = location, `buyout` = rachat d'une pièce louée. */
+    order_kind?: "purchase" | "rental" | "buyout";
+    /** Surface d'origine du checkout (sinon `server` par défaut côté serveur). */
+    surface?: "website" | "mobile" | "webapp" | "server";
+    /** Typologie fine (voir `payment-completed.ts`). */
+    product_type?: PaymentProductType;
+    product_family?: PaymentProductFamily;
+    customer_type?: PaymentCustomerType;
   };
   item_draft_started: {
     item_id: string;
@@ -141,7 +159,6 @@ export type AnalyticsEventProperties = {
     plan_code: string;
     billing_term?: "monthly" | "3_month";
     first_month_percent_off?: number;
-    bank_hold_amount_cents?: number;
     checkout_ui?: "payment_sheet" | "hosted_checkout";
   };
   subscription_confirmed: {
@@ -149,6 +166,15 @@ export type AnalyticsEventProperties = {
     checkout_mode?: "stripe" | "webhook" | "sync" | "payment_sheet";
     stripe_session_id?: string;
     stripe_subscription_id?: string;
+    /** `monthly` (sans engagement) | `3_month` (engagement 3 mois prépayé). */
+    billing_term?: string;
+    first_month_percent_off?: number;
+    /** Montant de la 1ʳᵉ facture encaissée (centimes TTC). */
+    amount_cents?: number;
+    surface?: "website" | "mobile" | "webapp" | "server";
+    product_type?: PaymentProductType;
+    product_family?: PaymentProductFamily;
+    customer_type?: PaymentCustomerType;
   };
   notification_sent: {
     kind: string;
