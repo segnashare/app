@@ -281,13 +281,18 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           console.error("[stripe/webhook] applySubscriptionCancelAtPeriodEndEffects", e);
         }
       } else if (isCanceledNow) {
-        await forfeitWalletOnImmediateSubscriptionCancel(admin, {
-          userId,
-          subscriptionId: subscription.id,
-          source: event.type,
-          skipIfScheduled: true,
-          periodEndIso: periodEndIsoFromStripeSubscription(subscription),
-        });
+        try {
+          await forfeitWalletOnImmediateSubscriptionCancel(admin, {
+            userId,
+            subscriptionId: subscription.id,
+            source: event.type,
+            skipIfScheduled: true,
+            periodEndIso: periodEndIsoFromStripeSubscription(subscription),
+          });
+        } catch (e) {
+          console.error("[stripe/webhook] wallet forfeit FAILED", e);
+          throw e;
+        }
         try {
           await notifySubscriptionCancelImmediate(admin, {
             userId,
