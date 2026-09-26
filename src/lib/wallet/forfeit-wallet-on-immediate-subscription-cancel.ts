@@ -89,7 +89,7 @@ export async function forfeitWalletOnImmediateSubscriptionCancel(
         forfeited_consumption_points: result.forfeited_consumption_points ?? null,
         forfeited_exchange_points: result.forfeited_exchange_points ?? null,
       });
-      return { ok: true, ...result };
+      return { ...result, ok: true };
     }
     lastMessage = error.message || "wallet_forfeit_failed";
     console.error("[wallet] forfeit RPC failed", {
