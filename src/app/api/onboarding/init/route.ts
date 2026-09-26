@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getDefaultOnboardingDemoState } from "@/lib/onboarding/demo-state";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type UserOnboardingState = {
@@ -60,7 +61,8 @@ export async function POST() {
     return NextResponse.json({ error: "Impossible d'initialiser les données démo" }, { status: 500 });
   }
 
-  const { error: modeError } = await supabase
+  // `onboarding_mode` n'est plus modifiable par le rôle authenticated (audit sécurité C5) : service role.
+  const { error: modeError } = await (createSupabaseAdminClient() as any)
     .from("users")
     .update({ onboarding_mode: "demo", onboarding_started_at: nowIso })
     .eq("id", user.id);

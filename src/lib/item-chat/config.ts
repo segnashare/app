@@ -27,14 +27,13 @@ export function getDiscordItemChatChannelId(): string {
 /** Origines autorisées (site marketing + app). */
 export function getItemChatCorsOrigins(): string[] {
   const defaults = [
-    "http://localhost:3000",
-    "http://localhost:3002",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3002",
     "https://app.segnashare.com",
     "https://staging.app.segnashare.com",
     "https://www.segnashare.com",
     "https://segnashare.com",
+    ...(process.env.NODE_ENV !== "production"
+      ? ["http://localhost:3000", "http://localhost:3002", "http://127.0.0.1:3000", "http://127.0.0.1:3002"]
+      : []),
   ];
   const extra = [
     process.env.NEXT_PUBLIC_SEGNA_APP_URL,

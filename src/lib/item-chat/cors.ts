@@ -6,11 +6,12 @@ function resolveItemChatAllowOrigin(origin: string): string {
   const allowed = getItemChatCorsOrigins();
   if (!origin) return allowed[0]!;
   if (allowed.includes(origin)) return origin;
-  // Expo tunnel / Expo Go web preview / local Metro
+  // Expo tunnel / Expo Go web preview / local Metro : uniquement hors production (audit sécurité M6).
   if (
-    /\.exp\.direct$/i.test(origin) ||
-    /\.expo\.dev$/i.test(origin) ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+    process.env.NODE_ENV !== "production" &&
+    (/\.exp\.direct$/i.test(origin) ||
+      /\.expo\.dev$/i.test(origin) ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin))
   ) {
     return origin;
   }

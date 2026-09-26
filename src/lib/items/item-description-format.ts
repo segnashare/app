@@ -3,6 +3,8 @@
  * ou HTML déjà allégé. Sortie HTML échappée hors balises autorisées.
  */
 
+import DOMPurify from "isomorphic-dompurify";
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -15,20 +17,18 @@ function looksLikeHtml(raw: string): boolean {
   return /<\/?(h[1-3]|p|ul|ol|li|strong|em|b|i|br)\b/i.test(raw);
 }
 
-function sanitizeItemDescriptionHtml(html: string): string {
-  // Strip scripts/styles and strip event handlers; keep a small allowlist via regex rebuild.
-  let s = html
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "");
+const ALLOWED_DESCRIPTION_TAGS = ["h1", "h2", "h3", "p", "ul", "ol", "li", "strong", "em", "b", "i", "br"];
 
-  // Remove disallowed tags but keep their text content.
-  s = s.replace(/<\/?(?!\/?(?:h[1-3]|p|ul|ol|li|strong|em|b|i|br)\b)[a-z][^>]*>/gi, "");
-  // Drop attributes on allowed tags except nothing (strip all attrs).
-  s = s.replace(/<(h[1-3]|p|ul|ol|li|strong|em|b|i)(\s[^>]*)?>/gi, "<$1>");
-  s = s.replace(/<br\s*\/?>/gi, "<br />");
-  return s;
+/**
+ * Sanitization HTML via DOMPurify (audit sécurité H4) : balises allowlistées, aucun attribut,
+ * donc ni gestionnaire d'événement ni URL `javascript:` possibles.
+ */
+function sanitizeItemDescriptionHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ALLOWED_DESCRIPTION_TAGS,
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true,
+  });
 }
 
 function markdownToHtml(md: string): string {

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSendcloudEnv } from "@/lib/sendcloud/config";
 import { searchSendcloudServicePoints } from "@/lib/sendcloud/service-points";
 import { getSegnaRecipientFromEnv } from "@/lib/mondial-relay/segna-recipient-env";
+import { rateLimitResponse } from "@/lib/security/rate-limit";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 export async function POST(request: Request) {
@@ -10,6 +11,8 @@ export async function POST(request: Request) {
   if (userError || !user) {
     return NextResponse.json({ error: "Authentification requise" }, { status: 401 });
   }
+  const limited = rateLimitResponse(request, "sendcloud.relay-search", 30, 60_000, user.id);
+  if (limited) return limited;
 
   const env = getSendcloudEnv();
   if (!env) {

@@ -9,6 +9,7 @@ import {
 import type { ItemChatSource } from "@/lib/item-chat/types";
 import { UUID_RE } from "@/lib/item-chat/types";
 import { readVisitorIdFromRequest } from "@/lib/item-chat/visitor";
+import { rateLimitResponse } from "@/lib/security/rate-limit";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
 export async function OPTIONS(request: Request) {
@@ -41,6 +42,12 @@ export async function GET(request: Request) {
 
 /** Ouvre ou reprend une conversation (pièce optionnelle = question générale). */
 export async function POST(request: Request) {
+  // Visiteur anonyme → déclenche n8n / Discord : 10 ouvertures / minute / IP (audit sécurité M4).
+  const limited = rateLimitResponse(request, "item-chat.open", 10, 60_000);
+  if (limited) {
+    return itemChatJson(request, { error: "Trop de requêtes. Réessaie dans un instant." }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

@@ -4,6 +4,7 @@ import {
   INTAKE_META_AI_EVALUATION_SUMMARY,
   parseLooseFiniteNumber,
 } from "@/lib/items/intake-metadata";
+import { bearerMatches } from "@/lib/security/safe-equal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function asNonEmptyString(value: unknown): string | null {
@@ -30,8 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "internal_secret_not_configured" }, { status: 503 });
   }
 
-  const auth = request.headers.get("authorization")?.trim() ?? "";
-  if (auth !== `Bearer ${expected}`) {
+  if (!bearerMatches(request, expected)) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 

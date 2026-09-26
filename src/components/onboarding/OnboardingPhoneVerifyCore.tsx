@@ -8,6 +8,7 @@ import { OtpInput } from "@/components/auth/OtpInput";
 import type { SignUpVerifyFooterState } from "@/components/auth/SignUpVerifyCore";
 import { otpPhoneSchema } from "@/features/auth/lib/schemas";
 import { trackClientEvent } from "@/lib/analytics/track-client";
+import { declareUserRegisteredFromBrowser } from "@/lib/notifications/declare-user-registered-client";
 import { verifyPhoneChangeOtp } from "@/lib/phone/verify-phone-change-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
@@ -226,6 +227,7 @@ export function OnboardingPhoneVerifyCore({
         trackClientEvent("referral_qualified", { trigger: "phone_verified" });
       }
       trackClientEvent("phone_verified", { surface: "onboarding_signup" });
+      declareUserRegisteredFromBrowser("phone_fallback");
       void fetch("/api/referral/dispatch-referrer-notify", { method: "POST", credentials: "same-origin" }).catch(() => {});
 
       router.push("/onboarding/name");

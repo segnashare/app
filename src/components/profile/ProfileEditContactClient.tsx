@@ -6,24 +6,21 @@ import { useEffect, useMemo, useState } from "react";
 
 import { OtpInput } from "@/components/auth/OtpInput";
 import { isMultiAccountPhoneException } from "@/lib/phone/multi-account-phone-exception";
-import { e164ToFrenchNationalDigits, frenchLocalToE164, normalizeFrenchLocalNumber } from "@/lib/phone/fr-mobile";
+import {
+  e164ToFrenchNationalDigits,
+  formatFrenchNationalGrouped,
+  formatPhoneDisplay,
+  frenchLocalToE164,
+  normalizeFrenchLocalNumber,
+} from "@/lib/phone/fr-mobile";
+import { segnaMontserrat, segnaPlayfairDisplay } from "@/lib/ui/segna-webfonts";
 import { resolveVerifiedPhoneE164 } from "@/lib/phone/phone-verified";
 import { verifyPhoneChangeOtp } from "@/lib/phone/verify-phone-change-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { segnaMontserrat } from "@/lib/ui/segna-webfonts";
 import { cn } from "@/lib/utils/cn";
 
 const montserrat = segnaMontserrat;
-
-function formatPhoneDisplay(e164: string): string {
-  const d = e164.replace(/\D/g, "");
-  if (d.startsWith("33") && d.length >= 11) {
-    const national = d.slice(2);
-    if (national.length === 9) return `+33 0${national}`;
-    return `+33 ${national}`;
-  }
-  return e164.trim() || "";
-}
+const playfair = segnaPlayfairDisplay;
 
 function mapPhoneProviderError(message?: string): string {
   const normalized = (message ?? "").toLowerCase();
@@ -49,6 +46,15 @@ export function ProfileEditContactClient() {
   const supabase = useMemo(() => createSupabaseBrowserClient() as any, []);
   const returnPath = searchParams.get("returnPath") ?? "/profile/complete?tab=me";
   const requirePhone = searchParams.get("requirePhone") === "1";
+
+  const finishReturn = () => {
+    if (returnPath.startsWith("/package") && typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.replace(returnPath);
+    router.refresh();
+  };
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -218,8 +224,7 @@ export function ProfileEditContactClient() {
         return;
       }
 
-      router.push(returnPath);
-      router.refresh();
+      finishReturn();
     } finally {
       setSaving(false);
     }
@@ -265,8 +270,7 @@ export function ProfileEditContactClient() {
         return;
       }
 
-      router.push(returnPath);
-      router.refresh();
+      finishReturn();
     } finally {
       setSaving(false);
     }
@@ -356,7 +360,10 @@ export function ProfileEditContactClient() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[16px] text-zinc-900 outline-none ring-zinc-900 focus-visible:ring-2"
+                className={cn(
+                  playfair.className,
+                  "h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[16px] font-bold tracking-normal text-zinc-900 outline-none ring-zinc-900 focus-visible:ring-2",
+                )}
               />
               <p className="text-[13px] leading-relaxed text-zinc-500">
                 La vérification de ton adresse e-mail nous aide à sécuriser ton compte. Après modification, pense à
@@ -369,17 +376,28 @@ export function ProfileEditContactClient() {
                 Téléphone mobile (France){requirePhone ? " *" : ""}
               </label>
               <div className="flex items-center gap-2">
-                <span className="shrink-0 text-[16px] font-semibold text-zinc-600">+33</span>
+                <span
+                  className={cn(
+                    playfair.className,
+                    "shrink-0 text-[16px] font-bold tracking-normal text-zinc-600",
+                  )}
+                >
+                  +33
+                </span>
                 <input
                   id="edit-contact-phone"
                   type="tel"
                   inputMode="numeric"
                   autoComplete="tel-national"
-                  placeholder="612345678"
-                  value={phoneLocal}
-                  onChange={(e) => setPhoneLocal(e.target.value)}
+                  placeholder="6 12 34 56 78"
+                  maxLength={13}
+                  value={formatFrenchNationalGrouped(phoneLocal)}
+                  onChange={(e) => setPhoneLocal(normalizeFrenchLocalNumber(e.target.value).slice(0, 9))}
                   required={requirePhone}
-                  className="h-12 min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-[16px] text-zinc-900 outline-none ring-zinc-900 focus-visible:ring-2"
+                  className={cn(
+                    playfair.className,
+                    "h-12 min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-[16px] font-bold tracking-normal text-zinc-900 outline-none ring-zinc-900 focus-visible:ring-2",
+                  )}
                 />
               </div>
               <p className="text-[13px] leading-relaxed text-zinc-500">

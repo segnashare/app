@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCronRouteBearerSecret } from "@/lib/config/env";
+import { bearerMatches } from "@/lib/security/safe-equal";
 import { dispatchReferrerBonusSmsForReferredUser } from "@/lib/referral/referrer-bonus-notify";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -14,8 +15,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false as const, error: "cron_secret_not_configured" }, { status: 503 });
   }
 
-  const auth = request.headers.get("authorization")?.trim() ?? "";
-  if (auth !== `Bearer ${expected}`) {
+  if (!bearerMatches(request, expected)) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 
