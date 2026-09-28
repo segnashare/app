@@ -140,7 +140,11 @@ export async function notifyItemChatN8n(
     conversation_id: conv.id,
     message_id: input.messageId,
     is_first_visitor_message: input.isFirstVisitorMessage,
-    discord_thread_id: conv.discord_thread_id,
+    /**
+     * Fil déjà supprimé par le cycle de vie : l’id resté en base fait un 404 Discord.
+     * Vide → n8n ouvre un nouveau fil au lieu de répondre dans l’ancien.
+     */
+    discord_thread_id: conv.discord_thread_deleted_at ? null : conv.discord_thread_id,
     body: input.body,
     /** Corps sans lignes URL image (pour Discord content). */
     body_text: bodyText,

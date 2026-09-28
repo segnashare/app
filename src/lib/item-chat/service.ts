@@ -388,6 +388,7 @@ export async function appendVisitorMessage(params: {
     }
   }
 
+  const threadDeleted = Boolean(conversation.discord_thread_deleted_at);
   const { data: convData } = await admin
     .from("item_chat_conversations" as never)
     .update({
@@ -398,6 +399,10 @@ export async function appendVisitorMessage(params: {
       usefulness_rating: null,
       // Message depuis les archives → revient dans le feed actif
       visitor_archived_at: null,
+      // Conversation clôturée : le client revient, on la rouvre.
+      ...(conversation.status === "closed" ? { status: "open" as const } : {}),
+      // L’ancien fil Discord n’existe plus : n8n doit en créer un autre.
+      ...(threadDeleted ? { discord_thread_id: null } : {}),
     } as never)
     .eq("id", conversation.id)
     .select("*")
@@ -555,6 +560,8 @@ export async function bindDiscordThread(params: {
     .from("item_chat_conversations" as never)
     .update({
       discord_thread_id: discordThreadId.trim(),
+      discord_thread_deleted_at: null,
+      status: "open",
       updated_at: now,
     } as never)
     .eq("id", conversationId)
