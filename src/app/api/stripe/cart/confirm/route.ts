@@ -20,6 +20,7 @@ import {
   persistStripeCustomerDefaultPaymentMethodFromPaymentIntent,
   persistStripeCustomerDefaultPaymentMethodFromSetupIntent,
 } from "@/lib/stripe/persist-customer-default-payment-method";
+import { createRentalDepositHoldAfterCartConfirm } from "@/lib/stripe/rental-deposit-hold";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
@@ -87,6 +88,17 @@ export async function POST(request: Request) {
       const cartId = setupIntent.metadata?.cart_id?.trim() || null;
       if (cartId) {
         try {
+          await createRentalDepositHoldAfterCartConfirm({
+            stripe,
+            admin,
+            userId: user.id,
+            cartId,
+            purchaseMode: setupIntent.metadata?.purchase_mode === "true",
+          });
+        } catch (e) {
+          console.error("[stripe/cart/confirm] rental deposit hold SI", e);
+        }
+        try {
           await notifyCartOrderPaidAfterConfirmation(admin, {
             userId: user.id,
             cartId,
@@ -137,6 +149,17 @@ export async function POST(request: Request) {
 
       const cartId = paymentIntent.metadata?.cart_id?.trim() || null;
       if (cartId) {
+        try {
+          await createRentalDepositHoldAfterCartConfirm({
+            stripe,
+            admin,
+            userId: user.id,
+            cartId,
+            purchaseMode: paymentIntent.metadata?.purchase_mode === "true",
+          });
+        } catch (e) {
+          console.error("[stripe/cart/confirm] rental deposit hold PI", e);
+        }
         try {
           await notifyCartOrderPaidAfterConfirmation(admin, {
             userId: user.id,
@@ -192,6 +215,17 @@ export async function POST(request: Request) {
 
     const cartId = session.metadata?.cart_id?.trim() || null;
     if (cartId) {
+      try {
+        await createRentalDepositHoldAfterCartConfirm({
+          stripe,
+          admin,
+          userId: user.id,
+          cartId,
+          purchaseMode: session.metadata?.purchase_mode === "true",
+        });
+      } catch (e) {
+        console.error("[stripe/cart/confirm] rental deposit hold session", e);
+      }
       try {
         await notifyCartOrderPaidAfterConfirmation(admin, {
           userId: user.id,

@@ -1,15 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
+import {
+  declareSubscriptionCancelToN8n,
+  periodEndIsoFromStripeSubscription,
+} from "@/lib/notifications/notify-ops-activity-n8n";
 import { notifySubscriptionCancelScheduled } from "@/lib/notifications/subscription-cancel-notifications";
+import { getMappedPlanCodeFromSubscription } from "@/lib/stripe/subscription-state";
 import { applySubscriptionCancelToOpenRentals } from "@/lib/subscription/apply-subscription-cancel-to-rentals";
-
-function periodEndIsoFromSubscription(subscription: Stripe.Subscription): string | null {
-  const firstItem = subscription.items.data[0];
-  const unix = firstItem?.current_period_end ?? null;
-  if (!unix || unix <= 0) return null;
-  return new Date(unix * 1000).toISOString();
-}
 
 /**
  * Effets métier quand `cancel_at_period_end` passe à true (membre ou portail Stripe).
@@ -27,7 +25,7 @@ export async function applySubscriptionCancelAtPeriodEndEffects(
     return { periodEndIso: null, updatedCartIds: [] };
   }
 
-  const periodEndIso = periodEndIsoFromSubscription(subscription);
+  const periodEndIso = periodEndIsoFromStripeSubscription(subscription);
   if (!periodEndIso) return { periodEndIso: null, updatedCartIds: [] };
 
   const { updatedCartIds } = await applySubscriptionCancelToOpenRentals(admin, userId, periodEndIso);
@@ -42,6 +40,19 @@ export async function applySubscriptionCancelAtPeriodEndEffects(
       });
     } catch (e) {
       console.error("[subscription] notify cancel scheduled", e);
+    }
+    try {
+      const planCode = await getMappedPlanCodeFromSubscription(admin, subscription);
+      await declareSubscriptionCancelToN8n(admin, {
+        userId,
+        subscriptionId: subscription.id,
+        periodEndIso,
+        mode: "at_period_end",
+        planCode,
+        source: "cancel_at_period_end",
+      });
+    } catch (e) {
+      console.error("[subscription] declare cancel n8n scheduled", e);
     }
   }
 

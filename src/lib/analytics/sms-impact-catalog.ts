@@ -13,23 +13,6 @@ export type SmsNotificationImpact = {
  * PostHog : funnel `notification_sent` (filtre `kind`) → `goalEvent` (+ filtre step 2 si défini).
  */
 export const SMS_NOTIFICATION_IMPACT_BY_KIND: Record<string, SmsNotificationImpact> = {
-  abandoned_cart_reminder: {
-    goalEvent: "cart_checkout_started",
-    windowHours: 48,
-    description: "Panier abandonné → réservation / checkout",
-  },
-  onboarding_incomplete_reminder: {
-    goalEvent: "onboarding_in_app_step_completed",
-    goalFilter: { property: "to_step", value: "finished" },
-    windowHours: 48,
-    description: "Onboarding in-app incomplet → checklist terminée",
-  },
-  onboarding_incomplete_reminder_followup: {
-    goalEvent: "onboarding_in_app_step_completed",
-    goalFilter: { property: "to_step", value: "finished" },
-    windowHours: 48,
-    description: "Relance onboarding → checklist terminée",
-  },
   onboarding_reward_complete: {
     goalEvent: "cart_item_added",
     windowHours: 48,

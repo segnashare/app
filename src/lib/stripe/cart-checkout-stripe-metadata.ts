@@ -45,6 +45,8 @@ export type BuildCartOrderCheckoutMetadataInput = {
   } | null;
   guestCashRental?: boolean;
   purchaseMode?: boolean;
+  /** Surface client à l'origine du checkout (analytics) : website | mobile | webapp. */
+  clientSurface?: "website" | "mobile" | "webapp";
 };
 
 export function buildCartOrderCheckoutMetadata(
@@ -112,5 +114,6 @@ export function buildCartOrderCheckoutMetadata(
       : {}),
     ...(input.guestCashRental ? { guest_cash_rental: "true" } : {}),
     ...(input.purchaseMode ? { purchase_mode: "true" } : {}),
+    ...(input.clientSurface ? { client_surface: input.clientSurface } : {}),
   };
 }

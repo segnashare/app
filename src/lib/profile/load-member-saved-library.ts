@@ -76,7 +76,7 @@ async function fetchLookCardsByIds(
     const { data } = await supabase
       .from("style_looks")
       .select(
-        "id, title, intro, media_type, presentation_storage_bucket, media_paths, presentation_storage_path, video_poster_path, like_count, cover_aspect, cover_transform, featured_member_user_id",
+        "id, title, intro, media_type, presentation_storage_bucket, media_paths, presentation_storage_path, video_poster_path, like_count, cover_aspect, cover_transform, entry_kind, source_instagram_username, featured_member_user_id",
       )
       .in("id", segnaIds)
       .eq("published", true);
@@ -131,9 +131,20 @@ async function fetchLookCardsByIds(
         cover_aspect: row.cover_aspect,
         cover_transform: row.cover_transform,
         video_poster_path: row.video_poster_path,
-        author_user_id: featuredMemberId,
-        author_display_name: featuredMemberId ? featuredProfile?.displayName ?? "Membre Segna" : "Segna",
-        author_instagram_username: featuredProfile?.instagram ?? null,
+        entry_kind: row.entry_kind,
+        author_user_id: row.entry_kind === "inspi" ? null : featuredMemberId,
+        author_display_name:
+          row.entry_kind === "inspi"
+            ? (typeof row.source_instagram_username === "string" && row.source_instagram_username.trim()
+                ? row.source_instagram_username.trim()
+                : "Inspi")
+            : featuredMemberId
+              ? featuredProfile?.displayName ?? "Membre Segna"
+              : "Segna",
+        author_instagram_username:
+          row.entry_kind === "inspi"
+            ? (typeof row.source_instagram_username === "string" ? row.source_instagram_username : null)
+            : featuredProfile?.instagram ?? null,
         like_count: row.like_count,
         is_liked: true,
         linked_item_count: 0,

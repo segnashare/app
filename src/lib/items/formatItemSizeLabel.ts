@@ -13,7 +13,7 @@ export function normalizeItemSizeDisplay(size: string): string {
   return trimmed;
 }
 
-/** Affichage : « Taille M / 38 / 10 », pas seulement « M ». Évite le double préfixe si déjà présent. */
+/** Affichage : « Taille L » ou « Taille XS/S/M ». Vide si pas de taille. Évite le double préfixe. */
 export function formatItemSizeLabel(size: string): string {
   const s = normalizeItemSizeDisplay(size);
   if (!s) return s;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { CHECKLIST_ITEMS } from "@/lib/onboarding/demo-state";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OnboardingProgressRow = {
@@ -37,7 +38,8 @@ export async function POST() {
   }
 
   const nowIso = new Date().toISOString();
-  const { error: updateError } = await supabase
+  // `onboarding_mode` n'est plus modifiable par le rôle authenticated (audit sécurité C5) : service role.
+  const { error: updateError } = await (createSupabaseAdminClient() as any)
     .from("users")
     .update({ onboarding_mode: "bridge", onboarding_started_at: nowIso })
     .eq("id", user.id);

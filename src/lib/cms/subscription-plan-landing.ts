@@ -21,14 +21,20 @@ export type SubscriptionOfferTier = {
   checkoutPlanCode: "segna_x" | "segna_plus";
   /** Si défini : corps de carte « promo » (prix moyen gros, puis détail gris). Sinon affichage classique title / subtitle / price / micro. */
   promoCard?: SubscriptionOfferTierPromoCard;
-  /** Libellé court du bouton d’achat (ex. « Profite de 3 mois pour 99,99 € »). Fourni par le CMS ou les défauts app. */
+  /** Libellé court du bouton d’achat (ex. « Profite de 3 mois pour 80 € »). Fourni par le CMS ou les défauts app. */
   syntheticCheckoutCta?: string;
-  /**
-   * Période d’essai Stripe (jours) pour ce palier — ex. 30 pour « 1 mois offert » sur SegnaX.
-   * Envoyé au checkout ; ignoré si absent.
-   */
-  trialPeriodDays?: number;
+  /** Pack prépayé 80 € / 3 mois (2 mois + 1 offert). Pas un essai Stripe. */
+  billingTerm?: "monthly" | "3_month";
 };
+
+export function isThreeMonthPrepaidOffer(tier: SubscriptionOfferTier): boolean {
+  if (tier.billingTerm === "3_month") return true;
+  const blob = [tier.badge, tier.title, tier.subtitle, tier.syntheticCheckoutCta, tier.promoCard?.detailBold]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /engagement\s*3/.test(blob) || /\b3\s*mois\b/.test(blob);
+}
 
 export type SubscriptionPlanLandingContent = {
   /** Conservé pour le payload CMS ; non affiché sur l’écran membre (titre = `pageTitle`). */
@@ -97,18 +103,12 @@ function parseOfferTiers(raw: unknown, fallbackPlan: "segna_x" | "segna_plus"): 
     const promoBold = str((o as Record<string, unknown>).promo_detail_bold);
     const promoRest = str((o as Record<string, unknown>).promo_detail_rest);
     const syntheticCheckoutCta = str((o as Record<string, unknown>).synthetic_checkout_cta);
-    const trialRaw = (o as Record<string, unknown>).trial_period_days;
-    let trialPeriodDays: number | undefined;
-    if (typeof trialRaw === "number" && Number.isFinite(trialRaw)) {
-      const d = Math.floor(trialRaw);
-      if (d >= 1 && d <= 45) trialPeriodDays = d;
-    } else if (typeof trialRaw === "string" && trialRaw.trim()) {
-      const n = Number.parseInt(trialRaw.trim(), 10);
-      if (Number.isFinite(n)) {
-        const d = Math.floor(n);
-        if (d >= 1 && d <= 45) trialPeriodDays = d;
-      }
-    }
+    const billingTermRaw = str((o as Record<string, unknown>).billing_term);
+    const looksThreeMonth = /engagement\s*3|\b3\s*mois\b/i.test(
+      `${badge} ${title} ${subtitle} ${syntheticCheckoutCta}`,
+    );
+    const billingTerm: "3_month" | undefined =
+      billingTermRaw === "3_month" || looksThreeMonth ? "3_month" : undefined;
     const promoCard =
       promoAvg && promoBold
         ? ({
@@ -128,7 +128,7 @@ function parseOfferTiers(raw: unknown, fallbackPlan: "segna_x" | "segna_plus"): 
       checkoutPlanCode,
       ...(promoCard ? { promoCard } : {}),
       ...(syntheticCheckoutCta ? { syntheticCheckoutCta } : {}),
-      ...(trialPeriodDays != null ? { trialPeriodDays } : {}),
+      ...(billingTerm ? { billingTerm } : {}),
     });
   }
   return out;
@@ -161,13 +161,13 @@ const DEFAULT_TIERS: SubscriptionOfferTier[] = [
     microLine: "",
     featured: false,
     checkoutPlanCode: "segna_x",
-    syntheticCheckoutCta: "Profite de 3 mois pour 99,99 €",
+    syntheticCheckoutCta: "Profite de 3 mois pour 80 €",
     promoCard: {
-      avgPriceDisplay: "~33,33€ / mois",
+      avgPriceDisplay: "~26,67€ / mois",
       detailBold: "1 mois offert",
-      detailRest: ", puis 2 mois à 49,99 € / mois.",
+      detailRest: ", 80 € payés d’un coup (2 mois + 1 offert).",
     },
-    trialPeriodDays: 30,
+    billingTerm: "3_month",
   },
 ];
 
@@ -203,13 +203,17 @@ const DEFAULTS: Omit<SubscriptionPlanLandingContent, "offerTiers" | "heroImageUr
   fallbackCheckoutPlanCode: "segna_x",
 };
 
-/** Paliers CMS sans `trial_period_days` : complète depuis les défauts si badge/titre/code identiques. */
-function mergeTrialPeriodDaysFromDefaults(tiers: SubscriptionOfferTier[]): SubscriptionOfferTier[] {
+function mergeBillingTermFromDefaults(tiers: SubscriptionOfferTier[]): SubscriptionOfferTier[] {
   return tiers.map((tier, i) => {
+    if (isThreeMonthPrepaidOffer(tier)) return { ...tier, billingTerm: "3_month" };
     const def = DEFAULT_TIERS[i];
-    if (!def || tier.trialPeriodDays != null || def.trialPeriodDays == null) return tier;
-    if (tier.badge === def.badge && tier.title === def.title && tier.checkoutPlanCode === def.checkoutPlanCode) {
-      return { ...tier, trialPeriodDays: def.trialPeriodDays };
+    if (
+      def?.billingTerm === "3_month" &&
+      tier.badge === def.badge &&
+      tier.title === def.title &&
+      tier.checkoutPlanCode === def.checkoutPlanCode
+    ) {
+      return { ...tier, billingTerm: "3_month" };
     }
     return tier;
   });
@@ -229,7 +233,7 @@ export function parseSubscriptionPlanLandingPayload(payload: CmsFramePayload | n
         offerTiers[i] = DEFAULT_TIERS[i]!;
       }
     }
-    offerTiers = mergeTrialPeriodDaysFromDefaults(offerTiers);
+    offerTiers = mergeBillingTermFromDefaults(offerTiers);
   }
   const valueProps = parseValueProps(p.subscription_value_props);
   const heroImageUrl = heroImageUrlFromPayload(p);

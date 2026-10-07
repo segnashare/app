@@ -17,6 +17,8 @@ function isPastWebsiteCheckoutOnboarding(currentStep: string | null | undefined)
     "/onboarding/privacy",
     "/onboarding/end",
     "/onboarding/phone",
+    "/onboarding/name",
+    "/onboarding/2",
   ];
   return past.some((p) => currentStep === p || currentStep.startsWith(`${p}/`));
 }

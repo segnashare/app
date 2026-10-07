@@ -91,9 +91,10 @@ export function allowsMarketingEmail(prefs: MemberCommsPreferences, kind: string
   return prefs.emailMarketing;
 }
 
-export function allowsMarketingSms(prefs: MemberCommsPreferences, kind: string): boolean {
+export function allowsMarketingSms(_prefs: MemberCommsPreferences, kind: string): boolean {
   if (!isMarketingNotificationKind(kind)) return true;
-  return prefs.smsMarketing;
+  // Relances marketing (onboarding, panier, règles BO) : push / e-mail seulement, jamais de SMS.
+  return false;
 }
 
 export function allowsMarketingPush(prefs: MemberCommsPreferences, kind: string): boolean {

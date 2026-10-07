@@ -22,7 +22,7 @@ export function OnboardingIntroStepOneClient({ initialCmsFrames }: OnboardingInt
     setErrorMessage(null);
     setIsContinuing(true);
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/phone",
+      p_current_step: "/onboarding/name",
       p_progress_json: { checkpoint: "/onboarding/1" },
       p_request_id: crypto.randomUUID(),
     });
@@ -31,7 +31,7 @@ export function OnboardingIntroStepOneClient({ initialCmsFrames }: OnboardingInt
       setErrorMessage(error.message);
       return;
     }
-    router.push("/onboarding/phone");
+    router.push("/onboarding/name");
   };
 
   return (
@@ -45,9 +45,9 @@ export function OnboardingIntroStepOneClient({ initialCmsFrames }: OnboardingInt
       onContinue={handleContinue}
       title={
         <>
-          Donnes plus de détails
+          Des centaines de pièces à louer
           <br />
-          pour une expérience sur-mesure.
+          et à adopter t&apos;attendent.
         </>
       }
     />

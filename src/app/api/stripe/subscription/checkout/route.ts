@@ -6,11 +6,20 @@ import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-se
 import { getStripeConfig } from "@/lib/social/stripe";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { resolveFrVat20TaxRateId } from "@/lib/stripe/fr-vat-tax-rate";
-import { SEGNAX_BANK_HOLD_AMOUNT_CENTS } from "@/lib/stripe/segnax-subscription-bank-hold";
+import {
+  isAppleReviewCompCheckoutEmail,
+  resolveAppleReviewCompCouponId,
+} from "@/lib/stripe/apple-review-comp-checkout";
+import {
+  isThreeMonthPriceMetadata,
+  normalizeSubscriptionBillingTerm,
+  resolveSegnaXThreeMonthPriceId,
+} from "@/lib/stripe/resolve-segna-x-three-month-price";
 import {
   normalizeFirstMonthPercentOff,
   resolveFirstMonthPercentOffCouponId,
 } from "@/lib/stripe/subscription-first-month-coupon";
+import { upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { syncStripeCustomerBillingAddressFromProfile } from "@/lib/stripe/sync-customer-billing-address-from-profile";
 import { isPhoneVerified } from "@/lib/phone/phone-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -24,15 +33,6 @@ function isPlanCode(value: unknown): value is PlanCode {
   return value === "segna_plus" || value === "segna_x";
 }
 
-/** Période d’essai Stripe (jours) : seulement `segna_x`, plage 1–45 pour limiter les abus. */
-function normalizeSubscriptionTrialPeriodDays(planCode: PlanCode, raw: unknown): number | undefined {
-  if (planCode !== "segna_x" || raw == null) return undefined;
-  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(String(raw).trim(), 10) : NaN;
-  if (!Number.isFinite(n)) return undefined;
-  const days = Math.floor(n);
-  if (days < 1 || days > 45) return undefined;
-  return days;
-}
 
 function getFallbackPriceId(planCode: PlanCode): string | null {
   if (planCode === "segna_plus") {
@@ -103,9 +103,9 @@ export async function POST(request: Request) {
       cancelReturnPath?: unknown;
       mobileSuccessUrl?: unknown;
       trialPeriodDays?: unknown;
+      /** Pack 3 mois / 80 € (2 mois achetés + 1 offert). Pas un essai Stripe. */
+      billingTerm?: unknown;
       firstMonthPercentOff?: unknown;
-      /** Empreinte bancaire SegnaX (100 €) après validation carte. */
-      bankHold?: unknown;
       /** Mobile : Payment Sheet in-app (pas d’URL Checkout). */
       paymentUi?: unknown;
     } | null;
@@ -113,10 +113,10 @@ export async function POST(request: Request) {
     if (!isPlanCode(planCode)) {
       return NextResponse.json({ message: "Plan invalide." }, { status: 400 });
     }
-    const trialPeriodDays = normalizeSubscriptionTrialPeriodDays(planCode, body?.trialPeriodDays);
-    const firstMonthPercentOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
-    const bankHoldAmountCents =
-      planCode === "segna_x" && body?.bankHold === true ? SEGNAX_BANK_HOLD_AMOUNT_CENTS : undefined;
+    const billingTerm = normalizeSubscriptionBillingTerm(body);
+    const requestedFirstMonthOff = normalizeFirstMonthPercentOff(body?.firstMonthPercentOff);
+    /** Offre −50 % 1er mois retirée : tarif plein (les anciens clients qui envoient encore 50 sont ignorés). */
+    const firstMonthPercentOff = requestedFirstMonthOff === 50 ? undefined : requestedFirstMonthOff;
     const wantsPaymentSheet = body?.paymentUi === "payment_sheet" || body?.paymentUi === "native";
 
     const admin = createSupabaseAdminClient() as any;
@@ -125,6 +125,9 @@ export async function POST(request: Request) {
     if (userError || !user) {
       return NextResponse.json({ message: "Session invalide." }, { status: 401 });
     }
+
+    /** App Review (`review@…`) : abonnement offert au checkout, pas de SegnaX pré-attribué. */
+    const appleReviewComp = isAppleReviewCompCheckoutEmail(user.email);
 
     const [{ data: memberRow }, { data: profileRow }] = await Promise.all([
       admin.from("users").select("phone").eq("id", user.id).maybeSingle(),
@@ -148,24 +151,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: activePriceRow, error: activePriceError } = await admin
+    const { data: activePriceRows, error: activePriceError } = await admin
       .from("billing_plan_prices")
-      .select("stripe_price_id")
+      .select("stripe_price_id, metadata")
       .eq("provider", "stripe")
       .eq("plan_code", planCode)
       .eq("is_active", true)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("updated_at", { ascending: false });
 
     if (activePriceError) {
       return NextResponse.json({ message: activePriceError.message }, { status: 500 });
     }
-    // Env d’abord (prod live vs preview test), puis mapping DB.
-    const resolvedPriceId =
+    const monthlyPriceRow = (Array.isArray(activePriceRows) ? activePriceRows : []).find(
+      (row) => !isThreeMonthPriceMetadata(row?.metadata),
+    );
+    // Env d’abord (prod live vs preview test), puis mapping DB mensuel.
+    const monthlyPriceId =
       getFallbackPriceId(planCode) ??
-      (typeof activePriceRow?.stripe_price_id === "string" ? activePriceRow.stripe_price_id.trim() : null);
-    if (!resolvedPriceId) {
+      (typeof monthlyPriceRow?.stripe_price_id === "string" ? monthlyPriceRow.stripe_price_id.trim() : null);
+    if (!monthlyPriceId) {
       const envHint = planCode === "segna_plus" ? "STRIPE_PRICE_SEGNA_PLUS" : "STRIPE_PRICE_SEGNA_X";
       return NextResponse.json(
         { message: `Aucun prix Stripe actif pour ce plan. Configure billing_plan_prices ou la variable ${envHint}.` },
@@ -175,6 +179,26 @@ export async function POST(request: Request) {
 
     const config = getStripeConfig();
     const stripe = new Stripe(config.secretKey);
+
+    let resolvedPriceId = monthlyPriceId;
+    if (billingTerm === "3_month") {
+      if (planCode !== "segna_x") {
+        return NextResponse.json({ message: "L’offre 3 mois n’est disponible que pour SegnaX." }, { status: 400 });
+      }
+      try {
+        resolvedPriceId = await resolveSegnaXThreeMonthPriceId({
+          stripe,
+          admin,
+          monthlyPriceId,
+        });
+      } catch (error) {
+        console.error("[stripe/subscription/checkout] 3-month price", error);
+        return NextResponse.json(
+          { message: "Impossible de préparer l’offre 3 mois (80 €)." },
+          { status: 500 },
+        );
+      }
+    }
 
     let stripeCustomerId: string;
     try {
@@ -203,7 +227,17 @@ export async function POST(request: Request) {
     }
 
     let discountCouponId: string | undefined;
-    if (firstMonthPercentOff != null) {
+    if (appleReviewComp) {
+      try {
+        discountCouponId = await resolveAppleReviewCompCouponId(stripe);
+      } catch (error) {
+        console.error("[stripe/subscription/checkout] apple review coupon", error);
+        return NextResponse.json(
+          { message: "Impossible de préparer l’abonnement offert (review)." },
+          { status: 500 },
+        );
+      }
+    } else if (firstMonthPercentOff != null) {
       try {
         discountCouponId = await resolveFirstMonthPercentOffCouponId(stripe, firstMonthPercentOff);
       } catch (error) {
@@ -215,16 +249,20 @@ export async function POST(request: Request) {
       }
     }
 
+    /** Analytics : surface d'origine (en-tête posé par le proxy website et le client mobile). */
+    const surfaceHeader = request.headers.get("x-segna-surface")?.trim().toLowerCase();
+    const clientSurface =
+      surfaceHeader === "website" || surfaceHeader === "mobile" ? surfaceHeader : "webapp";
+
     const subscriptionMetadata: Record<string, string> = {
       user_id: user.id,
       plan_code: planCode,
-      ...(trialPeriodDays != null ? { checkout_trial_period_days: String(trialPeriodDays) } : {}),
-      ...(firstMonthPercentOff != null
+      billing_term: billingTerm,
+      client_surface: clientSurface,
+      ...(firstMonthPercentOff != null && !appleReviewComp
         ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
         : {}),
-      ...(bankHoldAmountCents != null
-        ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
-        : {}),
+      ...(appleReviewComp ? { apple_review_comp: "1" } : {}),
     };
 
     const frVatTaxRateId = resolveFrVat20TaxRateId();
@@ -234,9 +272,11 @@ export async function POST(request: Request) {
       { distinctId: user.id },
       {
         plan_code: planCode,
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
-        ...(firstMonthPercentOff != null ? { first_month_percent_off: firstMonthPercentOff } : {}),
-        ...(bankHoldAmountCents != null ? { bank_hold_amount_cents: bankHoldAmountCents } : {}),
+        billing_term: billingTerm,
+        ...(firstMonthPercentOff != null && !appleReviewComp
+          ? { first_month_percent_off: firstMonthPercentOff }
+          : {}),
+        ...(appleReviewComp ? { apple_review_comp: true } : {}),
         checkout_ui: wantsPaymentSheet ? "payment_sheet" : "hosted_checkout",
       },
     );
@@ -252,6 +292,50 @@ export async function POST(request: Request) {
 
       await cancelIncompleteSubscriptionsForCustomer(stripe, stripeCustomerId);
 
+      /**
+       * App Review : coupon 100 % forever → facture à 0 €.
+       * Création « normale » (pas default_incomplete) pour activer tout de suite sans carte.
+       */
+      if (appleReviewComp && discountCouponId) {
+        const subscription = await stripe.subscriptions.create({
+          customer: stripeCustomerId,
+          items: [
+            {
+              price: resolvedPriceId,
+              ...(frVatTaxRateId ? { tax_rates: [frVatTaxRateId] } : {}),
+            },
+          ],
+          ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
+          ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
+          metadata: subscriptionMetadata,
+        });
+
+        if (subscription.status === "active" || subscription.status === "trialing") {
+          try {
+            await upsertSubscriptionAndEntitlements(admin, user.id, stripeCustomerId, subscription);
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] apple review upsert", error);
+            return NextResponse.json(
+              { message: "Abonnement offert créé mais synchronisation échouée." },
+              { status: 500 },
+            );
+          }
+          await flushServerAnalytics();
+          return NextResponse.json({
+            paymentUi: "comp_activated",
+            planCode,
+            subscriptionId: subscription.id,
+          });
+        }
+        // Si Stripe exige quand même un moyen de paiement, on retombe sur la Payment Sheet ci-dessous.
+        console.warn(
+          "[stripe/subscription/checkout] apple review sub not active",
+          subscription.id,
+          subscription.status,
+        );
+        await stripe.subscriptions.cancel(subscription.id).catch(() => undefined);
+      }
+
       const subscription = await stripe.subscriptions.create({
         customer: stripeCustomerId,
         items: [
@@ -266,7 +350,6 @@ export async function POST(request: Request) {
           payment_method_types: ["card"],
         },
         ...(discountCouponId ? { discounts: [{ coupon: discountCouponId }] } : {}),
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
         metadata: subscriptionMetadata,
         expand: ["latest_invoice.confirmation_secret", "pending_setup_intent"],
@@ -301,6 +384,24 @@ export async function POST(request: Request) {
         : undefined;
 
       if (!setupIntentClientSecret && !paymentIntentClientSecret) {
+        // $0 / déjà payé : activer localement si Stripe a déjà rendu l’abo actif.
+        if (subscription.status === "active" || subscription.status === "trialing") {
+          try {
+            await upsertSubscriptionAndEntitlements(admin, user.id, stripeCustomerId, subscription);
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] zero-amount upsert", error);
+            return NextResponse.json(
+              { message: "Abonnement créé mais synchronisation échouée." },
+              { status: 500 },
+            );
+          }
+          await flushServerAnalytics();
+          return NextResponse.json({
+            paymentUi: "comp_activated",
+            planCode,
+            subscriptionId: subscription.id,
+          });
+        }
         return NextResponse.json(
           {
             message:
@@ -379,16 +480,15 @@ export async function POST(request: Request) {
       metadata: {
         user_id: user.id,
         plan_code: planCode,
-        ...(bankHoldAmountCents != null
-          ? { bank_hold_amount_cents: String(bankHoldAmountCents) }
-          : {}),
-        ...(firstMonthPercentOff != null
+        billing_term: billingTerm,
+        client_surface: clientSurface,
+        ...(firstMonthPercentOff != null && !appleReviewComp
           ? { checkout_first_month_percent_off: String(firstMonthPercentOff) }
           : {}),
+        ...(appleReviewComp ? { apple_review_comp: "1" } : {}),
       },
       subscription_data: {
         metadata: subscriptionMetadata,
-        ...(trialPeriodDays != null ? { trial_period_days: trialPeriodDays } : {}),
         // Renouvellements : même TVA sur les factures suivantes.
         ...(frVatTaxRateId ? { default_tax_rates: [frVatTaxRateId] } : {}),
       },

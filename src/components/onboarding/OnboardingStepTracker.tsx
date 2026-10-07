@@ -25,6 +25,8 @@ const ONBOARDING_PATHS = [
 const LEGACY_PERSISTED_STEP: Record<string, (typeof ONBOARDING_PATHS)[number]> = {
   "/onboarding/privacy": "/onboarding/3",
   "/onboarding/interests": "/onboarding/3",
+  "/onboarding/phone": "/onboarding/name",
+  "/onboarding/phone/verify": "/onboarding/name",
 };
 
 const ONBOARDING_PATH_SET = new Set<string>(ONBOARDING_PATHS);

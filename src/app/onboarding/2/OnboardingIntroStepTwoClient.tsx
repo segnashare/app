@@ -22,7 +22,7 @@ export function OnboardingIntroStepTwoClient({ initialCmsFrames }: OnboardingInt
     setErrorMessage(null);
     setIsContinuing(true);
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/birth",
+      p_current_step: "/onboarding/size",
       p_progress_json: { checkpoint: "/onboarding/2" },
       p_request_id: crypto.randomUUID(),
     });
@@ -31,7 +31,7 @@ export function OnboardingIntroStepTwoClient({ initialCmsFrames }: OnboardingInt
       setErrorMessage(error.message);
       return;
     }
-    router.push("/onboarding/birth");
+    router.push("/onboarding/size");
   };
 
   return (
@@ -45,9 +45,9 @@ export function OnboardingIntroStepTwoClient({ initialCmsFrames }: OnboardingInt
       onContinue={handleContinue}
       title={
         <>
-          Les bases sont là.
+          On ne te montrera que les pièces
           <br />
-          Place à ce qui fera de toi une membre à part.
+          que tu peux/veux vraiment porter.
         </>
       }
     />

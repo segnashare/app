@@ -103,7 +103,7 @@ export function OnboardingNameCore({
     }
 
     const { error } = await supabase.rpc("upsert_onboarding_progress", {
-      p_current_step: "/onboarding/2",
+      p_current_step: "/onboarding/birth",
       p_progress_json: {
         checkpoint: "/onboarding/name",
       },
@@ -115,7 +115,7 @@ export function OnboardingNameCore({
       return;
     }
 
-    router.push(redirectPath ?? "/onboarding/2");
+    router.push(redirectPath ?? "/onboarding/birth");
   });
 
   const framedInputClass = (hasError: boolean) =>

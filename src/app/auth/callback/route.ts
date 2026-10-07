@@ -2,14 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
-import {
-  getWebsiteOrigin,
-  isWebsiteCheckoutTunnelComplete,
-  websiteOnboardingResumeUrl,
-} from "@/lib/auth/website-checkout-onboarding";
+import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 import { isAllowedWebsiteReturnTo } from "@/lib/auth/website-return-to";
 import { REFERRAL_COOKIE_NAME } from "@/lib/referral/referralInviteConstants";
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
+import { declareUserRegisteredToN8n } from "@/lib/notifications/notify-ops-activity-n8n";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OAuthIntent = "signup" | "member";
@@ -55,21 +53,19 @@ function referralCodeFromCookie(request: NextRequest): string | null {
 async function resolvePostAuthPath(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   userId: string,
-): Promise<{ kind: "app"; path: string } | { kind: "website"; url: string }> {
-  const websiteReady = await isWebsiteCheckoutTunnelComplete(supabase, userId);
-  if (!websiteReady) {
-    return { kind: "website", url: websiteOnboardingResumeUrl() };
-  }
-
+): Promise<string> {
+  // OAuth app-native (pas de return_to website) : rester dans le funnel app.
+  // Un compte tout neuf a current_step `/onboarding/1`, qui n'est pas « past website »
+  // — l'ancien check envoyait à tort vers le tunnel site (OTP téléphone).
   const { data: onboardingData } = await supabase
     .from("onboarding_sessions")
     .select("current_step, status")
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (onboardingData?.status === "completed") return { kind: "app", path: MEMBER_HOME_HREF };
+  if (onboardingData?.status === "completed") return MEMBER_HOME_HREF;
   if (onboardingData?.current_step?.startsWith("/onboarding/")) {
-    return { kind: "app", path: onboardingData.current_step };
+    return onboardingData.current_step;
   }
 
   const { data: profileRow } = await supabase
@@ -86,10 +82,10 @@ async function resolvePostAuthPath(
     profileData.progress_score;
   const numericScore = typeof rawScore === "number" ? rawScore : Number(rawScore);
   if (Number.isFinite(numericScore) && numericScore >= 100) {
-    return { kind: "app", path: MEMBER_HOME_HREF };
+    return MEMBER_HOME_HREF;
   }
 
-  return { kind: "app", path: "/onboarding/3" };
+  return "/onboarding/1";
 }
 
 /** Handoff session app → website (hash, lu côté client website). */
@@ -133,28 +129,19 @@ export async function GET(request: NextRequest) {
     return redirectWithOAuthError(request, intent, "exchange_failed", returnTo);
   }
 
-  // Recovery PKCE : ne pas router vers onboarding website (« Qui es-tu ? »).
+  // Recovery PKCE : renvoyer vers le bridge app (deep link iOS), pas le website.
   if (authType === "recovery") {
+    const target = new URL("/auth/mobile-password-reset", request.nextUrl.origin);
     const accessToken = exchangeData.session?.access_token;
     const refreshToken = exchangeData.session?.refresh_token;
     if (accessToken && refreshToken) {
-      return redirectToWebsiteWithSession(
-        `${getWebsiteOrigin()}/reset-password`,
-        accessToken,
-        refreshToken,
-        "recovery",
-      );
+      target.hash = new URLSearchParams({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        token_type: "bearer",
+        type: "recovery",
+      }).toString();
     }
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData.session?.access_token && sessionData.session.refresh_token) {
-      return redirectToWebsiteWithSession(
-        `${getWebsiteOrigin()}/reset-password`,
-        sessionData.session.access_token,
-        sessionData.session.refresh_token,
-        "recovery",
-      );
-    }
-    const target = new URL("/auth/reset-password", request.nextUrl.origin);
     return NextResponse.redirect(target);
   }
 
@@ -188,11 +175,21 @@ export async function GET(request: NextRequest) {
     return redirectWithOAuthError(request, intent, "bootstrap_failed", returnTo);
   }
 
+  // Apple / Google : l'email est déjà vérifié par le provider. Discord maintenant, pas au téléphone.
+  const provider = user.app_metadata?.provider;
+  try {
+    await declareUserRegisteredToN8n(createSupabaseAdminClient(), {
+      userId: user.id,
+      source: typeof provider === "string" ? `oauth:${provider}` : "oauth",
+    });
+  } catch (err) {
+    console.error("[auth/callback] user_registered n8n", err);
+  }
+
   const createdAtMs = user.created_at ? Date.parse(user.created_at) : Number.NaN;
   const isNewAccount =
     intent === "signup" && Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 5 * 60 * 1000;
   if (isNewAccount) {
-    const provider = user.app_metadata?.provider;
     trackServerEvent(
       ANALYTICS_EVENTS.userSignedUp,
       { distinctId: user.id, insertId: `user_signed_up:${user.id}` },
@@ -223,27 +220,8 @@ export async function GET(request: NextRequest) {
   }
 
   const destination = await resolvePostAuthPath(supabase, user.id);
-  if (destination.kind === "website") {
-    const accessToken = exchangeData.session?.access_token;
-    const refreshToken = exchangeData.session?.refresh_token;
-    if (accessToken && refreshToken) {
-      return redirectToWebsiteWithSession(destination.url, accessToken, refreshToken);
-    }
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData.session?.access_token && sessionData.session.refresh_token) {
-      return redirectToWebsiteWithSession(
-        destination.url,
-        sessionData.session.access_token,
-        sessionData.session.refresh_token,
-      );
-    }
-    const res = NextResponse.redirect(destination.url);
-    res.cookies.set(REFERRAL_COOKIE_NAME, "", { path: "/", maxAge: 0, sameSite: "lax" });
-    return res;
-  }
-
   const url = request.nextUrl.clone();
-  url.pathname = destination.path;
+  url.pathname = destination;
   url.search = "";
   const res = NextResponse.redirect(url);
   res.cookies.set(REFERRAL_COOKIE_NAME, "", { path: "/", maxAge: 0, sameSite: "lax" });

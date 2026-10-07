@@ -168,9 +168,10 @@ export type CmsFramePayload = {
     promo_discount_pct?: number | string;
     promo_detail_bold?: string;
     promo_detail_rest?: string;
-    /** Libellé bouton principal (ex. « Profite de 3 mois pour 99,99 € »). */
+    /** Libellé bouton principal (ex. « Profite de 3 mois pour 80 € »). */
     synthetic_checkout_cta?: string;
-    /** Si renseigné (ex. 30) : période d’essai Stripe pour ce palier (`subscription_data.trial_period_days`). */
+    /** Pack 80 € / 3 mois. L’ancien `trial_period_days` est lu comme ce pack, pas comme un essai. */
+    billing_term?: "monthly" | "3_month";
     trial_period_days?: number | string;
   }[];
   /** --- welcome_gift_landing (section `offer_welcome_gift`) --- */

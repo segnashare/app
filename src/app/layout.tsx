@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthTeaserGate } from "@/components/auth/AuthTeaserGate";
 import { PasswordRecoveryWebsiteBridge } from "@/components/auth/PasswordRecoveryWebsiteBridge";
 import { PostHogProvider } from "@/components/analytics/PostHogProvider";
 import { AuthSessionLogger } from "@/components/dev/AuthSessionLogger";
@@ -24,6 +25,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <PostHogProvider>
+          <AuthTeaserGate />
           <PasswordRecoveryWebsiteBridge />
           {process.env.SEGNA_AUTH_SESSION_LOGGER === "1" ? <AuthSessionLogger /> : null}
           {process.env.NEXT_PUBLIC_SEGNA_WEB_VITALS === "1" ? <WebVitalsReporter /> : null}

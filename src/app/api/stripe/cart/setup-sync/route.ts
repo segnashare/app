@@ -13,6 +13,7 @@ import {
 } from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { persistStripeCustomerDefaultPaymentMethodFromSetupSession } from "@/lib/stripe/persist-customer-default-payment-method";
+import { createRentalDepositHoldAfterCartConfirm } from "@/lib/stripe/rental-deposit-hold";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { checkoutSessionIsGuestPurchase } from "@/lib/stripe/guest-purchase-stripe-invoice";
 import { getStripeConfig } from "@/lib/social/stripe";
@@ -90,6 +91,17 @@ export async function GET(request: Request) {
 
     const cartIdForNotify = session.metadata?.cart_id?.trim();
     if (cartIdForNotify) {
+      try {
+        await createRentalDepositHoldAfterCartConfirm({
+          stripe,
+          admin,
+          userId: user.id,
+          cartId: cartIdForNotify,
+          purchaseMode: session.metadata?.purchase_mode === "true",
+        });
+      } catch (e) {
+        console.error("[stripe/cart/setup-sync] rental deposit hold", e);
+      }
       try {
         await notifyCartOrderPaidAfterConfirmation(admin, {
           userId: user.id,

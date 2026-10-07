@@ -1,4 +1,5 @@
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
+import { withShopCatalogItemFlags } from "@/lib/shop/shop-catalog-item-flags";
 import type { StorageSignClient } from "@/lib/supabase/storage-resolve-signed-url";
 
 /**
@@ -40,11 +41,13 @@ export async function fetchShopCatalogItemsByIds(
   const root = data && typeof data === "object" && !Array.isArray(data) ? (data as { items?: unknown }) : {};
   const raw = root.items;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (row): row is ShopCatalogItem =>
-      Boolean(row) &&
-      typeof row === "object" &&
-      typeof (row as ShopCatalogItem).id === "string" &&
-      typeof (row as ShopCatalogItem).title === "string",
-  );
+  return raw
+    .filter(
+      (row): row is ShopCatalogItem & { is_new?: boolean; is_archive?: boolean } =>
+        Boolean(row) &&
+        typeof row === "object" &&
+        typeof (row as ShopCatalogItem).id === "string" &&
+        typeof (row as ShopCatalogItem).title === "string",
+    )
+    .map((row) => withShopCatalogItemFlags(row));
 }

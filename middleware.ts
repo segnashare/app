@@ -3,6 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { MEMBER_HOME_HREF } from "@/components/layout/navigation";
 import {
+  AUTH_TEASER_LANDING_PATH,
+  AUTH_TEASER_MODE,
+  isAuthTeaserAllowedPath,
+} from "@/lib/auth/auth-teaser";
+import {
   isBorrowRecoveryAuthSuspendAllowedPath,
   parseBorrowRecoveryAuthSuspendRow,
 } from "@/lib/emprunt/borrow-recovery-auth-suspend";
@@ -16,6 +21,8 @@ const PUBLIC_PREFIXES = [
   "/auth/login",
   "/auth/forgot-password",
   "/auth/reset-password",
+  "/auth/mobile-password-reset",
+  "/auth/callback",
   "/auth/sign-up/email",
   "/auth/sign-up/verify",
   "/auth/emprunt-suspendu",
@@ -37,7 +44,6 @@ const PROTECTED_PREFIXES = [
 const API_MIDDLEWARE_BYPASS_PREFIXES = [
   "/api/internal/",
   "/api/stripe/webhook",
-  "/api/uber-direct/webhook",
   "/api/sendcloud/webhook",
   "/api/item-chat/",
   "/api/cron/item-chat-discord-sync",
@@ -159,6 +165,19 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   let response = NextResponse.next({ request });
   const perf = createPerfTracker(`middleware:${request.method}:${pathname}`);
+
+  if (AUTH_TEASER_MODE && !isAuthTeaserAllowedPath(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = AUTH_TEASER_LANDING_PATH;
+    url.search = "";
+    const redirectResponse = NextResponse.redirect(url);
+    const serverTiming = perf.serverTimingHeader();
+    if (serverTiming) {
+      redirectResponse.headers.set("Server-Timing", serverTiming);
+    }
+    perf.log({ pathname, status: redirectResponse.status });
+    return redirectResponse;
+  }
 
   if (!middlewareShouldRun(pathname)) {
     return response;

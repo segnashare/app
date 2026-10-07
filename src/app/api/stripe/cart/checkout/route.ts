@@ -47,10 +47,16 @@ import {
   resolveCartCheckoutSendcloudOutboundSelection,
 } from "@/lib/stripe/cart-order-fulfillment";
 import { buildGuestPurchaseCheckoutLineItems } from "@/lib/stripe/guest-purchase-stripe-invoice";
-import { exchangeOrderSuccessUrl, orderCheckoutEconomicsDirect, trackOrderConfirmedServer } from "@/lib/analytics/order-confirmed";
+import {
+  exchangeOrderSuccessUrl,
+  orderCheckoutEconomicsDirect,
+  parseOrderCheckoutEconomicsFromMetadata,
+  trackOrderConfirmedServer,
+} from "@/lib/analytics/order-confirmed";
 import { flushServerAnalytics } from "@/lib/analytics/track-server";
 import { ensureStripeBillingCustomer } from "@/lib/stripe/ensure-billing-customer";
 import { stripeCustomerHasSavedPaymentMethod } from "@/lib/stripe/stripe-customer-payment-method";
+import { createRentalDepositHoldAfterCartConfirm } from "@/lib/stripe/rental-deposit-hold";
 import { notifyCartOrderPaidAfterConfirmation } from "@/lib/notifications/checkout-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { stripeFrVat20TaxParams } from "@/lib/stripe/fr-vat-tax-rate";
@@ -404,6 +410,14 @@ export async function POST(request: Request) {
     const purchaseMode = body.purchaseMode === true;
     /** Proxy website : Chronopost domicile offert dès 200 € (sinon app = relais seulement / supplément Chrono). */
     const websitePurchaseCheckout = body.websitePurchaseCheckout === true;
+    /** Analytics : surface d'origine (en-tête posé par le proxy website et le client mobile). */
+    const surfaceHeader = request.headers.get("x-segna-surface")?.trim().toLowerCase();
+    const clientSurface: "website" | "mobile" | "webapp" =
+      surfaceHeader === "website" || websitePurchaseCheckout
+        ? "website"
+        : surfaceHeader === "mobile"
+          ? "mobile"
+          : "webapp";
     const promoFreeShipping = purchasePromoGrantsFreeShipping(body.promoCode);
     const outboundOnly = purchaseMode;
     const availableWalletMods =
@@ -755,6 +769,7 @@ export async function POST(request: Request) {
           : "";
       const checkoutMetadata = buildCartOrderCheckoutMetadata({
         checkoutKind: "cart_order_wallet_setup",
+        clientSurface,
         userId,
         cartId: activeCart.cartId,
         itemCount,
@@ -900,11 +915,25 @@ export async function POST(request: Request) {
         console.error("[stripe/cart/checkout] notifyCartOrderPaidAfterConfirmation", e);
       }
 
+      try {
+        await createRentalDepositHoldAfterCartConfirm({
+          stripe,
+          admin,
+          userId,
+          cartId: activeCart.cartId,
+          purchaseMode,
+        });
+      } catch (e) {
+        console.error("[stripe/cart/checkout] rental deposit hold", e);
+      }
+
       trackOrderConfirmedServer(userId, {
         cart_id: activeCart.cartId,
         checkout_mode: "wallet_only",
         used_included_order: checkoutMetadata.used_included_order === "true",
         item_count: itemCount,
+        // Classification (achat / location / emprunt abonné) + surface depuis la metadata construite.
+        ...parseOrderCheckoutEconomicsFromMetadata(checkoutMetadata),
         ...orderCheckoutEconomicsDirect({
           cartTotalMods,
           cashPaidCents: 0,
@@ -941,6 +970,7 @@ export async function POST(request: Request) {
         : "";
     const checkoutMetadata = buildCartOrderCheckoutMetadata({
       checkoutKind: "cart_order",
+      clientSurface,
       userId,
       cartId: activeCart.cartId,
       itemCount,

@@ -2,6 +2,7 @@ import type {
   InspirationCoverAspect,
   InspirationCoverTransform,
 } from "@/lib/community/inspiration-cover-aspect";
+import type { StyleLookEntryKind } from "@/lib/community/inspiration-member-tag";
 
 export type InspirationSource = "segna_style" | "member";
 export type InspirationMediaType = "photo" | "video" | "dump";
@@ -23,6 +24,7 @@ export type InspirationFeedCard = {
   cover_aspect: InspirationCoverAspect;
   cover_transform: InspirationCoverTransform | null;
   video_poster_path: string | null;
+  entry_kind?: StyleLookEntryKind;
   author_user_id: string | null;
   author_display_name: string;
   author_avatar_path: string | null;
@@ -63,6 +65,7 @@ export type InspirationDetail = {
   cover_aspect: InspirationCoverAspect;
   cover_transform: InspirationCoverTransform | null;
   video_poster_path: string | null;
+  entry_kind?: StyleLookEntryKind;
   author_user_id: string | null;
   author_display_name: string;
   author_avatar_path: string | null;

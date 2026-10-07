@@ -112,6 +112,7 @@ export async function runItemChatLifecycle(admin: Admin): Promise<{
         .from("item_chat_conversations" as never)
         .update({
           status: "closed",
+          discord_thread_id: null,
           discord_thread_deleted_at: at,
           updated_at: at,
         } as never)

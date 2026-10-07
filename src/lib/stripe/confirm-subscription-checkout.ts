@@ -1,8 +1,9 @@
 import Stripe from "stripe";
 
+import { classifySubscription, trackPaymentCompletedServer } from "@/lib/analytics/payment-completed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
+import { declareSubscriptionActivatedToN8n } from "@/lib/notifications/notify-ops-activity-n8n";
 import { getStripeConfig } from "@/lib/social/stripe";
-import { createSegnaXSubscriptionBankHoldIfNeeded } from "@/lib/stripe/segnax-subscription-bank-hold";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 
 function isPlanCode(value: string | null | undefined): value is "guest" | "segna_plus" | "segna_x" {
@@ -30,7 +31,6 @@ function resolvePlanCode(params: {
 async function finalizeConfirmedSubscription(params: {
   admin: any;
   userId: string;
-  stripe: Stripe;
   stripeCustomerId: string;
   subscription: Stripe.Subscription;
   session?: Stripe.Checkout.Session | null;
@@ -41,7 +41,6 @@ async function finalizeConfirmedSubscription(params: {
   const {
     admin,
     userId,
-    stripe,
     stripeCustomerId,
     subscription,
     session,
@@ -73,24 +72,29 @@ async function finalizeConfirmedSubscription(params: {
     return { ok: false, reason: "subscription_upsert_failed", status: 500, detail: message };
   }
 
-  try {
-    await createSegnaXSubscriptionBankHoldIfNeeded({
-      stripe,
-      session: session ?? null,
-      subscription,
-      userId,
-      customerId: stripeCustomerId,
-    });
-  } catch (e) {
-    // L’abonnement est déjà sync : ne pas faire échouer la confirmation pour l’empreinte.
-    console.error("[stripe] subscription bank hold", e);
-  }
-
   const resolvedPlan = resolvePlanCode({
     subscription,
     sessionPlan: typeof session?.metadata?.plan_code === "string" ? session.metadata.plan_code : null,
     fallbackPlan,
   });
+
+  // Analytics : engagement (mensuel vs 3 mois), montant 1ʳᵉ facture, surface d'origine.
+  const meta = { ...(subscription.metadata ?? {}), ...(session?.metadata ?? {}) } as Record<string, string | undefined>;
+  const billingTerm = meta.billing_term?.trim() || "monthly";
+  const firstMonthPercentOffRaw = Number.parseInt(meta.checkout_first_month_percent_off ?? "", 10);
+  const firstItemPrice = subscription.items?.data?.[0]?.price?.unit_amount;
+  const amountCents =
+    session?.amount_total != null
+      ? session.amount_total
+      : typeof firstItemPrice === "number"
+        ? firstItemPrice * (subscription.items?.data?.[0]?.quantity ?? 1)
+        : undefined;
+  const clientSurface = meta.client_surface?.trim();
+  const surfaceProps =
+    clientSurface === "website" || clientSurface === "mobile" || clientSurface === "webapp"
+      ? { surface: clientSurface as "website" | "mobile" | "webapp" }
+      : {};
+  const classification = classifySubscription(billingTerm);
 
   trackServerEvent(
     "subscription_confirmed",
@@ -100,15 +104,35 @@ async function finalizeConfirmedSubscription(params: {
       checkout_mode: checkoutMode,
       ...(session?.id ? { stripe_session_id: session.id } : {}),
       stripe_subscription_id: subscription.id,
+      billing_term: billingTerm,
+      ...(Number.isFinite(firstMonthPercentOffRaw) ? { first_month_percent_off: firstMonthPercentOffRaw } : {}),
+      ...(amountCents != null ? { amount_cents: amountCents } : {}),
+      ...surfaceProps,
+      ...classification,
     },
   );
+  trackPaymentCompletedServer(userId, `subscription:${subscription.id}`, {
+    ...classification,
+    plan_code: resolvedPlan,
+    billing_term: billingTerm,
+    ...(Number.isFinite(firstMonthPercentOffRaw) ? { first_month_percent_off: firstMonthPercentOffRaw } : {}),
+    ...(amountCents != null ? { amount_cents: amountCents } : {}),
+    stripe_subscription_id: subscription.id,
+    checkout_mode: checkoutMode,
+    ...surfaceProps,
+  });
+  try {
+    await declareSubscriptionActivatedToN8n(admin, userId, subscription);
+  } catch (e) {
+    console.error("[stripe] declareSubscriptionActivatedToN8n", e);
+  }
   await flushServerAnalytics();
 
   return { ok: true, planCode: resolvedPlan };
 }
 
 /**
- * Synchronise un Checkout Session abonnement Stripe → entitlements (+ empreinte si demandée).
+ * Synchronise un Checkout Session abonnement Stripe → entitlements.
  */
 export async function confirmSubscriptionCheckoutSession(params: {
   admin: any;
@@ -153,7 +177,6 @@ export async function confirmSubscriptionCheckoutSession(params: {
   return finalizeConfirmedSubscription({
     admin,
     userId,
-    stripe,
     stripeCustomerId,
     subscription,
     session,
@@ -198,7 +221,6 @@ export async function confirmSubscriptionById(params: {
   return finalizeConfirmedSubscription({
     admin,
     userId,
-    stripe,
     stripeCustomerId,
     subscription,
     session: null,

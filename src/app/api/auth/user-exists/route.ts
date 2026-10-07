@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { rateLimitResponse } from "@/lib/security/rate-limit";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type RequestBody = {
@@ -11,7 +12,14 @@ type RequestBody = {
   mode?: "member" | "auth";
 };
 
+/** Énumération de comptes : 10 requêtes / minute / IP (audit sécurité H3). */
+const USER_EXISTS_LIMIT = 10;
+const USER_EXISTS_WINDOW_MS = 60_000;
+
 export async function POST(request: Request) {
+  const limited = rateLimitResponse(request, "auth.user-exists", USER_EXISTS_LIMIT, USER_EXISTS_WINDOW_MS);
+  if (limited) return limited;
+
   try {
     const body = (await request.json()) as RequestBody;
     const email = (body.email ?? "").trim().toLowerCase();

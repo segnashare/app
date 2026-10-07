@@ -113,7 +113,7 @@ export function SettingsCommsChannelClient({ channel, returnPath }: Props) {
   const intro =
     channel === "email"
       ? "Choisis quels e-mails Segna tu veux recevoir. Les messages liés à tes commandes et à ton compte restent toujours actifs."
-      : "Choisis quels SMS Segna tu veux recevoir. Les SMS liés à tes commandes, livraisons et délais restent toujours actifs.";
+      : "Les SMS liés à tes commandes, livraisons et délais restent actifs. Il n’y a plus de SMS marketing.";
 
   return (
     <main className={cn(montserrat.className, "min-h-[100dvh] bg-white")}>
@@ -144,7 +144,11 @@ export function SettingsCommsChannelClient({ channel, returnPath }: Props) {
             />
             <ToggleRow
               title={channel === "email" ? "Offres & actus par e-mail" : "Offres & actus par SMS"}
-              subtitle="Rappels d’engagement, panier abandonné, nouveautés et promotions. Désactive pour éviter le marketing."
+              subtitle={
+                channel === "sms"
+                  ? "Aucun SMS marketing n’est envoyé. Les relances onboarding et panier partent en push."
+                  : "Rappels d’engagement, panier abandonné, nouveautés et promotions. Désactive pour éviter le marketing."
+              }
               checked={marketingOn}
               busy={busy}
               onChange={(next) => void commitMarketing(next)}

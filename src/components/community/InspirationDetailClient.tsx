@@ -10,6 +10,8 @@ import { InspirationLinkedItemsRail } from "@/components/community/InspirationLi
 import { InspirationMasonryGrid } from "@/components/community/InspirationMasonryGrid";
 import { InspirationMediaViewer } from "@/components/community/InspirationMediaViewer";
 import { MemberFollowButton } from "@/components/community/MemberFollowButton";
+import { InspirationKindPill } from "@/components/community/InspirationKindPill";
+import { inspirationCredit } from "@/lib/community/inspiration-member-tag";
 import { fetchRelatedInspirations } from "@/lib/community/fetch-related-inspirations";
 import { resolveInspirationCardsMediaUrls } from "@/lib/community/resolve-inspiration-media-urls";
 import type { InspirationDetail, InspirationFeedCard } from "@/lib/community/types";
@@ -55,14 +57,17 @@ export function InspirationDetailClient({
         Communauté
       </Link>
 
-      <InspirationMediaViewer
-        mediaType={detail.media_type}
-        mediaUrls={mediaUrls}
-        posterUrl={detail.poster_url}
-        coverAspect={detail.cover_aspect}
-        coverTransform={detail.cover_transform}
-        priority
-      />
+      <div className="relative">
+        <InspirationMediaViewer
+          mediaType={detail.media_type}
+          mediaUrls={mediaUrls}
+          posterUrl={detail.poster_url}
+          coverAspect={detail.cover_aspect}
+          coverTransform={detail.cover_transform}
+          priority
+        />
+        <InspirationKindPill className="absolute left-3 top-3" entryKind={detail.entry_kind} />
+      </div>
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -86,16 +91,39 @@ export function InspirationDetailClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {detail.author_user_id ? (
-            <>
-              <Link href={`/membre/${detail.author_user_id}`} className="text-[14px] font-medium text-zinc-900 underline-offset-2 hover:underline">
-                {detail.author_display_name}
+          {(() => {
+            const credit = inspirationCredit({
+              entryKind: detail.entry_kind,
+              authorUserId: detail.author_user_id,
+              displayName: detail.author_display_name,
+              instagramUsername: detail.author_instagram_username,
+            });
+            if (!credit.label) return null;
+            const handle = credit.href && credit.external ? (
+              <a
+                href={credit.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-zinc-900 underline-offset-2 hover:underline"
+              >
+                {credit.label}
+              </a>
+            ) : credit.href && detail.author_user_id ? (
+              <Link href={credit.href} className="font-semibold text-zinc-900 underline-offset-2 hover:underline">
+                {credit.label}
               </Link>
-              <MemberFollowButton userId={detail.author_user_id} initialFollowing={detail.is_following_author} />
-            </>
-          ) : (
-            <span className="text-[14px] font-medium text-zinc-900">{detail.author_display_name}</span>
-          )}
+            ) : (
+              <span className="font-semibold text-zinc-900">{credit.label}</span>
+            );
+            return (
+              <>
+                {handle}
+                {credit.href && detail.author_user_id && !credit.external ? (
+                  <MemberFollowButton userId={detail.author_user_id} initialFollowing={detail.is_following_author} />
+                ) : null}
+              </>
+            );
+          })()}
           <InspirationLikeButton
             source={detail.source}
             inspirationId={detail.id}

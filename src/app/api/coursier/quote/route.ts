@@ -17,6 +17,7 @@ import {
   formatMissingEnvMessage,
   getShippingEnvDiagnostics,
 } from "@/lib/shipping/server-env-diagnostics";
+import { rateLimitResponse } from "@/lib/security/rate-limit";
 import { resolveRequestUserClient } from "@/lib/supabase/request-user";
 
 function parseDeliveryAddress(raw: unknown): CheckoutDeliveryAddress | null {
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
   if (!isCoursierCheckoutEnabled()) {
     return NextResponse.json({ ok: false, message: "Livraison express Coursier.fr désactivée." }, { status: 404 });
   }
+  // API partenaire facturée à l'appel : 20 devis / minute / IP (audit sécurité M4).
+  const limited = rateLimitResponse(request, "coursier.quote", 20, 60_000);
+  if (limited) return limited;
 
   let quoteDebug: ReturnType<typeof buildCoursierQuoteDebugSummary> | null = null;
   try {

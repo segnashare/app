@@ -27,7 +27,7 @@ import {
 } from "@/lib/cart/member-receipt-validation";
 import { formatDateTimeParis, formatLongDateParis } from "@/lib/datetime/segna-datetime";
 import type { MembershipLabel } from "@/lib/user/resolve-membership-label";
-import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/uber-direct/segna-prep-estimate";
+import { SEGNA_OUTBOUND_PREP_ESTIMATE_MINUTES } from "@/lib/cart/segna-prep-estimate";
 import {
   getMemberOutboundShipmentPhaseCopy,
   normalizeOutboundShipmentStatusForUi,

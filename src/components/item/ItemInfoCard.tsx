@@ -118,20 +118,21 @@ export function ItemInfoCard({ data, className, guestCashRental = false, hidePri
     });
   }
 
-  // 2. Taille (« Taille M » ou « Taille unique » si absent)
+  // 2. Taille (« Taille L » / « Taille XS/S/M ») — ligne omise si vide
   {
     const trimmedSize = data.size?.trim() ?? "";
     const isPlaceholder =
       trimmedSize === "" || trimmedSize === "-" || trimmedSize === "—" || trimmedSize === "–";
-    const hasSize = !isPlaceholder;
-    firstLineItems.push({
-      key: "size",
-      content: (
-        <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900")}>
-          {hasSize ? formatItemSizeLabel(trimmedSize) : "Taille unique"}
-        </span>
-      ),
-    });
+    if (!isPlaceholder) {
+      firstLineItems.push({
+        key: "size",
+        content: (
+          <span className={cn(montserrat.className, "shrink-0 font-semibold text-zinc-900")}>
+            {formatItemSizeLabel(trimmedSize)}
+          </span>
+        ),
+      });
+    }
   }
 
   // 3. Couleur (pastille + nom) / Matériaux

@@ -169,7 +169,9 @@ export async function sendMemberOutreachNotification(
     }
 
     // SMS = fallback si push non délivré, sauf `smsEvenIfPushDelivered` (J-J / MED).
+    // Marketing : jamais de SMS (relances onboarding / panier / règles BO).
     let allowSms =
+      !isMarketingNotificationKind(input.kind) &&
       smsRequested &&
       allowMarketingSms &&
       (input.smsEvenIfPushDelivered === true || !pushDelivered);
@@ -281,6 +283,7 @@ export async function sendMemberSmsOnlyNotification(
     }
 
     const allowSms =
+      !isMarketingNotificationKind(input.kind) &&
       allowMarketingSms &&
       smsGateOk &&
       (input.smsEvenIfPushDelivered === true || !pushDelivered);
@@ -343,5 +346,55 @@ export async function sendMemberSmsOnlyNotification(
     await releaseNotificationSend(admin, input.idempotencyKey);
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[notifications] member-outreach sms-only send failed", msg);
+  }
+}
+
+/**
+ * Push seul (journal). Pas de SMS — relances marketing onboarding / panier abandonné.
+ */
+export async function sendMemberPushOnlyNotification(
+  admin: SupabaseClient,
+  input: {
+    userId: string;
+    kind: string;
+    idempotencyKey: string;
+    metadata?: Record<string, unknown>;
+    pushTitle?: string;
+    pushBody: string;
+  },
+): Promise<void> {
+  if (!(await isNotificationKindEnabled(admin, input.kind))) return;
+
+  const prefs = isMarketingNotificationKind(input.kind)
+    ? await loadMemberCommsPreferences(admin, input.userId)
+    : null;
+  if (prefs && !allowsMarketingPush(prefs, input.kind)) return;
+
+  const pushBody = input.pushBody.trim().slice(0, 240);
+  if (!pushBody) return;
+
+  const claimed = await claimNotificationSend(admin, {
+    idempotencyKey: input.idempotencyKey,
+    kind: input.kind,
+    userId: input.userId,
+    metadata: input.metadata ?? {},
+  });
+  if (!claimed) return;
+
+  try {
+    const pushDelivered = await sendExpoPushToUser(admin, input.userId, {
+      title: (input.pushTitle?.trim() || "Segna").slice(0, 80),
+      body: pushBody,
+      data: buildMemberPushData({ kind: input.kind, metadata: input.metadata }),
+    });
+    if (!pushDelivered) {
+      await releaseNotificationSend(admin, input.idempotencyKey);
+      return;
+    }
+    await setNotificationDeliveryChannels(admin, input.idempotencyKey, "push");
+  } catch (e) {
+    await releaseNotificationSend(admin, input.idempotencyKey);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[notifications] member-outreach push-only send failed", msg);
   }
 }

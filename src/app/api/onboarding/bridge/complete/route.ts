@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { CHECKLIST_ITEMS } from "@/lib/onboarding/demo-state";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OnboardingProgressRow = {
@@ -51,7 +52,8 @@ export async function POST() {
     return NextResponse.json({ error: "Impossible de finaliser la progression onboarding" }, { status: 500 });
   }
 
-  const { error: userUpdateError } = await supabase
+  // `onboarding_mode` / `onboarding_completed_at` réservés au service role (audit sécurité C5).
+  const { error: userUpdateError } = await (createSupabaseAdminClient() as any)
     .from("users")
     .update({
       onboarding_mode: "real",

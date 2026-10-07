@@ -2,6 +2,10 @@
  * Webhook n8n « activité membres » (Discord) :
  * commandes confirmées, comptes créés, abonnements, résiliations.
  *
+ * Events : `cart_order_confirmed`, `user_registered`, `subscription_activated`,
+ * `subscription_cancel_scheduled` (fin de période + date), `subscription_canceled` (immédiat).
+ * Chaque payload abo inclut `discord_content` / `discord_title` / `discord_description`.
+ *
  * Prefer `N8N_OPS_ACTIVITY_WEBHOOK_URL` ; fallback `N8N_CART_ORDER_WEBHOOK_URL` (legacy).
  */
 

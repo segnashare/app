@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { AUTH_TEASER_MODE } from "@/lib/auth/auth-teaser";
 import { getWebsiteOrigin } from "@/lib/auth/website-checkout-onboarding";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -27,7 +28,8 @@ function forwardRecoverySessionToWebsite(accessToken: string, refreshToken: stri
 export function PasswordRecoveryWebsiteBridge() {
   useEffect(() => {
     const path = window.location.pathname;
-    const onAppResetPage = path.startsWith("/auth/reset-password");
+    const onAppResetPage =
+      path.startsWith("/auth/reset-password") || path.startsWith("/auth/mobile-password-reset");
 
     const hash = window.location.hash.startsWith("#")
       ? window.location.hash.slice(1)
@@ -44,6 +46,9 @@ export function PasswordRecoveryWebsiteBridge() {
       return;
     }
 
+    // App web fermée : ne pas ouvrir le reset in-app.
+    if (AUTH_TEASER_MODE) return;
+
     // Recovery sans hash tokens (ex. déjà échangé) → écran reset app, pas onboarding.
     if (!onAppResetPage && isRecoveryLink) {
       window.location.replace("/auth/reset-password");
@@ -54,6 +59,7 @@ export function PasswordRecoveryWebsiteBridge() {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event !== "PASSWORD_RECOVERY") return;
       if (window.location.pathname.startsWith("/auth/reset-password")) return;
+      if (window.location.pathname.startsWith("/auth/mobile-password-reset")) return;
       if (session?.access_token && session.refresh_token) {
         forwardRecoverySessionToWebsite(session.access_token, session.refresh_token);
         return;

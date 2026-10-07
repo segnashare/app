@@ -94,6 +94,7 @@ type ItemRow = {
   item_custom_brand_label?: string | null;
   item_brands?: { label?: string | null } | null;
   item_size_id?: string | null;
+  item_size_range_key?: string | null;
 };
 
 type QueryResult = { data: unknown; error?: { message?: string } | null };
@@ -152,7 +153,7 @@ async function fetchCartLinesForActiveCart(
     const itemsRes = await supabase
       .from("items")
       .select(
-        "id,title,description,price_points,status,photos,item_custom_brand_label,item_size_id,item_brands(label)",
+        "id,title,description,price_points,status,photos,item_custom_brand_label,item_size_id,item_size_range_key,item_brands(label)",
       )
       .in("id", itemIds);
     itemsMap = new Map(((itemsRes.data ?? []) as ItemRow[]).map((item) => [item.id, item]));
@@ -202,7 +203,8 @@ async function fetchCartLinesForActiveCart(
         item?.item_brands?.label?.trim() ||
         null,
       description: item?.description?.trim() || null,
-      sizeLabel: sizeId ? sizeLabelById.get(sizeId) ?? null : null,
+      sizeLabel:
+        item?.item_size_range_key?.trim() || (sizeId ? sizeLabelById.get(sizeId) ?? null : null),
       pricePoints: Number(item?.price_points ?? 0),
       status: mapCartLineStatus(line.status, item?.status ?? null),
       photoUrl,

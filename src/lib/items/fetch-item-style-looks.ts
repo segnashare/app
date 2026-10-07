@@ -1,3 +1,4 @@
+import { parseStyleLookEntryKind, type StyleLookEntryKind } from "@/lib/community/inspiration-member-tag";
 import type { InspirationMediaType } from "@/lib/community/types";
 import {
   parseInspirationCoverAspect,
@@ -23,6 +24,7 @@ export type ItemStyleLookSummary = {
   video_poster_path: string | null;
   cover_aspect: InspirationCoverAspect;
   cover_transform: InspirationCoverTransform | null;
+  entry_kind: StyleLookEntryKind;
   author_display_name: string;
   author_instagram_username: string | null;
   like_count: number;
@@ -38,6 +40,7 @@ type StyleLookRpcRow = {
   video_poster_path?: unknown;
   cover_aspect?: unknown;
   cover_transform?: unknown;
+  entry_kind?: unknown;
   author_display_name?: unknown;
   author_instagram_username?: unknown;
   like_count?: unknown;
@@ -109,6 +112,7 @@ async function signLookMedia(
         : null,
     cover_aspect: parseInspirationCoverAspect(row.cover_aspect),
     cover_transform: parseInspirationCoverTransform(row.cover_transform),
+    entry_kind: parseStyleLookEntryKind(row.entry_kind),
     author_display_name:
       typeof row.author_display_name === "string" ? row.author_display_name : "Segna",
     author_instagram_username:

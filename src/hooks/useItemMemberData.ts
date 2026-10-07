@@ -52,7 +52,8 @@ export function useItemMemberData(ownerUserId: string | null) {
 
     const [profileRes, verificationRes, usersRes, stateRes, levelsRes] = await Promise.all([
       supabase.from("user_profiles").select("display_name, profile_data, looks, photos").eq("user_id", ownerUserId).maybeSingle(),
-      supabase.from("user_identity_verifications").select("verification_status").eq("user_id", ownerUserId).maybeSingle(),
+      // RLS : la table KYC n'est lisible que par son propriétaire ; le badge passe par une RPC booléenne.
+      supabase.rpc("get_member_kyc_verified", { p_user_id: ownerUserId }),
       supabase.from("users").select("created_at").eq("id", ownerUserId).maybeSingle(),
       supabase.from("xp_user_state").select("current_level").eq("user_id", ownerUserId).maybeSingle(),
       supabase.from("xp_levels").select("level_no, rank_name, icon").order("level_no", { ascending: true }),
@@ -65,8 +66,7 @@ export function useItemMemberData(ownerUserId: string | null) {
         ? profileRow.display_name.trim()
         : null) ?? "Membre";
 
-    const verificationStatus = (verificationRes.data as { verification_status?: string } | null)?.verification_status ?? null;
-    const isVerified = verificationStatus === "verified" || verificationStatus === "approved";
+    const isVerified = verificationRes.data === true;
 
     const pronouns = (profileData.pronouns as string)?.trim() || null;
 

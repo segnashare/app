@@ -1,8 +1,8 @@
 import type { ShopCatalogItem } from "@/components/shop/ShopCatalog";
 import { SEGNA_CORPORATE_INVENTORY_USER_ID } from "@/lib/config/segna-corporate-inventory";
+import { withShopCatalogItemFlags } from "@/lib/shop/shop-catalog-item-flags";
 import {
-  collectDescendantCategoryIds,
-  departmentRootsBySlug,
+  itemMatchesShopDepartmentSlug,
   SHOP_DEPARTMENT_PAGE_TITLE,
   SHOP_DEPARTMENT_SLUG_ORDER,
   type ShopCategoryTreeNode,
@@ -39,19 +39,26 @@ export const SHOP_SECTION_TITLES: Record<ShopSectionSlug, string> = {
   french: "Mode à la française",
   available: "Disponibles",
   "collection-segna": "Collection Segna",
-  vetements: SHOP_DEPARTMENT_PAGE_TITLE.vetements,
+  robes: SHOP_DEPARTMENT_PAGE_TITLE.robes,
+  hauts: SHOP_DEPARTMENT_PAGE_TITLE.hauts,
+  "vestes-gilets": SHOP_DEPARTMENT_PAGE_TITLE["vestes-gilets"],
+  manteaux: SHOP_DEPARTMENT_PAGE_TITLE.manteaux,
+  jupes: SHOP_DEPARTMENT_PAGE_TITLE.jupes,
+  pantalons: SHOP_DEPARTMENT_PAGE_TITLE.pantalons,
+  ensembles: SHOP_DEPARTMENT_PAGE_TITLE.ensembles,
+  shorts: SHOP_DEPARTMENT_PAGE_TITLE.shorts,
   accessoires: SHOP_DEPARTMENT_PAGE_TITLE.accessoires,
+  vetements: SHOP_DEPARTMENT_PAGE_TITLE.vetements,
   chaussures: SHOP_DEPARTMENT_PAGE_TITLE.chaussures,
   sacs: SHOP_DEPARTMENT_PAGE_TITLE.sacs,
 };
 
 function parseCatalogPayload(data: unknown): ShopCatalogItem[] {
-  const p = (data ?? { items: [] }) as { items?: Array<ShopCatalogItem & { is_new?: boolean }> };
+  const p = (data ?? { items: [] }) as {
+    items?: Array<ShopCatalogItem & { is_new?: boolean; is_archive?: boolean }>;
+  };
   const raw = Array.isArray(p.items) ? p.items : [];
-  return raw.map((row) => {
-    const isNew = row.isNew === true || row.is_new === true;
-    return isNew ? { ...row, isNew: true } : row;
-  });
+  return raw.map((row) => withShopCatalogItemFlags(row));
 }
 
 type LoaderCtx = {
@@ -69,11 +76,7 @@ function filterItemsByDepartmentSlug(
   categoryRows: ShopCategoryTreeNode[] | undefined,
 ): ShopCatalogItem[] {
   if (!categoryRows?.length) return [];
-  const roots = departmentRootsBySlug(categoryRows);
-  const root = roots.get(slug);
-  if (!root) return [];
-  const allowed = collectDescendantCategoryIds(root.id, categoryRows);
-  return items.filter((i) => i.item_category_id != null && allowed.has(i.item_category_id));
+  return items.filter((i) => itemMatchesShopDepartmentSlug(i.item_category_id, slug, categoryRows));
 }
 
 type SegnaCollectionItemRow = {
@@ -85,6 +88,8 @@ type SegnaCollectionItemRow = {
   photos?: unknown;
   item_category_id?: string | null;
   item_size_id?: string | null;
+  item_size_ids?: string[] | null;
+  item_size_range_key?: string | null;
   item_brand_id?: string | null;
   item_couleur_id?: string | null;
   item_materiaux_id?: string | null;
@@ -142,6 +147,8 @@ async function loadSegnaCollectionItems(supabase: unknown): Promise<ShopCatalogI
         "photos",
         "item_category_id",
         "item_size_id",
+        "item_size_ids",
+        "item_size_range_key",
         "item_brand_id",
         "item_couleur_id",
         "item_materiaux_id",
@@ -203,11 +210,17 @@ async function loadSegnaCollectionItems(supabase: unknown): Promise<ShopCatalogI
         photos: row.photos ?? null,
         item_category_id: row.item_category_id ?? null,
         item_size_id: row.item_size_id ?? null,
+        item_size_ids:
+          Array.isArray(row.item_size_ids) && row.item_size_ids.length > 0
+            ? row.item_size_ids
+            : row.item_size_id
+              ? [row.item_size_id]
+              : [],
         item_brand_id: row.item_brand_id ?? null,
         item_couleur_id: row.item_couleur_id ?? null,
         item_materiaux_id: row.item_materiaux_id ?? null,
         category_label: category?.name ?? null,
-        size_label: size?.label ?? null,
+        size_label: row.item_size_range_key?.trim() || size?.label || null,
         materials_label: material?.label ?? null,
         color_label: color?.label ?? null,
         brand_label: brandLabel,
@@ -289,8 +302,16 @@ export async function loadShopSectionItems(
       const set = new Set(brandIds);
       return all.filter((i) => i.item_brand_id != null && set.has(i.item_brand_id));
     }
-    case "vetements":
+    case "robes":
+    case "hauts":
+    case "vestes-gilets":
+    case "manteaux":
+    case "jupes":
+    case "pantalons":
+    case "ensembles":
+    case "shorts":
     case "accessoires":
+    case "vetements":
     case "chaussures":
     case "sacs": {
       const res = await anySb.rpc("get_shop_catalog_items", { p_limit: SHOP_SECTION_ITEMS_LIMIT });

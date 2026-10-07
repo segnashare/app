@@ -3,6 +3,7 @@ import "server-only";
 import type { AnalyticsEventProperties } from "@/lib/analytics/events";
 import { borrowDurationAnalyticsProps, borrowDurationLabelForAnalytics } from "@/lib/analytics/borrow-duration-analytics";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { classifyCartOrderFromMetadata, trackPaymentCompletedServer } from "@/lib/analytics/payment-completed";
 import { trackServerEvent } from "@/lib/analytics/track-server";
 
 type OrderConfirmedProps = AnalyticsEventProperties["order_confirmed"];
@@ -27,7 +28,16 @@ function parseNonNegativeInt(raw: unknown): number | undefined {
 
 export type OrderCheckoutEconomics = Pick<
   AnalyticsEventProperties["order_confirmed"],
-  "cash_paid_cents" | "cart_credits_mods" | "missing_credits_mods" | "borrow_duration_days" | "borrow_duration_label"
+  | "cash_paid_cents"
+  | "cart_credits_mods"
+  | "missing_credits_mods"
+  | "borrow_duration_days"
+  | "borrow_duration_label"
+  | "order_kind"
+  | "surface"
+  | "product_type"
+  | "product_family"
+  | "customer_type"
 >;
 
 /** Lit les montants checkout depuis metadata Stripe (cart checkout). */
@@ -39,6 +49,7 @@ export function parseOrderCheckoutEconomicsFromMetadata(
   const cartCreditsMods = parseNonNegativeInt(metadata?.cart_total_mods);
   const missingCreditsMods = parseNonNegativeInt(metadata?.missing_exchange_mods);
   const borrowDurationDays = parseNonNegativeInt(metadata?.borrow_duration_days);
+  const clientSurface = metadata?.client_surface?.trim();
 
   let cashPaidCents: number | undefined;
   if (creditsLineCents != null || feesTtcCents != null) {
@@ -51,6 +62,13 @@ export function parseOrderCheckoutEconomicsFromMetadata(
     ...(missingCreditsMods != null ? { missing_credits_mods: missingCreditsMods } : {}),
     ...(borrowDurationDays != null
       ? borrowDurationAnalyticsProps(borrowDurationDays)
+      : {}),
+    // Analytics : achat (purchase_mode) vs location, et surface d'origine du checkout.
+    order_kind: metadata?.purchase_mode === "true" ? "purchase" : "rental",
+    // Typologie fine : piece_purchase | rental_week | rental_month | rental_other | member_borrow
+    ...classifyCartOrderFromMetadata(metadata),
+    ...(clientSurface === "website" || clientSurface === "mobile" || clientSurface === "webapp"
+      ? { surface: clientSurface }
       : {}),
   };
 }
@@ -113,4 +131,22 @@ export function trackOrderConfirmedServer(
     distinctId: userId,
     insertId: `order_confirmed:${properties.cart_id}`,
   }, properties);
+
+  // Événement agrégé (revenus & consommation) — uniquement si la commande est classée.
+  if (properties.product_type && properties.product_family && properties.customer_type) {
+    trackPaymentCompletedServer(userId, `order:${properties.cart_id}`, {
+      product_type: properties.product_type,
+      product_family: properties.product_family,
+      customer_type: properties.customer_type,
+      cart_id: properties.cart_id,
+      checkout_mode: properties.checkout_mode,
+      amount_cents: properties.cash_paid_cents,
+      credits_used_mods: properties.cart_credits_mods,
+      missing_credits_mods: properties.missing_credits_mods,
+      used_included_order: properties.used_included_order,
+      borrow_duration_days: properties.borrow_duration_days,
+      item_count: properties.item_count,
+      ...(properties.surface ? { surface: properties.surface } : {}),
+    });
+  }
 }

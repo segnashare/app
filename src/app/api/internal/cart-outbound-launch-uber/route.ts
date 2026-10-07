@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { launchCoursierForCartOutboundReady } from "@/lib/coursier/launch-coursier-for-cart-ready";
+import { bearerMatches } from "@/lib/security/safe-equal";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function isUuid(value: string) {
@@ -17,8 +18,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "internal_secret_not_configured" }, { status: 503 });
   }
 
-  const auth = request.headers.get("authorization")?.trim() ?? "";
-  if (auth !== `Bearer ${expected}`) {
+  if (!bearerMatches(request, expected)) {
     return NextResponse.json({ ok: false as const, error: "unauthorized" }, { status: 401 });
   }
 

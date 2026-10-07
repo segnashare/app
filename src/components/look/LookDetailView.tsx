@@ -15,7 +15,8 @@ import { RemoteCoverThumb } from "@/components/ui/RemoteCoverThumb";
 import { LookMediaLightbox } from "@/components/look/LookMediaLightbox";
 import { LookRelatedInspisSection } from "@/components/look/LookRelatedInspisSection";
 import { deleteCommunityInspiration } from "@/lib/community/community-actions";
-import { inspirationMemberTag } from "@/lib/community/inspiration-member-tag";
+import { InspirationKindPill } from "@/components/community/InspirationKindPill";
+import { inspirationCredit } from "@/lib/community/inspiration-member-tag";
 import { isSafeInAppReturnPath } from "@/lib/community/create-inspiration-href";
 import type { InspirationDetail } from "@/lib/community/types";
 import { formatEuroPerCredit } from "@/lib/billing/fetch-borrow-checkout-options";
@@ -268,7 +269,12 @@ export function LookDetailView({
   const pieceCountLabel = `${linkedPieces.length} article${linkedPieces.length > 1 ? "s" : ""}`;
   const brandLabel = selectedInfoCard?.brand?.trim();
   const showBrand = Boolean(brandLabel && brandLabel !== "-");
-  const memberTag = inspirationMemberTag(detail.author_display_name, detail.author_instagram_username);
+  const credit = inspirationCredit({
+    entryKind: detail.entry_kind,
+    authorUserId: detail.author_user_id,
+    displayName: detail.author_display_name,
+    instagramUsername: detail.author_instagram_username,
+  });
   const selectedCoverUrl = selectedItem ? coverUrlById[selectedItem.id] : undefined;
   const selectedPriceLabel =
     selectedItem?.price_points != null && !Number.isNaN(selectedItem.price_points)
@@ -301,32 +307,47 @@ export function LookDetailView({
                     priority
                     onMediaClick={handleMediaClick}
                   />
+                  <InspirationKindPill
+                    className="absolute left-3 top-[4.5rem]"
+                    entryKind={detail.entry_kind}
+                  />
 
-                  {linkedPieces.length > 0 ? (
+                  {credit.label || linkedPieces.length > 0 ? (
                     <div className="flex items-center justify-between gap-3 bg-white px-6 py-3">
-                      {detail.author_user_id ? (
-                        <Link
-                          href={`/membre/${detail.author_user_id}`}
-                          className={cn(
-                            montserrat.className,
-                            "text-[13px] font-bold uppercase tracking-wide text-zinc-900 underline-offset-2 hover:underline",
-                          )}
-                        >
-                          {memberTag}
-                        </Link>
-                      ) : (
+                      {credit.label ? (
                         <p
                           className={cn(
                             montserrat.className,
-                            "text-[13px] font-bold uppercase tracking-wide text-zinc-900",
+                            "min-w-0 text-[13px] font-bold uppercase tracking-wide text-zinc-900",
                           )}
                         >
-                          {memberTag}
+                          {credit.href ? (
+                            credit.external ? (
+                              <a
+                                href={credit.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {credit.label}
+                              </a>
+                            ) : (
+                              <Link href={credit.href} className="underline-offset-2 hover:underline">
+                                {credit.label}
+                              </Link>
+                            )
+                          ) : (
+                            credit.label
+                          )}
                         </p>
+                      ) : (
+                        <span />
                       )}
-                      <p className={cn(montserrat.className, "text-[12px] font-semibold text-zinc-500")}>
-                        {pieceCountLabel}
-                      </p>
+                      {linkedPieces.length > 0 ? (
+                        <p className={cn(montserrat.className, "text-[12px] font-semibold text-zinc-500")}>
+                          {pieceCountLabel}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

@@ -589,7 +589,8 @@ export default async function ExchangePage() {
     perf.measure("users.appState.early", () => getCurrentUserAppState(userId)),
     stripeSubscriptionGrantsWallet
       ? perf.measure("wallet.entitlementRefresh", async () => {
-          await supabase.rpc("billing_upsert_monthly_entitlement", {
+          // Service role : la RPC n'est plus exécutable par le rôle `authenticated` (audit sécurité C3).
+          await (adminClient as any).rpc("billing_upsert_monthly_entitlement", {
             p_user_id: userId,
             p_plan_code: subPlan,
           });

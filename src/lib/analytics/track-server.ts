@@ -3,6 +3,7 @@ import "server-only";
 import { PostHog } from "posthog-node";
 
 import type { AnalyticsEventName, AnalyticsEventProperties } from "@/lib/analytics/events";
+import { withAnalyticsObjective, type AnalyticsObjective } from "@/lib/analytics/objectives";
 
 let posthogServer: PostHog | null = null;
 
@@ -28,7 +29,7 @@ export type TrackServerEventOptions = {
 export function trackServerEvent<E extends AnalyticsEventName>(
   event: E,
   options: TrackServerEventOptions,
-  properties?: AnalyticsEventProperties[E],
+  properties?: AnalyticsEventProperties[E] & { objective?: AnalyticsObjective; surface?: string },
 ): void {
   const client = getPostHogServer();
   if (!client) return;
@@ -36,10 +37,13 @@ export function trackServerEvent<E extends AnalyticsEventName>(
   client.capture({
     distinctId: options.distinctId,
     event,
-    properties: {
+    // `surface: "server"` par défaut (surchargeable : "website" / "mobile" si l'origine est connue)
+    // + `objective` (subscription | purchase | app) déduit automatiquement.
+    properties: withAnalyticsObjective(event, {
+      surface: "server",
       ...(properties ?? {}),
       ...(options.insertId ? { $insert_id: options.insertId } : {}),
-    },
+    }),
   });
 }
 
