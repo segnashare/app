@@ -202,6 +202,7 @@ export function buildMemberPushData(input: {
   const openAlert = meta.open_item_dispute_alert === true;
   const openClemency = meta.open_return_clemency_alert === true;
   const openReturnReview = meta.open_return_review_sheet === true;
+  const openExchangeWallet = meta.open_exchange_wallet === true;
 
   if (itemDisputeId) data.item_dispute_id = itemDisputeId;
   if (cartId) data.cart_id = cartId;
@@ -211,6 +212,18 @@ export function buildMemberPushData(input: {
   if (openAlert) {
     data.open_item_dispute_alert = true;
     data.url = "segna://home";
+    return data;
+  }
+
+  if (openExchangeWallet) {
+    data.open_exchange_wallet = true;
+    const planCode = typeof meta.plan_code === "string" ? meta.plan_code.trim() : "";
+    if (planCode) data.plan_code = planCode;
+    const walletEuros = meta.wallet_euros;
+    if (typeof walletEuros === "number" && Number.isFinite(walletEuros)) {
+      data.wallet_euros = walletEuros;
+    }
+    data.url = "segna://exchange?wallet=1";
     return data;
   }
 

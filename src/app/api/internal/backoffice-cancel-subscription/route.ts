@@ -5,7 +5,10 @@ import {
   declareSubscriptionCancelToN8n,
   periodEndIsoFromStripeSubscription,
 } from "@/lib/notifications/notify-ops-activity-n8n";
-import { notifySubscriptionCancelImmediate } from "@/lib/notifications/subscription-cancel-notifications";
+import {
+  notifySubscriptionCancelImmediate,
+  notifySubscriptionCancelScheduled,
+} from "@/lib/notifications/subscription-cancel-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import {
   getMappedPlanCodeFromSubscription,
@@ -40,6 +43,10 @@ async function applyStripeCancel(
   return stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
 }
 
+function dbTimestamp(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 async function notifyBackofficeCancelSideEffects(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   input: {
@@ -47,14 +54,19 @@ async function notifyBackofficeCancelSideEffects(
     subscriptionId: string;
     mode: "immediate" | "at_period_end";
     periodEndIso: string | null;
+    /** Horodatage stable de cet événement (Stripe `canceled_at` ou colonne DB). */
+    cancelEventAt?: number | string | null;
     planCode: string | null;
     subscription: Stripe.Subscription | null;
   },
 ): Promise<void> {
+  const cancelEventAt = input.cancelEventAt ?? input.subscription?.canceled_at ?? null;
+
   if (input.mode === "at_period_end" && input.subscription) {
     try {
       await applySubscriptionCancelAtPeriodEndEffects(admin, input.userId, input.subscription, {
         notify: true,
+        sendSms: true,
       });
     } catch (e) {
       console.error("[internal/backoffice-cancel-subscription] cancel-at-period-end effects", e);
@@ -63,6 +75,28 @@ async function notifyBackofficeCancelSideEffects(
   }
 
   if (input.mode === "at_period_end") {
+    try {
+      if (input.periodEndIso) {
+        await notifySubscriptionCancelScheduled(admin, {
+          userId: input.userId,
+          subscriptionId: input.subscriptionId,
+          periodEndIso: input.periodEndIso,
+          updatedCartCount: 0,
+          cancelEventAt: cancelEventAt ?? input.periodEndIso,
+          sendSms: true,
+        });
+      } else {
+        await notifySubscriptionCancelImmediate(admin, {
+          userId: input.userId,
+          subscriptionId: input.subscriptionId,
+          cancelEventAt,
+          sendSms: true,
+          sendDespiteScheduled: true,
+        });
+      }
+    } catch (e) {
+      console.error("[internal/backoffice-cancel-subscription] notify scheduled missing stripe", e);
+    }
     try {
       await declareSubscriptionCancelToN8n(admin, {
         userId: input.userId,
@@ -87,6 +121,10 @@ async function notifyBackofficeCancelSideEffects(
     await notifySubscriptionCancelImmediate(admin, {
       userId: input.userId,
       subscriptionId: input.subscriptionId,
+      cancelEventAt,
+      periodEndIso: input.periodEndIso,
+      sendSms: true,
+      sendDespiteScheduled: true,
     });
   } catch (e) {
     console.error("[internal/backoffice-cancel-subscription] notify immediate", e);
@@ -217,7 +255,9 @@ export async function POST(request: Request) {
 
   const { data: subRow, error: subErr } = await admin
     .from("user_subscriptions")
-    .select("provider_subscription_id, provider_customer_id, plan_code, status, cancel_at_period_end")
+    .select(
+      "provider_subscription_id, provider_customer_id, plan_code, status, cancel_at_period_end, current_period_end, canceled_at",
+    )
     .eq("user_id", userId)
     .eq("provider", "stripe")
     .order("updated_at", { ascending: false })
@@ -234,6 +274,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false as const, error: "subscription_not_found" }, { status: 404 });
   }
 
+  const periodEndFromDb = dbTimestamp(subRow?.current_period_end);
+  const canceledAtFromDb = dbTimestamp(subRow?.canceled_at);
+  const planCodeFromDb = typeof subRow?.plan_code === "string" ? subRow.plan_code : null;
+
   const status = String(subRow?.status ?? "").toLowerCase();
   if (status === "canceled" || status === "incomplete_expired") {
     if (mode === "immediate") {
@@ -241,8 +285,9 @@ export async function POST(request: Request) {
         userId,
         subscriptionId,
         mode,
-        periodEndIso: null,
-        planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+        periodEndIso: periodEndFromDb,
+        cancelEventAt: canceledAtFromDb,
+        planCode: planCodeFromDb,
         subscription: null,
       });
       if (fail) return fail;
@@ -259,11 +304,49 @@ export async function POST(request: Request) {
           refund_id: refundResult.refundId ?? null,
         });
       }
+      return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_canceled" });
+    }
+
+    try {
+      if (periodEndFromDb && Date.parse(periodEndFromDb) > Date.now()) {
+        await notifySubscriptionCancelScheduled(admin, {
+          userId,
+          subscriptionId,
+          periodEndIso: periodEndFromDb,
+          updatedCartCount: 0,
+          cancelEventAt: canceledAtFromDb ?? periodEndFromDb,
+          sendSms: true,
+        });
+      } else {
+        await notifySubscriptionCancelImmediate(admin, {
+          userId,
+          subscriptionId,
+          cancelEventAt: canceledAtFromDb,
+          periodEndIso: periodEndFromDb,
+          sendSms: true,
+        });
+      }
+    } catch (e) {
+      console.error("[internal/backoffice-cancel-subscription] notify already canceled", e);
     }
     return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_canceled" });
   }
 
   if (mode === "at_period_end" && Boolean(subRow?.cancel_at_period_end)) {
+    if (periodEndFromDb) {
+      try {
+        await notifySubscriptionCancelScheduled(admin, {
+          userId,
+          subscriptionId,
+          periodEndIso: periodEndFromDb,
+          updatedCartCount: 0,
+          cancelEventAt: canceledAtFromDb ?? periodEndFromDb,
+          sendSms: true,
+        });
+      } catch (e) {
+        console.error("[internal/backoffice-cancel-subscription] notify already scheduled", e);
+      }
+    }
     return NextResponse.json({ ok: true as const, skipped: true as const, reason: "already_cancel_at_period_end" });
   }
 
@@ -304,8 +387,9 @@ export async function POST(request: Request) {
             userId,
             subscriptionId,
             mode,
-            periodEndIso: null,
-            planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+            periodEndIso: periodEndFromDb,
+            cancelEventAt: canceledAtFromDb ?? periodEndFromDb,
+            planCode: planCodeFromDb,
             subscription: null,
           });
           if (fail) return fail;
@@ -412,8 +496,9 @@ export async function POST(request: Request) {
         userId,
         subscriptionId,
         mode,
-        periodEndIso: null,
-        planCode: typeof subRow?.plan_code === "string" ? subRow.plan_code : null,
+        periodEndIso: periodEndFromDb,
+        cancelEventAt: canceledAtFromDb ?? periodEndFromDb,
+        planCode: planCodeFromDb,
         subscription: null,
       });
       if (fail) return fail;

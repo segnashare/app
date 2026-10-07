@@ -38,6 +38,8 @@ import {
 } from "@/lib/notifications/notify-ops-activity-n8n";
 import { notifySubscriptionCancelImmediate } from "@/lib/notifications/subscription-cancel-notifications";
 import {
+  checkoutSessionCustomerEmail,
+  notifyClubSubscriptionWelcomeIfApplicable,
   notifySegnaXSubscriptionWelcomeIfApplicable,
   stripeInvoiceSubscriptionId,
 } from "@/lib/notifications/subscription-notifications";
@@ -189,6 +191,16 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (checkout.session)", e);
         }
         try {
+          await notifyClubSubscriptionWelcomeIfApplicable(admin, userId, subscription, {
+            stripe,
+            checkoutPaymentStatus: session.payment_status,
+            customerEmail: checkoutSessionCustomerEmail(session),
+            amountCents: typeof session.amount_total === "number" ? session.amount_total : null,
+          });
+        } catch (e) {
+          console.error("[stripe/webhook] notifyClubSubscriptionWelcomeIfApplicable (checkout.session)", e);
+        }
+        try {
           await declareSubscriptionActivatedToN8n(admin, userId, subscription);
         } catch (e) {
           console.error("[stripe/webhook] declareSubscriptionActivatedToN8n (checkout.session)", e);
@@ -266,6 +278,11 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
         console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (subscription event)", e);
       }
       try {
+        await notifyClubSubscriptionWelcomeIfApplicable(admin, userId, subscription, { stripe });
+      } catch (e) {
+        console.error("[stripe/webhook] notifyClubSubscriptionWelcomeIfApplicable (subscription event)", e);
+      }
+      try {
         await declareSubscriptionActivatedToN8n(admin, userId, subscription);
       } catch (e) {
         console.error("[stripe/webhook] declareSubscriptionActivatedToN8n (subscription event)", e);
@@ -297,6 +314,8 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           await notifySubscriptionCancelImmediate(admin, {
             userId,
             subscriptionId: subscription.id,
+            cancelEventAt: subscription.canceled_at,
+            periodEndIso: periodEndIsoFromStripeSubscription(subscription),
           });
         } catch (e) {
           console.error("[stripe/webhook] notifySubscriptionCancelImmediate", e);
@@ -332,18 +351,28 @@ async function processStripeEvent(admin: any, stripe: Stripe, event: Stripe.Even
           const stripeCustomerId =
             typeof invoice.customer === "string" ? invoice.customer : null;
           let userId = stripeCustomerId ? await resolveUserIdFromCustomer(admin, stripeCustomerId) : null;
-          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+            expand: ["latest_invoice", "pending_setup_intent"],
+          });
           if (!userId && subscription.metadata?.user_id) {
             userId = subscription.metadata.user_id;
           }
           if (userId) {
+            const welcomed = { ...subscription, latest_invoice: invoice } as Stripe.Subscription;
+            const welcomeOptions = {
+              stripe,
+              invoiceAlreadyPaid: true as const,
+              paidInvoiceId: invoice.id,
+            };
             try {
-              await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, subscription, {
-                stripe,
-                invoiceAlreadyPaid: true,
-              });
+              await notifySegnaXSubscriptionWelcomeIfApplicable(admin, userId, welcomed, welcomeOptions);
             } catch (e) {
               console.error("[stripe/webhook] notifySegnaXSubscriptionWelcomeIfApplicable (invoice.paid)", e);
+            }
+            try {
+              await notifyClubSubscriptionWelcomeIfApplicable(admin, userId, welcomed, welcomeOptions);
+            } catch (e) {
+              console.error("[stripe/webhook] notifyClubSubscriptionWelcomeIfApplicable (invoice.paid)", e);
             }
             try {
               await declareSubscriptionActivatedToN8n(admin, userId, subscription);

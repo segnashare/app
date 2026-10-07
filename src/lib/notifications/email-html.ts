@@ -1,4 +1,10 @@
 import { getServerEnv } from "@/lib/config/env";
+import {
+  clubPlanLabel,
+  clubReceiptEmailCopy,
+  clubWelcomeSentence,
+  type ClubPlanCode,
+} from "@/lib/notifications/club-subscription-messages";
 
 /** Échappement minimal pour insérer du texte utilisateur dans du HTML. */
 export function escapeHtml(s: string): string {
@@ -174,4 +180,49 @@ export function segnaXWelcomeEmailBlocks(
     bodyHtml,
   });
   return { text, html };
+}
+
+export function clubSubscriptionReceiptEmailBlocks(
+  prenom: string,
+  opts: {
+    plan: ClubPlanCode;
+    amountLabel: string | null;
+    receiptUrl: string | null;
+    invoiceAttached: boolean;
+  },
+): { subject: string; text: string; html: string } {
+  const label = clubPlanLabel(opts.plan);
+  const { subject, text } = clubReceiptEmailCopy({
+    prenom,
+    plan: opts.plan,
+    amountLabel: opts.amountLabel,
+    receiptUrl: opts.receiptUrl,
+    invoiceAttached: opts.invoiceAttached,
+  });
+  const p = escapeHtml(prenom);
+  const welcome = escapeHtml(clubWelcomeSentence(opts.plan));
+  const planHtml = escapeHtml(label);
+  const amountHtml = opts.amountLabel
+    ? `<p style="margin:0 0 16px;">Montant&nbsp;: <strong>${escapeHtml(opts.amountLabel)}</strong>.</p>`
+    : "";
+  const receipt = opts.receiptUrl?.trim() || "";
+  const receiptHtml = receipt
+    ? `<p style="margin:0 0 16px;">Retrouve ton reçu et ta facture Stripe ici&nbsp;: <a href="${escapeHtml(receipt)}" style="color:#18181b;">ouvrir le reçu</a>.</p>`
+    : "";
+  const pdfHtml = opts.invoiceAttached
+    ? `<p style="margin:0 0 16px;">Ta <strong>facture Stripe</strong> est jointe à cet e-mail (PDF).</p>`
+    : "";
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Bonjour ${p},</p>
+    <p style="margin:0 0 16px;">${welcome} Ton abonnement <strong>${planHtml}</strong> est confirmé.</p>
+    ${amountHtml}
+    ${receiptHtml}
+    ${pdfHtml}
+    <p style="margin:0;">À très vite,<br /><span style="font-style:italic;">L’équipe Segna</span></p>`;
+  const html = segnaTransactionalEmailShell({
+    preheader: subject,
+    title: subject,
+    bodyHtml,
+  });
+  return { subject, text, html };
 }

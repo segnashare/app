@@ -2,29 +2,30 @@ import Stripe from "stripe";
 
 import { classifySubscription, trackPaymentCompletedServer } from "@/lib/analytics/payment-completed";
 import { flushServerAnalytics, trackServerEvent } from "@/lib/analytics/track-server";
+import { isBillingPlanCode, type BillingPlanCode } from "@/lib/billing/plan-codes";
 import { declareSubscriptionActivatedToN8n } from "@/lib/notifications/notify-ops-activity-n8n";
+import {
+  checkoutSessionCustomerEmail,
+  notifyClubSubscriptionWelcomeIfApplicable,
+} from "@/lib/notifications/subscription-notifications";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { upsertBillingCustomer, upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 
-function isPlanCode(value: string | null | undefined): value is "guest" | "segna_plus" | "segna_x" {
-  return value === "guest" || value === "segna_plus" || value === "segna_x";
-}
-
 export type ConfirmSubscriptionCheckoutResult =
-  | { ok: true; planCode: "guest" | "segna_plus" | "segna_x" }
+  | { ok: true; planCode: BillingPlanCode }
   | { ok: false; reason: string; status: number; detail?: string };
 
 function resolvePlanCode(params: {
   subscription: Stripe.Subscription;
   sessionPlan?: string | null;
   fallbackPlan?: string | null;
-}): "guest" | "segna_plus" | "segna_x" {
+}): BillingPlanCode {
   const planFromMeta =
     (typeof params.subscription.metadata?.plan_code === "string" && params.subscription.metadata.plan_code) ||
     (typeof params.sessionPlan === "string" && params.sessionPlan) ||
     null;
-  if (isPlanCode(planFromMeta)) return planFromMeta;
-  if (isPlanCode(params.fallbackPlan)) return params.fallbackPlan;
+  if (isBillingPlanCode(planFromMeta)) return planFromMeta;
+  if (isBillingPlanCode(params.fallbackPlan)) return params.fallbackPlan;
   return "segna_plus";
 }
 
@@ -126,6 +127,28 @@ async function finalizeConfirmedSubscription(params: {
   } catch (e) {
     console.error("[stripe] declareSubscriptionActivatedToN8n", e);
   }
+  const paymentSheetCollected =
+    checkoutMode === "payment_sheet" &&
+    (subscription.status === "active" || subscription.status === "trialing");
+  const latestInvoice = subscription.latest_invoice;
+  const paidInvoiceId =
+    typeof latestInvoice === "string"
+      ? latestInvoice
+      : latestInvoice && typeof latestInvoice === "object" && "id" in latestInvoice
+        ? latestInvoice.id
+        : null;
+  try {
+    await notifyClubSubscriptionWelcomeIfApplicable(admin, userId, subscription, {
+      stripe: new Stripe(getStripeConfig().secretKey),
+      checkoutPaymentStatus: session?.payment_status ?? (paymentSheetCollected ? "paid" : null),
+      invoiceAlreadyPaid: paymentSheetCollected || undefined,
+      paidInvoiceId,
+      customerEmail: session ? checkoutSessionCustomerEmail(session) : null,
+      amountCents: typeof session?.amount_total === "number" ? session.amount_total : null,
+    });
+  } catch (e) {
+    console.error("[stripe] notifyClubSubscriptionWelcomeIfApplicable", e);
+  }
   await flushServerAnalytics();
 
   return { ok: true, planCode: resolvedPlan };
@@ -199,7 +222,9 @@ export async function confirmSubscriptionById(params: {
 
   const { secretKey } = getStripeConfig();
   const stripe = new Stripe(secretKey);
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ["latest_invoice", "pending_setup_intent"],
+  });
 
   const expectedUserId =
     typeof subscription.metadata?.user_id === "string" ? subscription.metadata.user_id.trim() : "";

@@ -91,6 +91,8 @@ export async function declareUserRegisteredToN8n(
 function planLabel(code: string | null | undefined): string {
   if (code === "segna_x") return "Segna X";
   if (code === "segna_plus") return "Segna+";
+  if (code === "club") return "Club";
+  if (code === "club_plus") return "Club+";
   return code?.trim() || "abonnement";
 }
 

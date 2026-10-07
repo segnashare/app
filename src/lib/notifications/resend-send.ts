@@ -49,6 +49,15 @@ export type TransactionalEmailAttachment = {
   contentId?: string;
 };
 
+/** Noms des variables absentes. Vide si Resend peut envoyer. */
+export function missingTransactionalEmailSecrets(): string[] {
+  const { RESEND_API_KEY, RESEND_FROM_EMAIL } = getServerEnv();
+  const missing: string[] = [];
+  if (!RESEND_API_KEY) missing.push("RESEND_API_KEY");
+  if (!RESEND_FROM_EMAIL) missing.push("RESEND_FROM_EMAIL");
+  return missing;
+}
+
 /** @returns true si un envoi a été tenté avec succès auprès de Resend. */
 export async function sendTransactionalEmail(input: {
   to: string;

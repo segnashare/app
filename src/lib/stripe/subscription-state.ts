@@ -1,13 +1,10 @@
 import Stripe from "stripe";
 
+import { isBillingPlanCode, type BillingPlanCode } from "@/lib/billing/plan-codes";
 import { getStripeConfig } from "@/lib/social/stripe";
 import { promotePendingLenderIntakesAfterStripeSubscription } from "@/lib/stripe/promote-pending-lender-intakes";
 
-type PlanCode = "guest" | "segna_plus" | "segna_x";
-
-function isPlanCode(value: string | null | undefined): value is PlanCode {
-  return value === "guest" || value === "segna_plus" || value === "segna_x";
-}
+type PlanCode = BillingPlanCode;
 
 function unixToIso(value: number | null | undefined): string | null {
   if (!value || value <= 0) return null;
@@ -24,13 +21,13 @@ export async function getMappedPlanCodeFromSubscription(admin: any, subscription
       .eq("stripe_price_id", stripePriceId)
       .maybeSingle();
 
-    if (isPlanCode(mappedRow?.plan_code)) {
+    if (isBillingPlanCode(mappedRow?.plan_code)) {
       return mappedRow.plan_code;
     }
   }
 
   const metadataPlan = subscription.metadata?.plan_code;
-  if (isPlanCode(metadataPlan)) return metadataPlan;
+  if (isBillingPlanCode(metadataPlan)) return metadataPlan;
   return "guest";
 }
 

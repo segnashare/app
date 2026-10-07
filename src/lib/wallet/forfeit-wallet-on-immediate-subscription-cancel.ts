@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { findLatestScheduledCancelNotice } from "@/lib/notifications/subscription-cancel-notifications";
+
 export type ForfeitWalletResult = {
   ok: true;
   skipped?: boolean;
@@ -47,11 +49,7 @@ export async function forfeitWalletOnImmediateSubscriptionCancel(
   }
 
   if (input.skipIfScheduled) {
-    const { data: alreadyScheduled } = await admin
-      .from("notification_send_log")
-      .select("idempotency_key, metadata")
-      .eq("idempotency_key", `txn:subscription_cancel_scheduled:${subscriptionId}`)
-      .maybeSingle();
+    const alreadyScheduled = await findLatestScheduledCancelNotice(admin, subscriptionId);
     if (alreadyScheduled) {
       const periodEnd = input.periodEndIso ?? periodEndFromLogMetadata(alreadyScheduled.metadata);
       if (scheduledCancelHasReachedPeriodEnd(periodEnd)) {

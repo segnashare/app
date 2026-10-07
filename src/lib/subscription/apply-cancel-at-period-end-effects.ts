@@ -16,7 +16,7 @@ export async function applySubscriptionCancelAtPeriodEndEffects(
   admin: SupabaseClient,
   userId: string,
   subscription: Stripe.Subscription,
-  opts?: { notify?: boolean },
+  opts?: { notify?: boolean; sendSms?: boolean },
 ): Promise<{ periodEndIso: string | null; updatedCartIds: string[] }> {
   if (!subscription.cancel_at_period_end) {
     return { periodEndIso: null, updatedCartIds: [] };
@@ -37,6 +37,8 @@ export async function applySubscriptionCancelAtPeriodEndEffects(
         subscriptionId: subscription.id,
         periodEndIso,
         updatedCartCount: updatedCartIds.length,
+        cancelEventAt: subscription.canceled_at,
+        sendSms: opts?.sendSms === true,
       });
     } catch (e) {
       console.error("[subscription] notify cancel scheduled", e);

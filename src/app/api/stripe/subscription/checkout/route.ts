@@ -19,24 +19,34 @@ import {
   normalizeFirstMonthPercentOff,
   resolveFirstMonthPercentOffCouponId,
 } from "@/lib/stripe/subscription-first-month-coupon";
+import { notifyClubSubscriptionWelcomeIfApplicable } from "@/lib/notifications/subscription-notifications";
 import { upsertSubscriptionAndEntitlements } from "@/lib/stripe/subscription-state";
 import { syncStripeCustomerBillingAddressFromProfile } from "@/lib/stripe/sync-customer-billing-address-from-profile";
 import { isPhoneVerified } from "@/lib/phone/phone-verified";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isPaidPlanCode, type PaidPlanCode } from "@/lib/billing/plan-codes";
 import { resolveRequestUser } from "@/lib/supabase/request-user";
 
-type PlanCode = "segna_plus" | "segna_x";
+type PlanCode = PaidPlanCode;
 
 const STRIPE_EPHEMERAL_KEY_API_VERSION = "2026-02-25.clover" as const;
 
 function isPlanCode(value: unknown): value is PlanCode {
-  return value === "segna_plus" || value === "segna_x";
+  return typeof value === "string" && isPaidPlanCode(value);
 }
 
 
 function getFallbackPriceId(planCode: PlanCode): string | null {
-  if (planCode === "segna_plus") {
-    const value = process.env.STRIPE_PRICE_SEGNA_PLUS?.trim() ?? "";
+  const envName =
+    planCode === "segna_plus"
+      ? "STRIPE_PRICE_SEGNA_PLUS"
+      : planCode === "club"
+        ? "STRIPE_PRICE_CLUB"
+        : planCode === "club_plus"
+          ? "STRIPE_PRICE_CLUB_PLUS"
+          : null;
+  if (envName) {
+    const value = process.env[envName]?.trim() ?? "";
     return value.length > 0 ? value : null;
   }
   // Prod Vercel historique : `STRIPE_PRICE_SEGNAX` (sans `_` avant X).
@@ -170,7 +180,14 @@ export async function POST(request: Request) {
       getFallbackPriceId(planCode) ??
       (typeof monthlyPriceRow?.stripe_price_id === "string" ? monthlyPriceRow.stripe_price_id.trim() : null);
     if (!monthlyPriceId) {
-      const envHint = planCode === "segna_plus" ? "STRIPE_PRICE_SEGNA_PLUS" : "STRIPE_PRICE_SEGNA_X";
+      const envHint =
+        planCode === "segna_plus"
+          ? "STRIPE_PRICE_SEGNA_PLUS"
+          : planCode === "club"
+            ? "STRIPE_PRICE_CLUB"
+            : planCode === "club_plus"
+              ? "STRIPE_PRICE_CLUB_PLUS"
+              : "STRIPE_PRICE_SEGNA_X";
       return NextResponse.json(
         { message: `Aucun prix Stripe actif pour ce plan. Configure billing_plan_prices ou la variable ${envHint}.` },
         { status: 400 },
@@ -320,6 +337,14 @@ export async function POST(request: Request) {
               { status: 500 },
             );
           }
+          try {
+            await notifyClubSubscriptionWelcomeIfApplicable(admin, user.id, subscription, {
+              stripe,
+              invoiceAlreadyPaid: true,
+            });
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] apple review welcome", error);
+          }
           await flushServerAnalytics();
           return NextResponse.json({
             paymentUi: "comp_activated",
@@ -394,6 +419,14 @@ export async function POST(request: Request) {
               { message: "Abonnement créé mais synchronisation échouée." },
               { status: 500 },
             );
+          }
+          try {
+            await notifyClubSubscriptionWelcomeIfApplicable(admin, user.id, subscription, {
+              stripe,
+              invoiceAlreadyPaid: true,
+            });
+          } catch (error) {
+            console.error("[stripe/subscription/checkout] zero-amount welcome", error);
           }
           await flushServerAnalytics();
           return NextResponse.json({

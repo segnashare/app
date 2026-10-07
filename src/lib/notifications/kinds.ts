@@ -1,7 +1,7 @@
 /**
  * Identifiants stables pour `notification_send_log.kind` et le suivi produit.
  *
- * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; SMS « Segna is cooking » transactionnel ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_rental_buyout` (achat pièce(s) en location), `cart_order_n8n_declared` (workflow n8n activité : commande confirmée), `user_registered_n8n_declared` / `subscription_activated_n8n_declared` / `subscription_cancel_n8n_declared` (même webhook Discord), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome` (e-mail + facture Stripe PDF), `subscription_cancel_scheduled` (résiliation fin de période), `subscription_cancel_immediate` (résiliation immédiate)
+ * **Paiements / abo** : `cart_order_paid` (e-mail + push « cooking » ; SMS « Segna is cooking » transactionnel ; achat/Guest : SMS confirmation seul, clé `txn:purchase_order_paid_sms:{cartId}`, l’e-mail = facture Stripe), `cart_rental_buyout` (achat pièce(s) en location), `cart_order_n8n_declared` (workflow n8n activité : commande confirmée), `user_registered_n8n_declared` / `subscription_activated_n8n_declared` / `subscription_cancel_n8n_declared` (même webhook Discord), `cart_order_canceled_backoffice_prep` (annulation BO avant expédition), `cart_order_canceled_member` (annulation membre depuis l’app avant expédition), `wallet_credits_stripe`, `subscription_segna_x_welcome` (e-mail + facture Stripe PDF), `subscription_club_receipt` (e-mail reçu Club / Club+), `subscription_club_welcome_sms` (SMS bienvenue Club / Club+), `subscription_cancel_scheduled` (résiliation fin de période), `subscription_cancel_immediate` (résiliation immédiate)
  *
  * **Commande / expédition (branché sur `transition_shipment_status`)**  
  * - `order_outbound_ready_to_ship` : aller **pending → ready** — e-mail (détail suivi) + SMS/push phrase courte  
@@ -62,6 +62,10 @@ export const NotificationKind = {
   cartOrderCanceledMember: "cart_order_canceled_member",
   walletCreditsStripe: "wallet_credits_stripe",
   subscriptionSegnaXWelcome: "subscription_segna_x_welcome",
+  /** Reçu / facture Club ou Club+ (Resend + lien facture Stripe), une fois par abonnement. */
+  subscriptionClubReceipt: "subscription_club_receipt",
+  /** SMS bienvenue abonnement (« Bienvenue sur Segna ! »), une fois par abonnement. */
+  subscriptionClubWelcomeSms: "subscription_club_welcome_sms",
   /** Annulation programmée fin de période (membre / webhook). */
   subscriptionCancelScheduled: "subscription_cancel_scheduled",
   /** Résiliation immédiate (BO / Stripe) — accès arrêté tout de suite. */
