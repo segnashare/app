@@ -69,3 +69,32 @@ export async function setNotificationDeliveryChannels(
     console.error("[notifications] setNotificationDeliveryChannels", error.message);
   }
 }
+
+/** Push tenté et refusé par Expo : ne pas basculer sur le SMS du même événement. */
+export function metadataMarksPushChannelFailed(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  return (metadata as { push_channel_failed?: unknown }).push_channel_failed === true;
+}
+
+export async function markPushChannelFailed(admin: SupabaseClient, idempotencyKey: string): Promise<void> {
+  const { data, error } = await admin
+    .from("notification_send_log")
+    .select("metadata")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error("[notifications] markPushChannelFailed", error.message);
+    return;
+  }
+  const current =
+    data.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)
+      ? (data.metadata as Record<string, unknown>)
+      : {};
+  const { error: updateError } = await admin
+    .from("notification_send_log")
+    .update({ metadata: { ...current, push_channel_failed: true } })
+    .eq("idempotency_key", idempotencyKey);
+  if (updateError) {
+    console.error("[notifications] markPushChannelFailed", updateError.message);
+  }
+}

@@ -2,8 +2,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { formatLongDateParis } from "@/lib/datetime/segna-datetime";
 import { escapeHtml, segnaTransactionalEmailShell } from "@/lib/notifications/email-html";
-import { sendExpoPushToUser } from "@/lib/notifications/expo-push-send";
-import { claimNotificationSend, mergeDeliveryChannels, releaseNotificationSend, setNotificationDeliveryChannels } from "@/lib/notifications/idempotency";
+import {
+  memberHasAuthorizedPush,
+  sendExpoPushToUserResult,
+  type ExpoPushSendResult,
+} from "@/lib/notifications/expo-push-send";
+import {
+  claimNotificationSend,
+  markPushChannelFailed,
+  mergeDeliveryChannels,
+  metadataMarksPushChannelFailed,
+  releaseNotificationSend,
+  setNotificationDeliveryChannels,
+} from "@/lib/notifications/idempotency";
 import type { NotificationDeliveryChannels } from "@/lib/notifications/idempotency";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { tryNormalizePhoneToE164 } from "@/lib/notifications/phone-e164";
@@ -186,11 +197,12 @@ async function claimCancelSend(
 
   const { data, error } = await admin
     .from("notification_send_log")
-    .select("delivery_channels, created_at")
+    .select("delivery_channels, created_at, metadata")
     .eq("idempotency_key", input.idempotencyKey)
     .maybeSingle();
   if (error || !data) return false;
   if (deliveryWasSent(data.delivery_channels)) return false;
+  if (metadataMarksPushChannelFailed(data.metadata)) return false;
   const createdMs = typeof data.created_at === "string" ? Date.parse(data.created_at) : NaN;
   if (!Number.isFinite(createdMs) || Date.now() - createdMs < STALE_UNSENT_CLAIM_MS) return false;
 
@@ -300,6 +312,10 @@ async function deliveredScheduledCancelBlocksImmediate(
   return periodEndReached(periodEnd);
 }
 
+/**
+ * SMS de rattrapage BO seulement si le push n’a pas été le canal choisi.
+ * Un push déjà envoyé, ou un push Expo en échec, ne déclenche pas de SMS.
+ */
 async function appendSmsIfClaimedWithoutPhone(
   admin: SupabaseClient,
   idempotencyKey: string,
@@ -308,12 +324,14 @@ async function appendSmsIfClaimedWithoutPhone(
 ): Promise<void> {
   const { data, error } = await admin
     .from("notification_send_log")
-    .select("delivery_channels")
+    .select("delivery_channels, metadata")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
   if (error || !data) return;
   const channels = typeof data.delivery_channels === "string" ? data.delivery_channels : "none";
-  if (!deliveryWasSent(channels) || channels.includes("phone")) return;
+  if (!deliveryWasSent(channels) || channels.includes("phone") || channels.includes("push")) return;
+  if (metadataMarksPushChannelFailed(data.metadata)) return;
+  if (await memberHasAuthorizedPush(admin, userId)) return;
   const smsOk = await sendBackofficeCancelSms(admin, userId, body);
   if (!smsOk) return;
   await setNotificationDeliveryChannels(
@@ -321,6 +339,48 @@ async function appendSmsIfClaimedWithoutPhone(
     idempotencyKey,
     mergeDeliveryChannels(channels as NotificationDeliveryChannels, "phone"),
   );
+}
+
+/**
+ * Push si les notifs sont autorisées, SMS BO sinon. Jamais les deux.
+ * `keepClaim` : l’envoi Expo a échoué alors que le membre était autorisé —
+ * on garde la clé pour ne pas envoyer un SMS au prochain passage.
+ */
+async function deliverCancelPushOrSms(
+  admin: SupabaseClient,
+  input: {
+    idempotencyKey: string;
+    userId: string;
+    sendSms: boolean;
+    push: { title: string; body: string; data: Record<string, unknown> };
+    smsBody: string;
+  },
+): Promise<{ channel: "push" | "phone" | null; keepClaim: boolean }> {
+  const authorized = await memberHasAuthorizedPush(admin, input.userId);
+  if (!authorized) {
+    if (!input.sendSms) return { channel: null, keepClaim: false };
+    const smsOk = await sendBackofficeCancelSms(admin, input.userId, input.smsBody);
+    return { channel: smsOk ? "phone" : null, keepClaim: false };
+  }
+
+  let result: ExpoPushSendResult;
+  try {
+    result = await sendExpoPushToUserResult(admin, input.userId, input.push);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[notifications] cancel push failed", msg);
+    await markPushChannelFailed(admin, input.idempotencyKey);
+    return { channel: null, keepClaim: true };
+  }
+  if (result.ok) return { channel: "push", keepClaim: false };
+  if (result.reason !== "no_token") {
+    await markPushChannelFailed(admin, input.idempotencyKey);
+    console.warn("[notifications] cancel push failed, pas de SMS", { userId: input.userId });
+    return { channel: null, keepClaim: true };
+  }
+  if (!input.sendSms) return { channel: null, keepClaim: false };
+  const smsOk = await sendBackofficeCancelSms(admin, input.userId, input.smsBody);
+  return { channel: smsOk ? "phone" : null, keepClaim: false };
 }
 
 function cancelScheduledBlocks(prenom: string, periodEndLabel: string, cartCount: number): { text: string; html: string; subject: string } {
@@ -370,7 +430,7 @@ export async function notifySubscriptionCancelScheduled(
     updatedCartCount: number;
     /** `subscription.canceled_at` (unix ou ISO). Change à chaque nouvelle résiliation. */
     cancelEventAt?: number | string | null;
-    /** SMS en plus de l’e-mail et du push. Réservé au back-office. */
+    /** SMS à la place du push si les notifs ne sont pas autorisées. Réservé au back-office. */
     sendSms?: boolean;
   },
 ): Promise<void> {
@@ -425,8 +485,8 @@ export async function notifySubscriptionCancelScheduled(
   const prenom = firstNameOrBonjour(user?.first_name ?? null);
   const { text, html, subject } = cancelScheduledBlocks(prenom, periodEndLabel, input.updatedCartCount);
 
-  const channels: NotificationDeliveryChannels | null = null;
-  let delivery: NotificationDeliveryChannels | null = channels;
+  let delivery: NotificationDeliveryChannels | null = null;
+  let keepUnsentClaim = false;
   try {
     const email = typeof user?.email === "string" ? user.email.trim() : "";
     if (email) {
@@ -442,29 +502,29 @@ export async function notifySubscriptionCancelScheduled(
       }
     }
 
-    const pushOk = await sendExpoPushToUser(admin, input.userId, {
-      title: "Abonnement résilié",
-      body: `Tu restes membre jusqu’au ${periodEndLabel}. Pense à renvoyer tes locations avant cette date.`,
-      data: { href: "/exchange", kind: NotificationKind.subscriptionCancelScheduled },
+    const direct = await deliverCancelPushOrSms(admin, {
+      idempotencyKey,
+      userId: input.userId,
+      sendSms: input.sendSms === true,
+      smsBody,
+      push: {
+        title: "Abonnement résilié",
+        body: `Tu restes membre jusqu’au ${periodEndLabel}. Pense à renvoyer tes locations avant cette date.`,
+        data: { href: "/exchange", kind: NotificationKind.subscriptionCancelScheduled },
+      },
     });
-    if (pushOk) {
-      delivery = mergeDeliveryChannels(delivery, "push");
-    }
-
-    if (input.sendSms) {
-      const smsOk = await sendBackofficeCancelSms(admin, input.userId, smsBody);
-      if (smsOk) {
-        delivery = mergeDeliveryChannels(delivery, "phone");
-      }
+    keepUnsentClaim = direct.keepClaim;
+    if (direct.channel) {
+      delivery = mergeDeliveryChannels(delivery, direct.channel);
     }
 
     if (!delivery || delivery === "none") {
-      await releaseNotificationSend(admin, idempotencyKey);
+      if (!keepUnsentClaim) await releaseNotificationSend(admin, idempotencyKey);
       return;
     }
     await setNotificationDeliveryChannels(admin, idempotencyKey, delivery);
   } catch (e) {
-    await releaseNotificationSend(admin, idempotencyKey);
+    if (!keepUnsentClaim) await releaseNotificationSend(admin, idempotencyKey);
     console.error("[notifications] subscription_cancel_scheduled", e);
   }
 }
@@ -507,7 +567,7 @@ export async function notifySubscriptionCancelImmediate(
      * l’échéance est déjà passée.
      */
     sendDespiteScheduled?: boolean;
-    /** SMS en plus de l’e-mail et du push. Réservé au back-office. */
+    /** SMS à la place du push si les notifs ne sont pas autorisées. Réservé au back-office. */
     sendSms?: boolean;
   },
 ): Promise<void> {
@@ -563,6 +623,7 @@ export async function notifySubscriptionCancelImmediate(
   const { text, html, subject } = cancelImmediateBlocks(prenom);
 
   let delivery: NotificationDeliveryChannels | null = null;
+  let keepUnsentClaim = false;
   try {
     const email = typeof user?.email === "string" ? user.email.trim() : "";
     if (email) {
@@ -578,29 +639,29 @@ export async function notifySubscriptionCancelImmediate(
       }
     }
 
-    const pushOk = await sendExpoPushToUser(admin, input.userId, {
-      title: "Abonnement résilié",
-      body: "Tes avantages membre s’arrêtent aujourd’hui.",
-      data: { href: "/exchange", kind: NotificationKind.subscriptionCancelImmediate },
+    const direct = await deliverCancelPushOrSms(admin, {
+      idempotencyKey,
+      userId: input.userId,
+      sendSms: input.sendSms === true,
+      smsBody,
+      push: {
+        title: "Abonnement résilié",
+        body: "Tes avantages membre s’arrêtent aujourd’hui.",
+        data: { href: "/exchange", kind: NotificationKind.subscriptionCancelImmediate },
+      },
     });
-    if (pushOk) {
-      delivery = mergeDeliveryChannels(delivery, "push");
-    }
-
-    if (input.sendSms) {
-      const smsOk = await sendBackofficeCancelSms(admin, input.userId, smsBody);
-      if (smsOk) {
-        delivery = mergeDeliveryChannels(delivery, "phone");
-      }
+    keepUnsentClaim = direct.keepClaim;
+    if (direct.channel) {
+      delivery = mergeDeliveryChannels(delivery, direct.channel);
     }
 
     if (!delivery || delivery === "none") {
-      await releaseNotificationSend(admin, idempotencyKey);
+      if (!keepUnsentClaim) await releaseNotificationSend(admin, idempotencyKey);
       return;
     }
     await setNotificationDeliveryChannels(admin, idempotencyKey, delivery);
   } catch (e) {
-    await releaseNotificationSend(admin, idempotencyKey);
+    if (!keepUnsentClaim) await releaseNotificationSend(admin, idempotencyKey);
     console.error("[notifications] subscription_cancel_immediate", e);
   }
 }

@@ -9,8 +9,14 @@ import {
   type ClubPlanCode,
 } from "@/lib/notifications/club-subscription-messages";
 import { clubSubscriptionReceiptEmailBlocks } from "@/lib/notifications/email-html";
-import { buildMemberPushData, sendExpoPushToUser } from "@/lib/notifications/expo-push-send";
-import { claimNotificationSend, releaseNotificationSend, setNotificationDeliveryChannels } from "@/lib/notifications/idempotency";
+import { buildMemberPushData, memberHasAuthorizedPush, sendExpoPushToUserResult } from "@/lib/notifications/expo-push-send";
+import {
+  claimNotificationSend,
+  markPushChannelFailed,
+  metadataMarksPushChannelFailed,
+  releaseNotificationSend,
+  setNotificationDeliveryChannels,
+} from "@/lib/notifications/idempotency";
 import { NotificationKind } from "@/lib/notifications/kinds";
 import { missingTransactionalEmailSecrets, sendTransactionalEmail } from "@/lib/notifications/resend-send";
 import type { TransactionalEmailAttachment } from "@/lib/notifications/resend-send";
@@ -388,7 +394,8 @@ function looksLikeEmail(value: string | null | undefined): string | null {
 
 /**
  * Bienvenue abonnement (club, club_plus, segna_x, segna_plus), après encaissement.
- * Un e-mail Club / Club+ (pas « Segna X »), un push et un SMS, une fois par facture.
+ * Un e-mail de reçu, puis un seul message direct : push si les notifs sont
+ * autorisées, sinon SMS. Une fois par facture.
  */
 export async function notifyClubSubscriptionWelcomeIfApplicable(
   admin: SupabaseClient,
@@ -420,16 +427,10 @@ export async function notifyClubSubscriptionWelcomeIfApplicable(
     console.error("[notifications] club receipt failed", msg);
   }
   try {
-    await deliverClubWelcomeSms(admin, userId, subscription, planCode, stripe, options?.paidInvoiceId);
+    await deliverClubWelcomePushOrSms(admin, userId, subscription, planCode, stripe, options?.paidInvoiceId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[notifications] club welcome sms failed", msg);
-  }
-  try {
-    await deliverSubscriptionWelcomePush(admin, userId, subscription, planCode, options?.paidInvoiceId);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[notifications] subscription welcome push failed", msg);
+    console.error("[notifications] club welcome push/sms failed", msg);
   }
 }
 
@@ -538,13 +539,76 @@ async function deliverClubSubscriptionReceipt(
   }
 }
 
+/** Claim push laissé en `none` après un crash : on le relâche pour réessayer. */
+const STALE_UNSENT_PUSH_CLAIM_MS = 2 * 60 * 1000;
+
+function welcomeDirectWasSent(channels: unknown): boolean {
+  return typeof channels === "string" && channels.length > 0 && channels !== "none";
+}
+
+/** `holds` : ce canal est déjà parti, en cours, ou le push a échoué — pas l’autre canal. */
+async function welcomeDirectClaimState(
+  admin: SupabaseClient,
+  idempotencyKey: string,
+): Promise<"absent" | "holds"> {
+  const { data, error } = await admin
+    .from("notification_send_log")
+    .select("delivery_channels, metadata, created_at")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (error) {
+    console.error("[notifications] welcome direct claim", error.message);
+    return "holds";
+  }
+  if (!data) return "absent";
+  if (welcomeDirectWasSent(data.delivery_channels) || metadataMarksPushChannelFailed(data.metadata)) {
+    return "holds";
+  }
+  const createdMs = typeof data.created_at === "string" ? Date.parse(data.created_at) : NaN;
+  if (!Number.isFinite(createdMs) || Date.now() - createdMs < STALE_UNSENT_PUSH_CLAIM_MS) {
+    return "holds";
+  }
+  await releaseNotificationSend(admin, idempotencyKey);
+  return "absent";
+}
+
+/**
+ * Un seul canal : push si autorisé, SMS sinon.
+ * Push autorisé mais plus de jeton au moment de l’envoi → SMS.
+ * Push autorisé et échec Expo → pas de SMS (même si le jeton est ensuite désactivé).
+ */
+async function deliverClubWelcomePushOrSms(
+  admin: SupabaseClient,
+  userId: string,
+  subscription: Stripe.Subscription,
+  planCode: string,
+  stripe: Stripe,
+  paidInvoiceId?: string | null,
+): Promise<void> {
+  const pushKey = welcomeSendKey("txn:subscription_welcome_push", subscription, paidInvoiceId);
+  const smsKey = welcomeSendKey("txn:subscription_club_welcome_sms", subscription, paidInvoiceId);
+  if ((await welcomeDirectClaimState(admin, pushKey)) === "holds") return;
+  if ((await welcomeDirectClaimState(admin, smsKey)) === "holds") return;
+
+  const authorized = await memberHasAuthorizedPush(admin, userId);
+  if (!authorized) {
+    await deliverClubWelcomeSms(admin, userId, subscription, planCode, stripe, paidInvoiceId);
+    return;
+  }
+
+  const outcome = await deliverSubscriptionWelcomePush(admin, userId, subscription, planCode, paidInvoiceId);
+  if (outcome === "no_token") {
+    await deliverClubWelcomeSms(admin, userId, subscription, planCode, stripe, paidInvoiceId);
+  }
+}
+
 async function deliverSubscriptionWelcomePush(
   admin: SupabaseClient,
   userId: string,
   subscription: Stripe.Subscription,
   planCode: string,
   paidInvoiceId?: string | null,
-): Promise<void> {
+): Promise<"sent" | "no_token" | "failed" | "blocked"> {
   const plan = spotlightPlanForWelcome(planCode);
   const walletEuros = plan === "segna_plus" ? 500 : 300;
   const idempotencyKey = welcomeSendKey("txn:subscription_welcome_push", subscription, paidInvoiceId);
@@ -559,10 +623,10 @@ async function deliverSubscriptionWelcomePush(
       open_exchange_wallet: true,
     },
   });
-  if (!claimed) return;
+  if (!claimed) return "blocked";
 
   try {
-    const sent = await sendExpoPushToUser(admin, userId, {
+    const sent = await sendExpoPushToUserResult(admin, userId, {
       title: plan === "segna_plus" ? "Bienvenue au Club+" : "Bienvenue au Club",
       body: SUBSCRIPTION_WELCOME_PUSH_BODY,
       data: buildMemberPushData({
@@ -574,15 +638,22 @@ async function deliverSubscriptionWelcomePush(
         },
       }),
     });
-    if (!sent) {
-      await releaseNotificationSend(admin, idempotencyKey);
-      return;
+    if (!sent.ok) {
+      if (sent.reason === "no_token") {
+        await releaseNotificationSend(admin, idempotencyKey);
+        return "no_token";
+      }
+      await markPushChannelFailed(admin, idempotencyKey);
+      console.warn("[notifications] subscription welcome push failed, pas de SMS", { userId });
+      return "failed";
     }
     await setNotificationDeliveryChannels(admin, idempotencyKey, "push");
+    return "sent";
   } catch (e) {
-    await releaseNotificationSend(admin, idempotencyKey);
+    await markPushChannelFailed(admin, idempotencyKey);
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[notifications] subscription welcome push failed", msg);
+    return "failed";
   }
 }
 

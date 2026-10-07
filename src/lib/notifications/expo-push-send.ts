@@ -110,22 +110,36 @@ async function confirmExpoPushViaReceipts(
   }
 }
 
+export type ExpoPushSendResult = { ok: true } | { ok: false; reason: "no_token" | "failed" };
+
+/**
+ * Notifs autorisées : au moins un jeton Expo actif.
+ * Il n’y a pas de colonne de permission OS. L’app enregistre le jeton quand
+ * les notifications sont accordées et le supprime quand elles sont refusées.
+ * `push_marketing` est un opt-out marketing, pas cette autorisation.
+ */
+export async function memberHasAuthorizedPush(admin: SupabaseClient, userId: string): Promise<boolean> {
+  const tokens = await listActiveDevicePushTokens(admin, userId);
+  return tokens.length > 0;
+}
+
 /**
  * Envoie une notification Expo Push aux appareils actifs du membre.
- * Retourne true si au moins un ticket est OK et les receipts ne contredisent pas.
+ * `no_token` : aucun jeton actif, Expo n’a pas été contacté.
+ * `failed` : l’envoi a été tenté et aucun ticket n’est resté valide.
  * Désactive les jetons `DeviceNotRegistered` (ticket immédiat + receipts).
  */
-export async function sendExpoPushToUser(
+export async function sendExpoPushToUserResult(
   admin: SupabaseClient,
   userId: string,
   message: ExpoPushMessage,
-): Promise<boolean> {
+): Promise<ExpoPushSendResult> {
   const tokens = await listActiveDevicePushTokens(admin, userId);
-  if (tokens.length === 0) return false;
+  if (tokens.length === 0) return { ok: false, reason: "no_token" };
 
   const title = message.title.trim().slice(0, 80);
   const body = message.body.trim().slice(0, 240);
-  if (!title && !body) return false;
+  if (!title && !body) return { ok: false, reason: "failed" };
 
   const payload = tokens.map((row) => ({
     to: row.expo_push_token,
@@ -148,7 +162,7 @@ export async function sendExpoPushToUser(
 
     if (!res.ok) {
       console.error("[notifications] expo-push HTTP", res.status, json);
-      return false;
+      return { ok: false, reason: "failed" };
     }
 
     const tickets = Array.isArray(json?.data) ? json.data : json?.data ? [json.data] : [];
@@ -174,19 +188,30 @@ export async function sendExpoPushToUser(
       }
     }
 
-    if (!anyOk) return false;
-    if (okTicketIds.length === 0) return true;
+    if (!anyOk) return { ok: false, reason: "failed" };
+    if (okTicketIds.length === 0) return { ok: true };
 
-    return confirmExpoPushViaReceipts(admin, {
+    const confirmed = await confirmExpoPushViaReceipts(admin, {
       userId,
       ticketIds: okTicketIds,
       tokenByTicketId,
     });
+    return confirmed ? { ok: true } : { ok: false, reason: "failed" };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[notifications] expo-push send failed", msg);
-    return false;
+    return { ok: false, reason: "failed" };
   }
+}
+
+/** true si au moins un ticket est OK et les receipts ne contredisent pas. */
+export async function sendExpoPushToUser(
+  admin: SupabaseClient,
+  userId: string,
+  message: ExpoPushMessage,
+): Promise<boolean> {
+  const result = await sendExpoPushToUserResult(admin, userId, message);
+  return result.ok;
 }
 
 export function buildMemberPushData(input: {
